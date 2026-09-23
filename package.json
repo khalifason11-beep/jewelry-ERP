@@ -1,0 +1,30 @@
+{
+  "name": "jewelry-erp-prototype",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Multi-branch jewelry retail ERP — client demo prototype (mock Hasad Gold integration)",
+  "workspaces": [
+    "shared",
+    "database",
+    "integrations/hasad",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c yellow,cyan \"npm:dev -w @jerp/backend\" \"npm:dev -w @jerp/frontend\"",
+    "build": "npm run build -w @jerp/frontend",
+    "start": "npm run start -w @jerp/backend",
+    "demo": "npm run build && npm start",
+    "db:generate": "npm run generate -w @jerp/database",
+    "db:reset": "npm run seed -w @jerp/backend",
+    "typecheck": "tsc -p shared && tsc -p database && tsc -p integrations/hasad && tsc -p backend && tsc -p frontend",
+    "test": "npm test -w @jerp/backend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

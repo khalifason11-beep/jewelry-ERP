@@ -1,0 +1,30 @@
+{
+  "name": "@jerp/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/server.ts",
+    "start": "NODE_ENV=production tsx src/server.ts",
+    "seed": "tsx src/seed/cli.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@jerp/database": "*",
+    "@jerp/hasad": "*",
+    "@jerp/shared": "*",
+    "cookie-parser": "^1.4.7",
+    "drizzle-orm": "^0.45.3",
+    "express": "^5.2.1",
+    "tsx": "^4.23.15",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.18.0",
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.1.4",
+    "vitest": "^3.2.4"
+  }
+}
