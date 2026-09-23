@@ -48,7 +48,7 @@ export interface SystemSettings {
 export const DEFAULT_SETTINGS: SystemSettings = {
   company: {
     name: 'Loai Tabeede',
-    nameAr: 'Loai Tabeede',
+    nameAr: 'لؤي تبيدي',
     currency: 'SDG',
     timezone: 'Africa/Khartoum',
   },
