@@ -47,8 +47,8 @@ export interface SystemSettings {
 
 export const DEFAULT_SETTINGS: SystemSettings = {
   company: {
-    name: 'Al-Noor Jewellery',
-    nameAr: 'مجوهرات النور',
+    name: 'Loai Tabeede',
+    nameAr: 'Loai Tabeede',
     currency: 'SDG',
     timezone: 'Africa/Khartoum',
   },

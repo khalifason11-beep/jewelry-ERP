@@ -51,7 +51,7 @@ export function Logo({ compact = false }: { compact?: boolean }) {
       </div>
       {!compact && (
         <div className="min-w-0 leading-tight">
-          <div className="truncate text-[14px] font-semibold text-white">{L(me?.company.name ?? 'Al-Noor Jewellery', me?.company.nameAr)}</div>
+          <div className="truncate text-[14px] font-semibold text-white">{L(me?.company.name ?? 'Loai Tabeede', me?.company.nameAr)}</div>
           <div className="text-[11px] tracking-wide text-gold-400/90">ERP · Prototype</div>
         </div>
       )}
