@@ -171,7 +171,7 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
   };
 
   // ───────── opening stock (≈ 2 months ago) ─────────
-  const openingSize: Record<string, number> = { KRT: 84, OMD: 63, BHR: 51, PZU: 45 };
+  const openingSize: Record<string, number> = { KRT: 105, OMD: 75, BHR: 60, PZU: 54 };
   const specialCodes = new Set<string>();
   for (const code of ['KRT', 'OMD', 'BHR', 'PZU']) {
     const batches = 3;
@@ -207,7 +207,7 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
     const r = rand();
     return r < 0.55 ? 'CASH' : r < 0.84 ? 'BANK_TRANSFER' : r < 0.97 ? 'MOBILE_WALLET' : 'CARD';
   };
-  const salesPerDay: Record<string, [number, number]> = { KRT: [1, 4], OMD: [0, 3], BHR: [0, 2], PZU: [0, 2] };
+  const salesPerDay: Record<string, [number, number]> = { KRT: [1, 3], OMD: [0, 2], BHR: [0, 2], PZU: [0, 2] };
   const purchaseDays: Record<string, number[]> = { KRT: [-25, -14, -4, 0], OMD: [-22, -9], BHR: [-18, -6], PZU: [-16, -5] };
   const saleIdsByBranch: Record<string, { id: number; offset: number }[]> = { KRT: [], OMD: [], BHR: [], PZU: [] };
 
@@ -226,7 +226,7 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
       if (purchaseDays[code].includes(offset)) {
         const when = offset === 0 ? timeOn(0) : at(offset, 10, int(0, 40));
         if (when) {
-          const lines = Array.from({ length: int(4, 8) }, () => makeLine(weightedSku(), offset));
+          const lines = Array.from({ length: int(6, 10) }, () => makeLine(weightedSku(), offset));
           await createPurchase(ctx, bm[code], { branchId: branch[code].id, supplierId: pick(supplierRows).id, supplierInvoiceNo: `SUP-${int(10000, 99999)}`, lines }, { at: when });
         }
       }
@@ -247,7 +247,7 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
         const when = timeOn(offset);
         if (!when) break;
         const pool = await available(code);
-        if (pool.length < 25) break; // keep a healthy display for the demo
+        if (pool.length < 40) break; // keep a healthy display for the demo
         const count = chance(0.18) ? 2 : 1;
         const chosen = Array.from({ length: count }, () => pool.splice(Math.floor(rand() * pool.length), 1)[0]);
         const seller = chance(0.12) ? bm[code] : pick(cashiers[code]);

@@ -56,7 +56,12 @@ export async function createDatabase(opts: CreateDatabaseOptions = {}): Promise<
   const { PGlite } = await import('@electric-sql/pglite');
   const { drizzle } = await import('drizzle-orm/pglite');
   const { migrate } = await import('drizzle-orm/pglite/migrator');
-  const client = new PGlite(opts.dataDir ?? 'memory://');
+  const dataDir = opts.dataDir ?? 'memory://';
+  if (!dataDir.startsWith('memory://')) {
+    const fs = await import('node:fs');
+    fs.mkdirSync(path.dirname(dataDir), { recursive: true });
+  }
+  const client = new PGlite(dataDir);
   await client.waitReady;
   const db = drizzle(client, { schema }) as unknown as DB;
   return {

@@ -166,10 +166,10 @@ export async function adjustItem(ctx: Ctx, actor: Actor, id: number, action: Adj
     const ref = { refType: 'adjustment', refId: item.id, refNumber: `ADJ-${item.code}` };
     if (action === 'MARK_DAMAGED') {
       await changeStatus(tx, { item, to: 'DAMAGED', from: ['AVAILABLE'], userId: actor.userId, ref, note: reason, at });
-      await recordMovement(tx, { item, type: 'DAMAGE', branchId: item.branchId, ref, userId: actor.userId, note: reason });
+      await recordMovement(tx, { item, type: 'DAMAGE', branchId: item.branchId, ref, userId: actor.userId, note: reason, at });
     } else if (action === 'RESTOCK') {
       await changeStatus(tx, { item, to: 'AVAILABLE', from: ['DAMAGED'], userId: actor.userId, ref, note: reason, at });
-      await recordMovement(tx, { item, type: 'ADJUSTMENT', direction: 1, branchId: item.branchId, ref, userId: actor.userId, note: reason });
+      await recordMovement(tx, { item, type: 'ADJUSTMENT', direction: 1, branchId: item.branchId, ref, userId: actor.userId, note: reason, at });
     } else if (action === 'RETURN_TO_SUPPLIER') {
       await changeStatus(tx, { item, to: 'RETURNED', from: ['AVAILABLE', 'DAMAGED'], userId: actor.userId, ref, note: reason, at });
       if (item.status === 'AVAILABLE') {
