@@ -1,10 +1,10 @@
 # Jewelry ERP Prototype — Architecture & Plan
 
-> Status: **Client-demo prototype. All phases below are implemented**; the first milestone
+> Status: **client-demo prototype, all phases below implemented.** The first milestone
 > (login → POS sale → Hasad redemption → dashboards → audit) is covered by automated end-to-end
 > tests in `backend/test/flow.test.ts`.
 >
-> **Client-demo prototype.** No connection to any real server, database, or the real
+> No connection to any real server, database, or the real
 > Hasad Gold system. All data is demo data; Hasad Gold is simulated by a mock service that
 > sits behind the same interface the real integration will implement.
 
