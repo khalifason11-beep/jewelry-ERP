@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch --clear-screen=false src/server.ts",
-    "start": "NODE_ENV=production tsx src/server.ts",
+    "start": "tsx src/server.ts",
     "seed": "tsx src/seed/cli.ts",
     "test": "vitest run"
   },
