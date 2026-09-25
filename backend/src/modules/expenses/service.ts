@@ -1,3 +1,4 @@
+import { ap } from '@jerp/shared';
 import { and, desc, eq, gte, ilike, lte, or, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import type { ExpenseCategory } from '@jerp/shared';
@@ -48,7 +49,8 @@ export async function createExpense(ctx: Ctx, actor: Actor, input: CreateExpense
       entityId: number,
       branchId,
       at,
-      description: `Expense ${number} (${input.category}) ${Math.round(input.amount).toLocaleString()} SDG — ${input.description.trim()}${needsApproval ? ' [pending GM approval]' : ''}`,
+      key: needsApproval ? 'Expense {number} ({category}) {amount} — {description} [pending GM approval]' : 'Expense {number} ({category}) {amount} — {description}',
+      params: { number, category: ap.enum(input.category), amount: ap.money(input.amount), description: input.description.trim() },
     });
     return row;
   });
@@ -70,7 +72,11 @@ export async function reviewExpense(ctx: Ctx, actor: Actor, id: number, decision
       entityType: 'expense',
       entityId: e.number,
       branchId: e.branchId,
-      description: `Expense ${e.number} ${decision.toLowerCase()} (${e.amount.toLocaleString()} SDG)${note ? `: ${note}` : ''}`,
+      key:
+        decision === 'APPROVED'
+          ? note ? 'Expense {number} approved ({amount}): {note}' : 'Expense {number} approved ({amount})'
+          : note ? 'Expense {number} rejected ({amount}): {note}' : 'Expense {number} rejected ({amount})',
+      params: { number: e.number, amount: ap.money(e.amount), ...(note ? { note } : {}) },
     });
     return { ok: true };
   });

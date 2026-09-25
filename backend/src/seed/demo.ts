@@ -15,6 +15,7 @@ import {
   DEFAULT_SETTINGS,
   PERMISSIONS,
   type PaymentMethod,
+  ap,
 } from '@jerp/shared';
 import type { Actor, Ctx } from '../core/context';
 import { writeAudit } from '../core/audit';
@@ -186,7 +187,7 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
         lines.push({ productId: ring, grossWeightMg: 4610, netWeightMg: 4350, purchaseCost: 826_000, makingCost: 52_000, otherCost: 0, sellingPrice: 1_090_000 });
       }
       while (lines.length < Math.round(openingSize[code] / batches)) lines.push(makeLine(weightedSku(), offset));
-      const res = await createPurchase(ctx, bm[code], { branchId: branch[code].id, supplierId: pick(supplierRows).id, supplierInvoiceNo: `SUP-${int(10000, 99999)}`, lines, notes: 'Opening stock' }, { at: at(offset, 10, int(0, 50)) });
+      const res = await createPurchase(ctx, bm[code], { branchId: branch[code].id, supplierId: pick(supplierRows).id, supplierInvoiceNo: `SUP-${int(10000, 99999)}`, lines, notes: 'رصيد افتتاحي' }, { at: at(offset, 10, int(0, 50)) });
       if (code === 'KRT' && b === 0) res.itemCodes.slice(0, 3).forEach((c) => specialCodes.add(c));
     }
   }
@@ -233,7 +234,7 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
       for (const tr of transferPlan.filter((x) => x.day === offset && x.from === code)) {
         const pool = await available(code);
         const itemIds = pool.slice(0, tr.count).map((i) => i.id);
-        const created = await createTransfer(ctx, bm[code], { fromBranchId: branch[code].id, toBranchId: branch[tr.to].id, itemIds, notes: `Stock balancing ${code} → ${tr.to}` }, { at: at(offset, 11, 15) });
+        const created = await createTransfer(ctx, bm[code], { fromBranchId: branch[code].id, toBranchId: branch[tr.to].id, itemIds, notes: `موازنة المخزون: ${branch[code].nameAr} ← ${branch[tr.to].nameAr}` }, { at: at(offset, 11, 15) });
         if (tr.receive != null) pendingReceipts.push({ day: tr.receive, id: created.id, to: tr.to });
       }
       for (const pr of pendingReceipts.filter((p) => p.day === offset && p.to === code)) {
@@ -262,7 +263,7 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
               discount: chance(0.25) ? Math.floor((i.sellingPrice * between(0.4, maxPct)) / 100 / 1000) * 1000 : 0,
             })),
             paymentMethod: payment(),
-            customerName: chance(0.7) ? pick(CUSTOMER_NAMES) : undefined,
+            ...(chance(0.7) ? (({ en, ar }) => ({ customerName: en, customerNameAr: ar }))(pick(CUSTOMER_NAMES)) : {}),
             customerPhone: chance(0.5) ? `+249 9${int(10, 99)} ${int(100, 999)} ${int(100, 999)}` : undefined,
           },
           { at: when },
@@ -274,24 +275,24 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
     // Occasional stock adjustments.
     if (offset === -15) {
       const [i] = await available('BHR');
-      await adjustItem(ctx, bm.BHR, i.id, 'RETURN_TO_SUPPLIER', 'Manufacturing defect — hallmark unclear', { at: at(offset, 13) });
+      await adjustItem(ctx, bm.BHR, i.id, 'RETURN_TO_SUPPLIER', 'عيب تصنيع: الدمغة غير واضحة', { at: at(offset, 13) });
     }
     if (offset === -8) {
       const [i] = await available('OMD');
-      await adjustItem(ctx, bm.OMD, i.id, 'MARK_DAMAGED', 'Clasp broken on display', { at: at(offset, 16) });
+      await adjustItem(ctx, bm.OMD, i.id, 'MARK_DAMAGED', 'القفل مكسور أثناء العرض', { at: at(offset, 16) });
     }
     if (offset === -6) {
       const pool = await available('KRT');
       const i = pool[pool.length - 1];
-      await adjustItem(ctx, bm.KRT, i.id, 'MARK_DAMAGED', 'Scratched surface — sent to workshop', { at: at(offset, 12) });
-      await adjustItem(ctx, bm.KRT, i.id, 'RESTOCK', 'Polished by workshop, back on display', { at: at(offset + 3, 11) });
+      await adjustItem(ctx, bm.KRT, i.id, 'MARK_DAMAGED', 'خدوش على السطح: أُرسلت للورشة', { at: at(offset, 12) });
+      await adjustItem(ctx, bm.KRT, i.id, 'RESTOCK', 'تم تلميعها في الورشة وأُعيدت للعرض', { at: at(offset + 3, 11) });
     }
   }
 
   // Two cancelled sales (manager-approved voids).
   const voidPlan: [string, number, string][] = [
-    ['KRT', -5, 'Customer returned item same day — size did not fit'],
-    ['OMD', -12, 'Wrong item scanned at checkout'],
+    ['KRT', -5, 'أرجع العميل القطعة في اليوم نفسه: المقاس غير مناسب'],
+    ['OMD', -12, 'تم مسح قطعة خاطئة عند الدفع'],
   ];
   for (const [code, offset, reason] of voidPlan) {
     const s = saleIdsByBranch[code].find((x) => x.offset === offset) ?? saleIdsByBranch[code].find((x) => x.offset > offset);
@@ -312,20 +313,20 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
   };
   for (const code of ['KRT', 'OMD', 'BHR', 'PZU']) {
     for (const ms of [prevMonthStart, monthStart]) {
-      await addExpense(gm, code, ms, 'RENT', rent[code], `Shop rent — ${ms.slice(0, 7)}`);
-      await addExpense(bm[code], code, ms.slice(0, 8) + '10', 'ELECTRICITY', int(28, 45) * 10_000, 'Electricity bill (prepaid units)');
-      await addExpense(bm[code], code, ms.slice(0, 8) + '15', 'SECURITY', 350_000, 'Night guard service');
+      await addExpense(gm, code, ms, 'RENT', rent[code], `إيجار المحل: ${ms.slice(0, 7)}`);
+      await addExpense(bm[code], code, ms.slice(0, 8) + '10', 'ELECTRICITY', int(28, 45) * 10_000, 'فاتورة الكهرباء (رصيد مسبق الدفع)');
+      await addExpense(bm[code], code, ms.slice(0, 8) + '15', 'SECURITY', 350_000, 'خدمة الحراسة الليلية');
     }
-    await addExpense(gm, code, prevMonthStart.slice(0, 8) + '25', 'SALARIES', salaries[code], 'Staff salaries');
+    await addExpense(gm, code, prevMonthStart.slice(0, 8) + '25', 'SALARIES', salaries[code], 'مرتبات الموظفين');
     for (let off = -40; off <= -1; off += int(4, 7)) {
-      await addExpense(bm[code], code, addDays(today, off), 'TRANSPORTATION', int(4, 12) * 10_000, pick(['Fuel for delivery car', 'Courier to head office', 'Rickshaw — bank deposits', 'Transport of stock to workshop']));
+      await addExpense(bm[code], code, addDays(today, off), 'TRANSPORTATION', int(4, 12) * 10_000, pick(['وقود عربة التوصيل', 'مندوب إلى الرئاسة', 'ركشة: إيداعات البنك', 'ترحيل بضاعة إلى الورشة']));
     }
-    await addExpense(bm[code], code, addDays(today, -int(3, 20)), 'MAINTENANCE', int(15, 60) * 10_000, pick(['Display case lighting repair', 'Safe lock servicing', 'Scale calibration', 'Generator maintenance']));
+    await addExpense(bm[code], code, addDays(today, -int(3, 20)), 'MAINTENANCE', int(15, 60) * 10_000, pick(['صيانة إضاءة فترينة العرض', 'صيانة قفل الخزنة', 'معايرة الميزان', 'صيانة المولد']));
   }
-  await addExpense(bm.KRT, 'KRT', today, 'OTHER', 35_000, 'Staff tea & water');
-  await addExpense(bm.KRT, 'KRT', today, 'TRANSPORTATION', 60_000, 'Courier to Omdurman branch');
-  await addExpense(bm.OMD, 'OMD', today, 'OTHER', 20_000, 'Cleaning supplies');
-  await addExpense(bm.BHR, 'BHR', addDays(today, -1), 'MAINTENANCE', 2_350_000, 'Replacement of display-area AC unit'); // above threshold → PENDING
+  await addExpense(bm.KRT, 'KRT', today, 'OTHER', 35_000, 'شاي ومياه للموظفين');
+  await addExpense(bm.KRT, 'KRT', today, 'TRANSPORTATION', 60_000, 'مندوب إلى فرع أم درمان');
+  await addExpense(bm.OMD, 'OMD', today, 'OTHER', 20_000, 'مستلزمات نظافة');
+  await addExpense(bm.BHR, 'BHR', addDays(today, -1), 'MAINTENANCE', 2_350_000, 'استبدال مكيف منطقة العرض'); // above threshold → PENDING
 
   // ───────── Hasad Gold (mock system + ERP history) ─────────
   await db.insert(mockCustomers).values(
@@ -358,9 +359,9 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
     { day: -1, code: 'KRT', cust: 16, mg: 5500 },
   ];
   const cancelled = [
-    { day: -19, code: 'KRT', cust: 17, mg: 3000, reason: 'Customer requested cancellation by phone', by: 'KRT' },
-    { day: -9, code: 'PZU', cust: 13, mg: 2000, reason: 'Customer did not collect within 14 days', by: 'PZU' },
-    { day: -4, code: 'OMD', cust: 17, mg: 2500, reason: 'Cancelled by customer in Hasad app', by: null },
+    { day: -19, code: 'KRT', cust: 17, mg: 3000, reason: 'طلب العميل الإلغاء عبر الهاتف', by: 'KRT' },
+    { day: -9, code: 'PZU', cust: 13, mg: 2000, reason: 'لم يستلم العميل خلال 14 يوماً', by: 'PZU' },
+    { day: -4, code: 'OMD', cust: 17, mg: 2500, reason: 'ألغاه العميل من تطبيق حصاد', by: null },
   ];
 
   const events = [
@@ -385,8 +386,8 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
         entitledWeightMg: ev.mg, entitlementKarat: 21, branchId: b.id, status: 'CANCELLED', externalStatus: 'CANCELLED', requestedAt, receivedAt,
         cancelledAt, cancelledBy: ev.by ? bm[ev.by].userId : null, cancelReason: ev.reason, lastSyncedAt: cancelledAt,
       }).returning();
-      await writeAudit(db, null, { action: 'HASAD_WITHDRAWAL_RECEIVED', entityType: 'hasad_withdrawal', entityId: id, branchId: b.id, at: receivedAt, description: `Withdrawal ${id} received from Hasad Gold: ${c.fullName}, ${(ev.mg / 1000).toFixed(3)} g entitlement. No inventory reserved.` });
-      await writeAudit(db, ev.by ? bm[ev.by] : null, { action: 'HASAD_WITHDRAWAL_CANCELLED', entityType: 'hasad_withdrawal', entityId: w.externalId, branchId: b.id, at: cancelledAt, description: `Withdrawal ${id} (${c.fullName}, ${(ev.mg / 1000).toFixed(3)} g) cancelled: ${ev.reason}` });
+      await writeAudit(db, null, { action: 'HASAD_WITHDRAWAL_RECEIVED', entityType: 'hasad_withdrawal', entityId: id, branchId: b.id, at: receivedAt, key: 'Withdrawal {id} received from Hasad Gold: {customer}, {weight} entitlement. No inventory reserved.', params: { id, customer: ap.text(c.fullName, c.fullNameAr), weight: ap.mg(ev.mg) } });
+      await writeAudit(db, ev.by ? bm[ev.by] : null, { action: 'HASAD_WITHDRAWAL_CANCELLED', entityType: 'hasad_withdrawal', entityId: w.externalId, branchId: b.id, at: cancelledAt, key: 'Withdrawal {id} ({customer}, {weight}) cancelled: {reason}', params: { id, customer: ap.text(c.fullName, c.fullNameAr), weight: ap.mg(ev.mg), reason: ev.reason } });
       continue;
     }
 
@@ -414,8 +415,8 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
     }).returning();
     await db.insert(t.hasadRedemptionItems).values({ redemptionId: r.id, itemId: item.id, netWeightMg: item.netWeightMg, karat: item.karat, unitCost: item.totalCost, addedAt: reservedAt });
     const ref = { refType: 'hasad_redemption', refId: r.id, refNumber: number };
-    const reserved = await changeStatus(db, { item, to: 'RESERVED', from: ['AVAILABLE'], userId: cashier.userId, ref, at: reservedAt, note: `Selected by Hasad customer ${c.fullName} (${id})`, reservation: { ref: `HASAD:${number}`, userId: cashier.userId } });
-    await changeStatus(db, { item: reserved, to: 'REDEEMED', from: ['RESERVED'], userId: cashier.userId, ref, at: completedAt, note: `Delivered to ${c.fullName} (${id})` });
+    const reserved = await changeStatus(db, { item, to: 'RESERVED', from: ['AVAILABLE'], userId: cashier.userId, ref, at: reservedAt, note: `Selected by Hasad customer (${id})`, reservation: { ref: `HASAD:${number}`, userId: cashier.userId } });
+    await changeStatus(db, { item: reserved, to: 'REDEEMED', from: ['RESERVED'], userId: cashier.userId, ref, at: completedAt, note: `Delivered to Hasad customer (${id})` });
     await recordMovement(db, { item, type: 'HASAD_REDEMPTION', branchId: b.id, ref, userId: cashier.userId, at: completedAt });
     let settlementNumber: string | null = null;
     if (s.direction !== 'NONE') {
@@ -426,19 +427,18 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
       id, customerId: c.id, weightMg: ev.mg, karat: 21, branchCode: b.hasadBranchCode!, status: 'COMPLETED', pickupCode: w.pickupCode, requestedAt, updatedAt: completedAt,
       completion: {
         erpReference: number, branchCode: b.hasadBranchCode, deliveredWeightGrams: (s.deliveredWeightMg / 1000).toFixed(3),
-        items: [{ code: item.code, description: 'Jewelry item', karat: item.karat, netWeightGrams: (item.netWeightMg / 1000).toFixed(3) }],
+        items: [{ code: item.code, description: item.code, karat: item.karat, netWeightGrams: (item.netWeightMg / 1000).toFixed(3) }],
         settlement: { direction: s.direction, weightGrams: (s.absDifferenceMg / 1000).toFixed(3), amount: s.amount, currency: 'SDG' },
         completedBy: cashier.username, completedAt: completedAt.toISOString(),
       },
     });
-    const g = (mg: number) => `${(mg / 1000).toFixed(3)} g`;
-    await writeAudit(db, null, { action: 'HASAD_WITHDRAWAL_RECEIVED', entityType: 'hasad_withdrawal', entityId: id, branchId: b.id, at: receivedAt, description: `Withdrawal ${id} received from Hasad Gold: ${c.fullName}, ${g(ev.mg)} entitlement. No inventory reserved.` });
-    await writeAudit(db, cashier, { action: 'HASAD_WITHDRAWAL_OPENED', entityType: 'hasad_withdrawal', entityId: id, branchId: b.id, at: openedAt, description: `Customer ${c.fullName} at counter for ${id} (${g(ev.mg)}). Verified by pickup code.`, metadata: { redemption: number } });
-    await writeAudit(db, cashier, { action: 'ITEM_RESERVED', entityType: 'item', entityId: item.code, branchId: b.id, at: reservedAt, description: `${item.code} (${g(item.netWeightMg)}, ${item.karat}K) reserved for Hasad withdrawal ${id}`, metadata: { withdrawal: id, redemption: number } });
+    await writeAudit(db, null, { action: 'HASAD_WITHDRAWAL_RECEIVED', entityType: 'hasad_withdrawal', entityId: id, branchId: b.id, at: receivedAt, key: 'Withdrawal {id} received from Hasad Gold: {customer}, {weight} entitlement. No inventory reserved.', params: { id, customer: ap.text(c.fullName, c.fullNameAr), weight: ap.mg(ev.mg) } });
+    await writeAudit(db, cashier, { action: 'HASAD_WITHDRAWAL_OPENED', entityType: 'hasad_withdrawal', entityId: id, branchId: b.id, at: openedAt, key: 'Customer {customer} at counter for {id} ({weight}). Verified by pickup code.', params: { customer: ap.text(c.fullName, c.fullNameAr), id, weight: ap.mg(ev.mg) }, metadata: { redemption: number } });
+    await writeAudit(db, cashier, { action: 'ITEM_RESERVED', entityType: 'item', entityId: item.code, branchId: b.id, at: reservedAt, key: '{code} ({weight}, {karat}) reserved for Hasad withdrawal {id}', params: { code: item.code, weight: ap.mg(item.netWeightMg), karat: ap.karat(item.karat), id }, metadata: { withdrawal: id, redemption: number } });
     if (settlementNumber) {
-      await writeAudit(db, cashier, { action: 'HASAD_SETTLEMENT_CONFIRMED', entityType: 'settlement', entityId: settlementNumber, branchId: b.id, at: completedAt, description: `${s.direction === 'BRANCH_PAYS_CUSTOMER' ? 'Branch paid customer' : 'Customer paid branch'} ${s.amount.toLocaleString()} SDG for ${g(s.absDifferenceMg)} difference @ ${s.ratePerGram.toLocaleString()}/g (CASH)`, metadata: { withdrawal: id } });
+      await writeAudit(db, cashier, { action: 'HASAD_SETTLEMENT_CONFIRMED', entityType: 'settlement', entityId: settlementNumber, branchId: b.id, at: completedAt, key: s.direction === 'BRANCH_PAYS_CUSTOMER' ? 'Branch paid customer {amount} for {weight} difference @ {rate}/g ({payment})' : 'Customer paid branch {amount} for {weight} difference @ {rate}/g ({payment})', params: { amount: ap.money(s.amount), weight: ap.mg(s.absDifferenceMg), rate: ap.money(s.ratePerGram), payment: ap.enum('CASH') }, metadata: { withdrawal: id } });
     }
-    await writeAudit(db, cashier, { action: 'HASAD_WITHDRAWAL_COMPLETED', entityType: 'hasad_withdrawal', entityId: id, branchId: b.id, at: completedAt, description: `${id} completed: entitled ${g(ev.mg)}, delivered ${g(s.deliveredWeightMg)} (${item.code})`, metadata: { redemption: number, settlement: settlementNumber } });
+    await writeAudit(db, cashier, { action: 'HASAD_WITHDRAWAL_COMPLETED', entityType: 'hasad_withdrawal', entityId: id, branchId: b.id, at: completedAt, key: '{id} completed: entitled {entitled}, delivered {delivered} ({codes})', params: { id, entitled: ap.mg(ev.mg), delivered: ap.mg(s.deliveredWeightMg), codes: item.code }, metadata: { redemption: number, settlement: settlementNumber } });
     await db.update(mockCustomers).set({ balanceMg: int(1, 9) * 100 }).where(eq(mockCustomers.id, c.id));
   }
 
@@ -465,7 +465,7 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
       externalId: o.id, hasadCustomerId: c.id, customerName: c.fullName, customerNameAr: c.fullNameAr, customerPhone: c.phone, customerNationalIdMasked: c.nid,
       entitledWeightMg: o.mg, entitlementKarat: 21, branchId: b.id, status: 'READY_FOR_PICKUP', externalStatus: 'READY_FOR_PICKUP', pickupCode: o.pickup, requestedAt, receivedAt, lastSyncedAt: receivedAt,
     });
-    await writeAudit(db, null, { action: 'HASAD_WITHDRAWAL_RECEIVED', entityType: 'hasad_withdrawal', entityId: o.id, branchId: b.id, at: receivedAt, description: `Withdrawal ${o.id} received from Hasad Gold: ${c.fullName}, ${(o.mg / 1000).toFixed(3)} g entitlement. No inventory reserved.` });
+    await writeAudit(db, null, { action: 'HASAD_WITHDRAWAL_RECEIVED', entityType: 'hasad_withdrawal', entityId: o.id, branchId: b.id, at: receivedAt, key: 'Withdrawal {id} received from Hasad Gold: {customer}, {weight} entitlement. No inventory reserved.', params: { id: o.id, customer: ap.text(c.fullName, c.fullNameAr), weight: ap.mg(o.mg) } });
   }
   // Still accumulating / awaiting Hasad approval — not yet sent to the ERP.
   await db.insert(mockWithdrawals).values({ id: 'HG-10031', customerId: HASAD_CUSTOMERS[6].id, weightMg: 6000, karat: 21, branchCode: branch.KRT.hasadBranchCode!, status: 'PENDING', requestedAt: new Date(now.getTime() - 15 * 60_000) });
@@ -496,8 +496,8 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
         ipAddress: ipFor(u), currentModule: u.role === 'CASHIER' ? 'pos' : 'dashboard', status: 'LOGGED_OUT', endedAt: endAt, endedReason: off === 0 ? 'Shift handover' : 'User signed out',
       });
       const withSession = { ...a, sessionId: id, ip: ipFor(u) };
-      await writeAudit(db, withSession, { action: 'LOGIN', entityType: 'session', entityId: `S-${id.slice(0, 8).toUpperCase()}`, at: loginAt, description: `${a.fullName} (${a.username}) signed in` });
-      await writeAudit(db, withSession, { action: 'LOGOUT', entityType: 'session', entityId: `S-${id.slice(0, 8).toUpperCase()}`, at: endAt, description: `${a.fullName} (${a.username}) signed out` });
+      await writeAudit(db, withSession, { action: 'LOGIN', entityType: 'session', entityId: `S-${id.slice(0, 8).toUpperCase()}`, at: loginAt, key: '{name} ({username}) signed in', params: { name: ap.text(a.fullName, a.fullNameAr), username: a.username } });
+      await writeAudit(db, withSession, { action: 'LOGOUT', entityType: 'session', entityId: `S-${id.slice(0, 8).toUpperCase()}`, at: endAt, key: '{name} ({username}) signed out', params: { name: ap.text(a.fullName, a.fullNameAr), username: a.username } });
     }
   }
 
@@ -519,11 +519,11 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
       .update(t.sessions)
       .set({ loginAt, lastActivityAt: new Date(now.getTime() - l.minutesIdle * 60_000), currentModule: l.module, isSimulated: true })
       .where(eq(t.sessions.id, s.id));
-    await writeAudit(db, { ...a, sessionId: s.id, ip: l.ip }, { action: 'LOGIN', entityType: 'session', entityId: `S-${s.id.slice(0, 8).toUpperCase()}`, at: loginAt, description: `${a.fullName} (${a.username}) signed in` });
+    await writeAudit(db, { ...a, sessionId: s.id, ip: l.ip }, { action: 'LOGIN', entityType: 'session', entityId: `S-${s.id.slice(0, 8).toUpperCase()}`, at: loginAt, key: '{name} ({username}) signed in', params: { name: ap.text(a.fullName, a.fullNameAr), username: a.username } });
   }
   // A couple of failed sign-in attempts to show security monitoring.
   for (const m of [48, 47]) {
-    await writeAudit(db, null, { action: 'LOGIN_FAILED', entityType: 'user', entityId: 'cashier.kh.02', branchId: branch.KRT.id, at: new Date(now.getTime() - m * 60_000), description: `Failed login attempt for "cashier.kh.02" from 10.20.1.77` });
+    await writeAudit(db, null, { action: 'LOGIN_FAILED', entityType: 'user', entityId: 'cashier.kh.02', branchId: branch.KRT.id, at: new Date(now.getTime() - m * 60_000), key: 'Failed login attempt for “{username}” from {ip}', params: { username: 'cashier.kh.02', ip: '10.20.1.77' } });
   }
 
   const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(t.jewelryItems).where(eq(t.jewelryItems.status, 'AVAILABLE'));

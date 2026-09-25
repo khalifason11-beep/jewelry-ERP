@@ -1,10 +1,10 @@
 // Static reference data for the demo (products, people, places). All names are fictional.
 
 export const BRANCHES = [
-  { code: 'KRT', name: 'Khartoum Branch', nameAr: 'فرع الخرطوم', city: 'Khartoum', address: 'Al-Qasr Street, Gold Market, Khartoum', phone: '+249 183 000 101', hasadBranchCode: 'HG-BR-KRT' },
-  { code: 'OMD', name: 'Omdurman Branch', nameAr: 'فرع أم درمان', city: 'Omdurman', address: 'Souq Omdurman, Gold Lane 4', phone: '+249 187 000 202', hasadBranchCode: 'HG-BR-OMD' },
-  { code: 'BHR', name: 'Bahri Branch', nameAr: 'فرع بحري', city: 'Khartoum North', address: 'Al-Mu’assasa, Main Road', phone: '+249 185 000 303', hasadBranchCode: 'HG-BR-BHR' },
-  { code: 'PZU', name: 'Port Sudan Branch', nameAr: 'فرع بورتسودان', city: 'Port Sudan', address: 'Souq Al-Kabir, Block 2', phone: '+249 311 000 404', hasadBranchCode: 'HG-BR-PZU' },
+  { code: 'KRT', name: 'Khartoum Branch', nameAr: 'فرع الخرطوم', city: 'Khartoum', address: 'شارع القصر، سوق الذهب، الخرطوم', phone: '+249 183 000 101', hasadBranchCode: 'HG-BR-KRT' },
+  { code: 'OMD', name: 'Omdurman Branch', nameAr: 'فرع أم درمان', city: 'Omdurman', address: 'سوق أم درمان، زقاق الذهب 4', phone: '+249 187 000 202', hasadBranchCode: 'HG-BR-OMD' },
+  { code: 'BHR', name: 'Bahri Branch', nameAr: 'فرع بحري', city: 'Khartoum North', address: 'المؤسسة، الشارع الرئيسي', phone: '+249 185 000 303', hasadBranchCode: 'HG-BR-BHR' },
+  { code: 'PZU', name: 'Port Sudan Branch', nameAr: 'فرع بورتسودان', city: 'Port Sudan', address: 'السوق الكبير، مربع 2', phone: '+249 311 000 404', hasadBranchCode: 'HG-BR-PZU' },
 ] as const;
 
 export const DEMO_PASSWORDS = {
@@ -75,10 +75,28 @@ export const SUPPLIERS = [
   { name: 'Istanbul Kuyumculuk A.Ş.', nameAr: 'إسطنبول للمجوهرات', phone: '+90 212 000 0400' },
 ];
 
-export const CUSTOMER_NAMES = [
-  'Mohamed Ahmed', 'Fatima Osman', 'Khalid Abdalla', 'Maha Elfadil', 'Yasir Hamza', 'Rania Mahgoub', 'Ibrahim Nour',
-  'Samia Babiker', 'Abubakr Siddig', 'Huda Elamin', 'Walid Karrar', 'Tasneem Awad', 'Hisham Idris', 'Nada Ali',
-  'Mujtaba Hassan', 'Reem Suliman', 'Osama Taha', 'Salma Eltayeb', 'Anwar Bashir', 'Mawada Ismail',
+/** Walk-in customers named on invoices (fictional), with Arabic spelling. */
+export const CUSTOMER_NAMES: { en: string; ar: string }[] = [
+  { en: 'Mohamed Ahmed', ar: 'محمد أحمد' },
+  { en: 'Fatima Osman', ar: 'فاطمة عثمان' },
+  { en: 'Khalid Abdalla', ar: 'خالد عبدالله' },
+  { en: 'Maha Elfadil', ar: 'مها الفاضل' },
+  { en: 'Yasir Hamza', ar: 'ياسر حمزة' },
+  { en: 'Rania Mahgoub', ar: 'رانيا محجوب' },
+  { en: 'Ibrahim Nour', ar: 'إبراهيم نور' },
+  { en: 'Samia Babiker', ar: 'سامية بابكر' },
+  { en: 'Abubakr Siddig', ar: 'أبوبكر صديق' },
+  { en: 'Huda Elamin', ar: 'هدى الأمين' },
+  { en: 'Walid Karrar', ar: 'وليد كرار' },
+  { en: 'Tasneem Awad', ar: 'تسنيم عوض' },
+  { en: 'Hisham Idris', ar: 'هشام إدريس' },
+  { en: 'Nada Ali', ar: 'ندى علي' },
+  { en: 'Mujtaba Hassan', ar: 'مجتبى حسن' },
+  { en: 'Reem Suliman', ar: 'ريم سليمان' },
+  { en: 'Osama Taha', ar: 'أسامة طه' },
+  { en: 'Salma Eltayeb', ar: 'سلمى الطيب' },
+  { en: 'Anwar Bashir', ar: 'أنور بشير' },
+  { en: 'Mawada Ismail', ar: 'مودة إسماعيل' },
 ];
 
 /** Hasad Gold customers (fictional). */

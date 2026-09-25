@@ -71,6 +71,7 @@ export async function loadActor(exec: Executor, userId: number, sessionId: strin
       id: t.users.id,
       username: t.users.username,
       fullName: t.users.fullName,
+      fullNameAr: t.users.fullNameAr,
       status: t.users.status,
       branchId: t.users.branchId,
       roleId: t.roles.id,
@@ -93,6 +94,7 @@ export async function loadActor(exec: Executor, userId: number, sessionId: strin
     userId: u.id,
     username: u.username,
     fullName: u.fullName,
+    fullNameAr: u.fullNameAr,
     roleCode: u.roleCode,
     roleName: u.roleName,
     roleRank: u.roleRank,
@@ -222,7 +224,8 @@ export async function revokeSession(ctx: Ctx, actor: Actor, key: string) {
       action: 'SESSION_REVOKED',
       entityType: 'session',
       entityId: sessionRef(s.id),
-      description: `Terminated session ${sessionRef(s.id)} of ${s.username}`,
+      key: 'Terminated session {session} of {username}',
+      params: { session: sessionRef(s.id), username: s.username },
       branchId: s.branchId,
     });
   });

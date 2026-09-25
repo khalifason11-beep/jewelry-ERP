@@ -18,6 +18,7 @@ export interface SaleDetail {
   cashierNameAr?: string | null;
   cashierUsername: string;
   customerName: string | null;
+  customerNameAr?: string | null;
   customerPhone: string | null;
   subtotal: number;
   discountTotal: number;
@@ -84,7 +85,7 @@ export function InvoiceDocument({ sale }: { sale: SaleDetail }) {
       <div className="grid grid-cols-2 gap-4 py-4 text-[12.5px]">
         <div>
           <div className="text-ink-500">{t('Customer')}</div>
-          <div className="font-medium">{sale.customerName || t('Walk-in customer')}</div>
+          <div className="font-medium">{sale.customerName ? L(sale.customerName, sale.customerNameAr) : t('Walk-in customer')}</div>
           {sale.customerPhone && <div className="text-ink-500">{sale.customerPhone}</div>}
         </div>
         <div className="text-end">

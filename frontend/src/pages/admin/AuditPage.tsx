@@ -7,6 +7,8 @@ import { get } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, humanize } from '../../lib/format';
 import { useDebounced } from '../../lib/hooks';
+import type { AuditParams } from '@jerp/shared';
+import { auditText } from '../../lib/audit';
 import { useI18n } from '../../lib/i18n';
 import { Card, ErrorState, Input, Loading, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
@@ -25,6 +27,8 @@ interface AuditRow {
   entityType: string | null;
   entityId: string | null;
   description: string;
+  descriptionKey: string | null;
+  descriptionParams: AuditParams | null;
   ipAddress: string | null;
   sessionRef: string | null;
 }
@@ -78,12 +82,12 @@ export function AuditPage() {
             emptyTitle={t('No audit events match these filters')}
             columns={[
               { key: 'at', header: t('Time'), render: (r) => <span className="whitespace-nowrap num">{dateTime(r.at, lang)}</span> },
-              { key: 'userFullName', header: t('User'), render: (r) => <div><div>{r.userFullName}</div><div className="font-mono text-[11px] text-ink-500">{r.username}</div></div> },
+              { key: 'userFullName', header: t('User'), render: (r) => <div><div>{r.username === 'system' ? t('System') : r.userFullName}</div><div className="font-mono text-[11px] text-ink-500">{r.username}</div></div> },
               { key: 'role', header: t('Role'), render: (r) => <span className="text-[12px] text-ink-600">{humanize(r.role)}</span> },
               { key: 'branchName', header: t('Branch'), render: (r) => (r.branchName ? t(r.branchName) : null) ?? <span className="text-ink-400">{t('Company')}</span> },
               { key: 'action', header: t('Action'), render: (r) => <StatusBadge status={r.action} className="font-mono !text-[10.5px]" /> },
-              { key: 'entityId', header: t('Entity'), render: (r) => (r.entityId ? <span className="text-[12px]"><span className="text-ink-500">{r.entityType}</span> <Mono>{r.entityId}</Mono></span> : '—') },
-              { key: 'description', header: t('Description'), className: 'min-w-[320px]' },
+              { key: 'entityId', header: t('Entity'), render: (r) => (r.entityId ? <span className="text-[12px]"><span className="text-ink-500">{humanize(r.entityType)}</span> <Mono>{r.entityId}</Mono></span> : '—') },
+              { key: 'description', header: t('Description'), className: 'min-w-[320px]', value: (r) => auditText(r), render: (r) => auditText(r) },
               { key: 'ipAddress', header: t('IP / session'), render: (r) => <div className="font-mono text-[11px] text-ink-500">{r.ipAddress ?? '—'}<br />{r.sessionRef}</div> },
             ]}
           />

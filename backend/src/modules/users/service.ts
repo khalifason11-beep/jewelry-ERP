@@ -1,3 +1,4 @@
+import { ap, type AuditParam } from '@jerp/shared';
 // User administration with centralized password control.
 // Passwords can be RESET (a one-time temporary password is returned once), never retrieved.
 
@@ -115,7 +116,8 @@ export async function createUser(ctx: Ctx, actor: Actor, input: CreateUserInput)
       entityType: 'user',
       entityId: username,
       branchId,
-      description: `User ${username} (${input.fullName}) created as ${role.name}; must set a new password at first login`,
+      key: 'User {username} ({name}) created as {role}; must set a new password at first login',
+      params: { username, name: ap.text(input.fullName, input.fullNameAr), role: ap.enum(role.code) },
     });
     // The temporary password is returned exactly once so the admin can hand it over.
     return { id: u.id, username: u.username, temporaryPassword: temp };
@@ -131,10 +133,10 @@ export async function updateUser(
   requirePerm(actor, 'users.manage');
   const target = await loadTarget(ctx, actor, id);
   const patch: Partial<typeof t.users.$inferInsert> = {};
-  const changes: string[] = [];
+  const changes: AuditParam[] = [];
   if (input.fullName && input.fullName !== target.u.fullName) {
     patch.fullName = input.fullName.trim();
-    changes.push(`name → ${patch.fullName}`);
+    changes.push(ap.phrase('name → {name}', { name: patch.fullName }));
   }
   if (input.fullNameAr !== undefined) patch.fullNameAr = input.fullNameAr || null;
   if (input.phone !== undefined) patch.phone = input.phone || null;
@@ -144,7 +146,7 @@ export async function updateUser(
     const r = await resolveRole(ctx, actor, input.roleCode);
     patch.roleId = r.role.id;
     global = r.global;
-    changes.push(`role → ${r.role.name}`);
+    changes.push(ap.phrase('role → {role}', { role: ap.enum(r.role.code) }));
   }
   if (input.branchId !== undefined || global) {
     const nextBranch = global ? null : (input.branchId ?? target.u.branchId);
@@ -152,7 +154,8 @@ export async function updateUser(
     if (nextBranch != null) branchScope(actor, nextBranch);
     if (nextBranch !== target.u.branchId) {
       patch.branchId = nextBranch;
-      changes.push(`branch → ${nextBranch ?? 'all branches'}`);
+      const [nb] = nextBranch != null ? await ctx.db.select({ name: t.branches.name, nameAr: t.branches.nameAr }).from(t.branches).where(eq(t.branches.id, nextBranch)) : [];
+      changes.push(ap.phrase('branch → {branch}', { branch: nb ? ap.text(nb.name, nb.nameAr) : ap.phrase('All branches') }));
     }
   }
   if (!Object.keys(patch).length) return { ok: true };
@@ -164,7 +167,8 @@ export async function updateUser(
       entityType: 'user',
       entityId: target.u.username,
       branchId: target.u.branchId,
-      description: `User ${target.u.username} updated: ${changes.join(', ') || 'profile details'}`,
+      key: 'User {username} updated: {changes}',
+      params: { username: target.u.username, changes: changes.length ? ap.list(changes) : ap.phrase('profile details') },
     });
   });
   return { ok: true };
@@ -185,7 +189,8 @@ export async function resetPassword(ctx: Ctx, actor: Actor, id: number) {
       entityType: 'user',
       entityId: target.u.username,
       branchId: target.u.branchId,
-      description: `Password of ${target.u.username} reset; user must choose a new password at next login. Existing sessions ended.`,
+      key: 'Password of {username} reset; user must choose a new password at next login. Existing sessions ended.',
+      params: { username: target.u.username },
     });
   });
   return { username: target.u.username, temporaryPassword: temp };
@@ -203,7 +208,8 @@ export async function setUserStatus(ctx: Ctx, actor: Actor, id: number, status: 
       entityType: 'user',
       entityId: target.u.username,
       branchId: target.u.branchId,
-      description: `Account ${target.u.username} ${status === 'DISABLED' ? 'disabled; active sessions terminated' : 're-enabled'}`,
+      key: status === 'DISABLED' ? 'Account {username} disabled; active sessions terminated' : 'Account {username} re-enabled',
+      params: { username: target.u.username },
     });
   });
   return { ok: true };

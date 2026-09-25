@@ -24,11 +24,12 @@ import {
   UserRound,
   XCircle,
 } from 'lucide-react';
-import { calculateSettlement, PAYMENT_METHODS, type PaymentMethod } from '@jerp/shared';
+import { calculateSettlement, PAYMENT_METHODS, type PaymentMethod, type AuditParams } from '@jerp/shared';
 import { ApiError, del, errorText, get, post } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, humanize, karatLabel, money, relative, signedGrams } from '../../lib/format';
 import { useCategories, useDebounced, useGoldRates } from '../../lib/hooks';
+import { auditText } from '../../lib/audit';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import type { ItemRow, Settlement, Withdrawal } from '../../lib/types';
@@ -69,7 +70,7 @@ interface Detail {
     settlement: { number: string; paymentMethod: string; amount: number } | null;
   };
   history: { id: number; number: string; status: string; createdAt: string; abortReason: string | null; cashierName: string }[];
-  timeline: { at: string; action: string; description: string; userFullName: string }[];
+  timeline: { at: string; action: string; description: string; descriptionKey: string | null; descriptionParams: AuditParams | null; userFullName: string }[];
 }
 
 export function HasadWorkspacePage() {
@@ -168,7 +169,7 @@ export function HasadWorkspacePage() {
                       <span className="mt-1.5 size-2 shrink-0 rounded-full bg-gold-500" />
                       <div className="min-w-0 text-[12.5px]">
                         <div className="font-medium text-ink-800">{humanize(e.action)}</div>
-                        <div className="text-ink-600">{e.description}</div>
+                        <div className="text-ink-600">{auditText(e)}</div>
                         <div className="text-[11px] text-ink-400">
                           {dateTime(e.at, lang)} · {e.userFullName}
                         </div>

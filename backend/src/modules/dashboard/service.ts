@@ -62,7 +62,7 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
       WHERE e.branch_id = ${branchId} AND e.expense_date >= ${mtdFrom} AND e.expense_date <= ${period.toKey}
       ORDER BY e.expense_date DESC, e.id DESC LIMIT 12`),
     ctx.db.execute(sql`
-      SELECT id, external_id, customer_name, entitled_weight_mg, status, requested_at
+      SELECT id, external_id, customer_name, customer_name_ar, entitled_weight_mg, status, requested_at
       FROM hasad_withdrawals WHERE branch_id = ${branchId} AND status IN ('READY_FOR_PICKUP','IN_PROGRESS')
       ORDER BY requested_at ASC LIMIT 10`),
   ]);
@@ -116,6 +116,7 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
         id: num(r.id),
         externalId: String(r.external_id),
         customerName: String(r.customer_name),
+        customerNameAr: r.customer_name_ar == null ? null : String(r.customer_name_ar),
         entitledWeightMg: num(r.entitled_weight_mg),
         status: String(r.status),
         requestedAt: r.requested_at,

@@ -5,7 +5,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { EXPENSE_CATEGORIES, KARATS, PAYMENT_METHODS, type SystemSettings } from '@jerp/shared';
+import { EXPENSE_CATEGORIES, KARATS, PAYMENT_METHODS, type SystemSettings, ap } from '@jerp/shared';
 import { config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zDay, zId, zOptId } from './core/http';
@@ -103,7 +103,8 @@ export function apiRouter(ctx: Ctx): Router {
           entityType: 'gold_rate',
           entityId: `${karat}K`,
           branchId: null,
-          description: `${karat}K gold rate ${before[karat]?.pricePerGram.toLocaleString()} → ${v.toLocaleString()} SDG/g`,
+          key: '{karat} gold rate {from} → {to} per gram',
+          params: { karat: ap.karat(karat), from: ap.money(before[karat]?.pricePerGram ?? 0), to: ap.money(v) },
         });
       }
     });
@@ -126,7 +127,8 @@ export function apiRouter(ctx: Ctx): Router {
         entityType: 'settings',
         entityId: Object.keys(patch).join(','),
         branchId: null,
-        description: `System settings changed: ${Object.keys(patch).join(', ')}`,
+        key: 'System settings changed: {sections}',
+        params: { sections: ap.list(Object.keys(patch).map((k) => ap.enum(k))) },
         metadata: { patch },
       });
       return s;

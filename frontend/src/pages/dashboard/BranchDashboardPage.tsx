@@ -50,7 +50,7 @@ export interface BranchDash {
     weightDeliveredMg: number;
     paidToCustomers: number;
     collectedFromCustomers: number;
-    queue: { id: number; externalId: string; customerName: string; entitledWeightMg: number; status: string; requestedAt: string }[];
+    queue: { id: number; externalId: string; customerName: string; customerNameAr: string | null; entitledWeightMg: number; status: string; requestedAt: string }[];
   };
   trend: { day: string; sales: number; revenue: number; profit: number | null }[];
   expenses: {
@@ -270,7 +270,7 @@ function MovementCard({ d, isToday }: { d: BranchDash; isToday: boolean }) {
 }
 
 function HasadCard({ d }: { d: BranchDash }) {
-  const { t, lang } = useI18n();
+  const { t, L, lang } = useI18n();
   const h = d.hasad;
   const tile = (label: string, value: string, tone?: string) => (
     <div className="rounded-md border border-line px-3 py-2.5">
@@ -298,7 +298,7 @@ function HasadCard({ d }: { d: BranchDash }) {
               <li key={w.id}>
                 <Link to={`/hasad/${w.id}`} className="flex items-center gap-3 px-5 py-2.5 text-[13px] hover:bg-canvas">
                   <Mono className="text-gold-700">{w.externalId}</Mono>
-                  <span className="flex-1 truncate">{w.customerName}</span>
+                  <span className="flex-1 truncate">{L(w.customerName, w.customerNameAr)}</span>
                   <span className="font-medium num">{grams(w.entitledWeightMg)}</span>
                   <StatusBadge status={w.status} />
                   <span className="hidden w-28 text-end text-[11.5px] text-ink-400 sm:block" title={dateTime(w.requestedAt, lang)}>{relative(w.requestedAt)}</span>

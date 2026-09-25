@@ -1,3 +1,4 @@
+import { ap } from '@jerp/shared';
 import { and, desc, eq, gte, ilike, inArray, lt, or, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import type { Actor, Ctx } from '../../core/context';
@@ -102,7 +103,8 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
       entityId: number,
       branchId,
       at,
-      description: `Purchase ${number}: ${input.lines.length} item(s) received, cost ${totalCost.toLocaleString()} SDG`,
+      key: 'Purchase {number}: {n} item(s) received, cost {cost}',
+      params: { number, n: input.lines.length, cost: ap.money(totalCost) },
       metadata: { items: codes },
     });
     return { ...purchase, itemCodes: codes };

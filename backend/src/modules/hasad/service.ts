@@ -9,7 +9,7 @@
 
 import { and, asc, desc, eq, gte, ilike, inArray, lt, lte, or, sql, type SQL } from 'drizzle-orm';
 import { t, type Executor } from '@jerp/database';
-import { calculateSettlement, formatWeight, type HasadWithdrawalStatus, type PaymentMethod, type SettlementResult } from '@jerp/shared';
+import { calculateSettlement, type HasadWithdrawalStatus, type PaymentMethod, type SettlementResult, ap } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requireAny, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
@@ -211,7 +211,7 @@ export async function getWithdrawal(ctx: Ctx, actor: Actor, id: number) {
     : [];
 
   const timeline = await ctx.db
-    .select({ at: t.auditLogs.at, action: t.auditLogs.action, description: t.auditLogs.description, userFullName: t.auditLogs.userFullName })
+    .select({ at: t.auditLogs.at, action: t.auditLogs.action, description: t.auditLogs.description, descriptionKey: t.auditLogs.descriptionKey, descriptionParams: t.auditLogs.descriptionParams, userFullName: t.auditLogs.userFullName })
     .from(t.auditLogs)
     .where(or(and(eq(t.auditLogs.entityType, 'hasad_withdrawal'), eq(t.auditLogs.entityId, w.externalId)), sql`${t.auditLogs.metadata}->>'withdrawal' = ${w.externalId}`))
     .orderBy(asc(t.auditLogs.at), asc(t.auditLogs.id));
@@ -285,7 +285,8 @@ export async function openWithdrawal(ctx: Ctx, actor: Actor, id: number, input: 
       entityType: 'hasad_withdrawal',
       entityId: w.externalId,
       branchId: w.branchId,
-      description: `Customer ${w.customerName} at counter for ${w.externalId} (${formatWeight(w.entitledWeightMg)}). Verified by ${input.verification === 'PICKUP_CODE' ? 'pickup code' : 'ID document'}.`,
+      key: input.verification === 'PICKUP_CODE' ? 'Customer {customer} at counter for {id} ({weight}). Verified by pickup code.' : 'Customer {customer} at counter for {id} ({weight}). Verified by ID document.',
+      params: { customer: ap.text(w.customerName, w.customerNameAr), id: w.externalId, weight: ap.mg(w.entitledWeightMg) },
       metadata: { redemption: number, verification: input.verification },
     });
     return { redemptionId: r.id, alreadyOpen: false };
@@ -308,7 +309,7 @@ export async function addItem(ctx: Ctx, actor: Actor, id: number, itemId: number
       from: ['AVAILABLE'],
       userId: actor.userId,
       ref: { refType: 'hasad_redemption', refId: draft.id, refNumber: draft.number },
-      note: `Selected by Hasad customer ${w.customerName} (${w.externalId})`,
+      note: `Selected by Hasad customer (${w.externalId})`,
       reservation: { ref: `HASAD:${draft.number}`, userId: actor.userId },
     });
     await tx.insert(t.hasadRedemptionItems).values({
@@ -323,7 +324,8 @@ export async function addItem(ctx: Ctx, actor: Actor, id: number, itemId: number
       entityType: 'item',
       entityId: item.code,
       branchId: w.branchId,
-      description: `${item.code} (${formatWeight(item.netWeightMg)}, ${item.karat}K) reserved for Hasad withdrawal ${w.externalId}`,
+      key: '{code} ({weight}, {karat}) reserved for Hasad withdrawal {id}',
+      params: { code: item.code, weight: ap.mg(item.netWeightMg), karat: ap.karat(item.karat), id: w.externalId },
       metadata: { withdrawal: w.externalId, redemption: draft.number },
     });
     return { ok: true };
@@ -365,7 +367,8 @@ async function releaseOne(tx: Executor, actor: Actor | null, w: WithdrawalRow, d
     entityType: 'item',
     entityId: item.code,
     branchId: w.branchId,
-    description: `${item.code} released back to AVAILABLE (${note}) — withdrawal ${w.externalId}`,
+    key: '{code} released back to AVAILABLE ({note}) — withdrawal {id}',
+    params: { code: item.code, note, id: w.externalId },
     metadata: { withdrawal: w.externalId, redemption: draft.number },
   });
 }
@@ -418,7 +421,7 @@ export async function completeWithdrawal(ctx: Ctx, actor: Actor, id: number, inp
     const locked = await lockItems(tx, items.map((i) => i.id));
     const ref = { refType: 'hasad_redemption', refId: draft.id, refNumber: draft.number };
     for (const item of locked) {
-      await changeStatus(tx, { item, to: 'REDEEMED', from: ['RESERVED'], userId: actor.userId, ref, note: `Delivered to ${w.customerName} (${w.externalId})`, at: now });
+      await changeStatus(tx, { item, to: 'REDEEMED', from: ['RESERVED'], userId: actor.userId, ref, note: `Delivered to Hasad customer (${w.externalId})`, at: now });
       await recordMovement(tx, { item, type: 'HASAD_REDEMPTION', branchId: w.branchId, ref, userId: actor.userId, at: now });
     }
     const itemsCost = locked.reduce((sum, i) => sum + i.totalCost, 0);
@@ -457,7 +460,8 @@ export async function completeWithdrawal(ctx: Ctx, actor: Actor, id: number, inp
         entityId: settlementNumber,
         branchId: w.branchId,
         at: now,
-        description: `${s.direction === 'BRANCH_PAYS_CUSTOMER' ? 'Branch paid customer' : 'Customer paid branch'} ${s.amount.toLocaleString()} ${company.currency} for ${formatWeight(s.absDifferenceMg)} difference @ ${s.ratePerGram.toLocaleString()}/g (${input.paymentMethod})`,
+        key: s.direction === 'BRANCH_PAYS_CUSTOMER' ? 'Branch paid customer {amount} for {weight} difference @ {rate}/g ({payment})' : 'Customer paid branch {amount} for {weight} difference @ {rate}/g ({payment})',
+        params: { amount: ap.money(s.amount), weight: ap.mg(s.absDifferenceMg), rate: ap.money(s.ratePerGram), payment: ap.enum(input.paymentMethod) },
         metadata: { withdrawal: w.externalId, redemption: draft.number, ...s },
       });
     }
@@ -471,7 +475,8 @@ export async function completeWithdrawal(ctx: Ctx, actor: Actor, id: number, inp
       entityId: w.externalId,
       branchId: w.branchId,
       at: now,
-      description: `${w.externalId} completed: entitled ${formatWeight(s.entitledWeightMg)}, delivered ${formatWeight(s.deliveredWeightMg)} (${locked.map((i) => i.code).join(', ')})`,
+      key: '{id} completed: entitled {entitled}, delivered {delivered} ({codes})',
+      params: { id: w.externalId, entitled: ap.mg(s.entitledWeightMg), delivered: ap.mg(s.deliveredWeightMg), codes: locked.map((i) => i.code).join(', ') },
       metadata: { redemption: draft.number, settlement: settlementNumber },
     });
     return { redemptionNumber: draft.number, settlementNumber, settlement: s };
@@ -500,7 +505,8 @@ export async function abortRedemption(ctx: Ctx, actor: Actor | null, id: number,
       entityType: 'hasad_withdrawal',
       entityId: w.externalId,
       branchId: w.branchId,
-      description: `Counter session ${draft.number} ended without delivery (${reason}); ${items.length} item(s) released. Request remains open.`,
+      key: 'Counter session {number} ended without delivery ({reason}); {n} item(s) released. Request remains open.',
+      params: { number: draft.number, reason, n: items.length },
       metadata: { redemption: draft.number },
     });
   });
@@ -529,7 +535,8 @@ export async function cancelWithdrawal(ctx: Ctx, actor: Actor, id: number, reaso
       entityType: 'hasad_withdrawal',
       entityId: w.externalId,
       branchId: w.branchId,
-      description: `Withdrawal ${w.externalId} (${w.customerName}, ${formatWeight(w.entitledWeightMg)}) cancelled: ${reason}`,
+      key: 'Withdrawal {id} ({customer}, {weight}) cancelled: {reason}',
+      params: { id: w.externalId, customer: ap.text(w.customerName, w.customerNameAr), weight: ap.mg(w.entitledWeightMg), reason },
     });
   });
   return { ok: true };

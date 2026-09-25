@@ -1,3 +1,4 @@
+import { ap } from '@jerp/shared';
 // Two-step inter-branch transfers:
 //   send:    AVAILABLE → TRANSFERRED (in transit), ledger TRANSFER_OUT at source
 //   receive: TRANSFERRED → AVAILABLE at destination, ledger TRANSFER_IN at destination
@@ -46,7 +47,8 @@ export async function createTransfer(
       entityId: number,
       branchId: fromBranchId,
       at,
-      description: `Transfer ${number}: ${items.length} item(s) sent ${from.name} → ${to.name}`,
+      key: 'Transfer {number}: {n} item(s) sent {from} → {to}',
+      params: { number, n: items.length, from: ap.text(from.name, from.nameAr), to: ap.text(to.name, to.nameAr) },
       metadata: { items: items.map((i) => i.code), toBranchId: to.id },
     });
     return tr;
@@ -75,7 +77,8 @@ export async function receiveTransfer(ctx: Ctx, actor: Actor, id: number, opts: 
       entityId: tr.number,
       branchId: tr.toBranchId,
       at,
-      description: `Transfer ${tr.number} received: ${items.length} item(s)`,
+      key: 'Transfer {number} received: {n} item(s)',
+      params: { number: tr.number, n: items.length },
     });
     return { ok: true };
   });

@@ -1,3 +1,4 @@
+import { ap } from '@jerp/shared';
 // Anti-corruption layer: translates Hasad's external withdrawal format into ERP records.
 // Receiving a withdrawal NEVER touches inventory — no item is selected or reserved here.
 
@@ -72,7 +73,8 @@ export async function syncWithdrawals(ctx: Ctx, force = false): Promise<{ error:
           entityType: 'hasad_withdrawal',
           entityId: row.externalId,
           branchId,
-          description: `Withdrawal ${row.externalId} received from Hasad Gold: ${row.customerName}, ${w.entitlement.weightGrams} g entitlement. No inventory reserved.`,
+          key: 'Withdrawal {id} received from Hasad Gold: {customer}, {weight} entitlement. No inventory reserved.',
+          params: { id: row.externalId, customer: ap.text(row.customerName, row.customerNameAr), weight: ap.mg(row.entitledWeightMg) },
         });
       });
     } else if (w.status === 'CANCELLED' && local.status === 'READY_FOR_PICKUP') {

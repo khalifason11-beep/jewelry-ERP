@@ -22,7 +22,7 @@ export function MyActivityPage() {
     <div className="p-5 lg:p-6">
       <PageHeader title={t('My Activity')} subtitle={`${me.user.fullName} · ${L(me.user.role.name, me.user.role.nameAr)} · ${me.user.branch ? L(me.user.branch.name, me.user.branch.nameAr) : t('All branches')}`} />
       <div className="mb-5 grid gap-3 md:grid-cols-3">
-        <Kpi tone="dark" label={t('My sales today')} value={money(done.reduce((s, r) => s + r.total, 0), false)} sub={`${done.length} invoice(s) · SDG`} icon={<Receipt className="size-4" />} />
+        <Kpi tone="dark" label={t('My sales today')} value={money(done.reduce((s, r) => s + r.total, 0), false)} sub={t('{n} invoice(s) · SDG', { n: done.length })} icon={<Receipt className="size-4" />} />
         <Card className="md:col-span-2">
           <div className="mb-3 flex items-center gap-2 text-[13px] font-semibold"><MonitorSmartphone className="size-4 text-ink-500" /> {t('My current session')}</div>
           {me.session && (

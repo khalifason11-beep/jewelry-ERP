@@ -8,6 +8,7 @@ import { get, post } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, karatLabel, money, pct } from '../../lib/format';
 import { useCategories, useDebounced } from '../../lib/hooks';
+import { noteText } from '../../lib/audit';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import type { ItemRow } from '../../lib/types';
@@ -132,8 +133,8 @@ export function ItemDetailPage() {
     setReason('');
     qc.invalidateQueries();
   };
-  const priceM = useMutation({ mutationFn: () => post(`/inventory/items/${id}/price`, { sellingPrice: Number(price), reason }), onSuccess: () => done('Price updated'), onError: (e) => toast.fromError(e) });
-  const adjM = useMutation({ mutationFn: () => post(`/inventory/items/${id}/adjust`, { action: adjust, reason }), onSuccess: () => done('Inventory adjusted'), onError: (e) => toast.fromError(e) });
+  const priceM = useMutation({ mutationFn: () => post(`/inventory/items/${id}/price`, { sellingPrice: Number(price), reason }), onSuccess: () => done(t('Price updated')), onError: (e) => toast.fromError(e) });
+  const adjM = useMutation({ mutationFn: () => post(`/inventory/items/${id}/adjust`, { action: adjust, reason }), onSuccess: () => done(t('Inventory adjusted')), onError: (e) => toast.fromError(e) });
 
   if (q.isLoading) return <Loading />;
   if (q.isError) return <div className="p-6"><ErrorState error={q.error} /></div>;
@@ -244,7 +245,7 @@ export function ItemDetailPage() {
                       </div>
                       <div className="mt-1 text-[12px] text-ink-500">
                         {dateTime(h.at, lang)} · {h.userName ?? t('System')} · {t(h.branchName)}
-                        {h.note && <> · <span className="text-ink-700">{t(h.note)}</span></>}
+                        {h.note && <> · <span className="text-ink-700">{noteText(h.note)}</span></>}
                       </div>
                     </div>
                   </li>

@@ -8,7 +8,10 @@
 //    frontend/src that are not wrapped in t()/translate().
 // 2. Missing Arabic: every key passed to t()/translate() in the frontend, plus every
 //    user-facing key produced by the backend (error messages, report titles/columns/notes,
-//    notifications, Hasad errors) must exist in frontend/src/lib/i18n-ar.ts.
+//    notifications, Hasad errors, audit-log description keys, ledger note templates) must
+//    exist in frontend/src/lib/i18n-ar.ts.
+// 3. Backend English sentences that bypass the key system: template-literal `description:`
+//    values (audit text must use `key` + `params`) and English free text in seed data.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -50,6 +53,8 @@ const UI_PROPS = new Set([
 ]);
 const looksEnglish = (s) => /[A-Za-z]{2,}/.test(s) && !/^[A-Z0-9_./:-]+$/.test(s.trim()) && !/^(https?:|\/|#|[\w.-]+\.(png|svg|css))/.test(s.trim());
 const T_FUNCS = new Set(['t', 'translate', 'tk']);
+// Local helpers that forward their argument to a toast (e.g. `const done = (msg) => toast.success(msg)`).
+const TOAST_HELPERS = /^(done|notify|onDone|showToast|toast\w*|flash)$/;
 // Language self-names are intentionally shown in their own script by the switcher.
 const ALLOW = new Set(['English', 'Loai Tabeede']);
 /** Prose, not CSS classes / identifiers: has a capital letter, or several plain lowercase words. */
@@ -111,8 +116,11 @@ for (const file of walk(FRONTEND, ['.tsx', '.ts'])) {
       const text = ts.isTemplateExpression(n) ? n.head.text + n.templateSpans.map((x) => x.literal.text).join(' ') : n.text;
       if (branch && inJsx && isProse(text)) report(n, n.getText());
     }
-    // toast.success('English'), toast.info(`English ${x}`)…
-    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && ['success', 'error', 'info', 'fromError'].includes(n.expression.name.text)) {
+    // toast.success('English'), toast.info(`English ${x}`), done('English'), notify('English')…
+    const isToastCall = ts.isCallExpression(n) && (
+      (ts.isPropertyAccessExpression(n.expression) && ['success', 'error', 'info', 'fromError', 'push'].includes(n.expression.name.text)) ||
+      (ts.isIdentifier(n.expression) && TOAST_HELPERS.test(n.expression.text)));
+    if (isToastCall) {
       for (const a of n.arguments) {
         if ((ts.isStringLiteral(a) || ts.isNoSubstitutionTemplateLiteral(a)) && looksEnglish(a.text)) report(a, `toast: ${a.text}`);
         if (ts.isTemplateExpression(a) && looksEnglish(a.head.text + a.templateSpans.map((s) => s.literal.text).join(''))) report(a, `toast: ${a.getText()}`);
@@ -154,6 +162,84 @@ for (const file of BACKEND_DIRS.flatMap((d) => walk(d, ['.ts']))) {
 }
 for (const k of ['Authentication required', 'You do not have permission to perform this action', 'Unexpected server error', 'Unknown API endpoint']) addKey(k, 'backend defaults');
 
+// Audit keys (`key:` in writeAudit entries, incl. both branches of a conditional), nested
+// `ap.phrase('…')` keys, and English template-literal `description:` values (not allowed: audit
+// text must be key + params so it can be translated).
+// Ledger/status note templates rendered by frontend/src/lib/audit.ts (noteText).
+const auditLib = fs.readFileSync(path.join(FRONTEND, 'lib/audit.ts'), 'utf8');
+const noteTemplates = [...auditLib.matchAll(/\/,\s*'([^']+)',\s*\[/g)].map((m) => m[1]);
+for (const k of noteTemplates) addKey(k, 'frontend/src/lib/audit.ts');
+// Validation field labels shown in 'Invalid value for {field}' (frontend/src/lib/api.ts FIELD_LABELS).
+const apiLib = fs.readFileSync(path.join(FRONTEND, 'lib/api.ts'), 'utf8');
+const fieldBlock = apiLib.match(/FIELD_LABELS[^{]*\{([\s\S]*?)\n\};/);
+if (fieldBlock) for (const m of fieldBlock[1].matchAll(/:\s*'([^']+)'/g)) addKey(m[1], 'frontend/src/lib/api.ts (FIELD_LABELS)');
+const NOTE_PREFIXES = noteTemplates.map((k) => k.split('{')[0]);
+const backendTemplates = [];
+const seedEnglish = [];
+const litTexts = (e) => {
+  if (!e) return [];
+  if (ts.isStringLiteralLike(e)) return [e.text];
+  if (ts.isParenthesizedExpression(e)) return litTexts(e.expression);
+  if (ts.isConditionalExpression(e)) return [...litTexts(e.whenTrue), ...litTexts(e.whenFalse)];
+  return [];
+};
+const hasArabic = (s) => /[؀-ۿ]/.test(s);
+// Seed fields that are technical / never displayed.
+const SEED_TECH_FIELDS = new Set(['device', 'userAgent', 'endedReason', 'currentModule', 'source', 'entityType', 'refType', 'key', 'sku', 'code', 'nid', 'phone', 'username', 'ip', 'ipAddress']);
+for (const file of [...BACKEND_DIRS.flatMap((d) => walk(d, ['.ts']))]) {
+  if (file.endsWith('.test.ts')) continue;
+  const rel = path.relative(root, file);
+  const isSeed = rel.includes('/seed/');
+  const src = fs.readFileSync(file, 'utf8');
+  const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const loc = (n) => `${rel}:${sf.getLineAndCharacterOfPosition(n.getStart()).line + 1}`;
+  (function visit(n) {
+    if (ts.isPropertyAssignment(n)) {
+      const name = n.name.getText().replace(/['"]/g, '');
+      // writeAudit({ key: '…' })
+      if (name === 'key' && ts.isObjectLiteralExpression(n.parent) && n.parent.properties.some((p) => p.name?.getText() === 'action')) {
+        for (const k of litTexts(n.initializer)) addKey(k, loc(n));
+        if (ts.isTemplateExpression(n.initializer)) backendTemplates.push({ where: loc(n), text: `key: ${n.initializer.getText().slice(0, 90)}` });
+      }
+      // description: `English ${x}` — a sentence built in code instead of key + params
+      if (name === 'description' && ts.isTemplateExpression(n.initializer)) {
+        const text = n.initializer.head.text + n.initializer.templateSpans.map((x) => x.literal.text).join(' ');
+        if (/[A-Za-z]{3,}/.test(text)) backendTemplates.push({ where: loc(n), text: `description: ${n.initializer.getText().slice(0, 90)}` });
+      }
+    }
+    // ap.phrase('…')
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'phrase' && n.arguments[0] && ts.isStringLiteralLike(n.arguments[0])) {
+      addKey(n.arguments[0].text, loc(n));
+    }
+    // Seed data: English free text (names paired with an Arabic sibling are fine).
+    if (isSeed && (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateExpression(n))) {
+      const text = ts.isTemplateExpression(n) ? n.head.text + ' ' + n.templateSpans.map((x) => x.literal.text).join(' ') : n.text;
+      const p = n.parent;
+      // Nearest enclosing field (through conditionals), e.g. device: x ? 'Safari on macOS' : '…'
+      let fieldNode = p;
+      while (fieldNode && (ts.isConditionalExpression(fieldNode) || ts.isParenthesizedExpression(fieldNode) || ts.isBinaryExpression(fieldNode))) fieldNode = fieldNode.parent;
+      const field = fieldNode && ts.isPropertyAssignment(fieldNode) ? fieldNode.name.getText().replace(/['"]/g, '') : null;
+      const obj = ts.isPropertyAssignment(p) && ts.isObjectLiteralExpression(p.parent) ? p.parent : null;
+      // `name` is fine next to `nameAr`, `en` next to `ar` — each English field needs its own Arabic twin.
+      const twin = field === 'en' ? 'ar' : `${field}Ar`;
+      const pairedWithArabic = obj && obj.properties.some((q) => ts.isPropertyAssignment(q) && q.name.getText() === twin);
+      // Ledger notes written in the same template form as the services (rendered via noteText()).
+      const isNoteTemplate = field === 'note' && NOTE_PREFIXES.some((pre) => text.startsWith(pre));
+      let skip = ts.isImportDeclaration(p) || (field && SEED_TECH_FIELDS.has(field)) || pairedWithArabic || hasArabic(text) || isNoteTemplate || AR.has(text.trim());
+      // Arguments of ap.*(), writeAudit keys, and user-agent constants are not free text.
+      for (let a = p; a && !skip; a = a.parent) {
+        if (ts.isCallExpression(a) && ts.isPropertyAccessExpression(a.expression) && a.expression.expression.getText() === 'ap') skip = true;
+        if (ts.isVariableDeclaration(a) && /^ua/.test(a.name.getText())) skip = true;
+        if (ts.isPropertyAssignment(a) && ['metadata', 'completion', 'key'].includes(a.name.getText())) skip = true;
+        if (ts.isStatement(a)) break;
+      }
+      if (!skip && isProse(text) && /[A-Za-z]{2,}[^A-Za-z]+[A-Za-z]{2,}/.test(text) && !/^[\w.-]+@|^[A-Z]{2,}-/.test(text.trim())) seedEnglish.push({ where: loc(n), text: text.trim().slice(0, 90) });
+    }
+    n.forEachChild(visit);
+  })(sf);
+}
+
+
 // ───────── report ─────────
 const missingFront = [...usedKeys].filter(([k]) => !AR.has(k));
 const missingBack = [...backendKeys].filter(([k]) => !AR.has(k));
@@ -168,7 +254,9 @@ console.log(`Backend user-facing keys: ${backendKeys.size}`);
 section('Hardcoded English in frontend/src (not wrapped in t())', hardcoded, (h) => `${h.where}  →  ${h.text}`);
 section('t() keys missing an Arabic translation', missingFront, ([k, w]) => `${w}  →  ${k}`);
 section('Backend keys missing an Arabic translation', missingBack, ([k, w]) => `${w}  →  ${k}`);
+section('Backend sentences built from English templates (use key + params)', backendTemplates, (h) => `${h.where}  →  ${h.text}`);
+section('English free text in seed data (seed it in Arabic, or pair it with an Arabic field)', seedEnglish, (h) => `${h.where}  →  ${h.text}`);
 
-const total = hardcoded.length + missingFront.length + missingBack.length;
+const total = hardcoded.length + missingFront.length + missingBack.length + backendTemplates.length + seedEnglish.length;
 console.log(total ? `\n${total} item(s) need attention.` : '\nAll user-facing strings are localized.');
 if (strict && total) process.exit(1);

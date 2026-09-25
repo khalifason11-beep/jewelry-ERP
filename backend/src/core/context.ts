@@ -8,6 +8,7 @@ export interface Actor {
   userId: number;
   username: string;
   fullName: string;
+  fullNameAr?: string | null;
   roleCode: string;
   roleName: string;
   roleRank: number;

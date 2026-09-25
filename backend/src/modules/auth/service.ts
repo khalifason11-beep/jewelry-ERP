@@ -1,3 +1,4 @@
+import { ap } from '@jerp/shared';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import type { Actor, Ctx } from '../../core/context';
@@ -16,7 +17,8 @@ export async function login(ctx: Ctx, input: { username: string; password: strin
       entityType: 'user',
       entityId: username,
       branchId: u?.branchId ?? null,
-      description: `Failed login attempt for "${username}" from ${input.ip ?? 'unknown'}`,
+      key: 'Failed login attempt for “{username}” from {ip}',
+      params: { username, ip: input.ip ?? ap.phrase('unknown') },
     });
     throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid username or password');
   }
@@ -26,7 +28,8 @@ export async function login(ctx: Ctx, input: { username: string; password: strin
       entityType: 'user',
       entityId: username,
       branchId: u.branchId,
-      description: `Login refused for disabled account "${username}"`,
+      key: 'Login refused for disabled account “{username}”',
+      params: { username },
     });
     throw new AppError(403, 'ACCOUNT_DISABLED', 'This account is disabled. Contact your administrator.');
   }
@@ -39,7 +42,8 @@ export async function login(ctx: Ctx, input: { username: string; password: strin
       action: 'LOGIN',
       entityType: 'session',
       entityId: sessionRef(s.id),
-      description: `${u.fullName} (${u.username}) signed in`,
+      key: '{name} ({username}) signed in',
+      params: { name: ap.text(u.fullName, u.fullNameAr), username: u.username },
     });
     return { ...s, actor };
   });
@@ -53,7 +57,8 @@ export async function logout(ctx: Ctx, actor: Actor) {
       action: 'LOGOUT',
       entityType: 'session',
       entityId: sessionRef(actor.sessionId!),
-      description: `${actor.fullName} (${actor.username}) signed out`,
+      key: '{name} ({username}) signed out',
+      params: { name: ap.text(actor.fullName, actor.fullNameAr), username: actor.username },
     });
   });
 }
@@ -77,7 +82,8 @@ export async function changePassword(ctx: Ctx, actor: Actor, input: { currentPas
       action: 'PASSWORD_CHANGED',
       entityType: 'user',
       entityId: actor.username,
-      description: `${actor.username} set a new password${u.mustChangePassword ? ' (required after reset)' : ''}`,
+      key: u.mustChangePassword ? '{username} set a new password (required after reset)' : '{username} set a new password',
+      params: { username: actor.username },
     });
   });
   return { ok: true };

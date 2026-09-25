@@ -1,13 +1,16 @@
 import type { Executor } from '@jerp/database';
 import { t } from '@jerp/database';
-import type { AuditAction } from '@jerp/shared';
+import { auditDescriptionEn, type AuditAction, type AuditParams } from '@jerp/shared';
 import type { Actor } from './context';
 
 export interface AuditEntry {
   action: AuditAction;
   entityType?: string;
   entityId?: string | number | null;
-  description: string;
+  /** English template used as the translation key, e.g. 'Sale {number} cancelled ({total}): {reason}'. */
+  key: string;
+  /** Typed params (see `ap` in @jerp/shared); money and weights stay numeric. */
+  params?: AuditParams;
   branchId?: number | null;
   metadata?: Record<string, unknown>;
   at?: Date;
@@ -25,7 +28,9 @@ export async function writeAudit(exec: Executor, actor: Actor | null, entry: Aud
     action: entry.action,
     entityType: entry.entityType ?? null,
     entityId: entry.entityId != null ? String(entry.entityId) : null,
-    description: entry.description,
+    description: auditDescriptionEn(entry.key, entry.params),
+    descriptionKey: entry.key,
+    descriptionParams: entry.params ?? {},
     metadata: entry.metadata ?? {},
     sessionId: actor?.sessionId ?? null,
     ipAddress: actor?.ip ?? null,

@@ -15,7 +15,7 @@ import { listPurchases } from '../purchases/service';
 import { listSales } from '../sales/service';
 import { branchMetrics, movementSummary } from './metrics';
 
-export type ColumnType = 'text' | 'money' | 'weight' | 'number' | 'percent' | 'date' | 'datetime' | 'status' | 'code';
+export type ColumnType = 'text' | 'money' | 'weight' | 'number' | 'percent' | 'date' | 'datetime' | 'status' | 'code' | 'audit';
 
 export interface Column {
   key: string;
@@ -338,6 +338,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           externalId: t.hasadWithdrawals.externalId,
           requestedAt: t.hasadWithdrawals.requestedAt,
           customerName: t.hasadWithdrawals.customerName,
+          customerNameAr: t.hasadWithdrawals.customerNameAr,
           branchName: t.branches.name,
           entitledWeightMg: t.hasadWithdrawals.entitledWeightMg,
           status: t.hasadWithdrawals.status,
@@ -470,7 +471,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('action', 'Action', 'status'),
           c('entityType', 'Entity'),
           c('entityId', 'Entity ID', 'code'),
-          c('description', 'Description'),
+          c('description', 'Description', 'audit'),
         ],
         rows: data,
         filters: { dateRange: true, branch: true, user: true },
@@ -512,6 +513,8 @@ export async function listAudit(
       entityType: t.auditLogs.entityType,
       entityId: t.auditLogs.entityId,
       description: t.auditLogs.description,
+      descriptionKey: t.auditLogs.descriptionKey,
+      descriptionParams: t.auditLogs.descriptionParams,
       ipAddress: t.auditLogs.ipAddress,
       sessionId: t.auditLogs.sessionId,
     })

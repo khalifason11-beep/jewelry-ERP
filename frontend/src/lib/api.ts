@@ -33,11 +33,35 @@ export function translateParams(params?: Params): Params | undefined {
   return params ? Object.fromEntries(Object.entries(params).map(([k, v]) => [k, translateValue(v)])) : undefined;
 }
 
+/** English labels (translation keys) for request fields named in validation errors. */
+const FIELD_LABELS: Record<string, string> = {
+  action: 'Action', amount: 'Amount', branchId: 'Branch', category: 'Category', currentPassword: 'Current password',
+  customerAcknowledged: 'Customer confirmation', customerId: 'Hasad customer', customerName: 'Customer name', customerPhone: 'Phone',
+  decision: 'Decision', description: 'Description', discount: 'Discount', entityType: 'Entity', expectedAmount: 'Settlement amount',
+  expectedDirection: 'Settlement direction', fromBranchId: 'From', fullName: 'Full name', fullNameAr: 'Full name (Arabic)',
+  grossWeightMg: 'Gross weight', group: 'Group by', itemId: 'Item', itemIds: 'Pieces', items: 'Items', karat: 'Karat', limit: 'Limit',
+  lines: 'Pieces', makingCost: 'Making cost', netWeightMg: 'Net weight', newPassword: 'New password', note: 'Notes', notes: 'Notes',
+  offset: 'Offset', otherCost: 'Other cost', password: 'Password', paymentMethod: 'Payment method', phone: 'Phone', pickupCode: 'Pickup code',
+  productId: 'Product', purchaseCost: 'Purchase cost', q: 'Search', rates: 'Gold rates', reason: 'Reason', roleCode: 'Role', scope: 'Scope',
+  sellingPrice: 'Selling price', sort: 'Sort', status: 'Status', supplierId: 'Supplier', supplierInvoiceNo: 'Supplier invoice no.',
+  targetWeightMg: 'Weight to withdraw (g)', temporaryPassword: 'Temporary password', toBranchId: 'To', username: 'Username',
+  verification: 'Verification method', weightMg: 'Weight', input: 'Input', expenseDate: 'Date',
+};
+
+/** "lines.2.netWeightMg" → "Net weight" (translated); unknown fields fall back to the raw path. */
+function fieldLabel(path: string): string {
+  const parts = path.split('.').filter((p) => !/^\d+$/.test(p));
+  const label = FIELD_LABELS[parts[parts.length - 1] ?? ''];
+  return label ? translate(label) : path;
+}
+
 /** User-facing text for any error, in the current language. */
 export function errorText(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.key) {
-      return translate(e.key, translateParams(e.params));
+      const params = translateParams(e.params);
+      if (params && typeof params.field === 'string') params.field = fieldLabel(params.field);
+      return translate(e.key, params);
     }
     return translate(e.message);
   }

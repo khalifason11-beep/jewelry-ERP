@@ -1,3 +1,4 @@
+import { ap } from '@jerp/shared';
 import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import type { ItemStatus } from '@jerp/shared';
@@ -147,7 +148,8 @@ export async function changePrice(ctx: Ctx, actor: Actor, id: number, newPrice: 
       entityType: 'item',
       entityId: item.code,
       branchId: item.branchId,
-      description: `Selling price of ${item.code} changed ${item.sellingPrice.toLocaleString()} → ${newPrice.toLocaleString()} SDG. ${reason}`,
+      key: 'Selling price of {code} changed {from} → {to}. {reason}',
+      params: { code: item.code, from: ap.money(item.sellingPrice), to: ap.money(newPrice), reason },
       metadata: { from: item.sellingPrice, to: newPrice, reason },
     });
     return { ok: true };
@@ -182,7 +184,8 @@ export async function adjustItem(ctx: Ctx, actor: Actor, id: number, action: Adj
       entityId: item.code,
       branchId: item.branchId,
       at,
-      description: `${action.replaceAll('_', ' ').toLowerCase()} — ${item.code}: ${reason}`,
+      key: '{action} — {code}: {reason}',
+      params: { action: ap.enum(action), code: item.code, reason },
       metadata: { action, from: item.status },
     });
     return { ok: true };

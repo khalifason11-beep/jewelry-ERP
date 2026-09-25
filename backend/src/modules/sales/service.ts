@@ -1,3 +1,4 @@
+import { ap } from '@jerp/shared';
 import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import type { PaymentMethod } from '@jerp/shared';
@@ -14,6 +15,7 @@ export interface CreateSaleInput {
   items: { itemId: number; discount?: number }[];
   paymentMethod: PaymentMethod;
   customerName?: string;
+  customerNameAr?: string;
   customerPhone?: string;
 }
 
@@ -66,6 +68,7 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
         cashierId: actor.userId,
         sessionId: actor.sessionId,
         customerName: input.customerName?.trim() || null,
+        customerNameAr: input.customerNameAr?.trim() || null,
         customerPhone: input.customerPhone?.trim() || null,
         subtotal,
         discountTotal,
@@ -99,7 +102,8 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       entityId: number,
       branchId,
       at,
-      description: `Sale ${number}: ${lines.length} item(s), total ${(subtotal - discountTotal).toLocaleString()} SDG (${input.paymentMethod})`,
+      key: 'Sale {number}: {n} item(s), total {total} ({payment})',
+      params: { number, n: lines.length, total: ap.money(subtotal - discountTotal), payment: ap.enum(input.paymentMethod) },
       metadata: { items: lines.map((l) => l.item.code), total: subtotal - discountTotal, discountTotal },
     });
     return sale;
@@ -144,6 +148,7 @@ export async function listSales(ctx: Ctx, actor: Actor, q: SaleQuery) {
       cashierId: t.sales.cashierId,
       cashierName: t.users.fullName,
       customerName: t.sales.customerName,
+      customerNameAr: t.sales.customerNameAr,
       itemCount: sql<number>`(select count(*) from sale_items si where si.sale_id = ${t.sales.id})`,
       weightMg: sql<number>`(select coalesce(sum(si.net_weight_mg),0) from sale_items si where si.sale_id = ${t.sales.id})`,
       subtotal: t.sales.subtotal,
@@ -269,7 +274,8 @@ export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: strin
       entityType: 'sale',
       entityId: sale.number,
       branchId: sale.branchId,
-      description: `Sale ${sale.number} cancelled (${sale.total.toLocaleString()} SDG): ${reason}`,
+      key: 'Sale {number} cancelled ({total}): {reason}',
+      params: { number: sale.number, total: ap.money(sale.total), reason },
       metadata: { reason, items: items.map((i) => i.code) },
     });
     return { ok: true };

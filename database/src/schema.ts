@@ -250,6 +250,7 @@ export const sales = pgTable(
     cashierId: integer('cashier_id').notNull().references(() => users.id),
     sessionId: text('session_id'),
     customerName: text('customer_name'),
+    customerNameAr: text('customer_name_ar'),
     customerPhone: text('customer_phone'),
     subtotal: money('subtotal').notNull(),
     discountTotal: money('discount_total').notNull().default(0),
@@ -460,6 +461,9 @@ export const auditLogs = pgTable(
     entityType: text('entity_type'),
     entityId: text('entity_id'),
     description: text('description').notNull(),
+    /** Translation key (English template) + typed params; `description` is the English rendering. */
+    descriptionKey: text('description_key'),
+    descriptionParams: jsonb('description_params'),
     metadata: jsonb('metadata').default(sql`'{}'::jsonb`),
     sessionId: text('session_id'),
     ipAddress: text('ip_address'),

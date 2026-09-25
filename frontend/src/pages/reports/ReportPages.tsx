@@ -19,6 +19,7 @@ import type { Permission } from '@jerp/shared';
 import { get } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { date, dateTime, grams, humanize, karatLabel, money, num, pct } from '../../lib/format';
+import { auditText } from '../../lib/audit';
 import { tk, useI18n } from '../../lib/i18n';
 import type { Report } from '../../lib/types';
 import { Alert, Card, ErrorState, Loading, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
@@ -90,7 +91,7 @@ export function ReportPage() {
   });
 
   const r = q.data;
-  const fmt = (type: string, v: unknown) => {
+  const fmt = (type: string, v: unknown, ar?: unknown) => {
     if (v == null || v === '') return <span className="text-ink-300">—</span>;
     switch (type) {
       case 'money':
@@ -110,7 +111,9 @@ export function ReportPage() {
       case 'code':
         return <Mono>{String(v)}</Mono>;
       default: {
-        // Text cells: translate known terms (branch names, roles, categories), karats and day keys.
+        // Text cells: prefer the row's Arabic companion field (e.g. customerNameAr), then translate
+        // known terms (branch names, roles, categories), karats and day keys.
+        if (lang === 'ar' && typeof ar === 'string' && ar) return ar;
         const str = String(v);
         if (/^\d{2}K$/.test(str)) return karatLabel(Number(str.slice(0, 2)));
         if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return date(str, lang);
@@ -124,14 +127,14 @@ export function ReportPage() {
     header: t(c.label),
     csvHeader: t(c.label),
     align: ['money', 'weight', 'number', 'percent'].includes(c.type) ? 'end' : 'start',
-    value: (row) => row[c.key] as unknown,
+    value: (row) => (c.type === 'audit' ? auditText(row as never) : (row[c.key] as unknown)),
     render: (row) =>
-      c.link ? (
+      c.type === 'audit' ? auditText(row as never) : c.link ? (
         <Link to={fillLink(c.link, row)} onClick={(e) => e.stopPropagation()} className="font-medium text-gold-700 hover:underline">
-          {fmt(c.type, row[c.key])}
+          {fmt(c.type, row[c.key], row[`${c.key}Ar`])}
         </Link>
       ) : (
-        fmt(c.type, row[c.key])
+        fmt(c.type, row[c.key], row[`${c.key}Ar`])
       ),
     footer: r?.totals && c.key in r.totals ? fmt(c.type, r.totals[c.key]) : undefined,
   }));
@@ -141,7 +144,7 @@ export function ReportPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         breadcrumbs={<Crumbs items={[{ label: t('Reports'), to: '/reports' }, { label: t(r?.title ?? meta?.title ?? key) }]} />}
-        title={t(r?.title ?? meta?.title ?? 'Report')}
+        title={r?.title ? t(r.title) : meta?.title ? t(meta.title) : t('Report')}
         subtitle={r?.description ? t(r.description) : undefined}
       />
       <Card padded={false}>

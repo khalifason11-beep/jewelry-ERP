@@ -21,6 +21,7 @@ export interface SaleRow {
   cashierId: number;
   cashierName: string;
   customerName: string | null;
+  customerNameAr?: string | null;
   itemCount: number;
   weightMg: number;
   subtotal: number;
@@ -33,7 +34,7 @@ export interface SaleRow {
 }
 
 export function SalesTable({ branchId, from, to, mine, toolbar }: { branchId?: number; from: string; to: string; mine?: boolean; toolbar?: React.ReactNode }) {
-  const { t, lang } = useI18n();
+  const { t, L, lang } = useI18n();
   const { can, isGlobal } = useAuth();
   const navigate = useNavigate();
   const q = useQuery({ queryKey: ['sales', branchId, from, to, mine], queryFn: () => get<SaleRow[]>('/sales', { branchId, from, to, mine }) });
@@ -56,7 +57,7 @@ export function SalesTable({ branchId, from, to, mine, toolbar }: { branchId?: n
         { key: 'createdAt', header: t('Date'), render: (r) => dateTime(r.createdAt, lang) },
         ...(isGlobal && !branchId ? [{ key: 'branchName', header: t('Branch'), render: (r: SaleRow) => t(r.branchName) }] : []),
         { key: 'cashierName', header: t('Cashier') },
-        { key: 'customerName', header: t('Customer'), render: (r) => r.customerName ?? <span className="text-ink-400">{t('Walk-in')}</span> },
+        { key: 'customerName', header: t('Customer'), render: (r) => (r.customerName ? L(r.customerName, r.customerNameAr) : null) ?? <span className="text-ink-400">{t('Walk-in')}</span> },
         { key: 'itemCount', header: t('Items'), align: 'end', footer: done.reduce((s, r) => s + r.itemCount, 0) },
         { key: 'weightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.weightMg)}</span>, footer: grams(done.reduce((s, r) => s + r.weightMg, 0)) },
         { key: 'total', header: t('Total'), align: 'end', render: (r) => <span className="font-medium num">{money(r.total, false)}</span>, footer: money(done.reduce((s, r) => s + r.total, 0), false) },
@@ -242,7 +243,7 @@ export function SaleDetailPage() {
             <KeyValue
               cols={2}
               items={[
-                { label: t('Customer'), value: s.customerName ?? t('Walk-in') },
+                { label: t('Customer'), value: s.customerName ? L(s.customerName, s.customerNameAr) : t('Walk-in') },
                 { label: t('Phone'), value: s.customerPhone ?? '—' },
                 { label: t('Cashier'), value: <>{L(s.cashierName, s.cashierNameAr)} <div className="font-mono text-[11px] font-normal text-ink-500">{s.cashierUsername}</div></> },
                 { label: t('Timestamp'), value: dateTime(s.createdAt, lang) },

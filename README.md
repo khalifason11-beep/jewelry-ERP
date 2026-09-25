@@ -93,5 +93,11 @@ scripts/i18n-check.mjs  localization scanner (`npm run i18n:check`)
 The UI opens in Arabic (RTL) by default; the header switch toggles English. English source strings are the
 translation keys (`t('…')`, with `{param}` interpolation); Arabic lives in `frontend/src/lib/i18n-ar.ts`.
 Amounts and weights always use Western digits; dates use Arabic month names in Arabic. API errors carry a
-stable `key` + `params` so the client shows them in the active language. `npm run i18n:check` reports any
-hardcoded English left in JSX and any key without an Arabic translation (`--strict` exits non-zero).
+stable `key` + `params` so the client shows them in the active language. Audit-log entries work the same way:
+`writeAudit({ key, params })` stores `description_key` + `description_params` (money and weights stay numeric via
+`ap.money()` / `ap.mg()` and are formatted by the client); `description` keeps the English rendering as a fallback.
+Demo data is seeded in Arabic (customer names, expense descriptions, notes and reasons).
+
+`npm run i18n:check` reports hardcoded English in JSX and toast/`done()` calls, keys without an Arabic
+translation (UI, API errors, audit keys, field labels), English template-literal `description:` values in the
+backend, and English free text in seed data (`--strict` exits non-zero).
