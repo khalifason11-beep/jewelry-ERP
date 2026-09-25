@@ -1,0 +1,12 @@
+{
+  // GitHub Codespaces: run the prototype in the browser without installing anything locally.
+  // Code → Codespaces → Create codespace; the app starts on port 4000 and opens automatically.
+  "name": "Loai Tabeede ERP prototype",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "postCreateCommand": "npm install && npm run db:reset",
+  "postAttachCommand": "npm run demo",
+  "forwardPorts": [4000],
+  "portsAttributes": {
+    "4000": { "label": "ERP prototype", "onAutoForward": "openBrowser" }
+  }
+}

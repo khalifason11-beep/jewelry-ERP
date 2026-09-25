@@ -12,6 +12,12 @@ executive dashboards, user & password administration, active-session monitoring 
 
 Requirements: **Node.js 20+** (nothing else — the database is embedded).
 
+**No local install:** on GitHub open the repository → **Code → Codespaces → Create codespace**. Dependencies
+and demo data are set up automatically, the app starts on port 4000 and opens in a browser tab
+(`.devcontainer/devcontainer.json`). Set the port's visibility to *Public* in the **Ports** tab to open it on a phone.
+
+Locally (Node.js ≥ 20):
+
 ```bash
 npm install
 npm run demo          # builds the UI and starts everything on http://localhost:4000
