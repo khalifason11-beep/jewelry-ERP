@@ -23,7 +23,7 @@ import {
 import { PAYMENT_METHODS, type PaymentMethod } from '@jerp/shared';
 import { get, post } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { grams, money, relative } from '../../lib/format';
+import { grams, karatLabel, money, relative } from '../../lib/format';
 import { useBranches, useCategories, useDebounced } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
@@ -107,8 +107,8 @@ export function PosPage() {
   }, [cart]);
 
   const add = (item: ItemRow) => {
-    if (item.status !== 'AVAILABLE') return toast.info(`${item.code} is reserved`, 'It is being held for a Hasad Gold customer at the counter.');
-    if (inCart.has(item.id)) return toast.info(`${item.code} is already in the cart`);
+    if (item.status !== 'AVAILABLE') return toast.info(t('{code} is reserved', { code: item.code }), t('It is being held for a Hasad Gold customer at the counter.'));
+    if (inCart.has(item.id)) return toast.info(t('{code} is already in the cart', { code: item.code }));
     setCart((c) => [...c, { item, discount: 0 }]);
   };
   const remove = (id: number) => setCart((c) => c.filter((l) => l.item.id !== id));
@@ -153,14 +153,14 @@ export function PosPage() {
         customerPhone: customerPhone || undefined,
       }),
     onSuccess: (sale) => {
-      toast.success(`${t('Sale completed')} · ${sale.number}`, `${money(sale.total)} — ${sale.items.length} item(s) marked SOLD`);
+      toast.success(`${t('Sale completed')} · ${sale.number}`, t('{total}: {n} item(s) marked SOLD', { total: money(sale.total), n: sale.items.length }));
       setInvoice(sale);
       reset();
       qc.invalidateQueries({ queryKey: ['pos-items'] });
       qc.invalidateQueries({ queryKey: ['my-sales'] });
     },
     onError: (e) => {
-      toast.fromError(e, 'Sale not completed');
+      toast.fromError(e, t('Sale not completed'));
       qc.invalidateQueries({ queryKey: ['pos-items'] });
     },
   });
@@ -169,7 +169,7 @@ export function PosPage() {
     if (!cart.length) return;
     saveHeld([...held, { id: crypto.randomUUID?.() ?? String(Date.now()), at: new Date().toISOString(), lines: cart, customerName, customerPhone }]);
     reset();
-    toast.info('Sale held', 'Find it under “Held sales” to resume. Items are not reserved while held.');
+    toast.info(t('Sale held'), t('Find it under “Held sales” to resume. Items are not reserved while held.'));
   };
 
   const branchName = me?.user.branch ? L(me.user.branch.name, me.user.branch.nameAr) : L(branches.data?.find((b) => b.id === branchId)?.name, branches.data?.find((b) => b.id === branchId)?.nameAr);
@@ -183,7 +183,7 @@ export function PosPage() {
         <div className="border-b border-line bg-white px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
             {isGlobal && (
-              <Select value={branchId ?? ''} onChange={(e) => { setBranchId(Number(e.target.value)); setCart([]); }} className="w-44" aria-label="Branch">
+              <Select value={branchId ?? ''} onChange={(e) => { setBranchId(Number(e.target.value)); setCart([]); }} className="w-44" aria-label={t('Branch')}>
                 {branches.data?.map((b) => (
                   <option key={b.id} value={b.id}>{L(b.name, b.nameAr)}</option>
                 ))}
@@ -199,21 +199,21 @@ export function PosPage() {
                 onKeyDown={onSearchKey}
                 placeholder={t('Scan barcode or search by name, code…')}
                 className="h-10 ps-10 text-[14px]"
-                aria-label="Search products"
+                aria-label={t('Search products')}
               />
               <kbd className="absolute end-2.5 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-canvas px-1.5 text-[11px] text-ink-500 sm:block">/</kbd>
             </div>
-            <Select value={karat} onChange={(e) => setKarat(e.target.value ? Number(e.target.value) : '')} className="h-10 w-32" aria-label="Karat">
+            <Select value={karat} onChange={(e) => setKarat(e.target.value ? Number(e.target.value) : '')} className="h-10 w-32" aria-label={t('Karat')}>
               <option value="">{t('Karat')}: {t('All')}</option>
               {[18, 21, 22, 24].map((k) => (
-                <option key={k} value={k}>{k}K</option>
+                <option key={k} value={k}>{karatLabel(k)}</option>
               ))}
             </Select>
-            <Select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="h-10 w-36" aria-label="Sort">
-              <option value="recent">Newest first</option>
-              <option value="code">By code</option>
-              <option value="weight">By weight</option>
-              <option value="price">By price</option>
+            <Select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="h-10 w-36" aria-label={t('Sort')}>
+              <option value="recent">{t('Newest first')}</option>
+              <option value="code">{t('By code')}</option>
+              <option value="weight">{t('By weight')}</option>
+              <option value="price">{t('By price')}</option>
             </Select>
           </div>
           <div className="mt-2.5 flex gap-1.5 overflow-x-auto pb-0.5">
@@ -232,11 +232,11 @@ export function PosPage() {
           ) : items.isError ? (
             <ErrorState error={items.error} onRetry={() => items.refetch()} />
           ) : !items.data?.items.length ? (
-            <Empty icon={<Search className="size-5" />} title="No matching pieces" body={q ? `Nothing in ${branchName} matches “${q}”.` : 'No available stock in this branch.'} />
+            <Empty icon={<Search className="size-5" />} title={t('No matching pieces')} body={q ? t('Nothing in {branch} matches “{q}”.', { branch: branchName, q }) : t('No available stock in this branch.')} />
           ) : (
             <>
               <div className="mb-2 text-xs text-ink-500 num">
-                {items.data.total} {t('Items')} · {branchName}
+                {t('{n} pieces', { n: items.data.total })} · {branchName}
               </div>
               <div className="grid grid-cols-[repeat(auto-fill,minmax(178px,1fr))] gap-3">
                 {items.data.items.map((i) => (
@@ -276,10 +276,10 @@ export function PosPage() {
                         <div className="min-w-0">
                           <div className="truncate font-medium">{L(l.item.productName, l.item.productNameAr)}</div>
                           <div className="font-mono text-[11.5px] text-ink-500">
-                            {l.item.code} · {l.item.karat}K · {grams(l.item.netWeightMg)}
+                            {l.item.code} · {karatLabel(l.item.karat)} · {grams(l.item.netWeightMg)}
                           </div>
                         </div>
-                        <button onClick={() => remove(l.item.id)} className="rounded p-1 text-ink-400 hover:bg-rose-50 hover:text-rose-600" aria-label={`Remove ${l.item.code}`}>
+                        <button onClick={() => remove(l.item.id)} className="rounded p-1 text-ink-400 hover:bg-rose-50 hover:text-rose-600" aria-label={t('Remove {code}', { code: l.item.code })}>
                           <Trash2 className="size-4" />
                         </button>
                       </div>
@@ -299,9 +299,9 @@ export function PosPage() {
                                 setCart((c) => c.map((x) => (x.item.id === l.item.id ? { ...x, discount: v } : x)));
                               }}
                               className="h-7 w-24 px-2 text-xs num"
-                              aria-label={`Discount for ${l.item.code}`}
+                              aria-label={t('Discount for {code}', { code: l.item.code })}
                             />
-                            <span className="text-[11px]">max {maxPct}%</span>
+                            <span className="text-[11px]">{t('max {pct}%', { pct: maxPct })}</span>
                           </label>
                         ) : (
                           <span />
@@ -346,7 +346,7 @@ export function PosPage() {
           </div>
           <dl className="mt-3 space-y-1 text-[13px]">
             <div className="flex justify-between text-ink-600">
-              <dt>{cart.length} {t('Items')} · {t('Net weight')}</dt>
+              <dt>{t('{n} pieces', { n: cart.length })} · {t('Net weight')}</dt>
               <dd className="num">{grams(totals.weight)}</dd>
             </div>
             <div className="flex justify-between text-ink-600">
@@ -378,31 +378,31 @@ export function PosPage() {
       <Dialog
         open={confirmCancel}
         onClose={() => setConfirmCancel(false)}
-        title="Cancel this sale?"
-        subtitle="The cart will be cleared. Nothing has been recorded yet, so inventory is unaffected."
+        title={t('Cancel this sale?')}
+        subtitle={t('The cart will be cleared. Nothing has been recorded yet, so inventory is unaffected.')}
         footer={
           <>
-            <Button onClick={() => setConfirmCancel(false)}>Keep sale</Button>
-            <Button variant="danger" data-autofocus onClick={() => { reset(); setConfirmCancel(false); }}>Clear cart</Button>
+            <Button onClick={() => setConfirmCancel(false)}>{t('Keep sale')}</Button>
+            <Button variant="danger" data-autofocus onClick={() => { reset(); setConfirmCancel(false); }}>{t('Clear cart')}</Button>
           </>
         }
       >
-        <p className="text-[13px] text-ink-600">{cart.length} item(s), {money(totals.total)}.</p>
+        <p className="text-[13px] text-ink-600">{t('{n} item(s), {total}.', { n: cart.length, total: money(totals.total) })}</p>
       </Dialog>
 
-      <Dialog open={showHeld} onClose={() => setShowHeld(false)} title={t('Held sales')} subtitle="Held carts are stored on this device and do not reserve stock." width="max-w-xl">
+      <Dialog open={showHeld} onClose={() => setShowHeld(false)} title={t('Held sales')} subtitle={t('Held carts are stored on this device and do not reserve stock.')} width="max-w-xl">
         {held.length === 0 ? (
-          <Empty title="No held sales" />
+          <Empty title={t('No held sales')} />
         ) : (
           <ul className="divide-y divide-line">
             {held.map((h) => (
               <li key={h.id} className="flex items-center justify-between gap-3 py-3">
                 <div>
-                  <div className="font-medium">{h.customerName || 'Walk-in customer'} · {h.lines.length} item(s)</div>
-                  <div className="text-xs text-ink-500">{h.lines.map((l) => l.item.code).join(', ')} · held {relative(h.at)}</div>
+                  <div className="font-medium">{h.customerName || t('Walk-in customer')} · {t('{n} item(s)', { n: h.lines.length })}</div>
+                  <div className="text-xs text-ink-500">{h.lines.map((l) => l.item.code).join('، ')} · {t('held {when}', { when: relative(h.at) })}</div>
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => saveHeld(held.filter((x) => x.id !== h.id))} aria-label="Discard held sale"><X className="size-4" /></Button>
+                  <Button size="sm" variant="ghost" onClick={() => saveHeld(held.filter((x) => x.id !== h.id))} aria-label={t('Discard held sale')}><X className="size-4" /></Button>
                   <Button
                     size="sm"
                     variant="primary"
@@ -415,7 +415,7 @@ export function PosPage() {
                       setShowHeld(false);
                     }}
                   >
-                    Resume
+                    {t('Resume')}
                   </Button>
                 </div>
               </li>
@@ -428,11 +428,11 @@ export function PosPage() {
         open={!!invoice}
         onClose={() => setInvoice(null)}
         title={`${t('Sale completed')} · ${invoice?.number ?? ''}`}
-        subtitle="Items are now SOLD and removed from available stock."
+        subtitle={t('Items are now SOLD and removed from available stock.')}
         width="max-w-3xl"
         footer={
           <>
-            <Button onClick={() => setInvoice(null)}>New sale</Button>
+            <Button onClick={() => setInvoice(null)}>{t('New sale')}</Button>
             <Button variant="primary" icon={<Printer className="size-4" />} onClick={() => window.print()}>{t('Print')}</Button>
           </>
         }
@@ -474,7 +474,7 @@ function ProductCard({ item, inCart, onAdd }: { item: ItemRow; inCart: boolean; 
         inCart ? 'border-gold-500 ring-2 ring-gold-500/30' : 'border-line hover:border-gold-400 hover:shadow-md',
         reserved && 'cursor-not-allowed opacity-60',
       )}
-      title={reserved ? 'Reserved for a Hasad Gold customer' : `Add ${item.code}`}
+      title={reserved ? t('Reserved for a Hasad Gold customer') : t('Add {code}', { code: item.code })}
     >
       <div className="p-2 pb-0">
         <ItemThumb category={item.categoryCode} karat={item.karat} />
@@ -483,7 +483,7 @@ function ProductCard({ item, inCart, onAdd }: { item: ItemRow; inCart: boolean; 
         <div className="line-clamp-1 text-[13.5px] font-medium text-ink-900">{L(item.productName, item.productNameAr)}</div>
         <div className="font-mono text-[11px] text-ink-500">{item.code}</div>
         <div className="mt-2 flex items-center gap-1.5 text-[12px] text-ink-600">
-          <span className="rounded bg-canvas px-1.5 py-0.5 font-medium">{item.karat}K</span>
+          <span className="rounded bg-canvas px-1.5 py-0.5 font-medium">{karatLabel(item.karat)}</span>
           <span className="num">{grams(item.netWeightMg)}</span>
         </div>
         <div className="mt-auto flex items-end justify-between pt-2">
@@ -523,16 +523,16 @@ function HasadBand({ branchId, onOpen }: { branchId?: number; onOpen: (id: numbe
         <Coins className="size-4 text-gold-400" />
         <span className="text-[12px] font-semibold tracking-[0.1em] text-gold-300">{t('HASAD GOLD WITHDRAWALS')}</span>
         <span className="rounded-full bg-gold-500 px-2 text-[11px] font-bold text-ink-950 num">{list.length}</span>
-        {q.data?.syncError && <span className="text-[11.5px] text-amber-300">⚠ {q.data.syncError} — showing last known requests</span>}
+        {q.data?.syncError && <span className="text-[11.5px] text-amber-300">⚠ {t(q.data.syncError)}. {t('Showing last known requests')}</span>}
         <span className="ms-auto hidden text-[11.5px] text-ink-400 md:inline">{t('No inventory is reserved until the customer selects a piece.')}</span>
         <button onClick={() => setCollapsed((c) => !c)} className="rounded px-2 py-0.5 text-[11.5px] text-ink-300 hover:bg-white/10">
-          {collapsed ? 'Show' : 'Hide'}
+          {collapsed ? t('Show') : t('Hide')}
         </button>
       </div>
       {!collapsed && (
         <div className="scroll-thin flex gap-2 overflow-x-auto px-4 pb-3">
           {q.isLoading && <Skeleton className="h-16 w-60 bg-white/10" />}
-          {!q.isLoading && list.length === 0 && <div className="py-3 text-[12.5px] text-ink-400">No customers waiting for a Hasad withdrawal at this branch.</div>}
+          {!q.isLoading && list.length === 0 && <div className="py-3 text-[12.5px] text-ink-400">{t('No customers waiting for a Hasad withdrawal at this branch.')}</div>}
           {list.map((w) => (
             <button
               key={w.id}
@@ -545,14 +545,14 @@ function HasadBand({ branchId, onOpen }: { branchId?: number; onOpen: (id: numbe
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-[11.5px] text-gold-300">{w.externalId}</span>
-                  {w.status === 'IN_PROGRESS' && <span className="rounded bg-amber-400/20 px-1 text-[10px] font-semibold text-amber-200">AT COUNTER</span>}
+                  {w.status === 'IN_PROGRESS' && <span className="rounded bg-amber-400/20 px-1 text-[10px] font-semibold text-amber-200">{t('AT COUNTER')}</span>}
                 </div>
                 <div className="truncate text-[13px] font-medium">{L(w.customerName, w.customerNameAr)}</div>
                 <div className="text-[11px] text-ink-400">{relative(w.requestedAt)}</div>
               </div>
               <div className="text-end">
                 <div className="text-[15px] font-semibold text-gold-300 num">{grams(w.entitledWeightMg)}</div>
-                <div className="text-[10.5px] text-ink-400">{w.entitlementKarat}K entitlement</div>
+                <div className="text-[10.5px] text-ink-400">{t('Entitlement · {karat}', { karat: karatLabel(w.entitlementKarat) })}</div>
               </div>
             </button>
           ))}

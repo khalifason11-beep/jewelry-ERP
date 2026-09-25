@@ -1,14 +1,48 @@
 // Thin fetch wrapper. Sends the current module so the server can show it in Active Sessions.
 
+import { translate, type Params } from './i18n';
+
+/**
+ * API error. The server sends a stable English `key` (template) + `params`; `errorText()`
+ * renders it in the current language. `message` is the English fallback.
+ */
 export class ApiError extends Error {
   constructor(
     public status: number,
     public code: string,
     message: string,
     public details?: unknown,
+    public key?: string,
+    public params?: Params,
   ) {
     super(message);
   }
+}
+
+/** Translate a param value when it is a known term (e.g. SOLD, AVAILABLE / RESERVED, a branch). */
+function translateValue(v: Params[string]): Params[string] {
+  if (typeof v !== 'string') return v;
+  return v
+    .split(' / ')
+    .map((part) => translate(part))
+    .join(' / ');
+}
+
+/** Translate every translatable param value (used for API errors and notifications). */
+export function translateParams(params?: Params): Params | undefined {
+  return params ? Object.fromEntries(Object.entries(params).map(([k, v]) => [k, translateValue(v)])) : undefined;
+}
+
+/** User-facing text for any error, in the current language. */
+export function errorText(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.key) {
+      return translate(e.key, translateParams(e.params));
+    }
+    return translate(e.message);
+  }
+  if (e instanceof Error) return translate(e.message);
+  return String(e);
 }
 
 let currentModule = 'app';
@@ -45,12 +79,12 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
       credentials: 'same-origin',
     });
   } catch {
-    throw new ApiError(0, 'NETWORK', 'Cannot reach the server. Check your connection.');
+    throw new ApiError(0, 'NETWORK', 'Cannot reach the server. Check your connection.', undefined, 'Cannot reach the server. Check your connection.');
   }
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
-    const err = new ApiError(res.status, data?.error?.code ?? 'ERROR', data?.error?.message ?? res.statusText, data?.error?.details);
+    const err = new ApiError(res.status, data?.error?.code ?? 'ERROR', data?.error?.message ?? res.statusText, data?.error?.details, data?.error?.key, data?.error?.params);
     if (res.status === 401 || err.code === 'PASSWORD_CHANGE_REQUIRED') authListeners.forEach((l) => l(err));
     throw err;
   }

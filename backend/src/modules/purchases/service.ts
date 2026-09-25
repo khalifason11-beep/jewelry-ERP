@@ -63,7 +63,7 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
     const codes: string[] = [];
     for (const l of input.lines) {
       const product = byId.get(l.productId);
-      if (!product) throw notFound(`Product ${l.productId}`);
+      if (!product) throw notFound('Product');
       const { code, barcode } = await nextItemCode(tx);
       codes.push(code);
       const [item] = await tx

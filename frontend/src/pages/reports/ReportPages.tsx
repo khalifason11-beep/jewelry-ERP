@@ -18,8 +18,8 @@ import {
 import type { Permission } from '@jerp/shared';
 import { get } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { date, dateTime, grams, money, num, pct } from '../../lib/format';
-import { useI18n } from '../../lib/i18n';
+import { date, dateTime, grams, humanize, karatLabel, money, num, pct } from '../../lib/format';
+import { tk, useI18n } from '../../lib/i18n';
 import type { Report } from '../../lib/types';
 import { Alert, Card, ErrorState, Loading, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { DataTable, type Column } from '../../components/ui/DataTable';
@@ -27,17 +27,17 @@ import { BranchSelect, DateRange, useRangeParams } from '../../components/Filter
 import { Crumbs } from '../sales/SalesPages';
 
 const REPORTS: { key: string; title: string; desc: string; icon: LucideIcon; perm?: Permission }[] = [
-  { key: 'sales', title: 'Sales Report', desc: 'Invoices, discounts, cost and gross profit', icon: Receipt },
-  { key: 'purchases', title: 'Purchases Report', desc: 'Stock received from suppliers', icon: Truck, perm: 'purchases.view' },
-  { key: 'expenses', title: 'Expenses Report', desc: 'Operating expenses by branch and category', icon: Wallet, perm: 'expenses.view' },
-  { key: 'inventory', title: 'Inventory Report', desc: 'Every piece with weights, costs and status', icon: Boxes, perm: 'inventory.view' },
-  { key: 'inventory-movement', title: 'Inventory Movement', desc: 'Opening → movements → closing, pieces & grams', icon: ArrowLeftRight, perm: 'inventory.view' },
-  { key: 'profit', title: 'Profit Report', desc: 'Gross profit and contribution by branch, category, karat', icon: TrendingUp, perm: 'profit.view' },
-  { key: 'hasad', title: 'Hasad Withdrawal Report', desc: 'Entitlement vs delivered weight and settlements', icon: Coins, perm: 'hasad.view' },
-  { key: 'branch-performance', title: 'Branch Performance', desc: 'Branches side by side', icon: Building2 },
-  { key: 'user-activity', title: 'User Activity', desc: 'Sign-ins, transactions and actions per user', icon: Users, perm: 'users.view' },
-  { key: 'audit', title: 'Audit Log', desc: 'Every important action, filterable', icon: ScrollText, perm: 'audit.view' },
-  { key: 'inventory-ledger', title: 'Inventory Ledger', desc: 'Line-by-line stock movements with references', icon: BarChart3, perm: 'inventory.view' },
+  { key: 'sales', title: tk('Sales Report'), desc: tk('Invoices, discounts, cost and gross profit'), icon: Receipt },
+  { key: 'purchases', title: tk('Purchases Report'), desc: tk('Stock received from suppliers'), icon: Truck, perm: 'purchases.view' },
+  { key: 'expenses', title: tk('Expenses Report'), desc: tk('Operating expenses by branch and category'), icon: Wallet, perm: 'expenses.view' },
+  { key: 'inventory', title: tk('Inventory Report'), desc: tk('Every piece with weights, costs and status'), icon: Boxes, perm: 'inventory.view' },
+  { key: 'inventory-movement', title: tk('Inventory Movement'), desc: tk('Opening → movements → closing, pieces & grams'), icon: ArrowLeftRight, perm: 'inventory.view' },
+  { key: 'profit', title: tk('Profit Report'), desc: tk('Gross profit and contribution by branch, category, karat'), icon: TrendingUp, perm: 'profit.view' },
+  { key: 'hasad', title: tk('Hasad Withdrawal Report'), desc: tk('Entitlement vs delivered weight and settlements'), icon: Coins, perm: 'hasad.view' },
+  { key: 'branch-performance', title: tk('Branch Performance'), desc: tk('Branches side by side'), icon: Building2 },
+  { key: 'user-activity', title: tk('User Activity'), desc: tk('Sign-ins, transactions and actions per user'), icon: Users, perm: 'users.view' },
+  { key: 'audit', title: tk('Audit Log'), desc: tk('Every important action, filterable'), icon: ScrollText, perm: 'audit.view' },
+  { key: 'inventory-ledger', title: tk('Inventory Ledger'), desc: tk('Line-by-line stock movements with references'), icon: BarChart3, perm: 'inventory.view' },
 ];
 
 export function ReportsHubPage() {
@@ -45,7 +45,7 @@ export function ReportsHubPage() {
   const { can } = useAuth();
   return (
     <div className="p-5 lg:p-6">
-      <PageHeader title={t('Reports')} subtitle="Every report supports date range, branch and user filters, search, sorting and CSV export." />
+      <PageHeader title={t('Reports')} subtitle={t('Every report supports date range, branch and user filters, search, sorting and CSV export.')} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {REPORTS.filter((r) => !r.perm || can(r.perm)).map((r) => (
           <Link key={r.key} to={`/reports/${r.key}`} className="group">
@@ -54,8 +54,8 @@ export function ReportsHubPage() {
                 <r.icon className="size-5" />
               </div>
               <div>
-                <div className="font-semibold text-ink-900">{r.title}</div>
-                <div className="mt-0.5 text-[13px] text-ink-500">{r.desc}</div>
+                <div className="font-semibold text-ink-900">{t(r.title)}</div>
+                <div className="mt-0.5 text-[13px] text-ink-500">{t(r.desc)}</div>
               </div>
             </Card>
           </Link>
@@ -109,15 +109,20 @@ export function ReportPage() {
         return <StatusBadge status={String(v)} />;
       case 'code':
         return <Mono>{String(v)}</Mono>;
-      default:
-        return String(v);
+      default: {
+        // Text cells: translate known terms (branch names, roles, categories), karats and day keys.
+        const str = String(v);
+        if (/^\d{2}K$/.test(str)) return karatLabel(Number(str.slice(0, 2)));
+        if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return date(str, lang);
+        return t(str);
+      }
     }
   };
 
   const columns: Column<Record<string, unknown>>[] = (r?.columns ?? []).map((c) => ({
     key: c.key,
-    header: c.label,
-    csvHeader: c.label,
+    header: t(c.label),
+    csvHeader: t(c.label),
     align: ['money', 'weight', 'number', 'percent'].includes(c.type) ? 'end' : 'start',
     value: (row) => row[c.key] as unknown,
     render: (row) =>
@@ -134,30 +139,34 @@ export function ReportPage() {
   const meta = REPORTS.find((x) => x.key === key);
   return (
     <div className="p-5 lg:p-6">
-      <PageHeader breadcrumbs={<Crumbs items={[{ label: t('Reports'), to: '/reports' }, { label: r?.title ?? meta?.title ?? key }]} />} title={r?.title ?? meta?.title ?? 'Report'} subtitle={r?.description} />
+      <PageHeader
+        breadcrumbs={<Crumbs items={[{ label: t('Reports'), to: '/reports' }, { label: t(r?.title ?? meta?.title ?? key) }]} />}
+        title={t(r?.title ?? meta?.title ?? 'Report')}
+        subtitle={r?.description ? t(r.description) : undefined}
+      />
       <Card padded={false}>
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">
           {(r?.filters.dateRange ?? true) && <DateRange from={from} to={to} onChange={(x) => set(x)} />}
           {(r?.filters.branch ?? true) && <BranchSelect value={branchId} onChange={(v) => set({ branchId: v, userId: undefined })} />}
           {r?.filters.user && can('users.view') && (
             <Select value={userId} onChange={(e) => set({ userId: e.target.value || undefined })} className="h-8 w-44 text-[13px]" aria-label={t('User')}>
-              <option value="">All users</option>
+              <option value="">{t('All users')}</option>
               {users.data?.map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}
             </Select>
           )}
           {r?.filters.status && (
             <Select value={status} onChange={(e) => set({ status: e.target.value || undefined })} className="h-8 w-40 text-[13px]" aria-label={t('Status')}>
-              <option value="">All</option>
-              {r.filters.status.map((s) => <option key={s} value={s}>{t(s) === s ? s.replaceAll('_', ' ') : t(s)}</option>)}
+              <option value="">{t('All')}</option>
+              {r.filters.status.map((s) => <option key={s} value={s}>{humanize(s)}</option>)}
             </Select>
           )}
           {key === 'profit' && (
-            <Select value={group} onChange={(e) => set({ group: e.target.value })} className="h-8 w-40 text-[13px]" aria-label="Group by">
-              <option value="branch">By branch</option>
-              <option value="category">By category</option>
-              <option value="karat">By karat</option>
-              <option value="cashier">By cashier</option>
-              <option value="day">By day</option>
+            <Select value={group} onChange={(e) => set({ group: e.target.value })} className="h-8 w-40 text-[13px]" aria-label={t('Group by')}>
+              <option value="branch">{t('By branch')}</option>
+              <option value="category">{t('By category')}</option>
+              <option value="karat">{t('By karat')}</option>
+              <option value="cashier">{t('By cashier')}</option>
+              <option value="day">{t('By day')}</option>
             </Select>
           )}
         </div>
@@ -181,7 +190,7 @@ export function ReportPage() {
       </Card>
       {r?.notes?.length ? (
         <Alert tone="info" icon={<Info className="size-4" />} className="mt-3">
-          {r.notes.map((n) => <div key={n}>{n}</div>)}
+          {r.notes.map((n) => <div key={n}>{t(n)}</div>)}
         </Alert>
       ) : null}
     </div>

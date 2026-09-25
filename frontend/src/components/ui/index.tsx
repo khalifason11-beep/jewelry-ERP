@@ -12,7 +12,9 @@ import {
 } from 'react';
 import clsx from 'clsx';
 import { AlertTriangle, Inbox, Loader2, X } from 'lucide-react';
-import { useI18n } from '../../lib/i18n';
+import { translate, useI18n } from '../../lib/i18n';
+import { errorText } from '../../lib/api';
+import { karatLabel } from '../../lib/format';
 
 // ───────── Button ─────────
 type Variant = 'primary' | 'gold' | 'secondary' | 'ghost' | 'danger' | 'success';
@@ -193,7 +195,7 @@ export function Empty({ title, body, icon, action, className }: { title: string;
 
 export function ErrorState({ error, onRetry, className }: { error: unknown; onRetry?: () => void; className?: string }) {
   const { t } = useI18n();
-  const msg = error instanceof Error ? error.message : String(error);
+  const msg = errorText(error);
   return (
     <div className={clsx('flex flex-col items-center justify-center px-6 py-12 text-center', className)} role="alert">
       <div className="mb-3 grid size-11 place-items-center rounded-full bg-rose-50 text-rose-600">
@@ -271,7 +273,7 @@ export function Dialog({
             <h2 className="text-base font-semibold text-ink-950">{title}</h2>
             {subtitle && <p className="mt-0.5 text-[13px] text-ink-500">{subtitle}</p>}
           </div>
-          <button onClick={onClose} className="rounded p-1 text-ink-400 hover:bg-canvas hover:text-ink-700" aria-label="Close">
+          <button onClick={onClose} className="rounded p-1 text-ink-400 hover:bg-canvas hover:text-ink-700" aria-label={translate('Close')}>
             <X className="size-4" />
           </button>
         </div>
@@ -375,7 +377,7 @@ export function ItemThumb({ category, karat, size = 'md' }: { category: string; 
       aria-hidden
     >
       <span className="opacity-90">{glyph[category] ?? '◇'}</span>
-      <span className="absolute bottom-1 end-1 rounded bg-ink-950/60 px-1 text-[10px] font-semibold text-gold-300">{karat}K</span>
+      <span className="absolute bottom-1 end-1 rounded bg-ink-950/60 px-1 text-[10px] font-semibold text-gold-300">{karatLabel(karat)}</span>
     </div>
   );
 }

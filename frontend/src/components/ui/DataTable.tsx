@@ -108,9 +108,7 @@ export function DataTable<T>({
             </div>
           )}
           <div className="flex flex-1 flex-wrap items-center gap-2">{toolbar}</div>
-          <span className="text-xs text-ink-500 num">
-            {filtered.length.toLocaleString()} {filtered.length === 1 ? 'row' : 'rows'}
-          </span>
+          <span className="text-xs text-ink-500 num">{t(filtered.length === 1 ? '{n} row' : '{n} rows', { n: filtered.length.toLocaleString('en-US') })}</span>
           {exportName && (
             <Button size="sm" variant="ghost" icon={<Download className="size-4" />} onClick={exportCsv}>
               {t('Export CSV')}
@@ -119,7 +117,7 @@ export function DataTable<T>({
         </div>
       )}
       {filtered.length === 0 ? (
-        <Empty title={q ? `No results for “${q}”` : t(emptyTitle)} body={q ? 'Try a different search term.' : emptyBody} />
+        <Empty title={q ? t('No results for “{q}”', { q }) : t(emptyTitle)} body={q ? t('Try a different search term.') : emptyBody} />
       ) : (
         <div className="scroll-thin overflow-auto" style={{ maxHeight }}>
           <table className="w-full border-collapse text-[13px]">

@@ -37,7 +37,7 @@ export function HasadListPage() {
             <Coins className="size-6 text-gold-600" /> {t('Hasad Withdrawals')}
           </span>
         }
-        subtitle="Gold withdrawal requests sent by the Hasad Gold app. The customer chooses the actual piece at the counter."
+        subtitle={t('Gold withdrawal requests sent by the Hasad Gold app. The customer chooses the actual piece at the counter.')}
         actions={
           <>
             {isGlobal && (
@@ -56,12 +56,13 @@ export function HasadListPage() {
       />
 
       <Alert tone="gold" icon={<Info className="size-4 text-gold-700" />} className="mb-4">
-        <b>Receiving a withdrawal request never touches inventory.</b> A piece is only reserved when the customer, at the counter, picks it. The weight difference against the entitlement is then settled in cash.
+        <b>{t('Receiving a withdrawal request never touches inventory.')}</b>{' '}
+        {t('A piece is only reserved when the customer, at the counter, picks it. The weight difference against the entitlement is then settled in cash.')}
       </Alert>
 
       {q.data?.syncError && (
-        <Alert tone="warning" icon={<WifiOff className="size-4" />} className="mb-4" title="Hasad Gold is not reachable">
-          {q.data.syncError}. Showing requests already received. New requests will appear when the connection is restored.
+        <Alert tone="warning" icon={<WifiOff className="size-4" />} className="mb-4" title={t('Hasad Gold is not reachable')}>
+          {t(q.data.syncError)}. {t('Showing requests already received. New requests will appear when the connection is restored.')}
         </Alert>
       )}
 
@@ -87,11 +88,11 @@ export function HasadListPage() {
             rowKey={(r) => r.id}
             onRowClick={(r) => navigate(`/hasad/${r.id}`)}
             exportName="hasad-withdrawals"
-            emptyTitle={tab === 'open' ? 'No customers waiting' : 'Nothing to show'}
-            emptyBody={tab === 'open' ? 'New Hasad Gold requests for this branch appear here automatically.' : undefined}
+            emptyTitle={tab === 'open' ? t('No customers waiting') : t('Nothing to show')}
+            emptyBody={tab === 'open' ? t('New Hasad Gold requests for this branch appear here automatically.') : undefined}
             initialSort={undefined}
             columns={[
-              { key: 'externalId', header: 'Withdrawal', render: (r) => <Mono className="font-semibold text-ink-900">{r.externalId}</Mono> },
+              { key: 'externalId', header: t('Withdrawal'), render: (r) => <Mono className="font-semibold text-ink-900">{r.externalId}</Mono> },
               {
                 key: 'customerName',
                 header: t('Customer'),
@@ -104,19 +105,19 @@ export function HasadListPage() {
               },
               ...(isGlobal ? [{ key: 'branchName', header: t('Branch'), render: (r: (typeof rows)[number]) => L(r.branchName, r.branchNameAr) }] : []),
               { key: 'entitledWeightMg', header: t('Entitled weight'), align: 'end' as const, render: (r) => <span className="font-semibold num">{grams(r.entitledWeightMg)}</span> },
-              { key: 'requestedAt', header: 'Requested', value: (r) => r.requestedAt, render: (r) => <span title={dateTime(r.requestedAt, lang)}>{relative(r.requestedAt)}</span> },
+              { key: 'requestedAt', header: t('Requested'), value: (r) => r.requestedAt, render: (r) => <span title={dateTime(r.requestedAt, lang)}>{relative(r.requestedAt)}</span> },
               {
                 key: 'inventory',
-                header: 'Inventory impact',
+                header: t('Inventory impact'),
                 sortable: false,
                 value: (r) => r.reservedCount,
                 render: (r) =>
                   r.status === 'COMPLETED' ? (
-                    <span className="text-ink-600">Delivered {grams(r.deliveredWeightMg)}</span>
+                    <span className="text-ink-600">{t('Delivered {weight}', { weight: grams(r.deliveredWeightMg) })}</span>
                   ) : r.reservedCount > 0 ? (
-                    <span className="text-amber-700">{r.reservedCount} piece(s) reserved</span>
+                    <span className="text-amber-700">{t('{n} piece(s) reserved', { n: r.reservedCount })}</span>
                   ) : (
-                    <span className="text-ink-400">None</span>
+                    <span className="text-ink-400">{t('None')}</span>
                   ),
               },
               {
@@ -142,7 +143,7 @@ export function HasadListPage() {
       </Card>
       {q.data && (
         <div className="mt-2 text-end text-[11.5px] text-ink-400">
-          Source: Hasad Gold API ({q.data.mode === 'MOCK' ? 'mock service' : 'live'}) · last synced {relative(q.data.syncedAt)}
+          {t('Source: Hasad Gold API ({mode}) · last synced {when}', { mode: q.data.mode === 'MOCK' ? t('mock service') : t('live'), when: relative(q.data.syncedAt) })}
         </div>
       )}
     </div>

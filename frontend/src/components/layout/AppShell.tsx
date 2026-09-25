@@ -28,9 +28,9 @@ import {
   Wallet,
 } from 'lucide-react';
 import type { Permission } from '@jerp/shared';
-import { get, post, setCurrentModule } from '../../lib/api';
+import { get, post, setCurrentModule, translateParams } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { money, relative } from '../../lib/format';
+import { deviceText, money, relative } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 
 interface NavItem {
@@ -43,7 +43,7 @@ interface NavItem {
 
 export function Logo({ compact = false }: { compact?: boolean }) {
   const { me } = useAuth();
-  const { L } = useI18n();
+  const { t, L } = useI18n();
   return (
     <div className="flex items-center gap-2.5">
       <div className="grid size-9 shrink-0 place-items-center rounded-lg border border-gold-600/40 bg-ink-850">
@@ -51,8 +51,8 @@ export function Logo({ compact = false }: { compact?: boolean }) {
       </div>
       {!compact && (
         <div className="min-w-0 leading-tight">
-          <div className="truncate text-[14px] font-semibold text-white">{L(me?.company.name ?? 'Loai Tabeede', me?.company.nameAr)}</div>
-          <div className="text-[11px] tracking-wide text-gold-400/90">ERP · Prototype</div>
+          <div className="truncate text-[14px] font-semibold text-white">{L(me?.company.name ?? 'Loai Tabeede', me?.company.nameAr ?? 'لؤي تبيدي')}</div>
+          <div className="text-[11px] tracking-wide text-gold-400/90">{t('ERP · Prototype')}</div>
         </div>
       )}
     </div>
@@ -135,7 +135,7 @@ export function AppShell() {
         <div className={clsx('flex h-14 items-center border-b border-white/5', collapsed ? 'justify-center px-2' : 'px-4')}>
           <Logo compact={collapsed} />
         </div>
-        <nav className="scroll-thin flex-1 overflow-y-auto px-2 py-3" aria-label="Main">
+        <nav className="scroll-thin flex-1 overflow-y-auto px-2 py-3" aria-label={t('Main menu')}>
           {groups.map((g) => {
             const items = g.items.filter((i) => i.show(can));
             if (!items.length) return null;
@@ -173,7 +173,7 @@ export function AppShell() {
         </nav>
         <div className="border-t border-white/5 p-2">
           <button onClick={() => setCollapsed((c) => !c)} className="flex h-8 w-full items-center justify-center gap-2 rounded-md text-xs text-ink-400 hover:bg-white/5 hover:text-white">
-            {collapsed ? <ChevronsRight className="size-4 rtl:rotate-180" /> : <><ChevronsLeft className="size-4 rtl:rotate-180" /> Collapse</>}
+            {collapsed ? <ChevronsRight className="size-4 rtl:rotate-180" /> : <><ChevronsLeft className="size-4 rtl:rotate-180" /> {t('Collapse')}</>}
           </button>
         </div>
       </aside>
@@ -185,8 +185,8 @@ export function AppShell() {
               <Building2 className="size-3.5 text-ink-500" />
               {me.user.branch ? L(me.user.branch.name, me.user.branch.nameAr) : t('All branches')}
             </span>
-            <span className="hidden rounded border border-dashed border-gold-500/60 px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-gold-700 md:inline" title="Demo data · Hasad Gold is simulated by a mock service">
-              Demo · Hasad {me.hasadMode === 'MOCK' ? 'mock' : 'live'}
+            <span className="hidden rounded border border-dashed border-gold-500/60 px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-gold-700 md:inline" title={t('Demo data · Hasad Gold is simulated by a mock service')}>
+              {me.hasadMode === 'MOCK' ? t('Demo · Hasad mock') : t('Demo · Hasad live')}
             </span>
           </div>
           <div className="ms-auto flex items-center gap-1.5 sm:gap-3">
@@ -196,7 +196,7 @@ export function AppShell() {
             <button
               onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}
               className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[13px] text-ink-600 hover:bg-canvas"
-              aria-label="Switch language"
+              aria-label={t('Switch language')}
             >
               <Globe className="size-4" /> {lang === 'en' ? 'العربية' : 'English'}
             </button>
@@ -216,10 +216,10 @@ function GoldRate() {
   const q = useQuery({ queryKey: ['gold-rates'], queryFn: () => get<{ current: Record<string, { pricePerGram: number }> }>('/gold-rates'), refetchInterval: 120_000 });
   const r = q.data?.current['21']?.pricePerGram;
   return (
-    <div className="hidden items-center gap-2 rounded-md bg-ink-900 px-2.5 py-1 text-[12.5px] lg:flex" title="Reference gold price per gram (set by the General Manager)">
+    <div className="hidden items-center gap-2 rounded-md bg-ink-900 px-2.5 py-1 text-[12.5px] lg:flex" title={t('Reference gold price per gram (set by the General Manager)')}>
       <span className="size-1.5 rounded-full bg-gold-400" />
       <span className="text-ink-300">{t('Gold 21K')}</span>
-      <span className="font-semibold text-gold-300 num">{r ? money(r) : '—'}/g</span>
+      <span className="font-semibold text-gold-300 num">{r ? money(r) : '—'}/{t('g')}</span>
     </div>
   );
 }
@@ -243,8 +243,10 @@ function Clock() {
 interface Notif {
   id: string;
   kind: string;
+  /** Translation keys filled with `params`. */
   title: string;
   body: string;
+  params?: Record<string, string | number>;
   link: string;
   at: string;
   severity: 'info' | 'warning';
@@ -289,8 +291,8 @@ function Notifications() {
               >
                 <span className={clsx('mt-1.5 size-2 shrink-0 rounded-full', n.severity === 'warning' ? 'bg-amber-500' : n.kind === 'HASAD' ? 'bg-gold-500' : 'bg-sky-500')} />
                 <span className="min-w-0">
-                  <span className="block text-[13px] font-medium text-ink-900">{n.title}</span>
-                  <span className="block truncate text-xs text-ink-500">{n.body}</span>
+                  <span className="block text-[13px] font-medium text-ink-900">{t(n.title, translateParams(n.params))}</span>
+                  <span className="block truncate text-xs text-ink-500">{t(n.body, translateParams(n.params))}</span>
                   <span className="mt-0.5 block text-[11px] text-ink-400">{relative(n.at)}</span>
                 </span>
               </button>
@@ -326,11 +328,11 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
             <div className="font-mono text-xs text-ink-500">{me.user.username}</div>
             {me.session && (
               <div className="mt-2 rounded-md bg-canvas px-2.5 py-2 text-[11.5px] text-ink-600">
-                Session <span className="font-mono">{me.session.ref}</span> · {me.session.device}
+                {t('Session')} <span className="font-mono">{me.session.ref}</span> · {deviceText(me.session.device)}
                 <br />
-                Signed in {relative(me.session.loginAt)} · IP {me.session.ipAddress}
+                {t('Signed in {when}', { when: relative(me.session.loginAt) })} · {t('IP')} <span className="font-mono">{me.session.ipAddress}</span>
                 <br />
-                <span className="text-ink-400">Sessions are visible to your administrators.</span>
+                <span className="text-ink-400">{t('Sessions are visible to your administrators.')}</span>
               </div>
             )}
           </div>

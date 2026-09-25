@@ -93,7 +93,7 @@ export async function createUser(ctx: Ctx, actor: Actor, input: CreateUserInput)
 
   const { security } = await ctx.settings.get();
   const temp = input.temporaryPassword?.trim() || generateTemporaryPassword();
-  if (temp.length < security.minPasswordLength) throw badRequest(`Password must be at least ${security.minPasswordLength} characters`);
+  if (temp.length < security.minPasswordLength) throw badRequest('Password must be at least {n} characters', { n: security.minPasswordLength });
 
   return ctx.db.transaction(async (tx) => {
     const [u] = await tx

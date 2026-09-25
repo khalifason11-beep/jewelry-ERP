@@ -1,5 +1,5 @@
 import { Gem } from 'lucide-react';
-import { dateTime, grams, money } from '../lib/format';
+import { dateTime, grams, karatLabel, money } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
 
@@ -15,6 +15,7 @@ export interface SaleDetail {
   branchPhone: string | null;
   cashierId: number;
   cashierName: string;
+  cashierNameAr?: string | null;
   cashierUsername: string;
   customerName: string | null;
   customerPhone: string | null;
@@ -34,6 +35,7 @@ export interface SaleDetail {
     itemCode: string;
     barcode: string;
     productName: string;
+    productNameAr?: string | null;
     karat: number;
     netWeightMg: number;
     grossWeightMg: number;
@@ -76,18 +78,18 @@ export function InvoiceDocument({ sale }: { sale: SaleDetail }) {
       </div>
       {sale.status === 'VOIDED' && (
         <div className="mt-3 rounded border-2 border-rose-600 px-3 py-2 text-center font-semibold uppercase tracking-wider text-rose-700">
-          Cancelled — {sale.voidReason}
+          {t('Cancelled: {reason}', { reason: sale.voidReason ?? '' })}
         </div>
       )}
       <div className="grid grid-cols-2 gap-4 py-4 text-[12.5px]">
         <div>
           <div className="text-ink-500">{t('Customer')}</div>
-          <div className="font-medium">{sale.customerName || 'Walk-in customer'}</div>
+          <div className="font-medium">{sale.customerName || t('Walk-in customer')}</div>
           {sale.customerPhone && <div className="text-ink-500">{sale.customerPhone}</div>}
         </div>
         <div className="text-end">
           <div className="text-ink-500">{t('Cashier')}</div>
-          <div className="font-medium">{sale.cashierName}</div>
+          <div className="font-medium">{L(sale.cashierName, sale.cashierNameAr)}</div>
           <div className="text-ink-500">
             {t('Payment')}: {t(sale.paymentMethod)}
           </div>
@@ -108,12 +110,12 @@ export function InvoiceDocument({ sale }: { sale: SaleDetail }) {
           {sale.items.map((i) => (
             <tr key={i.id} className="border-b border-ink-900/10">
               <td className="py-2">
-                <div className="font-medium">{i.productName}</div>
+                <div className="font-medium">{L(i.productName, i.productNameAr)}</div>
                 <div className="font-mono text-[11px] text-ink-500">
                   {i.itemCode} · {i.barcode}
                 </div>
               </td>
-              <td className="py-2">{i.karat}K</td>
+              <td className="py-2">{karatLabel(i.karat)}</td>
               <td className="py-2 text-end num">{grams(i.netWeightMg)}</td>
               <td className="py-2 text-end num">{money(i.listPrice, false)}</td>
               <td className="py-2 text-end num">{i.discount ? `−${money(i.discount, false)}` : '—'}</td>
@@ -145,7 +147,7 @@ export function InvoiceDocument({ sale }: { sale: SaleDetail }) {
         </div>
       </div>
       <div className="mt-8 border-t border-dashed border-ink-900/20 pt-3 text-center text-[11px] text-ink-500">
-        Thank you for your purchase · شكراً لتسوقكم معنا · Prices include making charges · Prototype document, not a tax invoice
+        {t('Thank you for your purchase · Prices include making charges · Prototype document, not a tax invoice')}
       </div>
     </div>
   );

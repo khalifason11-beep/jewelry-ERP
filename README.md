@@ -85,4 +85,13 @@ integrations/hasad/   HasadService interface + MockHasadService (isolated `hasad
 backend/              Express API: auth, authz, modules (sales, hasad, inventory, …), seed, tests
 frontend/             React + Tailwind UI (POS, dashboards, reports, admin), i18n EN/AR (RTL)
 docs/                 architecture & presentation material
+scripts/i18n-check.mjs  localization scanner (`npm run i18n:check`)
 ```
+
+### Language
+
+The UI opens in Arabic (RTL) by default; the header switch toggles English. English source strings are the
+translation keys (`t('…')`, with `{param}` interpolation); Arabic lives in `frontend/src/lib/i18n-ar.ts`.
+Amounts and weights always use Western digits; dates use Arabic month names in Arabic. API errors carry a
+stable `key` + `params` so the client shows them in the active language. `npm run i18n:check` reports any
+hardcoded English left in JSX and any key without an Arabic translation (`--strict` exits non-zero).

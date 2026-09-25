@@ -4,7 +4,8 @@
 
 import type { ReactNode } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { compactMoney, money } from '../lib/format';
+import { compactMoney, money, shortDay } from '../lib/format';
+import { translate } from '../lib/i18n';
 
 const AXIS = { stroke: 'var(--color-ink-400)', fontSize: 11 };
 const GRID = 'var(--color-line)';
@@ -24,10 +25,6 @@ function TooltipBox({ title, rows }: { title: ReactNode; rows: { color: string; 
   );
 }
 
-const shortDay = (d: string) => {
-  const [, m, day] = d.split('-');
-  return `${Number(day)}/${Number(m)}`;
-};
 
 export interface Series {
   key: string;
@@ -47,7 +44,7 @@ export function MoneyLineChart({ data, series, height = 240, xKey = 'day' }: { d
           cursor={{ stroke: 'var(--color-ink-300)', strokeDasharray: '3 3' }}
           content={({ active, payload, label }) =>
             active && payload?.length ? (
-              <TooltipBox title={String(label)} rows={series.map((s) => ({ color: s.color, label: s.label, value: money(Number(payload.find((p) => p.dataKey === s.key)?.value ?? 0)) }))} />
+              <TooltipBox title={shortDay(String(label))} rows={series.map((s) => ({ color: s.color, label: s.label, value: money(Number(payload.find((p) => p.dataKey === s.key)?.value ?? 0)) }))} />
             ) : null
           }
         />
@@ -100,7 +97,7 @@ export function CategoryBarChart({
             active && payload?.length ? (
               <TooltipBox
                 title={String(payload[0].payload[labelKey])}
-                rows={[{ color: String(payload[0].payload.__color ?? 'var(--color-ink-700)'), label: 'Value', value: format(Number(payload[0].value)) }]}
+                rows={[{ color: String(payload[0].payload.__color ?? 'var(--color-ink-700)'), label: translate('Value'), value: format(Number(payload[0].value)) }]}
               />
             ) : null
           }
@@ -157,7 +154,7 @@ function StackedMoneyBarsPlot({ data, series, height = 260, xKey = 'day' }: { da
           content={({ active, payload, label }) =>
             active && payload?.length ? (
               <TooltipBox
-                title={`${label} · ${money(series.reduce((sum, s) => sum + Number(payload.find((p) => p.dataKey === s.key)?.value ?? 0), 0))}`}
+                title={`${shortDay(String(label))} · ${money(series.reduce((sum, s) => sum + Number(payload.find((p) => p.dataKey === s.key)?.value ?? 0), 0))}`}
                 rows={[...series].reverse().map((s) => ({ color: s.color, label: s.label, value: money(Number(payload.find((p) => p.dataKey === s.key)?.value ?? 0)) }))}
               />
             ) : null

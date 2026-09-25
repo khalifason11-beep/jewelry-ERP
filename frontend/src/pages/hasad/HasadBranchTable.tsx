@@ -23,9 +23,9 @@ export function HasadBranchTable({ branchId }: { branchId: number }) {
       onRowClick={(r) => navigate(`/hasad/${r.id}`)}
       exportName="hasad"
       columns={[
-        { key: 'externalId', header: 'Withdrawal', render: (r) => <Mono className="font-semibold">{r.externalId}</Mono> },
+        { key: 'externalId', header: t('Withdrawal'), render: (r) => <Mono className="font-semibold">{r.externalId}</Mono> },
         { key: 'customerName', header: t('Customer'), render: (r) => L(r.customerName, r.customerNameAr) },
-        { key: 'requestedAt', header: 'Requested', render: (r) => dateTime(r.requestedAt, lang) },
+        { key: 'requestedAt', header: t('Requested'), render: (r) => dateTime(r.requestedAt, lang) },
         { key: 'entitledWeightMg', header: t('Entitled weight'), align: 'end', render: (r) => <span className="num">{grams(r.entitledWeightMg)}</span> },
         { key: 'deliveredWeightMg', header: t('Delivered weight'), align: 'end', render: (r) => <span className="num">{grams(r.deliveredWeightMg)}</span>, footer: grams(done.reduce((s, r) => s + (r.deliveredWeightMg ?? 0), 0)) },
         { key: 'settlementDirection', header: t('Settlement'), render: (r) => (r.settlementDirection ? <StatusBadge status={r.settlementDirection} /> : '—') },

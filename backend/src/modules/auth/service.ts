@@ -65,7 +65,7 @@ export async function changePassword(ctx: Ctx, actor: Actor, input: { currentPas
     throw forbidden('Passwords are managed centrally. Ask the General Manager to reset your password.');
   }
   if (!(await verifyPassword(input.currentPassword, u.passwordHash))) throw badRequest('Current password is incorrect');
-  if (input.newPassword.length < security.minPasswordLength) throw badRequest(`New password must be at least ${security.minPasswordLength} characters`);
+  if (input.newPassword.length < security.minPasswordLength) throw badRequest('New password must be at least {n} characters', { n: security.minPasswordLength });
   if (input.newPassword === input.currentPassword) throw badRequest('New password must differ from the current one');
   if (!/[A-Za-z]/.test(input.newPassword) || !/\d/.test(input.newPassword)) throw badRequest('Use letters and digits');
   await ctx.db.transaction(async (tx) => {

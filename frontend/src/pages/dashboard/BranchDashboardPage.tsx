@@ -5,7 +5,7 @@ import clsx from 'clsx';
 import { CheckCircle2, Coins, Gem, Receipt, ScaleIcon, Truck, TrendingUp, Wallet, AlertTriangle } from 'lucide-react';
 import { get } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { dateTime, grams, money, num, relative, todayKey } from '../../lib/format';
+import { date as formatDate, dateTime, grams, humanize, money, num, relative, todayKey } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { Card, CardHeader, Empty, ErrorState, Input, Kpi, Loading, Mono, PageHeader, StatusBadge } from '../../components/ui';
 import { MoneyLineChart } from '../../components/charts';
@@ -74,10 +74,10 @@ export interface BranchDash {
 
 export function BranchDashboardPage() {
   const { me } = useAuth();
-  const { L } = useI18n();
+  const { t, L } = useI18n();
   return (
     <div className="p-5 lg:p-6">
-      <BranchDashboard branchId={me?.user.branch?.id} title={`${L(me?.user.branch?.name, me?.user.branch?.nameAr)} · Dashboard`} />
+      <BranchDashboard branchId={me?.user.branch?.id} title={`${L(me?.user.branch?.name, me?.user.branch?.nameAr)} · ${t('Dashboard')}`} />
     </div>
   );
 }
@@ -92,13 +92,13 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
     refetchInterval: 30_000,
   });
   const isToday = date === todayKey();
-  const dayLabel = isToday ? t('Today') : date;
+  const dayLabel = isToday ? t('Today') : formatDate(date, lang);
 
   const header = (
     <PageHeader
-      title={title ?? 'Dashboard'}
-      subtitle={`Operational view for ${isToday ? 'today' : date}. All figures are calculated from transactions and the inventory ledger.`}
-      actions={<Input type="date" value={date} max={todayKey()} onChange={(e) => e.target.value && setDate(e.target.value)} className="w-40" aria-label="Business date" />}
+      title={title ?? t('Dashboard')}
+      subtitle={t('Operational view for {day}. All figures are calculated from transactions and the inventory ledger.', { day: isToday ? t('today') : formatDate(date, lang) })}
+      actions={<Input type="date" value={date} max={todayKey()} onChange={(e) => e.target.value && setDate(e.target.value)} className="w-40" aria-label={t('Business date')} />}
     />
   );
 
@@ -109,15 +109,15 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
 
   return (
     <div className="space-y-5">
-      {embedded ? <div className="flex justify-end"><Input type="date" value={date} max={todayKey()} onChange={(e) => e.target.value && setDate(e.target.value)} className="w-40" /></div> : header}
+      {embedded ? <div className="flex justify-end"><Input type="date" value={date} max={todayKey()} onChange={(e) => e.target.value && setDate(e.target.value)} className="w-40" aria-label={t('Business date')} /></div> : header}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Kpi tone="dark" label={`${dayLabel} · ${t('Sales')}`} value={money(k.salesTotal, false)} sub={`${k.salesCount} invoices · ${k.itemsSold} pieces · SDG`} icon={<Receipt className="size-4" />} onClick={() => navigate(`/reports/sales?from=${date}&to=${date}&branchId=${d.branchId}`)} />
-        <Kpi label={`${dayLabel} · ${t('Purchases')}`} value={money(k.purchasesCost, false)} sub={`${k.purchasesCount} receipts · SDG`} icon={<Truck className="size-4" />} onClick={() => navigate(`/reports/purchases?from=${date}&to=${date}&branchId=${d.branchId}`)} />
-        <Kpi label={`${dayLabel} · ${t('Expenses')}`} value={money(k.expenses, false)} sub={k.pendingExpenses ? `+ ${money(k.pendingExpenses)} pending approval` : 'Approved · SDG'} icon={<Wallet className="size-4" />} onClick={() => navigate(`/reports/expenses?from=${date}&to=${date}&branchId=${d.branchId}`)} />
-        <Kpi tone="gold" label={t('Gross Profit')} value={k.grossProfit != null ? money(k.grossProfit, false) : '—'} sub={k.contribution != null ? `Contribution ${money(k.contribution)}` : undefined} icon={<TrendingUp className="size-4" />} />
-        <Kpi label={t('Available Inventory')} value={`${num(k.availableItems)} pcs`} sub={`${grams(k.availableWeightMg)}${k.reservedItems ? ` · ${k.reservedItems} reserved` : ''}`} icon={<Gem className="size-4" />} onClick={() => navigate(`/inventory?branchId=${d.branchId}`)} />
-        <Kpi label={t('Hasad Withdrawals')} value={`${k.hasadCompleted} done`} sub={`${k.hasadOpen} open request(s)`} icon={<Coins className="size-4" />} onClick={() => navigate('/hasad')} />
+        <Kpi tone="dark" label={`${dayLabel} · ${t('Sales')}`} value={money(k.salesTotal, false)} sub={t('{invoices} invoices · {pieces} pieces · {currency}', { invoices: k.salesCount, pieces: k.itemsSold, currency: t('SDG') })} icon={<Receipt className="size-4" />} onClick={() => navigate(`/reports/sales?from=${date}&to=${date}&branchId=${d.branchId}`)} />
+        <Kpi label={`${dayLabel} · ${t('Purchases')}`} value={money(k.purchasesCost, false)} sub={t('{n} receipts · {currency}', { n: k.purchasesCount, currency: t('SDG') })} icon={<Truck className="size-4" />} onClick={() => navigate(`/reports/purchases?from=${date}&to=${date}&branchId=${d.branchId}`)} />
+        <Kpi label={`${dayLabel} · ${t('Expenses')}`} value={money(k.expenses, false)} sub={k.pendingExpenses ? t('+ {amount} pending approval', { amount: money(k.pendingExpenses) }) : t('Approved · {currency}', { currency: t('SDG') })} icon={<Wallet className="size-4" />} onClick={() => navigate(`/reports/expenses?from=${date}&to=${date}&branchId=${d.branchId}`)} />
+        <Kpi tone="gold" label={t('Gross Profit')} value={k.grossProfit != null ? money(k.grossProfit, false) : '—'} sub={k.contribution != null ? t('Contribution {amount}', { amount: money(k.contribution) }) : undefined} icon={<TrendingUp className="size-4" />} />
+        <Kpi label={t('Available Inventory')} value={t('{n} pcs', { n: num(k.availableItems) })} sub={`${grams(k.availableWeightMg)}${k.reservedItems ? ` · ${t('{n} reserved', { n: k.reservedItems })}` : ''}`} icon={<Gem className="size-4" />} onClick={() => navigate(`/inventory?branchId=${d.branchId}`)} />
+        <Kpi label={t('Hasad Withdrawals')} value={t('{n} done', { n: k.hasadCompleted })} sub={t('{n} open request(s)', { n: k.hasadOpen })} icon={<Coins className="size-4" />} onClick={() => navigate('/hasad')} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1.15fr_1fr]">
@@ -127,21 +127,28 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
 
       <div className="grid gap-5 xl:grid-cols-[1.4fr_1fr]">
         <Card padded={false}>
-          <CardHeader title="Sales — last 14 days" subtitle={`Month to date: ${money(d.mtd.revenue)} · ${d.mtd.salesCount} invoices${d.mtd.contribution != null ? ` · contribution ${money(d.mtd.contribution)}` : ''}`} />
+          <CardHeader
+            title={t('Sales: last 14 days')}
+            subtitle={`${t('Month to date: {amount} · {n} invoices', { amount: money(d.mtd.revenue), n: d.mtd.salesCount })}${d.mtd.contribution != null ? ` · ${t('contribution {amount}', { amount: money(d.mtd.contribution) })}` : ''}`}
+          />
           <div className="px-3 pb-3 pt-2">
             <MoneyLineChart
               data={d.trend}
               series={[
-                { key: 'revenue', label: 'Revenue', color: 'var(--color-ink-800)' },
-                ...(d.trend[0]?.profit != null ? [{ key: 'profit', label: 'Gross profit', color: 'var(--color-gold-500)' }] : []),
+                { key: 'revenue', label: t('Revenue'), color: 'var(--color-ink-800)' },
+                ...(d.trend[0]?.profit != null ? [{ key: 'profit', label: t('Gross profit'), color: 'var(--color-gold-500)' }] : []),
               ]}
             />
           </div>
         </Card>
         <Card padded={false}>
-          <CardHeader title={`${t('Expenses')} · month to date`} subtitle={`Approved total ${money(d.mtd.expenses)}`} actions={<Link to="/expenses" className="text-[13px] font-medium text-gold-700 hover:underline">All expenses</Link>} />
+          <CardHeader
+            title={`${t('Expenses')} · ${t('month to date')}`}
+            subtitle={t('Approved total {amount}', { amount: money(d.mtd.expenses) })}
+            actions={<Link to="/expenses" className="text-[13px] font-medium text-gold-700 hover:underline">{t('All expenses')}</Link>}
+          />
           {d.expenses.recent.length === 0 ? (
-            <Empty title="No expenses this month" />
+            <Empty title={t('No expenses this month')} />
           ) : (
             <ul className="divide-y divide-line">
               {d.expenses.recent.slice(0, 7).map((e) => (
@@ -149,7 +156,7 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-ink-800">{e.description}</div>
                     <div className="text-[11.5px] text-ink-500">
-                      {e.category.toLowerCase()} · {e.expenseDate} · {e.createdBy}
+                      {humanize(e.category)} · {formatDate(e.expenseDate, lang)} · {e.createdBy}
                     </div>
                   </div>
                   {e.status !== 'APPROVED' && <StatusBadge status={e.status} />}
@@ -162,19 +169,23 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
       </div>
 
       <Card padded={false}>
-        <CardHeader title={t('Cashier activity')} subtitle={`${dayLabel}: sales, Hasad deliveries and sessions per team member`} actions={<Link to="/sessions" className="text-[13px] font-medium text-gold-700 hover:underline">Active sessions</Link>} />
+        <CardHeader
+          title={t('Cashier activity')}
+          subtitle={t('{day}: sales, Hasad deliveries and sessions per team member', { day: dayLabel })}
+          actions={<Link to="/sessions" className="text-[13px] font-medium text-gold-700 hover:underline">{t('Active Sessions')}</Link>}
+        />
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead className="bg-[#f7f8fa] text-ink-500">
               <tr>
                 <th className="px-5 py-2 text-start font-medium">{t('User')}</th>
-                <th className="px-3 py-2 text-end font-medium">Invoices</th>
-                <th className="px-3 py-2 text-end font-medium">Sales value</th>
-                <th className="px-3 py-2 text-end font-medium">Hasad</th>
-                <th className="px-3 py-2 text-end font-medium">Cancelled</th>
-                <th className="px-3 py-2 text-start font-medium">First sign-in</th>
-                <th className="px-3 py-2 text-start font-medium">Last activity</th>
-                <th className="px-5 py-2 text-start font-medium">Session</th>
+                <th className="px-3 py-2 text-end font-medium">{t('Invoices')}</th>
+                <th className="px-3 py-2 text-end font-medium">{t('Sales value')}</th>
+                <th className="px-3 py-2 text-end font-medium">{t('Hasad')}</th>
+                <th className="px-3 py-2 text-end font-medium">{t('Cancelled')}</th>
+                <th className="px-3 py-2 text-start font-medium">{t('First sign-in')}</th>
+                <th className="px-3 py-2 text-start font-medium">{t('Last activity')}</th>
+                <th className="px-5 py-2 text-start font-medium">{t('Session')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -182,7 +193,7 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
                 <tr key={c.userId}>
                   <td className="px-5 py-2.5">
                     <div className="font-medium">{c.fullName}</div>
-                    <div className="font-mono text-[11px] text-ink-500">{c.username} · {c.role.replace('_', ' ').toLowerCase()}</div>
+                    <div className="font-mono text-[11px] text-ink-500">{c.username} · {humanize(c.role)}</div>
                   </td>
                   <td className="px-3 py-2.5 text-end num">{c.salesCount}</td>
                   <td className="px-3 py-2.5 text-end font-medium num">{money(c.salesTotal)}</td>
@@ -190,7 +201,7 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
                   <td className={clsx('px-3 py-2.5 text-end num', c.voided > 0 && 'text-rose-700')}>{c.voided}</td>
                   <td className="px-3 py-2.5">{c.firstLogin ? dateTime(c.firstLogin, lang) : '—'}</td>
                   <td className="px-3 py-2.5 text-ink-600">{relative(c.lastActivity)}</td>
-                  <td className="px-5 py-2.5">{c.liveSessions > 0 ? <StatusBadge status="ACTIVE" /> : <span className="text-ink-400">Signed out</span>}</td>
+                  <td className="px-5 py-2.5">{c.liveSessions > 0 ? <StatusBadge status="ACTIVE" /> : <span className="text-ink-400">{t('Signed out')}</span>}</td>
                 </tr>
               ))}
             </tbody>
@@ -208,13 +219,13 @@ function MovementCard({ d, isToday }: { d: BranchDash; isToday: boolean }) {
   const plus = (a: MovementLine, b: MovementLine) => ({ items: a.items + b.items, weightMg: a.weightMg + b.weightMg });
   const rows: { sign: string; label: string; v: MovementLine; strong?: boolean }[] = [
     { sign: '', label: t('Opening stock'), v: m.opening, strong: true },
-    { sign: '+', label: 'Purchases', v: L('PURCHASE') },
-    { sign: '+', label: 'Transfers in', v: L('TRANSFER_IN') },
-    { sign: '+', label: 'Returns & restock', v: plus(L('RETURN'), L('ADJUSTMENT_IN')) },
-    { sign: '−', label: 'Normal sales', v: L('SALE') },
-    { sign: '−', label: 'Hasad redemptions', v: L('HASAD_REDEMPTION') },
-    { sign: '−', label: 'Transfers out', v: L('TRANSFER_OUT') },
-    { sign: '−', label: 'Damaged / returned to supplier', v: plus(L('DAMAGE'), L('ADJUSTMENT_OUT')) },
+    { sign: '+', label: t('Purchases'), v: L('PURCHASE') },
+    { sign: '+', label: t('Transfers in'), v: L('TRANSFER_IN') },
+    { sign: '+', label: t('Returns & restock'), v: plus(L('RETURN'), L('ADJUSTMENT_IN')) },
+    { sign: '−', label: t('Normal sales'), v: L('SALE') },
+    { sign: '−', label: t('Hasad redemptions'), v: L('HASAD_REDEMPTION') },
+    { sign: '−', label: t('Transfers out'), v: L('TRANSFER_OUT') },
+    { sign: '−', label: t('Damaged / returned to supplier'), v: plus(L('DAMAGE'), L('ADJUSTMENT_OUT')) },
     { sign: '=', label: t('Closing stock'), v: m.closing, strong: true },
   ];
   const reconciled = !isToday || !m.actual || (m.actual.items === m.closing.items && m.actual.weightMg === m.closing.weightMg);
@@ -222,12 +233,12 @@ function MovementCard({ d, isToday }: { d: BranchDash; isToday: boolean }) {
     <Card padded={false}>
       <CardHeader
         title={t('Inventory movement')}
-        subtitle="Derived from the inventory ledger (pieces and net gold weight)"
+        subtitle={t('Derived from the inventory ledger (pieces and net gold weight)')}
         actions={
           isToday && m.actual ? (
             <span className={clsx('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-medium', reconciled ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700')}>
               {reconciled ? <CheckCircle2 className="size-3.5" /> : <AlertTriangle className="size-3.5" />}
-              {reconciled ? 'Reconciled with item statuses' : 'Mismatch with item statuses'}
+              {reconciled ? t('Reconciled with item statuses') : t('Mismatch with item statuses')}
             </span>
           ) : undefined
         }
@@ -237,9 +248,9 @@ function MovementCard({ d, isToday }: { d: BranchDash; isToday: boolean }) {
           <tr className="border-b border-line">
             <th className="w-8 py-2" />
             <th className="py-2 text-start font-medium" />
-            <th className="px-5 py-2 text-end font-medium">Pieces</th>
+            <th className="px-5 py-2 text-end font-medium">{t('Pieces')}</th>
             <th className="px-5 py-2 text-end font-medium">
-              <span className="inline-flex items-center gap-1"><ScaleIcon className="size-3.5" /> Net gold</span>
+              <span className="inline-flex items-center gap-1"><ScaleIcon className="size-3.5" /> {t('Net gold')}</span>
             </th>
           </tr>
         </thead>
@@ -269,18 +280,18 @@ function HasadCard({ d }: { d: BranchDash }) {
   );
   return (
     <Card padded={false}>
-      <CardHeader title={<span className="flex items-center gap-2"><Coins className="size-4 text-gold-600" /> {t('Hasad Gold')}</span>} subtitle="Withdrawal requests and weight-difference settlements" actions={<Link to="/hasad" className="text-[13px] font-medium text-gold-700 hover:underline">Open queue</Link>} />
+      <CardHeader title={<span className="flex items-center gap-2"><Coins className="size-4 text-gold-600" /> {t('Hasad Gold')}</span>} subtitle={t('Withdrawal requests and weight-difference settlements')} actions={<Link to="/hasad" className="text-[13px] font-medium text-gold-700 hover:underline">{t('Open queue')}</Link>} />
       <div className="grid grid-cols-2 gap-2.5 p-4 sm:grid-cols-3">
-        {tile('New requests', num(h.newRequests))}
+        {tile(t('New requests'), num(h.newRequests))}
         {tile(t('Waiting for customer'), num(h.waiting + h.inProgress), h.waiting + h.inProgress > 0 ? 'text-sky-700' : undefined)}
-        {tile('Completed', `${h.completedToday} · ${grams(h.weightDeliveredMg)}`)}
-        {tile('Cancelled', num(h.cancelled))}
-        {tile('Paid to customers', money(h.paidToCustomers), h.paidToCustomers ? 'text-rose-700' : undefined)}
-        {tile('Collected from customers', money(h.collectedFromCustomers), h.collectedFromCustomers ? 'text-emerald-700' : undefined)}
+        {tile(t('Completed'), `${h.completedToday} · ${grams(h.weightDeliveredMg)}`)}
+        {tile(t('Cancelled'), num(h.cancelled))}
+        {tile(t('Paid to customers'), money(h.paidToCustomers), h.paidToCustomers ? 'text-rose-700' : undefined)}
+        {tile(t('Collected from customers'), money(h.collectedFromCustomers), h.collectedFromCustomers ? 'text-emerald-700' : undefined)}
       </div>
       <div className="border-t border-line">
         {h.queue.length === 0 ? (
-          <div className="px-5 py-4 text-[13px] text-ink-500">No open requests.</div>
+          <div className="px-5 py-4 text-[13px] text-ink-500">{t('No open requests.')}</div>
         ) : (
           <ul className="divide-y divide-line">
             {h.queue.map((w) => (

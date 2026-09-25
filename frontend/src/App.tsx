@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import { ShieldX } from 'lucide-react';
 import type { Permission } from '@jerp/shared';
 import { homePath, useAuth } from './lib/auth';
+import { useI18n } from './lib/i18n';
 import { Empty, Loading } from './components/ui';
 import { AppShell } from './components/layout/AppShell';
 import { LoginPage } from './pages/LoginPage';
@@ -38,17 +39,23 @@ function RequireAuth({ children }: { children: ReactNode }) {
 /** Route-level guard. The API enforces the same rule; this only avoids dead ends. */
 function Guard({ perm, any, children }: { perm?: Permission; any?: Permission[]; children: ReactNode }) {
   const { can } = useAuth();
+  const { t } = useI18n();
   const ok = perm ? can(perm) : any ? any.some(can) : true;
   if (!ok)
     return (
       <Empty
         className="h-full"
         icon={<ShieldX className="size-5" />}
-        title="You do not have access to this page"
-        body="Your role does not include this module. Ask the General Manager if you need access."
+        title={t('You do not have access to this page')}
+        body={t('Your role does not include this module. Ask the General Manager if you need access.')}
       />
     );
   return <>{children}</>;
+}
+
+function NotFound() {
+  const { t } = useI18n();
+  return <Empty className="h-full" title={t('Page not found')} />;
 }
 
 function Home() {
@@ -93,7 +100,7 @@ export function App() {
           <Route path="sessions" element={<Guard perm="sessions.view"><SessionsPage /></Guard>} />
           <Route path="audit" element={<Guard perm="audit.view"><AuditPage /></Guard>} />
           <Route path="settings" element={<Guard perm="settings.manage"><SettingsPage /></Guard>} />
-          <Route path="*" element={<Empty className="h-full" title="Page not found" />} />
+          <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
     </BrowserRouter>

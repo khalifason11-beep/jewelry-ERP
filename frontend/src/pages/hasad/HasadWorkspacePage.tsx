@@ -25,9 +25,9 @@ import {
   XCircle,
 } from 'lucide-react';
 import { calculateSettlement, PAYMENT_METHODS, type PaymentMethod } from '@jerp/shared';
-import { ApiError, del, get, post } from '../../lib/api';
+import { ApiError, del, errorText, get, post } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { dateTime, grams, money, relative, signedGrams } from '../../lib/format';
+import { dateTime, grams, humanize, karatLabel, money, relative, signedGrams } from '../../lib/format';
 import { useCategories, useDebounced, useGoldRates } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
@@ -112,12 +112,12 @@ export function HasadWorkspacePage() {
           <div className="ms-auto flex gap-2">
             {w.status === 'IN_PROGRESS' && can('hasad.process') && (
               <Button icon={<Undo2 className="size-4" />} onClick={() => setAbortOpen(true)}>
-                Customer left — release
+                {t('Customer left — release')}
               </Button>
             )}
             {(w.status === 'READY_FOR_PICKUP' || w.status === 'IN_PROGRESS') && can('hasad.cancel') && (
               <Button variant="ghost" className="text-rose-700 hover:bg-rose-50 hover:text-rose-800" icon={<XCircle className="size-4" />} onClick={() => setCancelOpen(true)}>
-                Cancel request
+                {t('Cancel request')}
               </Button>
             )}
           </div>
@@ -134,40 +134,41 @@ export function HasadWorkspacePage() {
                 <div className="text-[11.5px] font-semibold uppercase tracking-[0.1em] text-gold-300">{t('Entitled weight')}</div>
                 <div className="mt-1 flex items-baseline gap-2">
                   <span className="text-[34px] font-semibold tracking-tight text-gold-300 num">{(w.entitledWeightMg / 1000).toFixed(3)}</span>
-                  <span className="text-ink-300">g · {w.entitlementKarat}K</span>
+                  <span className="text-ink-300">{t('g')} · {karatLabel(w.entitlementKarat)}</span>
                 </div>
-                <div className="mt-1 text-[12px] text-ink-400">Balance accumulated in Hasad Gold (Haba units)</div>
+                <div className="mt-1 text-[12px] text-ink-400">{t('Balance accumulated in Hasad Gold (Haba units)')}</div>
               </div>
               <div className="space-y-3 p-5 text-[13px]">
                 <Row icon={<UserRound />} label={t('Customer')} value={<>{L(w.customerName, w.customerNameAr)}<div className="font-mono text-[11.5px] text-ink-500">{w.hasadCustomerId}</div></>} />
-                <Row icon={<IdCard />} label="National ID" value={<Mono>{w.customerNationalIdMasked ?? '—'}</Mono>} />
-                <Row icon={<KeyRound />} label="Phone" value={w.customerPhone ?? '—'} />
+                <Row icon={<IdCard />} label={t('National ID')} value={<Mono>{w.customerNationalIdMasked ?? '—'}</Mono>} />
+                <Row icon={<KeyRound />} label={t('Phone')} value={w.customerPhone ?? '—'} />
                 <Row icon={<Coins />} label={t('Branch')} value={L(w.branchName, w.branchNameAr)} />
-                <Row icon={<Scale />} label="Requested" value={<span title={dateTime(w.requestedAt, lang)}>{dateTime(w.requestedAt, lang)}</span>} />
+                <Row icon={<Scale />} label={t('Requested')} value={<span title={dateTime(w.requestedAt, lang)}>{dateTime(w.requestedAt, lang)}</span>} />
               </div>
               <div className={clsx('border-t px-5 py-3 text-[12.5px]', d.items.length ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-line bg-canvas text-ink-600')}>
                 <div className="flex items-center gap-2 font-medium">
-                  <Lock className="size-3.5" /> Inventory impact
+                  <Lock className="size-3.5" /> {t('Inventory impact')}
                 </div>
                 <div className="mt-0.5">
                   {w.status === 'COMPLETED'
-                    ? `${d.completed?.items.length ?? 0} piece(s) delivered and removed from stock (REDEEMED).`
+                    ? t('{n} piece(s) delivered and removed from stock (REDEEMED).', { n: d.completed?.items.length ?? 0 })
                     : d.items.length
-                      ? `${d.items.length} piece(s) RESERVED for this customer. Auto-release after ${d.reservationTimeoutMinutes} min of inactivity.`
-                      : 'None. No piece is reserved until the customer chooses one.'}
+                      ? t('{n} piece(s) RESERVED for this customer. Auto-release after {min} min of inactivity.', { n: d.items.length, min: d.reservationTimeoutMinutes })
+                      : t('None. No piece is reserved until the customer chooses one.')}
                 </div>
               </div>
             </Card>
 
             {d.timeline.length > 0 && (
               <Card padded={false}>
-                <CardHeader title="Activity" subtitle="From the audit log" />
+                <CardHeader title={t('Activity')} subtitle={t('From the audit log')} />
                 <ol className="space-y-0 px-5 py-3">
                   {d.timeline.map((e, i) => (
                     <li key={i} className="relative flex gap-3 pb-3 last:pb-0">
                       <span className="mt-1.5 size-2 shrink-0 rounded-full bg-gold-500" />
                       <div className="min-w-0 text-[12.5px]">
-                        <div className="text-ink-800">{e.description}</div>
+                        <div className="font-medium text-ink-800">{humanize(e.action)}</div>
+                        <div className="text-ink-600">{e.description}</div>
                         <div className="text-[11px] text-ink-400">
                           {dateTime(e.at, lang)} · {e.userFullName}
                         </div>
@@ -191,7 +192,7 @@ export function HasadWorkspacePage() {
             {w.status === 'COMPLETED' && d.completed && <CompletedPanel detail={d} />}
             {w.status === 'CANCELLED' && (
               <Card>
-                <Empty icon={<CircleSlash className="size-5" />} title="This withdrawal was cancelled" body={w.cancelReason ?? undefined} />
+                <Empty icon={<CircleSlash className="size-5" />} title={t('This withdrawal was cancelled')} body={w.cancelReason ?? undefined} />
               </Card>
             )}
           </div>
@@ -201,26 +202,26 @@ export function HasadWorkspacePage() {
       <ReasonDialog
         open={abortOpen}
         onClose={() => setAbortOpen(false)}
-        title="Release reserved pieces?"
-        body="Use this when the customer leaves without taking a piece. All reserved pieces return to AVAILABLE; the Hasad request stays open for a later visit."
-        defaultReason="Customer left without completing"
-        confirmLabel="Release & keep request open"
+        title={t('Release reserved pieces?')}
+        body={t('Use this when the customer leaves without taking a piece. All reserved pieces return to AVAILABLE; the Hasad request stays open for a later visit.')}
+        defaultReason={t('Customer left without completing')}
+        confirmLabel={t('Release & keep request open')}
         onConfirm={async (reason) => {
           await post(`/hasad/withdrawals/${id}/abort`, { reason });
-          toast.success('Pieces released', 'Reserved items are AVAILABLE again. The request is still open.');
+          toast.success(t('Pieces released'), t('Reserved items are AVAILABLE again. The request is still open.'));
           invalidate();
         }}
       />
       <ReasonDialog
         open={cancelOpen}
         onClose={() => setCancelOpen(false)}
-        title={`Cancel withdrawal ${w.externalId}?`}
-        body="The request is cancelled in Hasad Gold and cannot be resumed. Any reserved pieces return to AVAILABLE."
-        confirmLabel="Cancel withdrawal"
+        title={t('Cancel withdrawal {id}?', { id: w.externalId })}
+        body={t('The request is cancelled in Hasad Gold and cannot be resumed. Any reserved pieces return to AVAILABLE.')}
+        confirmLabel={t('Cancel withdrawal')}
         danger
         onConfirm={async (reason) => {
           await post(`/hasad/withdrawals/${id}/cancel`, { reason });
-          toast.success(`${w.externalId} cancelled`);
+          toast.success(t('{id} cancelled', { id: w.externalId }));
           invalidate();
         }}
       />
@@ -252,7 +253,8 @@ function Row({ icon, label, value }: { icon: React.ReactNode; label: string; val
 }
 
 function Stepper({ step, status }: { step: number; status: string }) {
-  const steps = ['Request received', 'Customer verified', 'Piece selected', 'Settlement confirmed', 'Delivered'];
+  const { t } = useI18n();
+  const steps = [t('Request received'), t('Customer verified'), t('Piece selected'), t('Settlement confirmed'), t('Delivered')];
   if (status === 'CANCELLED') return null;
   return (
     <ol className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
@@ -290,20 +292,20 @@ function OpenPanel({ detail, onOpened }: { detail: Detail; onOpened: () => void 
   const open = useMutation({
     mutationFn: () => post(`/hasad/withdrawals/${detail.withdrawal.id}/open`, { verification: mode, pickupCode: code }),
     onSuccess: () => {
-      toast.success('Customer verified', 'Let the customer choose a piece. Nothing is reserved yet.');
+      toast.success(t('Customer verified'), t('Let the customer choose a piece. Nothing is reserved yet.'));
       onOpened();
     },
-    onError: (e) => toast.fromError(e, 'Could not open the request'),
+    onError: (e) => toast.fromError(e, t('Could not open the request')),
   });
   return (
     <Card padded={false}>
-      <CardHeader title={t('Customer arrived — open request')} subtitle="Verify the customer before showing pieces. Opening the request does not reserve any inventory." />
+      <CardHeader title={t('Customer arrived — open request')} subtitle={t('Verify the customer before showing pieces. Opening the request does not reserve any inventory.')} />
       <div className="grid gap-5 p-5 md:grid-cols-2">
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2" role="radiogroup">
+          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={t('Verification method')}>
             {[
-              { v: 'PICKUP_CODE' as const, label: 'Pickup code', icon: <KeyRound className="size-4" /> },
-              { v: 'ID_DOCUMENT' as const, label: 'National ID', icon: <IdCard className="size-4" /> },
+              { v: 'PICKUP_CODE' as const, label: t('Pickup code'), icon: <KeyRound className="size-4" /> },
+              { v: 'ID_DOCUMENT' as const, label: t('National ID'), icon: <IdCard className="size-4" /> },
             ].map((o) => (
               <button
                 key={o.v}
@@ -317,14 +319,17 @@ function OpenPanel({ detail, onOpened }: { detail: Detail; onOpened: () => void 
             ))}
           </div>
           {mode === 'PICKUP_CODE' ? (
-            <Field label="6-digit pickup code shown in the customer’s Hasad app" hint="Demo: HG-10025 → 482913 · HG-10027 → 640218">
+            <Field label={t('6-digit pickup code shown in the customer’s Hasad app')} hint={t('Demo: HG-10025 → 482913 · HG-10027 → 640218')}>
               <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" placeholder="••••••" className="h-11 text-center font-mono text-lg tracking-[0.5em]" />
             </Field>
           ) : (
             <label className="flex items-start gap-2.5 rounded-md border border-line p-3 text-[13px]">
               <input type="checkbox" checked={idChecked} onChange={(e) => setIdChecked(e.target.checked)} className="mt-0.5 size-4 accent-ink-900" />
               <span>
-                I checked the customer’s national ID. It matches <b>{detail.withdrawal.customerName}</b> (ID ending <Mono>{detail.withdrawal.customerNationalIdMasked?.slice(-4)}</Mono>).
+                {t('I checked the customer’s national ID. It matches {name} (ID ending {last4}).', {
+                  name: detail.withdrawal.customerName,
+                  last4: detail.withdrawal.customerNationalIdMasked?.slice(-4) ?? '',
+                })}
               </span>
             </label>
           )}
@@ -337,17 +342,17 @@ function OpenPanel({ detail, onOpened }: { detail: Detail; onOpened: () => void 
             loading={open.isPending}
             onClick={() => open.mutate()}
           >
-            Verify & start
+            {t('Verify & start')}
           </Button>
         </div>
         <div className="rounded-lg bg-canvas p-4 text-[13px] text-ink-600">
-          <div className="mb-2 font-semibold text-ink-800">How the counter visit works</div>
+          <div className="mb-2 font-semibold text-ink-800">{t('How the counter visit works')}</div>
           <ol className="list-decimal space-y-1.5 ps-4">
-            <li>Verify the customer. The request is locked in Hasad Gold.</li>
-            <li>The customer browses the branch’s available pieces.</li>
-            <li>A selected piece is <b>reserved</b>. Other cashiers cannot sell it.</li>
-            <li>The system compares the piece’s net weight with the <b>{grams(detail.withdrawal.entitledWeightMg)}</b> entitlement.</li>
-            <li>Settle the difference in cash, confirm, and hand over the piece.</li>
+            <li>{t('Verify the customer. The request is locked in Hasad Gold.')}</li>
+            <li>{t('The customer browses the branch’s available pieces.')}</li>
+            <li>{t('A selected piece is reserved. Other cashiers cannot sell it.')}</li>
+            <li>{t('The system compares the piece’s net weight with the {weight} entitlement.', { weight: grams(detail.withdrawal.entitledWeightMg) })}</li>
+            <li>{t('Settle the difference in cash, confirm, and hand over the piece.')}</li>
           </ol>
         </div>
       </div>
@@ -362,8 +367,8 @@ function DirectionBanner({ s }: { s: Settlement }) {
       <div className="flex items-center gap-3 rounded-lg border border-line bg-canvas px-4 py-3">
         <CheckCircle2 className="size-6 text-emerald-600" />
         <div>
-          <div className="font-semibold">Exact match. No settlement needed.</div>
-          <div className="text-[12.5px] text-ink-500">Delivered weight equals the entitlement.</div>
+          <div className="font-semibold">{t('Exact match. No settlement needed.')}</div>
+          <div className="text-[12.5px] text-ink-500">{t('Delivered weight equals the entitlement.')}</div>
         </div>
       </div>
     );
@@ -378,7 +383,10 @@ function DirectionBanner({ s }: { s: Settlement }) {
           {branchPays ? t('Branch pays customer') : t('Customer pays branch')}
         </div>
         <div className="text-[13px] text-ink-700">
-          {branchPays ? 'The piece weighs less than the entitlement.' : 'The piece weighs more than the entitlement.'} {grams(s.absDifferenceMg)} × {money(s.ratePerGram)}/g
+          {branchPays ? t('The piece weighs less than the entitlement.') : t('The piece weighs more than the entitlement.')}{' '}
+          <span className="num" dir="ltr">
+            {grams(s.absDifferenceMg)} × {money(s.ratePerGram)}/{t('g')}
+          </span>
         </div>
       </div>
       <div className={clsx('text-end text-[26px] font-semibold tracking-tight num', branchPays ? 'text-rose-700' : 'text-emerald-700')}>{money(s.amount)}</div>
@@ -393,7 +401,7 @@ function SettlementPanel({ detail, onComplete, onRelease }: { detail: Detail; on
   const release = useMutation({
     mutationFn: (itemId: number) => del(`/hasad/withdrawals/${detail.withdrawal.id}/items/${itemId}`),
     onSuccess: () => {
-      toast.info('Piece released', 'It is AVAILABLE for sale again.');
+      toast.info(t('Piece released'), t('It is AVAILABLE for sale again.'));
       onRelease();
     },
     onError: (e) => toast.fromError(e),
@@ -403,7 +411,11 @@ function SettlementPanel({ detail, onComplete, onRelease }: { detail: Detail; on
     <Card padded={false}>
       <CardHeader
         title={t('Settlement')}
-        subtitle={`Session ${detail.draft?.number ?? ''} · basis: ${s.basis === 'NET_WEIGHT' ? 'net gold weight' : 'pure-gold equivalent'} · rate ${money(s.ratePerGram)}/g`}
+        subtitle={t('Session {number} · basis: {basis} · rate {rate} per gram', {
+          number: detail.draft?.number ?? '',
+          basis: s.basis === 'NET_WEIGHT' ? t('net gold weight') : t('pure-gold equivalent'),
+          rate: money(s.ratePerGram),
+        })}
       />
       <div className="space-y-4 p-5">
         <div className="grid gap-3 sm:grid-cols-3">
@@ -417,16 +429,16 @@ function SettlementPanel({ detail, onComplete, onRelease }: { detail: Detail; on
         </div>
         {detail.items.length > 0 && (
           <div className="space-y-1.5" aria-hidden>
-            <Bar label="Entitled" value={s.entitledWeightMg} max={max} className="bg-ink-700" />
-            <Bar label="Delivered" value={s.deliveredWeightMg} max={max} className="bg-gold-500" />
+            <Bar label={t('Entitled')} value={s.entitledWeightMg} max={max} className="bg-ink-700" />
+            <Bar label={t('Delivered')} value={s.deliveredWeightMg} max={max} className="bg-gold-500" />
           </div>
         )}
-        {detail.items.length ? <DirectionBanner s={s} /> : <Alert tone="info">Select a piece below. The settlement is calculated from its actual net weight.</Alert>}
+        {detail.items.length ? <DirectionBanner s={s} /> : <Alert tone="info">{t('Select a piece below. The settlement is calculated from its actual net weight.')}</Alert>}
 
         <div>
-          <div className="mb-2 text-[13px] font-semibold text-ink-800">{t('Selected pieces')} · reserved</div>
+          <div className="mb-2 text-[13px] font-semibold text-ink-800">{t('Selected pieces')} · {t('reserved')}</div>
           {detail.items.length === 0 ? (
-            <div className="rounded-md border border-dashed border-line-strong px-4 py-5 text-center text-[13px] text-ink-500">No piece selected yet</div>
+            <div className="rounded-md border border-dashed border-line-strong px-4 py-5 text-center text-[13px] text-ink-500">{t('No piece selected yet')}</div>
           ) : (
             <ul className="divide-y divide-line rounded-md border border-line">
               {detail.items.map((i) => (
@@ -435,16 +447,16 @@ function SettlementPanel({ detail, onComplete, onRelease }: { detail: Detail; on
                   <div className="min-w-0 flex-1">
                     <div className="font-medium">{L(i.productName, i.productNameAr)}</div>
                     <div className="font-mono text-[11.5px] text-ink-500">
-                      {i.code} · {i.karat}K · gross {grams(i.grossWeightMg)} · reserved {relative(i.reservedAt)}
+                      {i.code} · {karatLabel(i.karat)} · {t('gross {weight}', { weight: grams(i.grossWeightMg) })} · {t('reserved {when}', { when: relative(i.reservedAt) })}
                     </div>
                   </div>
                   <div className="text-end">
                     <div className="font-semibold num">{grams(i.netWeightMg)}</div>
-                    <div className="text-[11px] text-ink-500">net</div>
+                    <div className="text-[11px] text-ink-500">{t('net')}</div>
                   </div>
                   <StatusBadge status={i.status} />
                   <Button size="sm" variant="ghost" onClick={() => release.mutate(i.id)} loading={release.isPending && release.variables === i.id}>
-                    Release
+                    {t('Release')}
                   </Button>
                 </li>
               ))}
@@ -453,7 +465,7 @@ function SettlementPanel({ detail, onComplete, onRelease }: { detail: Detail; on
         </div>
         <div className="flex justify-end">
           <Button variant="gold" size="lg" disabled={!detail.items.length} onClick={onComplete} icon={<CheckCircle2 className="size-5" />}>
-            Review settlement & complete
+            {t('Review settlement & complete')}
           </Button>
         </div>
       </div>
@@ -500,11 +512,11 @@ function CandidatePicker({ detail, onReserved }: { detail: Detail; onReserved: (
     mutationFn: (itemId: number) => post(`/hasad/withdrawals/${w.id}/items`, { itemId }),
     onSuccess: (_d, itemId) => {
       const it = candidates.data?.find((c) => c.id === itemId);
-      toast.success(`${it?.code ?? 'Piece'} reserved for ${w.customerName}`, 'Status AVAILABLE → RESERVED');
+      toast.success(t('{code} reserved for {name}', { code: it?.code ?? '', name: w.customerName }), t('Status AVAILABLE → RESERVED'));
       onReserved();
     },
     onError: (e) => {
-      toast.fromError(e, 'Could not reserve');
+      toast.fromError(e, t('Could not reserve'));
       candidates.refetch();
     },
   });
@@ -528,18 +540,18 @@ function CandidatePicker({ detail, onReserved }: { detail: Detail; onReserved: (
         title={t('Available pieces in this branch')}
         subtitle={
           detail.items.length
-            ? 'Differences below compare each piece on its own with the entitlement. Selecting another piece adds it to the delivery.'
-            : 'Sorted by closeness to the entitlement. Browsing does not reserve anything. Only selecting a piece does.'
+            ? t('Differences below compare each piece on its own with the entitlement. Selecting another piece adds it to the delivery.')
+            : t('Sorted by closeness to the entitlement. Browsing does not reserve anything. Only selecting a piece does.')
         }
       />
       <div className="flex flex-wrap gap-2 border-b border-line px-5 py-3">
         <div className="relative min-w-52 flex-1">
           <Search className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-400" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Scan or search…" className="ps-8" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Scan or search…')} className="ps-8" />
         </div>
         <Select value={karat} onChange={(e) => setKarat(e.target.value ? Number(e.target.value) : '')} className="w-28">
           <option value="">{t('Karat')}</option>
-          {[18, 21, 22, 24].map((k) => <option key={k} value={k}>{k}K</option>)}
+          {[18, 21, 22, 24].map((k) => <option key={k} value={k}>{karatLabel(k)}</option>)}
         </Select>
         <Select value={category} onChange={(e) => setCategory(e.target.value)} className="w-40">
           <option value="">{t('Category')}: {t('All')}</option>
@@ -549,7 +561,7 @@ function CandidatePicker({ detail, onReserved }: { detail: Detail; onReserved: (
       {candidates.isLoading ? (
         <Loading />
       ) : !candidates.data?.length ? (
-        <Empty title="No available pieces match" />
+        <Empty title={t('No available pieces match')} />
       ) : (
         <div className="grid gap-3 p-4 sm:grid-cols-2 2xl:grid-cols-3">
           {candidates.data.map((c) => {
@@ -559,7 +571,7 @@ function CandidatePicker({ detail, onReserved }: { detail: Detail; onReserved: (
                 <ItemThumb category={c.categoryCode} karat={c.karat} size="sm" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium">{L(c.productName, c.productNameAr)}</div>
-                  <div className="font-mono text-[11px] text-ink-500">{c.code} · {c.karat}K</div>
+                  <div className="font-mono text-[11px] text-ink-500">{c.code} · {karatLabel(c.karat)}</div>
                   <div className="mt-1.5 flex items-baseline gap-2">
                     <span className="text-[15px] font-semibold num">{grams(c.netWeightMg)}</span>
                     <span className={clsx('text-[12px] font-medium num', p.differenceMg < 0 ? 'text-rose-700' : p.differenceMg > 0 ? 'text-emerald-700' : 'text-ink-500')}>
@@ -567,7 +579,11 @@ function CandidatePicker({ detail, onReserved }: { detail: Detail; onReserved: (
                     </span>
                   </div>
                   <div className="text-[11.5px] text-ink-500">
-                    {p.direction === 'NONE' ? 'Exact match' : p.direction === 'BRANCH_PAYS_CUSTOMER' ? `Branch pays ≈ ${money(p.amount)}` : `Customer pays ≈ ${money(p.amount)}`}
+                    {p.direction === 'NONE'
+                      ? t('Exact match')
+                      : p.direction === 'BRANCH_PAYS_CUSTOMER'
+                        ? t('Branch pays ≈ {amount}', { amount: money(p.amount) })
+                        : t('Customer pays ≈ {amount}', { amount: money(p.amount) })}
                   </div>
                 </div>
                 <Button size="sm" variant="primary" className="self-center" loading={reserve.isPending && reserve.variables === c.id} onClick={() => reserve.mutate(c.id)}>
@@ -597,22 +613,27 @@ function CompleteDialog({ detail, onClose, onDone, onStale }: { detail: Detail; 
         expectedAmount: s.amount,
       }),
     onSuccess: (r) => {
-      toast.success(`${detail.withdrawal.externalId} completed`, `Redemption ${r.redemptionNumber}${r.settlementNumber ? ` · settlement ${r.settlementNumber}` : ''}. Pieces are now REDEEMED.`);
+      toast.success(
+        t('{id} completed', { id: detail.withdrawal.externalId }),
+        r.settlementNumber
+          ? t('Redemption {number} · settlement {settlement}. Pieces are now REDEEMED.', { number: r.redemptionNumber, settlement: r.settlementNumber })
+          : t('Redemption {number}. Pieces are now REDEEMED.', { number: r.redemptionNumber }),
+      );
       onDone();
     },
     onError: (e) => {
       if (e instanceof ApiError && e.status === 409) {
-        toast.error('Settlement changed', e.message);
+        toast.error(t('Settlement changed'), errorText(e));
         onStale();
         onClose();
-      } else toast.fromError(e, 'Completion failed');
+      } else toast.fromError(e, t('Completion failed'));
     },
   });
   return (
     <Dialog
       open
       onClose={onClose}
-      title="Confirm settlement with the customer"
+      title={t('Confirm settlement with the customer')}
       subtitle={`${detail.withdrawal.externalId} · ${detail.withdrawal.customerName}`}
       width="max-w-xl"
       footer={
@@ -640,7 +661,7 @@ function CompleteDialog({ detail, onClose, onDone, onStale }: { detail: Detail; 
         </table>
         <DirectionBanner s={s} />
         {s.direction !== 'NONE' && (
-          <Field label={s.direction === 'BRANCH_PAYS_CUSTOMER' ? 'Paid to customer by' : 'Collected from customer by'}>
+          <Field label={s.direction === 'BRANCH_PAYS_CUSTOMER' ? t('Paid to customer by') : t('Collected from customer by')}>
             <Select value={payment} onChange={(e) => setPayment(e.target.value as PaymentMethod)}>
               {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{t(m)}</option>)}
             </Select>
@@ -649,17 +670,15 @@ function CompleteDialog({ detail, onClose, onDone, onStale }: { detail: Detail; 
         <label className="flex items-start gap-2.5 rounded-md border border-gold-400 bg-gold-50 p-3 text-[13px]">
           <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5 size-4 accent-ink-900" />
           <span>
-            The customer has seen the weights and agrees to the settlement
-            {s.direction !== 'NONE' && (
-              <>
-                {' '}of <b className="num">{money(s.amount)}</b> ({s.direction === 'BRANCH_PAYS_CUSTOMER' ? 'paid to the customer' : 'paid by the customer'})
-              </>
-            )}
-            .
+            {s.direction === 'NONE'
+              ? t('The customer has seen the weights and agrees to the settlement.')
+              : s.direction === 'BRANCH_PAYS_CUSTOMER'
+                ? t('The customer has seen the weights and agrees to the settlement of {amount} (paid to the customer).', { amount: money(s.amount) })
+                : t('The customer has seen the weights and agrees to the settlement of {amount} (paid by the customer).', { amount: money(s.amount) })}
           </span>
         </label>
         <p className="flex items-center gap-1.5 text-[12px] text-ink-500">
-          <ShieldAlert className="size-3.5" /> Completing notifies Hasad Gold, marks the pieces REDEEMED and records the settlement. This cannot be undone at the counter.
+          <ShieldAlert className="size-3.5" /> {t('Completing notifies Hasad Gold, marks the pieces REDEEMED and records the settlement. This cannot be undone at the counter.')}
         </p>
       </div>
     </Dialog>
@@ -675,10 +694,10 @@ function CompletedPanel({ detail }: { detail: Detail }) {
       <CardHeader
         title={
           <span className="flex items-center gap-2">
-            <CheckCircle2 className="size-5 text-emerald-600" /> Withdrawal delivered
+            <CheckCircle2 className="size-5 text-emerald-600" /> {t('Withdrawal delivered')}
           </span>
         }
-        subtitle={`Redemption ${c.number} · ${dateTime(c.completedAt, lang)} · ${c.cashierName}`}
+        subtitle={t('Redemption {number} · {when} · {cashier}', { number: c.number, when: dateTime(c.completedAt, lang), cashier: c.cashierName })}
         actions={<Button size="sm" icon={<Printer className="size-4" />} onClick={() => window.print()}>{t('Print')}</Button>}
       />
       <div className="space-y-4 p-5">
@@ -704,7 +723,7 @@ function CompletedPanel({ detail }: { detail: Detail }) {
           {c.items.map((i) => (
             <li key={i.id} className="flex items-center justify-between px-3 py-2.5 text-[13px]">
               <Link to={`/inventory/${i.id}`} className="hover:underline">
-                {L(i.productName, i.productNameAr)} <Mono className="text-ink-500">{i.code}</Mono> · {i.karat}K
+                {L(i.productName, i.productNameAr)} <Mono className="text-ink-500">{i.code}</Mono> · {karatLabel(i.karat)}
               </Link>
               <span className="flex items-center gap-3">
                 <span className="num">{grams(i.netWeightMg)}</span>
@@ -715,7 +734,7 @@ function CompletedPanel({ detail }: { detail: Detail }) {
         </ul>
         {c.settlement && (
           <div className="text-[12.5px] text-ink-500">
-            Settlement <Mono>{c.settlement.number}</Mono> · {t(c.settlement.paymentMethod)} · {money(c.settlement.amount)}
+            {t('Settlement')} <Mono>{c.settlement.number}</Mono> · {t(c.settlement.paymentMethod)} · {money(c.settlement.amount)}
           </div>
         )}
       </div>
@@ -743,6 +762,7 @@ function ReasonDialog({
   onConfirm: (reason: string) => Promise<void>;
 }) {
   const toast = useToast();
+  const { t } = useI18n();
   const [reason, setReason] = useState(defaultReason);
   const [busy, setBusy] = useState(false);
   return (
@@ -752,7 +772,7 @@ function ReasonDialog({
       title={title}
       footer={
         <>
-          <Button onClick={onClose}>Back</Button>
+          <Button onClick={onClose}>{t('Back')}</Button>
           <Button
             variant={danger ? 'danger' : 'primary'}
             disabled={reason.trim().length < 3}
@@ -775,7 +795,7 @@ function ReasonDialog({
       }
     >
       <p className="mb-3 text-[13px] text-ink-600">{body}</p>
-      <Field label="Reason (recorded in the audit log)">
+      <Field label={t('Reason (recorded in the audit log)')}>
         <Textarea value={reason} onChange={(e) => setReason(e.target.value)} />
       </Field>
     </Dialog>

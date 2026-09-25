@@ -60,7 +60,7 @@ export async function reviewExpense(ctx: Ctx, actor: Actor, id: number, decision
     const [e] = await tx.select().from(t.expenses).where(eq(t.expenses.id, id));
     if (!e) throw notFound('Expense');
     branchScope(actor, e.branchId);
-    if (e.status !== 'PENDING') throw badRequest(`Expense is already ${e.status}`);
+    if (e.status !== 'PENDING') throw badRequest('Expense is already {status}', { status: e.status });
     await tx
       .update(t.expenses)
       .set({ status: decision, reviewedBy: actor.userId, reviewedAt: new Date(), reviewNote: note ?? null })

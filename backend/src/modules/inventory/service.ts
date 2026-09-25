@@ -140,7 +140,7 @@ export async function changePrice(ctx: Ctx, actor: Actor, id: number, newPrice: 
   return ctx.db.transaction(async (tx) => {
     const [item] = await lockItems(tx, [id]);
     branchScope(actor, item.branchId);
-    if (!['AVAILABLE', 'RESERVED'].includes(item.status)) throw badRequest(`Cannot reprice a ${item.status} item`);
+    if (!['AVAILABLE', 'RESERVED'].includes(item.status)) throw badRequest('Cannot reprice an item with status {status}', { status: item.status });
     await tx.update(t.jewelryItems).set({ sellingPrice: newPrice, updatedAt: new Date() }).where(eq(t.jewelryItems.id, id));
     await writeAudit(tx, actor, {
       action: 'PRICE_CHANGED',

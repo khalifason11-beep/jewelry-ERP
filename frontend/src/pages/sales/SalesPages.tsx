@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, ChevronRight, FileText, Printer } from 'lucide-react';
 import { get, post } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { dateTime, grams, money, pct } from '../../lib/format';
+import { dateTime, grams, karatLabel, money, pct } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { Alert, Button, Card, CardHeader, Dialog, ErrorState, Field, KeyValue, Loading, Mono, PageHeader, StatusBadge, Textarea } from '../../components/ui';
@@ -49,20 +49,20 @@ export function SalesTable({ branchId, from, to, mine, toolbar }: { branchId?: n
       onRowClick={(r) => navigate(`/sales/${r.id}`)}
       exportName="sales"
       toolbar={toolbar}
-      emptyTitle="No sales in this period"
+      emptyTitle={t('No sales in this period')}
       rowClassName={(r) => (r.status === 'VOIDED' ? 'opacity-60' : undefined)}
       columns={[
         { key: 'number', header: t('Invoice'), render: (r) => <Mono className="font-semibold text-ink-900">{r.number}</Mono> },
         { key: 'createdAt', header: t('Date'), render: (r) => dateTime(r.createdAt, lang) },
-        ...(isGlobal && !branchId ? [{ key: 'branchName', header: t('Branch') }] : []),
+        ...(isGlobal && !branchId ? [{ key: 'branchName', header: t('Branch'), render: (r: SaleRow) => t(r.branchName) }] : []),
         { key: 'cashierName', header: t('Cashier') },
-        { key: 'customerName', header: t('Customer'), render: (r) => r.customerName ?? <span className="text-ink-400">Walk-in</span> },
+        { key: 'customerName', header: t('Customer'), render: (r) => r.customerName ?? <span className="text-ink-400">{t('Walk-in')}</span> },
         { key: 'itemCount', header: t('Items'), align: 'end', footer: done.reduce((s, r) => s + r.itemCount, 0) },
         { key: 'weightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.weightMg)}</span>, footer: grams(done.reduce((s, r) => s + r.weightMg, 0)) },
         { key: 'total', header: t('Total'), align: 'end', render: (r) => <span className="font-medium num">{money(r.total, false)}</span>, footer: money(done.reduce((s, r) => s + r.total, 0), false) },
         ...(profit
           ? [
-              { key: 'costTotal', header: 'Cost', align: 'end' as const, render: (r: SaleRow) => <span className="num text-ink-600">{money(r.costTotal, false)}</span>, footer: money(done.reduce((s, r) => s + (r.costTotal ?? 0), 0), false) },
+              { key: 'costTotal', header: t('Cost'), align: 'end' as const, render: (r: SaleRow) => <span className="num text-ink-600">{money(r.costTotal, false)}</span>, footer: money(done.reduce((s, r) => s + (r.costTotal ?? 0), 0), false) },
               { key: 'grossProfit', header: t('Gross Profit'), align: 'end' as const, render: (r: SaleRow) => <span className="num text-emerald-700">{money(r.grossProfit, false)}</span>, footer: money(done.reduce((s, r) => s + (r.grossProfit ?? 0), 0), false) },
             ]
           : []),
@@ -78,7 +78,7 @@ export function SalesPage() {
   const { from, to, branchId, set } = useRangeParams(7);
   return (
     <div className="p-5 lg:p-6">
-      <PageHeader title={t('Sales')} subtitle="Normal jewelry sales. Click an invoice for items, cost and profit." />
+      <PageHeader title={t('Sales')} subtitle={t('Normal jewelry sales. Click an invoice for items, cost and profit.')} />
       <Card padded={false}>
         <SalesTable
           branchId={branchId}
@@ -97,8 +97,9 @@ export function SalesPage() {
 }
 
 export function Crumbs({ items }: { items: { label: React.ReactNode; to?: string }[] }) {
+  const { t } = useI18n();
   return (
-    <nav className="flex flex-wrap items-center gap-1" aria-label="Breadcrumb">
+    <nav className="flex flex-wrap items-center gap-1" aria-label={t('Breadcrumb')}>
       {items.map((c, i) => (
         <span key={i} className="flex items-center gap-1">
           {i > 0 && <ChevronRight className="size-3.5 text-ink-300 rtl:rotate-180" />}
@@ -128,7 +129,7 @@ export function SaleDetailPage() {
   const voidM = useMutation({
     mutationFn: () => post(`/sales/${id}/void`, { reason }),
     onSuccess: () => {
-      toast.success('Sale cancelled', 'Items returned to AVAILABLE with a RETURN movement.');
+      toast.success(t('Sale cancelled'), t('Items returned to AVAILABLE with a RETURN movement.'));
       setVoidOpen(false);
       qc.invalidateQueries();
     },
@@ -146,7 +147,7 @@ export function SaleDetailPage() {
         breadcrumbs={
           <Crumbs
             items={[
-              ...(isGlobal ? [{ label: 'Company', to: '/overview' }, { label: L(s.branchName, s.branchNameAr), to: `/branches/${s.branchId}` }] : []),
+              ...(isGlobal ? [{ label: t('Company'), to: '/overview' }, { label: L(s.branchName, s.branchNameAr), to: `/branches/${s.branchId}` }] : []),
               { label: t('Sales'), to: can('sales.view') ? '/sales' : '/me' },
               { label: s.number },
             ]}
@@ -157,24 +158,24 @@ export function SaleDetailPage() {
             <FileText className="size-5 text-ink-400" /> {t('Invoice')} <Mono className="text-xl">{s.number}</Mono> <StatusBadge status={s.status} />
           </span>
         }
-        subtitle={`${dateTime(s.createdAt, lang)} · ${L(s.branchName, s.branchNameAr)} · ${s.cashierName}`}
+        subtitle={`${dateTime(s.createdAt, lang)} · ${L(s.branchName, s.branchNameAr)} · ${L(s.cashierName, s.cashierNameAr)}`}
         actions={
           <>
             <Button icon={<Printer className="size-4" />} onClick={() => setPrintOpen(true)}>{t('Print')}</Button>
             {can('sales.void') && s.status === 'COMPLETED' && (
-              <Button variant="danger" icon={<Ban className="size-4" />} onClick={() => setVoidOpen(true)}>Cancel sale</Button>
+              <Button variant="danger" icon={<Ban className="size-4" />} onClick={() => setVoidOpen(true)}>{t('Cancel sale')}</Button>
             )}
           </>
         }
       />
       {s.status === 'VOIDED' && (
-        <Alert tone="danger" className="mb-4" title={`Cancelled ${dateTime(s.voidedAt, lang)} by ${s.voidedByName}`}>
-          {s.voidReason}. The items were returned to stock.
+        <Alert tone="danger" className="mb-4" title={t('Cancelled {when} by {name}', { when: dateTime(s.voidedAt, lang), name: s.voidedByName ?? '' })}>
+          {t('{reason}. The items were returned to stock.', { reason: s.voidReason ?? '' })}
         </Alert>
       )}
       <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
         <Card padded={false}>
-          <CardHeader title={t('Items')} subtitle={profit ? 'Selling price vs item cost (purchase + making + other)' : undefined} />
+          <CardHeader title={t('Items')} subtitle={profit ? t('Selling price vs item cost (purchase + making + other)') : undefined} />
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead className="bg-[#f7f8fa] text-ink-500">
@@ -183,13 +184,13 @@ export function SaleDetailPage() {
                   <th className="px-3 py-2 text-end font-medium">{t('Net weight')}</th>
                   <th className="px-3 py-2 text-end font-medium">{t('Price')}</th>
                   <th className="px-3 py-2 text-end font-medium">{t('Discount')}</th>
-                  <th className="px-3 py-2 text-end font-medium">Sold for</th>
+                  <th className="px-3 py-2 text-end font-medium">{t('Sold for')}</th>
                   {profit && (
                     <>
-                      <th className="px-3 py-2 text-end font-medium">Purchase</th>
-                      <th className="px-3 py-2 text-end font-medium">Making</th>
-                      <th className="px-3 py-2 text-end font-medium">Total cost</th>
-                      <th className="px-5 py-2 text-end font-medium">Profit</th>
+                      <th className="px-3 py-2 text-end font-medium">{t('Purchase')}</th>
+                      <th className="px-3 py-2 text-end font-medium">{t('Making')}</th>
+                      <th className="px-3 py-2 text-end font-medium">{t('Total cost')}</th>
+                      <th className="px-5 py-2 text-end font-medium">{t('Profit')}</th>
                     </>
                   )}
                 </tr>
@@ -198,8 +199,8 @@ export function SaleDetailPage() {
                 {s.items.map((i) => (
                   <tr key={i.id}>
                     <td className="px-5 py-2.5">
-                      <Link to={`/inventory/${i.itemId}`} className="font-medium text-ink-900 hover:underline">{i.productName}</Link>
-                      <div className="font-mono text-[11px] text-ink-500">{i.itemCode} · {i.karat}K · {i.barcode}</div>
+                      <Link to={`/inventory/${i.itemId}`} className="font-medium text-ink-900 hover:underline">{L(i.productName, i.productNameAr)}</Link>
+                      <div className="font-mono text-[11px] text-ink-500">{i.itemCode} · {karatLabel(i.karat)} · {i.barcode}</div>
                     </td>
                     <td className="px-3 py-2.5 text-end num">{grams(i.netWeightMg)}</td>
                     <td className="px-3 py-2.5 text-end num">{money(i.listPrice, false)}</td>
@@ -230,7 +231,7 @@ export function SaleDetailPage() {
                 { label: t('Payment'), value: t(s.paymentMethod) },
                 ...(profit
                   ? [
-                      { label: 'Cost of sale', value: money(s.costTotal) },
+                      { label: t('Cost of sale'), value: money(s.costTotal) },
                       { label: t('Gross Profit'), value: <span className="text-emerald-700">{money(s.grossProfit)} <span className="text-xs text-ink-500">({pct(margin)})</span></span> },
                     ]
                   : []),
@@ -241,10 +242,10 @@ export function SaleDetailPage() {
             <KeyValue
               cols={2}
               items={[
-                { label: t('Customer'), value: s.customerName ?? 'Walk-in' },
-                { label: 'Phone', value: s.customerPhone ?? '—' },
-                { label: t('Cashier'), value: <>{s.cashierName} <div className="font-mono text-[11px] font-normal text-ink-500">{s.cashierUsername}</div></> },
-                { label: 'Timestamp', value: dateTime(s.createdAt, lang) },
+                { label: t('Customer'), value: s.customerName ?? t('Walk-in') },
+                { label: t('Phone'), value: s.customerPhone ?? '—' },
+                { label: t('Cashier'), value: <>{L(s.cashierName, s.cashierNameAr)} <div className="font-mono text-[11px] font-normal text-ink-500">{s.cashierUsername}</div></> },
+                { label: t('Timestamp'), value: dateTime(s.createdAt, lang) },
               ]}
             />
           </Card>
@@ -254,17 +255,17 @@ export function SaleDetailPage() {
       <Dialog
         open={voidOpen}
         onClose={() => setVoidOpen(false)}
-        title={`Cancel sale ${s.number}?`}
-        subtitle="The sale stays on record as VOIDED. Items go back to AVAILABLE via a RETURN movement."
+        title={t('Cancel sale {number}?', { number: s.number })}
+        subtitle={t('The sale stays on record as VOIDED. Items go back to AVAILABLE via a RETURN movement.')}
         footer={
           <>
             <Button onClick={() => setVoidOpen(false)}>{t('Back')}</Button>
-            <Button variant="danger" disabled={reason.trim().length < 3} loading={voidM.isPending} onClick={() => voidM.mutate()}>Cancel sale</Button>
+            <Button variant="danger" disabled={reason.trim().length < 3} loading={voidM.isPending} onClick={() => voidM.mutate()}>{t('Cancel sale')}</Button>
           </>
         }
       >
-        <Field label="Reason (recorded in the audit log)">
-          <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Customer returned the item the same day" />
+        <Field label={t('Reason (recorded in the audit log)')}>
+          <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('e.g. Customer returned the item the same day')} />
         </Field>
       </Dialog>
       <Dialog open={printOpen} onClose={() => setPrintOpen(false)} title={`${t('Invoice')} ${s.number}`} width="max-w-3xl" footer={<Button variant="primary" icon={<Printer className="size-4" />} onClick={() => window.print()}>{t('Print')}</Button>}>

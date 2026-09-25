@@ -39,7 +39,7 @@ export function TransfersPage() {
   const receive = useMutation({
     mutationFn: (id: number) => post(`/transfers/${id}/receive`),
     onSuccess: () => {
-      toast.success('Transfer received', 'Pieces are now AVAILABLE in your branch (TRANSFER_IN).');
+      toast.success(t('Transfer received'), t('Pieces are now AVAILABLE in your branch (TRANSFER_IN).'));
       qc.invalidateQueries();
     },
     onError: (e) => toast.fromError(e),
@@ -48,8 +48,8 @@ export function TransfersPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={t('Transfers')}
-        subtitle="Two-step inter-branch transfers: sent pieces are in transit (TRANSFERRED) until the receiving branch confirms."
-        actions={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setOpen(true)}>New transfer</Button>}
+        subtitle={t('Two-step inter-branch transfers: sent pieces are in transit (TRANSFERRED) until the receiving branch confirms.')}
+        actions={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setOpen(true)}>{t('New transfer')}</Button>}
       />
       <Card padded={false}>
         {q.isLoading ? (
@@ -61,22 +61,22 @@ export function TransfersPage() {
             rows={q.data!}
             rowKey={(r) => r.id}
             exportName="transfers"
-            emptyTitle="No transfers yet"
+            emptyTitle={t('No transfers yet')}
             columns={[
-              { key: 'number', header: 'Transfer', render: (r) => <Mono className="font-semibold text-ink-900">{r.number}</Mono> },
-              { key: 'createdAt', header: 'Sent', render: (r) => dateTime(r.createdAt, lang) },
-              { key: 'route', header: 'Route', value: (r) => `${r.fromBranchName} → ${r.toBranchName}`, render: (r) => <span className="inline-flex items-center gap-1.5">{r.fromBranchName} <ArrowRight className="size-3.5 text-ink-400 rtl:rotate-180" /> {r.toBranchName}</span> },
+              { key: 'number', header: t('Transfer'), render: (r) => <Mono className="font-semibold text-ink-900">{r.number}</Mono> },
+              { key: 'createdAt', header: t('Sent'), render: (r) => dateTime(r.createdAt, lang) },
+              { key: 'route', header: t('Route'), value: (r) => `${r.fromBranchName} → ${r.toBranchName}`, render: (r) => <span className="inline-flex items-center gap-1.5">{t(r.fromBranchName)} <ArrowRight className="size-3.5 text-ink-400 rtl:rotate-180" /> {t(r.toBranchName)}</span> },
               { key: 'items', header: t('Items'), value: (r) => r.items.map((i) => i.code).join(' '), render: (r) => <span className="text-[12px]"><Mono>{r.items.map((i) => i.code).join(', ')}</Mono></span> },
               { key: 'weightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.weightMg)}</span> },
-              { key: 'createdByName', header: 'Sent by' },
-              { key: 'receivedAt', header: 'Received', render: (r) => (r.receivedAt ? `${dateTime(r.receivedAt, lang)} · ${r.receivedByName}` : '—') },
+              { key: 'createdByName', header: t('Sent by') },
+              { key: 'receivedAt', header: t('Received'), render: (r) => (r.receivedAt ? `${dateTime(r.receivedAt, lang)} · ${r.receivedByName}` : '—') },
               {
                 key: 'status',
                 header: t('Status'),
                 render: (r) =>
                   r.status === 'IN_TRANSIT' && (isGlobal || me?.user.branch?.id === r.toBranchId) ? (
                     <Button size="sm" variant="success" icon={<PackageCheck className="size-4" />} loading={receive.isPending && receive.variables === r.id} onClick={() => receive.mutate(r.id)}>
-                      Confirm receipt
+                      {t('Confirm receipt')}
                     </Button>
                   ) : (
                     <StatusBadge status={r.status} />
@@ -93,7 +93,7 @@ export function TransfersPage() {
 
 function NewTransferDialog({ onClose }: { onClose: () => void }) {
   const { me, isGlobal } = useAuth();
-  const { L } = useI18n();
+  const { t, L } = useI18n();
   const toast = useToast();
   const qc = useQueryClient();
   const branches = useBranches();
@@ -110,7 +110,7 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
   const m = useMutation({
     mutationFn: () => post<{ number: string }>('/transfers', { fromBranchId: from || undefined, toBranchId: to, itemIds: [...selected], notes }),
     onSuccess: (r) => {
-      toast.success(`Transfer ${r.number} sent`, `${selected.size} piece(s) are now in transit.`);
+      toast.success(t('Transfer {number} sent', { number: r.number }), t('{n} piece(s) are now in transit.', { n: selected.size }));
       qc.invalidateQueries();
       onClose();
     },
@@ -120,27 +120,27 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
     <Dialog
       open
       onClose={onClose}
-      title="New inter-branch transfer"
+      title={t('New inter-branch transfer')}
       width="max-w-3xl"
-      footer={<><span className="me-auto text-[13px] text-ink-600">{selected.size} piece(s) selected</span><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!to || !selected.size} loading={m.isPending} onClick={() => m.mutate()}>Send transfer</Button></>}
+      footer={<><span className="me-auto text-[13px] text-ink-600">{t('{n} piece(s) selected', { n: selected.size })}</span><Button onClick={onClose}>{t('Cancel')}</Button><Button variant="primary" disabled={!to || !selected.size} loading={m.isPending} onClick={() => m.mutate()}>{t('Send transfer')}</Button></>}
     >
       <div className="mb-3 grid gap-3 sm:grid-cols-2">
-        <Field label="From">
+        <Field label={t('From')}>
           <Select value={from} disabled={!isGlobal} onChange={(e) => { setFrom(e.target.value ? Number(e.target.value) : ''); setSelected(new Set()); }}>
-            <option value="">Select…</option>
+            <option value="">{t('Select…')}</option>
             {branches.data?.map((b) => <option key={b.id} value={b.id}>{L(b.name, b.nameAr)}</option>)}
           </Select>
         </Field>
-        <Field label="To">
+        <Field label={t('To')}>
           <Select value={to} onChange={(e) => setTo(e.target.value ? Number(e.target.value) : '')}>
-            <option value="">Select…</option>
+            <option value="">{t('Select…')}</option>
             {directory.data?.filter((b) => b.id !== from).map((b) => <option key={b.id} value={b.id}>{L(b.name, b.nameAr)}</option>)}
           </Select>
         </Field>
       </div>
       <div className="scroll-thin max-h-72 overflow-y-auto rounded-md border border-line">
         {!from ? (
-          <Empty title="Select the sending branch" />
+          <Empty title={t('Select the sending branch')} />
         ) : items.isLoading ? (
           <Loading />
         ) : (
@@ -158,7 +158,7 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
           </ul>
         )}
       </div>
-      <Field label="Notes" className="mt-3">
+      <Field label={t('Notes')} className="mt-3">
         <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
       </Field>
     </Dialog>

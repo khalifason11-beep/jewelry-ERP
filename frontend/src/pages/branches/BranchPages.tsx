@@ -30,7 +30,7 @@ export function BranchesPage() {
   const q = useQuery({ queryKey: ['dashboard', 'company', today.slice(0, 8) + '01', today], queryFn: () => get<CompanyBranches>('/dashboard/company', { from: today.slice(0, 8) + '01', to: today }) });
   return (
     <div className="p-5 lg:p-6">
-      <PageHeader title={t('Branches')} subtitle="Month-to-date results. Open a branch to drill into its sales, expenses, inventory, Hasad activity and staff." />
+      <PageHeader title={t('Branches')} subtitle={t('Month-to-date results. Open a branch to drill into its sales, expenses, inventory, Hasad activity and staff.')} />
       {q.isLoading ? (
         <Loading />
       ) : q.isError ? (
@@ -50,18 +50,18 @@ export function BranchesPage() {
                         <span className="size-2.5 rounded-sm" style={{ background: branchColor(b.branchId) }} />
                         {L(b.name, b.nameAr)}
                       </div>
-                      <div className="text-[12.5px] text-ink-500">{b.city}</div>
+                      <div className="text-[12.5px] text-ink-500">{t(b.city)}</div>
                     </div>
                   </div>
                   <ChevronRight className="size-5 text-ink-300 group-hover:text-gold-600 rtl:rotate-180" />
                 </div>
                 <div className="mt-4 grid grid-cols-3 gap-3 text-[13px]">
-                  <div><div className="text-ink-500">{t('Sales')} MTD</div><div className="font-semibold num">{money(b.revenue)}</div></div>
+                  <div><div className="text-ink-500">{t('Sales')} · {t('MTD')}</div><div className="font-semibold num">{money(b.revenue)}</div></div>
                   <div><div className="text-ink-500">{t('Gross Profit')}</div><div className="font-semibold num">{money(b.grossProfit)}</div></div>
-                  <div><div className="text-ink-500">Contribution</div><div className="font-semibold text-emerald-700 num">{money(b.contribution)}</div></div>
-                  <div><div className="text-ink-500">{t('Available')}</div><div className="font-semibold num">{b.availableItems} pcs · {grams(b.availableWeightMg)}</div></div>
-                  <div><div className="text-ink-500">Hasad done</div><div className="font-semibold num">{b.hasadCompleted}</div></div>
-                  <div><div className="text-ink-500">Hasad open</div><div className="font-semibold num">{b.hasadOpen}</div></div>
+                  <div><div className="text-ink-500">{t('Contribution')}</div><div className="font-semibold text-emerald-700 num">{money(b.contribution)}</div></div>
+                  <div><div className="text-ink-500">{t('Available')}</div><div className="font-semibold num">{t('{n} pcs', { n: b.availableItems })} · {grams(b.availableWeightMg)}</div></div>
+                  <div><div className="text-ink-500">{t('Hasad done')}</div><div className="font-semibold num">{b.hasadCompleted}</div></div>
+                  <div><div className="text-ink-500">{t('Hasad open')}</div><div className="font-semibold num">{b.hasadOpen}</div></div>
                 </div>
               </Card>
             </Link>
@@ -96,7 +96,7 @@ export function BranchDetailPage() {
   return (
     <div className="p-5 lg:p-6">
       <PageHeader
-        breadcrumbs={<Crumbs items={[...(isGlobal ? [{ label: 'Company', to: '/overview' }, { label: t('Branches'), to: '/branches' }] : []), { label: L(b.name, b.nameAr) }]} />}
+        breadcrumbs={<Crumbs items={[...(isGlobal ? [{ label: t('Company'), to: '/overview' }, { label: t('Branches'), to: '/branches' }] : []), { label: L(b.name, b.nameAr) }]} />}
         title={
           <span className="flex items-center gap-3">
             <span className="size-3 rounded-sm" style={{ background: branchColor(b.id) }} />
@@ -108,7 +108,7 @@ export function BranchDetailPage() {
           <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <span className="inline-flex items-center gap-1"><MapPin className="size-3.5" /> {b.address}</span>
             <span className="inline-flex items-center gap-1"><Phone className="size-3.5" /> {b.phone}</span>
-            <span>{b.staffCount} staff · Hasad code <Mono>{b.hasadBranchCode}</Mono></span>
+            <span>{t('{n} staff', { n: b.staffCount })} · {t('Hasad code')} <Mono>{b.hasadBranchCode}</Mono></span>
           </span>
         }
       />
@@ -117,13 +117,13 @@ export function BranchDetailPage() {
         value={tab}
         onChange={setTab}
         tabs={[
-          { value: 'overview', label: 'Overview' },
+          { value: 'overview', label: t('Overview') },
           { value: 'sales', label: t('Sales') },
           { value: 'expenses', label: t('Expenses') },
           { value: 'inventory', label: t('Inventory') },
           { value: 'purchases', label: t('Purchases') },
           { value: 'hasad', label: t('Hasad Gold') },
-          { value: 'staff', label: 'Cashiers & sessions' },
+          { value: 'staff', label: t('Cashiers & sessions') },
         ]}
       />
       {tab === 'overview' && <BranchDashboard branchId={id} embedded />}
@@ -138,10 +138,11 @@ export function BranchDetailPage() {
 }
 
 function StaffTab({ branchId }: { branchId: number }) {
+  const { t } = useI18n();
   const [scope, setScope] = useState<'active' | 'recent'>('active');
   return (
     <Card padded={false}>
-      <Tabs className="px-3" value={scope} onChange={setScope} tabs={[{ value: 'active', label: 'Signed in now' }, { value: 'recent', label: 'Last 7 days' }]} />
+      <Tabs className="px-3" value={scope} onChange={setScope} tabs={[{ value: 'active', label: t('Signed in now') }, { value: 'recent', label: t('Last 7 days') }]} />
       <SessionsTable branchId={branchId} scope={scope} />
     </Card>
   );

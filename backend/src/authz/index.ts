@@ -10,11 +10,11 @@ export function can(actor: Actor, perm: Permission): boolean {
 }
 
 export function requirePerm(actor: Actor, ...perms: Permission[]): void {
-  for (const p of perms) if (!actor.permissions.has(p)) throw forbidden(`Missing permission: ${p}`);
+  for (const p of perms) if (!actor.permissions.has(p)) throw forbidden('Missing permission: {permission}', { permission: p });
 }
 
 export function requireAny(actor: Actor, ...perms: Permission[]): void {
-  if (!perms.some((p) => actor.permissions.has(p))) throw forbidden(`Requires one of: ${perms.join(', ')}`);
+  if (!perms.some((p) => actor.permissions.has(p))) throw forbidden('Requires one of: {permissions}', { permissions: perms.join(', ') });
 }
 
 export function isGlobal(actor: Actor): boolean {

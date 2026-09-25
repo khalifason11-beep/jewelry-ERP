@@ -4,11 +4,13 @@ import { formatWeight } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { can, isGlobal } from '../../authz';
 
+/** `title` / `body` are translation keys; the UI fills them with `params`. */
 export interface Notification {
   id: string;
   kind: 'HASAD' | 'TRANSFER' | 'EXPENSE' | 'SECURITY';
   title: string;
   body: string;
+  params: Record<string, string | number>;
   link: string;
   at: Date;
   severity: 'info' | 'warning';
@@ -32,8 +34,9 @@ export async function notificationsFor(ctx: Ctx, actor: Actor): Promise<Notifica
       out.push({
         id: `hasad-${w.id}`,
         kind: 'HASAD',
-        title: `Hasad withdrawal ${w.externalId}`,
-        body: `${w.customerName} · ${formatWeight(w.weight)} · ${w.branchName} — ready for pickup`,
+        title: 'Hasad withdrawal {id}',
+        body: '{customer} · {weight} g · {branch}. Ready for pickup',
+        params: { id: w.externalId, customer: w.customerName, weight: formatWeight(w.weight, false), branch: w.branchName },
         link: `/hasad/${w.id}`,
         at: w.receivedAt,
         severity: 'info',
@@ -48,7 +51,7 @@ export async function notificationsFor(ctx: Ctx, actor: Actor): Promise<Notifica
       .where(and(eq(t.transfers.status, 'IN_TRANSIT'), isGlobal(actor) ? undefined : eq(t.transfers.toBranchId, actor.branchId ?? -1)))
       .limit(5);
     for (const tr of trs) {
-      out.push({ id: `trf-${tr.id}`, kind: 'TRANSFER', title: `Transfer ${tr.number} in transit`, body: `From ${tr.from} — confirm receipt when it arrives`, link: '/transfers', at: tr.createdAt, severity: 'info' });
+      out.push({ id: `trf-${tr.id}`, kind: 'TRANSFER', title: 'Transfer {number} in transit', body: 'From {branch}. Confirm receipt when it arrives', params: { number: tr.number, branch: tr.from }, link: '/transfers', at: tr.createdAt, severity: 'info' });
     }
   }
   if (can(actor, 'expenses.approve')) {
@@ -59,7 +62,7 @@ export async function notificationsFor(ctx: Ctx, actor: Actor): Promise<Notifica
       .where(eq(t.expenses.status, 'PENDING'))
       .limit(5);
     for (const e of ex) {
-      out.push({ id: `exp-${e.id}`, kind: 'EXPENSE', title: `Expense ${e.number} awaiting approval`, body: `${e.branch} · ${e.amount.toLocaleString()} SDG`, link: '/expenses', at: e.createdAt, severity: 'warning' });
+      out.push({ id: `exp-${e.id}`, kind: 'EXPENSE', title: 'Expense {number} awaiting approval', body: '{branch} · {amount} SDG', params: { number: e.number, branch: e.branch, amount: e.amount.toLocaleString('en-US') }, link: '/expenses', at: e.createdAt, severity: 'warning' });
     }
   }
   if (can(actor, 'audit.view')) {
@@ -68,7 +71,7 @@ export async function notificationsFor(ctx: Ctx, actor: Actor): Promise<Notifica
       .from(t.auditLogs)
       .where(and(eq(t.auditLogs.action, 'LOGIN_FAILED'), gte(t.auditLogs.at, new Date(Date.now() - 86400_000)), branchCond(t.auditLogs.branchId)));
     if (Number(failed.n) > 0) {
-      out.push({ id: 'sec-failed', kind: 'SECURITY', title: `${failed.n} failed sign-in attempt(s) in 24h`, body: 'Review the audit log for details', link: '/audit?action=LOGIN_FAILED', at: new Date(failed.last), severity: 'warning' });
+      out.push({ id: 'sec-failed', kind: 'SECURITY', title: '{n} failed sign-in attempt(s) in 24h', body: 'Review the audit log for details', params: { n: Number(failed.n) }, link: '/audit?action=LOGIN_FAILED', at: new Date(failed.last), severity: 'warning' });
     }
   }
   return out.sort((a, b) => +new Date(b.at) - +new Date(a.at));

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, KeyRound, LogIn, ShieldCheck } from 'lucide-react';
-import { ApiError } from '../lib/api';
+import { ApiError, errorText } from '../lib/api';
 import { homePath, useAuth } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
 import { Alert, Button, Field, Input } from '../components/ui';
@@ -10,11 +10,11 @@ import { Logo } from '../components/layout/AppShell';
 // Clearly fake demo credentials (prototype only).
 const DEMO_ACCOUNTS = [
   { username: 'general.manager', password: 'demo-gm-2026', role: 'General Manager', branch: 'All branches' },
-  { username: 'branch.manager.kh', password: 'demo-bm-2026', role: 'Branch Manager', branch: 'Khartoum' },
-  { username: 'cashier.kh.01', password: 'demo-cashier-2026', role: 'Cashier', branch: 'Khartoum' },
-  { username: 'cashier.kh.02', password: 'demo-cashier-2026', role: 'Cashier', branch: 'Khartoum' },
-  { username: 'branch.manager.omd', password: 'demo-bm-2026', role: 'Branch Manager', branch: 'Omdurman' },
-  { username: 'cashier.omd.01', password: 'demo-cashier-2026', role: 'Cashier', branch: 'Omdurman' },
+  { username: 'branch.manager.kh', password: 'demo-bm-2026', role: 'Branch Manager', branch: 'Khartoum Branch' },
+  { username: 'cashier.kh.01', password: 'demo-cashier-2026', role: 'Cashier', branch: 'Khartoum Branch' },
+  { username: 'cashier.kh.02', password: 'demo-cashier-2026', role: 'Cashier', branch: 'Khartoum Branch' },
+  { username: 'branch.manager.omd', password: 'demo-bm-2026', role: 'Branch Manager', branch: 'Omdurman Branch' },
+  { username: 'cashier.omd.01', password: 'demo-cashier-2026', role: 'Cashier', branch: 'Omdurman Branch' },
 ];
 
 export function LoginPage() {
@@ -37,7 +37,7 @@ export function LoginPage() {
       const res = await login(username, password);
       navigate(res.user.mustChangePassword ? '/change-password' : homePath(res), { replace: true });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Sign-in failed');
+      setError(err instanceof ApiError ? errorText(err) : t('Sign-in failed'));
     } finally {
       setBusy(false);
     }
@@ -54,25 +54,25 @@ export function LoginPage() {
         <div className="relative mt-auto max-w-md">
           <div className="mb-4 h-px w-16 bg-gold-500" />
           <h1 className="text-[30px] font-semibold leading-tight tracking-tight">
-            Multi-branch jewelry retail,
+            {t('Multi-branch jewelry retail,')}
             <br />
-            <span className="text-gold-400">every piece accounted for.</span>
+            <span className="text-gold-400">{t('every piece accounted for.')}</span>
           </h1>
           <p className="mt-4 text-[15px] leading-relaxed text-ink-300">
-            Item-level inventory, point of sale, Hasad Gold withdrawals, branch profitability and a complete audit trail. One system for Khartoum, Omdurman, Bahri and Port Sudan.
+            {t('Item-level inventory, point of sale, Hasad Gold withdrawals, branch profitability and a complete audit trail. One system for Khartoum, Omdurman, Bahri and Port Sudan.')}
           </p>
           <div className="mt-8 grid grid-cols-3 gap-4 border-t border-white/10 pt-6 text-[13px]">
             <div>
-              <div className="font-semibold text-gold-300">Item-based</div>
-              <div className="mt-0.5 text-ink-400">Every piece tracked from purchase to sale</div>
+              <div className="font-semibold text-gold-300">{t('Item-based')}</div>
+              <div className="mt-0.5 text-ink-400">{t('Every piece tracked from purchase to sale')}</div>
             </div>
             <div>
-              <div className="font-semibold text-gold-300">Hasad-ready</div>
-              <div className="mt-0.5 text-ink-400">Withdrawals settled by real weight</div>
+              <div className="font-semibold text-gold-300">{t('Hasad-ready')}</div>
+              <div className="mt-0.5 text-ink-400">{t('Withdrawals settled by real weight')}</div>
             </div>
             <div>
-              <div className="font-semibold text-gold-300">Auditable</div>
-              <div className="mt-0.5 text-ink-400">Sessions and actions on record</div>
+              <div className="font-semibold text-gold-300">{t('Auditable')}</div>
+              <div className="mt-0.5 text-ink-400">{t('Sessions and actions on record')}</div>
             </div>
           </div>
         </div>
@@ -89,16 +89,16 @@ export function LoginPage() {
             <Logo />
           </div>
           <h2 className="text-2xl font-semibold tracking-tight text-ink-950">{t('Sign in')}</h2>
-          <p className="mt-1 text-sm text-ink-500">Use the account assigned to you by the General Manager.</p>
+          <p className="mt-1 text-sm text-ink-500">{t('Use the account assigned to you by the General Manager.')}</p>
 
           <form onSubmit={submit} className="mt-7 space-y-4">
-            <Field label="Username">
-              <Input autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. cashier.kh.01" required />
+            <Field label={t('Username')}>
+              <Input autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t('e.g. cashier.kh.01')} required />
             </Field>
-            <Field label="Password">
+            <Field label={t('Password')}>
               <div className="relative">
                 <Input type={show ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required className="pe-10" />
-                <button type="button" onClick={() => setShow((s) => !s)} className="absolute end-2 top-1/2 -translate-y-1/2 p-1 text-ink-400 hover:text-ink-700" aria-label={show ? 'Hide password' : 'Show password'}>
+                <button type="button" onClick={() => setShow((s) => !s)} className="absolute end-2 top-1/2 -translate-y-1/2 p-1 text-ink-400 hover:text-ink-700" aria-label={show ? t('Hide password') : t('Show password')}>
                   {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </button>
               </div>
@@ -111,7 +111,7 @@ export function LoginPage() {
 
           <div className="mt-8 rounded-lg border border-dashed border-gold-500/60 bg-gold-50/60 p-3">
             <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-gold-700">
-              <KeyRound className="size-3.5" /> Demo accounts — fictitious credentials
+              <KeyRound className="size-3.5" /> {t('Demo accounts — fictitious credentials')}
             </div>
             <div className="grid gap-1">
               {DEMO_ACCOUNTS.map((a) => (
@@ -126,14 +126,14 @@ export function LoginPage() {
                 >
                   <span className="font-mono text-ink-800">{a.username}</span>
                   <span className="text-ink-500">
-                    {a.role} · {a.branch}
+                    {t(a.role)} · {t(a.branch)}
                   </span>
                 </button>
               ))}
             </div>
           </div>
           <p className="mt-4 flex items-center gap-1.5 text-[11.5px] text-ink-400">
-            <ShieldCheck className="size-3.5" /> Passwords are stored as salted scrypt hashes. Sign-ins are recorded in the audit log.
+            <ShieldCheck className="size-3.5" /> {t('Passwords are stored as salted scrypt hashes. Sign-ins are recorded in the audit log.')}
           </p>
         </div>
       </div>

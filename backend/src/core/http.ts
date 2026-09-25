@@ -21,7 +21,7 @@ export function parse<T>(schema: ZodType<T>, data: unknown): T {
   const r = schema.safeParse(data);
   if (!r.success) {
     const first = r.error.issues[0];
-    throw badRequest(`${first.path.join('.') || 'input'}: ${first.message}`, r.error.issues);
+    throw badRequest('Invalid value for {field}', { field: first.path.join('.') || 'input' }, r.error.issues);
   }
   return r.data;
 }
@@ -32,15 +32,16 @@ export const zOptId = z.preprocess((v) => (v === '' || v === 'all' ? undefined :
 export const zDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
+  // `key` + `params` let the UI translate the message; `message` is the English rendering.
   if (err instanceof AppError) {
-    res.status(err.status).json({ error: { code: err.code, message: err.message, details: err.details } });
+    res.status(err.status).json({ error: { code: err.code, message: err.message, key: err.key, params: err.params, details: err.details } });
     return;
   }
   if (err instanceof HasadError) {
     const status = { NOT_FOUND: 404, INVALID_STATE: 409, REJECTED: 422, UNAVAILABLE: 502 }[err.code];
-    res.status(status).json({ error: { code: `HASAD_${err.code}`, message: err.message } });
+    res.status(status).json({ error: { code: `HASAD_${err.code}`, message: err.message, key: err.key, params: err.params } });
     return;
   }
   console.error(err);
-  res.status(500).json({ error: { code: 'INTERNAL', message: 'Unexpected server error' } });
+  res.status(500).json({ error: { code: 'INTERNAL', message: 'Unexpected server error', key: 'Unexpected server error' } });
 }

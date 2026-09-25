@@ -21,7 +21,7 @@ export function createApp(ctx: Ctx) {
   });
   app.use('/api', authenticate(ctx), apiRouter(ctx));
   app.use('/api', (_req, res) => {
-    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Unknown API endpoint' } });
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Unknown API endpoint', key: 'Unknown API endpoint' } });
   });
 
   // Serve the built SPA (production / demo mode).

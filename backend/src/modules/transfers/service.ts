@@ -35,7 +35,7 @@ export async function createTransfer(
     const items = await lockItems(tx, input.itemIds);
     const ref = { refType: 'transfer', refId: tr.id, refNumber: number };
     for (const item of items) {
-      if (item.branchId !== fromBranchId) throw forbidden(`Item ${item.code} is not in ${from.name}`);
+      if (item.branchId !== fromBranchId) throw forbidden('Item {code} is not in {branch}', { code: item.code, branch: from.name });
       await changeStatus(tx, { item, to: 'TRANSFERRED', from: ['AVAILABLE'], userId: actor.userId, ref, note: `In transit to ${to.name}`, at });
       await recordMovement(tx, { item, type: 'TRANSFER_OUT', branchId: fromBranchId, fromBranchId, toBranchId: to.id, ref, userId: actor.userId, at });
       await tx.insert(t.transferItems).values({ transferId: tr.id, itemId: item.id });
@@ -60,7 +60,7 @@ export async function receiveTransfer(ctx: Ctx, actor: Actor, id: number, opts: 
     const [tr] = await tx.select().from(t.transfers).where(eq(t.transfers.id, id));
     if (!tr) throw notFound('Transfer');
     if (!isGlobal(actor) && actor.branchId !== tr.toBranchId) throw forbidden('Only the receiving branch can confirm receipt');
-    if (tr.status !== 'IN_TRANSIT') throw badRequest(`Transfer is ${tr.status}`);
+    if (tr.status !== 'IN_TRANSIT') throw badRequest('Transfer is {status}', { status: tr.status });
     const links = await tx.select().from(t.transferItems).where(eq(t.transferItems.transferId, id));
     const items = await lockItems(tx, links.map((l) => l.itemId));
     const ref = { refType: 'transfer', refId: tr.id, refNumber: tr.number };

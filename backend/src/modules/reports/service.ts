@@ -477,7 +477,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
       };
     }
     default:
-      throw badRequest(`Unknown report: ${key}`);
+      throw badRequest('Unknown report: {key}', { key });
   }
 }
 

@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 import { CheckCircle2, AlertTriangle, Info, X } from 'lucide-react';
 import clsx from 'clsx';
-import { ApiError } from './api';
+import { errorText } from './api';
+import { translate } from './i18n';
 
 type Kind = 'success' | 'error' | 'info';
 interface Toast {
@@ -32,7 +33,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     success: (t, b) => push('success', t, b),
     error: (t, b) => push('error', t, b),
     info: (t, b) => push('info', t, b),
-    fromError: (e, title = 'Action failed') => push('error', title, e instanceof ApiError || e instanceof Error ? e.message : String(e)),
+    // Titles are passed already translated by callers; the error body is translated here.
+    fromError: (e, title) => push('error', title ?? translate('Action failed'), errorText(e)),
   };
   return (
     <Ctx.Provider value={api}>
@@ -60,7 +62,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               <div className="font-medium text-ink-900">{t.title}</div>
               {t.body && <div className="mt-0.5 text-[13px] text-ink-500">{t.body}</div>}
             </div>
-            <button className="text-ink-400 hover:text-ink-700" onClick={() => setToasts((ts) => ts.filter((x) => x.id !== t.id))} aria-label="Dismiss">
+            <button className="text-ink-400 hover:text-ink-700" onClick={() => setToasts((ts) => ts.filter((x) => x.id !== t.id))} aria-label={translate('Dismiss')}>
               <X className="size-4" />
             </button>
           </div>

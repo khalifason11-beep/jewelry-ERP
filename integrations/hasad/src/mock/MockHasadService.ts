@@ -66,7 +66,7 @@ export class MockHasadService implements HasadService {
   getCustomerEntitlement(customerId: string): Promise<HasadEntitlement> {
     return this.call(`GET /customers/${customerId}/entitlement`, null, async () => {
       const [c] = await this.db.select().from(mockCustomers).where(eq(mockCustomers.id, customerId));
-      if (!c) throw new HasadError('NOT_FOUND', `Customer ${customerId} not found`);
+      if (!c) throw new HasadError('NOT_FOUND', 'Customer {id} not found', { id: customerId });
       const withdrawable = c.balanceMg >= this.minimumWithdrawalMg ? c.balanceMg : 0;
       return {
         customer: this.customerDto(c),
@@ -159,7 +159,7 @@ export class MockHasadService implements HasadService {
       .select({ id: mockWithdrawals.id })
       .from(mockWithdrawals)
       .where(and(eq(mockWithdrawals.customerId, c.id), inArray(mockWithdrawals.status, ['PENDING', 'READY_FOR_PICKUP', 'IN_PROGRESS'])));
-    if (open.length) throw new HasadError('REJECTED', `Customer already has an open withdrawal (${open[0].id})`);
+    if (open.length) throw new HasadError('REJECTED', 'Customer already has an open withdrawal ({id})', { id: open[0].id });
 
     const id = await this.nextWithdrawalId();
     await this.db.insert(mockWithdrawals).values({
@@ -209,7 +209,7 @@ export class MockHasadService implements HasadService {
       await log(200, result);
       return result;
     } catch (e) {
-      const err = e instanceof HasadError ? e : new HasadError('UNAVAILABLE', String(e));
+      const err = e instanceof HasadError ? e : new HasadError('UNAVAILABLE', 'Hasad Gold is unreachable');
       const status = { NOT_FOUND: 404, INVALID_STATE: 409, REJECTED: 422, UNAVAILABLE: 503 }[err.code];
       await log(status, { error: err.message });
       throw err;
@@ -218,7 +218,7 @@ export class MockHasadService implements HasadService {
 
   private async row(id: string): Promise<WithdrawalRow> {
     const [w] = await this.db.select().from(mockWithdrawals).where(eq(mockWithdrawals.id, id));
-    if (!w) throw new HasadError('NOT_FOUND', `Withdrawal ${id} not found`);
+    if (!w) throw new HasadError('NOT_FOUND', 'Withdrawal {id} not found', { id });
     return w;
   }
 
@@ -228,13 +228,13 @@ export class MockHasadService implements HasadService {
       .from(mockWithdrawals)
       .innerJoin(mockCustomers, eq(mockCustomers.id, mockWithdrawals.customerId))
       .where(eq(mockWithdrawals.id, id));
-    if (!r) throw new HasadError('NOT_FOUND', `Withdrawal ${id} not found`);
+    if (!r) throw new HasadError('NOT_FOUND', 'Withdrawal {id} not found', { id });
     return this.toDto(r.withdrawals, r.customers);
   }
 
   private assertStatus(w: WithdrawalRow, allowed: HasadExternalStatus[]) {
     if (!allowed.includes(w.status as HasadExternalStatus)) {
-      throw new HasadError('INVALID_STATE', `Withdrawal ${w.id} is ${w.status}`);
+      throw new HasadError('INVALID_STATE', 'Withdrawal {id} is {status}', { id: w.id, status: w.status });
     }
   }
 

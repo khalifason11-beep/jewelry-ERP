@@ -43,12 +43,12 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
 
     const lines = input.items.map((line) => {
       const item = byId.get(line.itemId)!;
-      if (item.branchId !== branchId) throw forbidden(`Item ${item.code} does not belong to this branch`);
-      if (item.status !== 'AVAILABLE') throw badRequest(`Item ${item.code} is ${item.status} and cannot be sold`);
+      if (item.branchId !== branchId) throw forbidden('Item {code} does not belong to this branch', { code: item.code });
+      if (item.status !== 'AVAILABLE') throw badRequest('Item {code} is {status} and cannot be sold', { code: item.code, status: item.status });
       const discount = Math.round(line.discount ?? 0);
       if (discount < 0) throw badRequest('Discount cannot be negative');
       if (discount > (item.sellingPrice * maxPct) / 100) {
-        throw forbidden(`Discount on ${item.code} exceeds your limit of ${maxPct}%`);
+        throw forbidden('Discount on {code} exceeds your limit of {pct}%', { code: item.code, pct: maxPct });
       }
       return { item, discount, finalPrice: item.sellingPrice - discount };
     });
@@ -180,6 +180,7 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
       branchAddress: t.branches.address,
       branchPhone: t.branches.phone,
       cashierName: t.users.fullName,
+      cashierNameAr: t.users.fullNameAr,
       cashierUsername: t.users.username,
     })
     .from(t.sales)
@@ -198,6 +199,7 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
       itemCode: t.jewelryItems.code,
       barcode: t.jewelryItems.barcode,
       productName: t.saleItems.productName,
+      productNameAr: t.products.nameAr,
       karat: t.saleItems.karat,
       netWeightMg: t.saleItems.netWeightMg,
       grossWeightMg: t.jewelryItems.grossWeightMg,
@@ -211,6 +213,7 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
     })
     .from(t.saleItems)
     .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.saleItems.itemId))
+    .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
     .where(eq(t.saleItems.saleId, id));
 
   let voidedByName: string | null = null;
@@ -229,6 +232,7 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
     branchAddress: sale.branchAddress,
     branchPhone: sale.branchPhone,
     cashierName: sale.cashierName,
+    cashierNameAr: sale.cashierNameAr,
     cashierUsername: sale.cashierUsername,
     voidedByName,
     items: items.map((i) => {
@@ -247,7 +251,7 @@ export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: strin
     const [sale] = await tx.select().from(t.sales).where(eq(t.sales.id, id)).for('update');
     if (!sale) throw notFound('Sale');
     branchScope(actor, sale.branchId);
-    if (sale.status !== 'COMPLETED') throw badRequest(`Sale is already ${sale.status}`);
+    if (sale.status !== 'COMPLETED') throw badRequest('Sale is already {status}', { status: sale.status });
     const lines = await tx.select().from(t.saleItems).where(eq(t.saleItems.saleId, id));
     const items = await lockItems(tx, lines.map((l) => l.itemId));
     const ref = { refType: 'sale', refId: sale.id, refNumber: sale.number };

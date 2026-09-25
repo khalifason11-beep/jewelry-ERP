@@ -97,7 +97,7 @@ export async function changeStatus(exec: Executor, c: StatusChange): Promise<Ite
     .returning();
   if (!updated.length) {
     const [cur] = await exec.select({ status: t.jewelryItems.status }).from(t.jewelryItems).where(eq(t.jewelryItems.id, c.item.id));
-    throw conflict(`Item ${c.item.code} is ${cur?.status ?? 'missing'} (expected ${c.from.join(' or ')})`, {
+    throw conflict('Item {code} is {status} (expected {expected})', { code: c.item.code, status: cur?.status ?? 'MISSING', expected: c.from.join(' / ') }, {
       itemId: c.item.id,
       status: cur?.status,
     });

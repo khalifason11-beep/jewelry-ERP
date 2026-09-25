@@ -1,4 +1,5 @@
 import { useSearchParams } from 'react-router-dom';
+import { ArrowRight } from 'lucide-react';
 import { addDaysKey, todayKey } from '../lib/format';
 import { useBranches } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
@@ -28,14 +29,14 @@ export function DateRange({ from, to, onChange }: { from: string; to: string; on
   const today = todayKey();
   const quick = [
     { label: t('Today'), from: today, to: today },
-    { label: '7d', from: addDaysKey(today, -6), to: today },
-    { label: 'MTD', from: today.slice(0, 8) + '01', to: today },
-    { label: '30d', from: addDaysKey(today, -29), to: today },
+    { label: t('7d'), from: addDaysKey(today, -6), to: today },
+    { label: t('MTD'), from: today.slice(0, 8) + '01', to: today },
+    { label: t('30d'), from: addDaysKey(today, -29), to: today },
   ];
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <Input type="date" value={from} max={to} onChange={(e) => e.target.value && onChange({ from: e.target.value, to })} className="h-8 w-[138px] text-[13px]" aria-label={t('From')} />
-      <span className="text-ink-400">→</span>
+      <ArrowRight className="size-3.5 text-ink-400 rtl:rotate-180" aria-hidden />
       <Input type="date" value={to} min={from} max={today} onChange={(e) => e.target.value && onChange({ from, to: e.target.value })} className="h-8 w-[138px] text-[13px]" aria-label={t('To')} />
       <div className="flex rounded-md border border-line-strong bg-white p-0.5">
         {quick.map((q) => (

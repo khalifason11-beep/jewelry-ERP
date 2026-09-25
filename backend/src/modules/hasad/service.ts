@@ -247,7 +247,7 @@ export interface OpenInput {
 export async function openWithdrawal(ctx: Ctx, actor: Actor, id: number, input: OpenInput) {
   requirePerm(actor, 'hasad.process');
   const w = await loadWithdrawal(ctx.db, actor, id);
-  if (w.status === 'COMPLETED' || w.status === 'CANCELLED') throw badRequest(`Withdrawal ${w.externalId} is ${w.status}`);
+  if (w.status === 'COMPLETED' || w.status === 'CANCELLED') throw badRequest('Withdrawal {id} is {status}', { id: w.externalId, status: w.status });
   if (input.verification === 'PICKUP_CODE') {
     if (!input.pickupCode || input.pickupCode.trim() !== w.pickupCode) throw badRequest('Pickup code does not match the Hasad request');
   }
@@ -258,7 +258,7 @@ export async function openWithdrawal(ctx: Ctx, actor: Actor, id: number, input: 
   // Confirm with Hasad that the request is still valid, and lock it on their side.
   const remote = await ctx.hasad.getWithdrawal(w.externalId);
   if (remote.status !== 'READY_FOR_PICKUP' && remote.status !== 'IN_PROGRESS') {
-    throw conflict(`Hasad reports this withdrawal as ${remote.status}`);
+    throw conflict('Hasad reports this withdrawal as {status}', { status: remote.status });
   }
   await ctx.hasad.markInProgress(w.externalId, { branchCode: branch.hasadBranchCode!, openedBy: actor.username });
 
@@ -300,7 +300,7 @@ export async function addItem(ctx: Ctx, actor: Actor, id: number, itemId: number
     const draft = await draftRedemption(tx, id);
     if (!draft) throw badRequest('No open counter session for this withdrawal');
     const [item] = await lockItems(tx, [itemId]);
-    if (item.branchId !== w.branchId) throw forbidden(`Item ${item.code} is not in this branch`);
+    if (item.branchId !== w.branchId) throw forbidden('Item {code} is not in this branch', { code: item.code });
     // This is the ONLY point where a Hasad withdrawal affects inventory: the customer chose this piece.
     await changeStatus(tx, {
       item,
@@ -384,7 +384,7 @@ export async function completeWithdrawal(ctx: Ctx, actor: Actor, id: number, inp
 
   // 1. Validate everything locally before telling Hasad.
   const w = await loadWithdrawal(ctx.db, actor, id);
-  if (w.status !== 'IN_PROGRESS') throw badRequest(`Withdrawal is ${w.status}`);
+  if (w.status !== 'IN_PROGRESS') throw badRequest('Withdrawal is {status}', { status: w.status });
   const draft = await draftRedemption(ctx.db, id);
   if (!draft) throw badRequest('No open counter session for this withdrawal');
   const items = await activeItems(ctx.db, draft.id);
@@ -392,7 +392,7 @@ export async function completeWithdrawal(ctx: Ctx, actor: Actor, id: number, inp
   if (items.some((i) => i.status !== 'RESERVED')) throw conflict('A selected item is no longer reserved — please review the selection');
   const s = await computeSettlement(ctx, w, items);
   if (s.direction !== input.expectedDirection || s.amount !== input.expectedAmount) {
-    throw conflict('The settlement changed (gold rate or selection). Please review and confirm again.', s);
+    throw conflict('The settlement changed (gold rate or selection). Please review and confirm again.', undefined, s);
   }
   const [branch] = await ctx.db.select().from(t.branches).where(eq(t.branches.id, w.branchId));
   const { company } = await ctx.settings.get();
@@ -511,7 +511,7 @@ export async function cancelWithdrawal(ctx: Ctx, actor: Actor, id: number, reaso
   requirePerm(actor, 'hasad.cancel');
   if (!reason?.trim()) throw badRequest('A cancellation reason is required');
   const w = await loadWithdrawal(ctx.db, actor, id);
-  if (w.status === 'COMPLETED' || w.status === 'CANCELLED') throw badRequest(`Withdrawal is already ${w.status}`);
+  if (w.status === 'COMPLETED' || w.status === 'CANCELLED') throw badRequest('Withdrawal is already {status}', { status: w.status });
   await ctx.hasad.cancelWithdrawal(w.externalId, reason);
   await ctx.db.transaction(async (tx) => {
     const draft = await draftRedemption(tx, id);

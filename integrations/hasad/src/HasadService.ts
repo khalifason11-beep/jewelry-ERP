@@ -25,12 +25,17 @@ export interface HasadService {
 
 export type HasadErrorCode = 'UNAVAILABLE' | 'NOT_FOUND' | 'INVALID_STATE' | 'REJECTED';
 
+/**
+ * `key` is a stable English template (e.g. "Withdrawal {id} not found") and `params` fill it,
+ * so the ERP can show the error in the user's language.
+ */
 export class HasadError extends Error {
   constructor(
     public readonly code: HasadErrorCode,
-    message: string,
+    public readonly key: string,
+    public readonly params?: Record<string, string | number>,
   ) {
-    super(message);
+    super(key.replace(/\{(\w+)\}/g, (m, k) => (params?.[k] != null ? String(params[k]) : m)));
     this.name = 'HasadError';
   }
 }

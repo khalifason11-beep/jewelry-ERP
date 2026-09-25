@@ -41,7 +41,8 @@ export async function syncWithdrawals(ctx: Ctx, force = false): Promise<{ error:
     remote = await ctx.hasad.listWithdrawals({ status: ['READY_FOR_PICKUP', 'IN_PROGRESS', 'CANCELLED'] });
     lastSyncError = null;
   } catch (e) {
-    lastSyncError = e instanceof HasadError ? e.message : 'Hasad Gold is unreachable';
+    // Stable key (translated by the UI); dynamic Hasad messages collapse to the generic one.
+    lastSyncError = e instanceof HasadError && !e.params ? e.key : 'Hasad Gold is unreachable';
     return { error: lastSyncError, syncedAt: new Date(lastSyncAt) };
   }
 
