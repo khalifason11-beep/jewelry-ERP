@@ -4,7 +4,7 @@ import { config } from './config';
 import { createApp } from './app';
 import { createContext, isEmpty, openDatabase } from './bootstrap';
 import { log } from './core/logger';
-import { demoCredentialsInUse, productionConfigProblems, unvalidatedConstraints } from './core/startup';
+import { demoCredentialsInUse, productionConfigProblems, runtimeRoleProblems, unvalidatedConstraints } from './core/startup';
 import { releaseStaleReservations } from './modules/hasad/service';
 import { seedDemo } from './seed/demo';
 
@@ -15,7 +15,7 @@ if (problems.length) {
   process.exit(1);
 }
 
-const handle = await openDatabase({ url: config.databaseUrl, dataDir: config.dataDir });
+const handle = await openDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrationUrl: config.migrationDatabaseUrl });
 const ctx = createContext(handle);
 
 const notValidated = await unvalidatedConstraints(handle.db);
@@ -31,6 +31,22 @@ if (config.appMode === 'demo') {
     log.info('demo data loaded', { seconds: Number(((Date.now() - started) / 1000).toFixed(1)) });
   }
 } else {
+  // Least privilege (D-2a-13): the runtime role must not own or be able to alter the append-only tables.
+  const roles = await runtimeRoleProblems(handle.db);
+  if (roles.superuser || roles.tables.length) {
+    const details = {
+      role: roles.role,
+      superuser: roles.superuser,
+      tables: roles.tables.map((r) => `${r.table}${r.owns ? ' (owner)' : ''}${r.update ? ' UPDATE' : ''}${r.delete ? ' DELETE' : ''}${r.truncate ? ' TRUNCATE' : ''}`),
+      fix: 'Run migrations as an owner role (MIGRATION_DATABASE_URL) and connect the app (DATABASE_URL) as a runtime role with only SELECT/INSERT on these tables: see docs/DEPLOYMENT.md, "Separate owner and runtime roles".',
+    };
+    if (config.strictDbRoles) {
+      log.error('refusing to start: the database role can alter the append-only tables (STRICT_DB_ROLES=true)', details);
+      await handle.close();
+      process.exit(1);
+    }
+    log.warn('SECURITY WARNING: the database role can alter the append-only tables (audit log, ledgers). Anyone with the app credentials could rewrite history.', details);
+  }
   // Production never seeds demo data, and never runs with a published demo password.
   const leaked = await demoCredentialsInUse(handle.db);
   if (leaked.length) {

@@ -1193,4 +1193,9 @@ export const AR: Record<string, string> = {
   "The same request is still being processed. Please wait.": "الطلب نفسه ما زال قيد المعالجة. يرجى الانتظار.",
   "This Idempotency-Key was already used for a different request": "مفتاح عدم التكرار هذا استُخدم من قبل لطلب مختلف",
   "An earlier attempt of this action did not finish. Check whether it was recorded before trying again.": "لم تكتمل محاولة سابقة لهذا الإجراء. تحقّق مما إذا كان قد سُجّل قبل المحاولة مرة أخرى.",
+
+  // ── generated from translation sheets ──
+  "Sign-in failed. Check your username and password. After several failed attempts, sign-in is paused for a while.": "تعذّر تسجيل الدخول. تحقّق من اسم المستخدم وكلمة المرور. بعد عدة محاولات فاشلة يتوقف تسجيل الدخول لفترة.",
+  "The General Manager username must have at least {n} characters": "يجب أن يتكوّن اسم مستخدم المدير العام من {n} أحرف على الأقل",
+  "Choose a personal username, not a role-style name such as “{word}”": "اختر اسم مستخدم شخصيًا، لا اسمًا يدل على وظيفة مثل «{word}»",
 };

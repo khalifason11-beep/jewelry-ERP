@@ -9,7 +9,7 @@ if (config.appMode !== 'demo') {
   process.exit(1);
 }
 
-const handle = await openDatabase({ url: config.databaseUrl, dataDir: config.dataDir });
+const handle = await openDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrationUrl: config.migrationDatabaseUrl });
 const ctx = createContext(handle);
 const started = Date.now();
 const res = await resetDemoData(ctx);

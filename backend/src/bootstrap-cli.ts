@@ -1,4 +1,4 @@
-// npm run bootstrap -w @jerp/backend -- --username gm.name --full-name "Name" [--full-name-ar "الاسم"]
+// npm run bootstrap -w @jerp/backend -- --username <personal name, e.g. o.abdelrahman> --full-name "Name" [--full-name-ar "الاسم"]
 //                                       [--branch KRT:"Khartoum Branch":"فرع الخرطوم":Khartoum] …
 // Creates the reference data and the FIRST General Manager of a production deployment.
 // The one-time password is printed once; the GM must change it at first sign-in.
@@ -29,7 +29,7 @@ if (problems.length) {
   process.exit(1);
 }
 
-const handle = await openDatabase({ url: config.databaseUrl, dataDir: config.dataDir });
+const handle = await openDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrationUrl: config.migrationDatabaseUrl });
 try {
   const ctx = createContext(handle);
   const res = await bootstrapProduction(ctx, {

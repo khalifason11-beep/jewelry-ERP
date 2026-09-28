@@ -39,7 +39,7 @@ if (problems.length) {
 }
 
 const operator = { host: os.hostname(), osUser: os.userInfo().username };
-const handle = await openDatabase({ url: config.databaseUrl, dataDir: config.dataDir });
+const handle = await openDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrationUrl: config.migrationDatabaseUrl });
 try {
   const ctx = createContext(handle);
   if (command === 'unlock') {

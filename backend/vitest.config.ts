@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config';
 // Two projects (docs/decisions.md D-2a-6):
 //   pglite   — every suite on embedded PGlite (fast, no install)
 //   postgres — every suite again on real PostgreSQL, plus test/pg/** (concurrency, privileges).
-//              Needs TEST_DATABASE_URL (a role allowed to CREATE DATABASE, not a superuser).
+//              Needs TEST_DATABASE_URL: a role with CREATEDB and CREATEROLE that is NOT a superuser.
 // Without TEST_DATABASE_URL the postgres project is left out with a warning; `npm run test:pg`
 // (REQUIRE_PG_TESTS=1) fails instead, which is what CI uses.
 const pgUrl = process.env.TEST_DATABASE_URL;

@@ -50,7 +50,7 @@ privilege tests in `backend/test/pg/` (each test file gets its own database, dro
 
 ```bash
 npm test
-# real PostgreSQL too — the role must be allowed to CREATE DATABASE and must NOT be a superuser:
+# real PostgreSQL too — the role needs CREATEDB and CREATEROLE and must NOT be a superuser:
 TEST_DATABASE_URL=postgres://jerp_test:secret@localhost:5432/postgres npm test
 # CI: fail instead of skipping when TEST_DATABASE_URL is missing
 npm run test:pg -w @jerp/backend
@@ -121,7 +121,7 @@ First start of a production database:
 
 ```bash
 APP_MODE=production DATABASE_URL=… APP_ORIGIN=https://erp.example.com \
-  npm run bootstrap -w @jerp/backend -- --username gm.owner --full-name "Owner Name" --full-name-ar "الاسم" \
+  npm run bootstrap -w @jerp/backend -- --username o.abdelrahman --full-name "Owner Name" --full-name-ar "الاسم" \
   --branch "KRT:Khartoum Branch:فرع الخرطوم:Khartoum"
 ```
 
@@ -136,6 +136,10 @@ inventory-adjustment changes. See `docs/decisions.md`.
 
 Deploying behind Render or another reverse proxy: follow **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** (exact env
 vars, and how to check that real client IPs reach the audit log).
+
+Migrations run automatically at start-up; `npm run migrate` applies them alone. For production, run migrations as an
+owner role (`MIGRATION_DATABASE_URL`) and the app as a runtime role that owns nothing (`DATABASE_URL`), with
+`STRICT_DB_ROLES=true`: see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) §5 for the exact SQL.
 
 Operator console (needs shell access to the server; refuses to run outside `APP_MODE=production` unless given
 `--allow-non-production`; every action is audited):

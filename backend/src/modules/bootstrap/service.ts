@@ -34,9 +34,31 @@ export function parseBranchArg(arg: string): BootstrapBranch {
   return { code, name, nameAr, city };
 }
 
+/**
+ * Role-style words an attacker would try first. A General Manager username chosen at bootstrap
+ * may not contain any of them as a word (D-2a-11), e.g. "general.manager", "admin2026", "gm.owner".
+ */
+export const ROLE_STYLE_WORDS: ReadonlySet<string> = new Set([
+  'admin', 'administrator', 'adm', 'sysadmin', 'superuser', 'super', 'root', 'system', 'sys', 'sa',
+  'manager', 'mgr', 'general', 'generalmanager', 'gm', 'branchmanager', 'bm', 'owner', 'boss', 'director',
+  'ceo', 'cfo', 'chief', 'head', 'supervisor', 'cashier', 'teller', 'staff', 'user', 'guest', 'test',
+  'demo', 'default', 'operator', 'support', 'service', 'erp', 'account', 'accounts', 'finance',
+]);
+
+/** The GM username must be chosen by the operator: ≥ 8 characters and not role-style. */
+export function assertOperatorUsername(username: string): void {
+  if (username.length < 8) throw badRequest('The General Manager username must have at least {n} characters', { n: 8 });
+  const words = username.split(/[^a-z]+/).filter(Boolean);
+  const hit = words.find((w) => ROLE_STYLE_WORDS.has(w));
+  if (hit || !words.length) {
+    throw badRequest('Choose a personal username, not a role-style name such as “{word}”', { word: hit ?? username });
+  }
+}
+
 export async function bootstrapProduction(ctx: Ctx, input: BootstrapInput): Promise<{ username: string; temporaryPassword: string; branches: string[] }> {
   const username = input.username.trim().toLowerCase();
   if (!/^[a-z0-9._-]{3,40}$/.test(username)) throw badRequest('Username: 3–40 chars, letters, digits, dot, dash, underscore');
+  assertOperatorUsername(username);
   if (input.fullName.trim().length < 2) throw badRequest('Invalid value for {field}', { field: 'fullName' });
 
   return ctx.db.transaction(async (tx) => {

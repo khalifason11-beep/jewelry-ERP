@@ -36,6 +36,13 @@
       "when": 1790605785011,
       "tag": "0004_integrity_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790611068181,
+      "tag": "0005_least_privilege_roles",
+      "breakpoints": true
     }
   ]
 }

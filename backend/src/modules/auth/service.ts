@@ -8,7 +8,7 @@ import { AppError, badRequest, forbidden } from '../../core/errors';
 import { log } from '../../core/logger';
 import { burnVerification, hashPassword, needsRehash, verifyPassword } from '../../auth/password';
 import { assertPasswordPolicy } from '../../auth/policy';
-import { accountLocked, clearFailures, ghostFailure, ghostLocked, ipBlocked, ipFailure, ipThrottled, recordFailure } from '../../auth/lockout';
+import { accountLocked, clearFailures, ipReserve, ipThrottled, reserveAttempt, type Reservation } from '../../auth/lockout';
 import { publicBranding } from '../branding/service';
 import { createSession, csrfTokenFor, endSession, endUserSessions, loadActor, markReauthenticated, sessionRef } from '../sessions/service';
 
@@ -23,17 +23,19 @@ export interface LoginInput {
 const auditableUsername = (u: string) => (/^[a-z0-9._-]{1,40}$/.test(u) ? u : '[invalid]');
 
 /**
- * Sign in. Every failure path returns the same generic errors and spends the same hashing time,
- * so responses reveal neither which usernames exist nor which accounts are locked (M-2, D-1a-4).
+ * Sign in. Every failure — unknown username, locked account, wrong password — returns the SAME
+ * response, writes the same audit entry and spends one password-hash verification, so responses
+ * reveal neither which usernames exist nor which accounts are locked (M-2, D-1a-4, D-2a-12).
+ * Attempts are reserved before the password is verified (D-2a-10): a burst of parallel guesses
+ * gets at most `lockoutThreshold` real verifications per account and `IP_MAX_FAILURES` per IP.
  * On success a brand-new session (token + CSRF token) is created: session ids are never reused.
  */
 export async function login(ctx: Ctx, input: LoginInput) {
   const username = input.username.trim().toLowerCase().slice(0, 64);
   const ip = input.ip ?? 'unknown';
   const { security } = await ctx.settings.get();
-  const invalid = () => new AppError(401, 'INVALID_CREDENTIALS', 'Invalid username or password');
-  const auditFailure = (exec: Executor, branchId: number | null) =>
-    writeAudit(exec, null, {
+  const refused = async (branchId: number | null) => {
+    await writeAudit(ctx.db, null, {
       action: 'LOGIN_FAILED',
       entityType: 'user',
       entityId: auditableUsername(username),
@@ -41,8 +43,12 @@ export async function login(ctx: Ctx, input: LoginInput) {
       key: 'Failed login attempt for “{username}” from {ip}',
       params: { username: auditableUsername(username), ip },
     });
+    return invalidCredentials();
+  };
 
-  if (ipBlocked(ip)) {
+  // Reserve an IP slot synchronously, before any await (refunded only on success).
+  const refundIp = ipReserve(ip);
+  if (!refundIp) {
     await burnVerification(input.password);
     log.warn('login throttled by IP', { ip });
     throw ipThrottled();
@@ -51,27 +57,23 @@ export async function login(ctx: Ctx, input: LoginInput) {
   const [u] = await ctx.db.select().from(t.users).where(eq(t.users.username, username));
   if (!u) {
     await burnVerification(input.password);
-    if (ghostLocked(username)) throw accountLocked();
-    ghostFailure(username, security);
-    ipFailure(ip);
-    await auditFailure(ctx.db, null);
-    throw invalid();
+    throw await refused(null);
   }
-  if (u.lockedUntil && u.lockedUntil.getTime() > Date.now()) {
-    // Attempts during a lock are not evaluated (and do not extend the lock).
+  const r = await reserveAttempt(ctx.db, u.id, security);
+  if (!r.allowed) {
+    // Locked: not evaluated, not extended, and indistinguishable from an unknown username.
     await burnVerification(input.password);
-    throw accountLocked();
+    throw await refused(u.branchId);
   }
   if (!(await verifyPassword(input.password, u.passwordHash))) {
-    ipFailure(ip);
     await ctx.db.transaction(async (tx) => {
-      const r = await recordFailure(tx, u.id, security);
-      await auditFailure(tx, u.branchId);
       if (r.lockedUntil) await auditLock(tx, u, r.failed, r.lockedUntil);
     });
-    throw invalid();
+    throw await refused(u.branchId);
   }
+  refundIp();
   if (u.status !== 'ACTIVE') {
+    await clearFailures(ctx.db, u.id);
     await writeAudit(ctx.db, null, {
       action: 'LOGIN_FAILED',
       entityType: 'user',
@@ -101,6 +103,10 @@ export async function login(ctx: Ctx, input: LoginInput) {
   });
 }
 
+/** The one response for every failed sign-in (unknown user, locked account, wrong password). */
+export const invalidCredentials = () =>
+  new AppError(401, 'INVALID_CREDENTIALS', 'Sign-in failed. Check your username and password. After several failed attempts, sign-in is paused for a while.');
+
 async function auditLock(exec: Executor, u: { id: number; username: string; branchId: number | null }, failed: number, until: Date) {
   await writeAudit(exec, null, {
     action: 'ACCOUNT_LOCKED',
@@ -113,16 +119,22 @@ async function auditLock(exec: Executor, u: { id: number; username: string; bran
 }
 
 /**
- * A wrong password typed by a signed-in user (re-auth, change password) counts toward the lockout.
- * If it locks the account, every session of the user ends: an unattended terminal cannot be used
- * to guess the password.
+ * Password check for a signed-in user (re-auth, change password), with the same reserve-then-verify
+ * protection as sign-in. A wrong password counts toward the lockout; if it locks the account, every
+ * session of the user ends: an unattended terminal cannot be used to guess the password.
  */
-async function wrongPasswordWhileSignedIn(ctx: Ctx, actor: Actor, action: 'REAUTH_FAILED' | 'LOGIN_FAILED') {
+async function checkPasswordWhileSignedIn(ctx: Ctx, actor: Actor, password: string, hash: string, action: 'REAUTH_FAILED' | 'LOGIN_FAILED'): Promise<boolean> {
   const { security } = await ctx.settings.get();
-  ipFailure(actor.ip ?? 'unknown');
+  const refundIp = ipReserve(actor.ip ?? 'unknown');
+  if (!refundIp) throw ipThrottled();
+  const r: Reservation = await reserveAttempt(ctx.db, actor.userId, security);
+  if (!r.allowed) throw accountLocked();
+  if (await verifyPassword(password, hash)) {
+    refundIp();
+    return true;
+  }
   await ctx.db.transaction(async (tx) => {
     const [u] = await tx.select().from(t.users).where(eq(t.users.id, actor.userId));
-    const r = await recordFailure(tx, actor.userId, security);
     await writeAudit(tx, actor, {
       action,
       entityType: 'user',
@@ -135,6 +147,7 @@ async function wrongPasswordWhileSignedIn(ctx: Ctx, actor: Actor, action: 'REAUT
       await endUserSessions(tx, actor.userId, 'Account locked');
     }
   });
+  return false;
 }
 
 export async function logout(ctx: Ctx, actor: Actor) {
@@ -155,9 +168,7 @@ export async function logout(ctx: Ctx, actor: Actor) {
 export async function reauthenticate(ctx: Ctx, actor: Actor, password: string) {
   if (!actor.sessionId) throw forbidden();
   const [u] = await ctx.db.select().from(t.users).where(eq(t.users.id, actor.userId));
-  if (u.lockedUntil && u.lockedUntil.getTime() > Date.now()) throw accountLocked();
-  if (!(await verifyPassword(password, u.passwordHash))) {
-    await wrongPasswordWhileSignedIn(ctx, actor, 'REAUTH_FAILED');
+  if (!(await checkPasswordWhileSignedIn(ctx, actor, password, u.passwordHash, 'REAUTH_FAILED'))) {
     throw new AppError(403, 'REAUTH_FAILED', 'Password is incorrect');
   }
   await ctx.db.transaction(async (tx) => {
@@ -184,9 +195,7 @@ export async function changePassword(ctx: Ctx, actor: Actor, input: { currentPas
   if (!u.mustChangePassword && !security.allowSelfPasswordChange) {
     throw forbidden('Passwords are managed centrally. Ask the General Manager to reset your password.');
   }
-  if (u.lockedUntil && u.lockedUntil.getTime() > Date.now()) throw accountLocked();
-  if (!(await verifyPassword(input.currentPassword, u.passwordHash))) {
-    await wrongPasswordWhileSignedIn(ctx, actor, 'LOGIN_FAILED');
+  if (!(await checkPasswordWhileSignedIn(ctx, actor, input.currentPassword, u.passwordHash, 'LOGIN_FAILED'))) {
     throw badRequest('Current password is incorrect');
   }
   if (input.newPassword === input.currentPassword) throw badRequest('New password must differ from the current one');

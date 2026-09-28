@@ -17,6 +17,7 @@
     "demo": "npm run build && npm start",
     "db:generate": "npm run generate -w @jerp/database",
     "db:reset": "npm run seed -w @jerp/backend",
+    "migrate": "npm run migrate -w @jerp/backend",
     "typecheck": "tsc -p shared && tsc -p database && tsc -p integrations/hasad && tsc -p backend && tsc -p frontend",
     "test": "npm test -w @jerp/backend",
     "i18n:check": "node scripts/i18n-check.mjs"

@@ -32,6 +32,8 @@ site is needed.
 | `LOG_LEVEL` | `info` | `warn` or `error` to reduce volume, `debug` only while diagnosing. Logs never contain bodies, query strings, cookies or passwords. |
 | `NODE_VERSION` | `22` | Node 20 or newer is required; 22 is what the project is tested on. |
 | `PORT` | **do not set** | Render provides it; the app reads it. |
+| `MIGRATION_DATABASE_URL` | optional, recommended: the owner role (section 5) | Runs the migrations; the app then connects with `DATABASE_URL` as a runtime role that owns nothing. |
+| `STRICT_DB_ROLES` | `true` once the roles are separated | Refuse to start if the runtime role could alter the audit log or the ledgers. |
 
 Secrets: the only secret is the database password inside `DATABASE_URL`. Keep it in Render's
 environment settings (or an Environment Group), never in the repository. The app needs no signing key:
@@ -47,7 +49,7 @@ Not used in production: `PGLITE_DIR` (embedded demo database only).
 2. Open the service's **Shell** tab and create the first General Manager and the branches:
 
    ```bash
-   npm run bootstrap -w @jerp/backend -- --username gm.owner --full-name "Owner Name" --full-name-ar "اسم المالك" \
+   npm run bootstrap -w @jerp/backend -- --username o.abdelrahman --full-name "Owner Name" --full-name-ar "اسم المالك" \
      --branch "KRT:Khartoum Branch:فرع الخرطوم:Khartoum"
    ```
 
@@ -63,11 +65,11 @@ you need the Render Shell (or SSH) for the service:
 
 ```bash
 # Lift a sign-in lock (any user)
-npm run ops -w @jerp/backend -- unlock --username gm.owner
+npm run ops -w @jerp/backend -- unlock --username o.abdelrahman
 
 # Reset the General Manager's password (GM accounts only); prints a one-time password,
 # ends all of that user's sessions and forces a password change at the next sign-in
-npm run ops -w @jerp/backend -- reset-gm-password --username gm.owner
+npm run ops -w @jerp/backend -- reset-gm-password --username o.abdelrahman
 ```
 
 Both refuse to run unless `APP_MODE=production` and the production configuration is safe (pass
@@ -93,7 +95,7 @@ Do this once after the first deploy, and again after any change to the proxy, CD
 curl -s -o /dev/null -w '%{http_code}\n' https://erp.example.com/api/auth/login \
   -H 'Origin: https://erp.example.com' -H 'Content-Type: application/json' \
   -H 'X-Forwarded-For: 203.0.113.77' \
-  -d '{"username":"gm.owner","password":"wrong-password"}'
+  -d '{"username":"o.abdelrahman","password":"wrong-password"}'
 ```
 
 It answers `401`. In **Audit log**, the matching `LOGIN_FAILED` entry must show **your computer's real IP**,
@@ -111,16 +113,70 @@ anyone would block sign-in for the whole company.
 3. Note: staff in one shop sharing one internet connection correctly share one IP. 30 failures per
    15 minutes is well above normal use, but a shared connection is the reason the limit is not lower.
 
-## 5. Database role and integrity rules
+## 5. Database roles and integrity rules
 
-- **One role (Render's default).** The role in `DATABASE_URL` runs the migrations and owns the tables. Migration
-  0004 removes its `UPDATE`, `DELETE` and `TRUNCATE` privileges on the append-only tables (`audit_logs`,
-  `inventory_movements`, `item_status_history`, `gold_rates`, `settings_history`); database triggers refuse the same
-  statements for everyone. Do not connect the app as a superuser: privileges do not apply to a superuser (the
-  triggers still do).
-- **Separate migration and app roles (optional, stricter).** If you run migrations with an owner role and the app
-  with another role, grant the app role `SELECT, INSERT, UPDATE, DELETE` on the ordinary tables but only
-  `SELECT, INSERT` on the five append-only tables, plus `USAGE` on their sequences.
+- **Why roles matter.** The append-only tables (`audit_logs`, `inventory_movements`, `item_status_history`,
+  `gold_rates`, `settings_history`, and from Phase 2b the money ledger) are protected by triggers and by missing
+  privileges. A role that **owns** those tables can still drop the triggers or grant itself the privileges back,
+  and a superuser ignores privileges altogether. So the app should run as a role that owns nothing.
+- **One role (simplest, Render's default).** `DATABASE_URL` both migrates and runs the app. Migrations take
+  UPDATE/DELETE/TRUNCATE away from it on the append-only tables, but it still owns them, so at every start the server
+  logs `SECURITY WARNING: the database role can alter the append-only tables` with the fix. Acceptable for a trial,
+  not for real money.
+- **Separate owner and runtime roles (recommended for production).** See below. With `STRICT_DB_ROLES=true` the
+  server refuses to start whenever the runtime role owns, or can update, delete or truncate, an append-only table.
+
+### Separate owner and runtime roles
+
+Run once, as a role that may create roles (the database's admin user; if your provider's default user cannot create
+roles, create the two users in the provider's dashboard instead and run the GRANTs below). Replace `jewelry_erp` and
+the passwords:
+
+```sql
+-- 1. As the admin user, connected to the application database:
+CREATE ROLE jerp_owner LOGIN PASSWORD '<long random password 1>';   -- runs migrations, owns the tables
+CREATE ROLE jerp_app   LOGIN PASSWORD '<long random password 2>';   -- the app connects as this role
+GRANT CONNECT, CREATE ON DATABASE jewelry_erp TO jerp_owner;
+GRANT CONNECT ON DATABASE jewelry_erp TO jerp_app;
+GRANT USAGE, CREATE ON SCHEMA public TO jerp_owner;
+GRANT USAGE ON SCHEMA public TO jerp_app;
+
+-- 2. As jerp_owner, BEFORE the first migration: every table the migrations create is usable by the app…
+ALTER DEFAULT PRIVILEGES GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO jerp_app;
+ALTER DEFAULT PRIVILEGES GRANT USAGE, SELECT ON SEQUENCES TO jerp_app;
+ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO jerp_app;
+-- …and the migrations themselves take UPDATE/DELETE/TRUNCATE away again on every append-only table
+-- (function jerp_lock_append_only, migration 0005).
+```
+
+Environment variables on the web service:
+
+| Variable | Value |
+|---|---|
+| `MIGRATION_DATABASE_URL` | `postgresql://jerp_owner:<password 1>@<host>/jewelry_erp` (used only to run migrations at start-up and by `npm run migrate`) |
+| `DATABASE_URL` | `postgresql://jerp_app:<password 2>@<host>/jewelry_erp` |
+| `STRICT_DB_ROLES` | `true` |
+
+`npm run migrate` applies pending migrations alone (with `MIGRATION_DATABASE_URL` when set) and exits; the server also
+runs them at start-up. Bootstrap and the operator console accept the same variables.
+
+**Switching an existing single-role database to separate roles** (as the admin user, after step 1 above; `old_role` is
+the role that owned everything until now):
+
+```sql
+REASSIGN OWNED BY old_role TO jerp_owner;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO jerp_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO jerp_app;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO jerp_app;
+-- then, as jerp_owner: step 2 above, and re-apply the append-only lock:
+SELECT jerp_lock_append_only(t::regclass)
+FROM unnest(ARRAY['audit_logs','inventory_movements','item_status_history','gold_rates','settings_history']) AS t;
+```
+
+Start the service; the log must **not** contain `SECURITY WARNING: the database role can alter the append-only tables`.
+A real-PostgreSQL test (`backend/test/pg/db-roles.test.ts`) builds exactly this setup and proves the runtime role can
+neither change history rows nor disable, drop or bypass the triggers, nor grant itself the privileges back.
+
 - **Start-up warning about NOT VALID constraints.** If old rows violate one of the integrity rules added in Phase 2a,
   that rule is left `NOT VALID` (it still applies to every new or changed row) and the server logs
   `integrity constraints left NOT VALID` with the table and constraint names at every start. Correct the rows,

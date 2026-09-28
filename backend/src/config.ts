@@ -27,6 +27,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     port: Number(env.PORT ?? 4000),
     /** When set, a real PostgreSQL server is used. Otherwise embedded PGlite (demo/tests only). */
     databaseUrl: env.DATABASE_URL || undefined,
+    /**
+     * Optional owner role used ONLY to run migrations (D-2a-13). When set, the app itself connects
+     * with DATABASE_URL, which should be a runtime role that owns nothing.
+     */
+    migrationDatabaseUrl: env.MIGRATION_DATABASE_URL || undefined,
+    /** Refuse to start in production when the runtime role could alter the append-only tables. */
+    strictDbRoles: env.STRICT_DB_ROLES === 'true',
     dataDir: env.PGLITE_DIR ?? path.join(root, '.data', 'pglite'),
     frontendDist: path.join(root, 'frontend', 'dist'),
     /** Public origin of the SPA, e.g. https://erp.example.com (required in production). */

@@ -19,7 +19,7 @@ import { hashPassword, needsRehash, verifyPassword } from '../src/auth/password'
 import { assertPasswordPolicy } from '../src/auth/policy';
 import { lockMinutes, resetThrottleMemory, IP_MAX_FAILURES } from '../src/auth/lockout';
 import { createSession } from '../src/modules/sessions/service';
-import { bootstrapProduction } from '../src/modules/bootstrap/service';
+import { assertOperatorUsername, bootstrapProduction } from '../src/modules/bootstrap/service';
 import { seedDemo } from '../src/seed/demo';
 import { DEMO_PASSWORDS } from '../src/seed/catalog';
 
@@ -143,25 +143,41 @@ describe('production mode (security item 2)', () => {
     expect(res.headers['strict-transport-security']).toMatch(/max-age=31536000/);
   });
 
+  it('bootstrap: the GM username must be chosen by the operator (≥ 8 chars, not role-style)', async () => {
+    const refused = [
+      'general.manager', 'generalmanager', 'admin', 'administrator', 'admin2026', 'manager1', 'gm', 'gm.owner', 'owner',
+      'root', 'root.user', 'cashier.kh', 'super.admin', 'the-boss', 'erp-admin', 'system01', 'ahmed.gm', 'ahmed', 'a1b2c3', '12345678',
+    ];
+    for (const u of refused) expect(() => assertOperatorUsername(u), u).toThrow();
+    for (const u of ['omer.abdelrahman', 'huda.osman', 'm.elsayed2026', 'khalid_mustafa']) expect(() => assertOperatorUsername(u), u).not.toThrow();
+    const fresh = await openTestDatabase();
+    try {
+      await expect(bootstrapProduction(createContext(fresh), { username: 'general.manager', fullName: 'Owner' })).rejects.toMatchObject({ status: 400 });
+      expect(await fresh.db.select().from(t.users)).toHaveLength(0);
+    } finally {
+      await fresh.close();
+    }
+  });
+
   it('bootstraps the first General Manager once, atomically, with a forced password change', async () => {
     const fresh = await openTestDatabase();
     try {
       const fctx = createContext(fresh);
       const res = await bootstrapProduction(fctx, {
-        username: 'owner.gm',
+        username: 'omer.abdelrahman',
         fullName: 'Owner',
         branches: [{ code: 'KRT', name: 'Khartoum Branch', nameAr: 'فرع الخرطوم', city: 'Khartoum' }],
       });
       expect(res.temporaryPassword).toMatch(/^Temp-/);
       expect(res.branches).toEqual(['KRT']);
-      const [gm] = await fresh.db.select().from(t.users).where(eq(t.users.username, 'owner.gm'));
+      const [gm] = await fresh.db.select().from(t.users).where(eq(t.users.username, 'omer.abdelrahman'));
       expect(gm.mustChangePassword).toBe(true);
       expect(gm.passwordHash.startsWith('$argon2id$')).toBe(true);
       expect(await demoCredentialsInUse(fresh.db)).toEqual([]);
 
       // Second run is refused and rolls back completely (the extra branch is NOT created).
       await expect(
-        bootstrapProduction(fctx, { username: 'second.gm', fullName: 'Second', branches: [{ code: 'OMD', name: 'Omdurman Branch', nameAr: 'فرع أم درمان', city: 'Omdurman' }] }),
+        bootstrapProduction(fctx, { username: 'huda.osman.2', fullName: 'Second', branches: [{ code: 'OMD', name: 'Omdurman Branch', nameAr: 'فرع أم درمان', city: 'Omdurman' }] }),
       ).rejects.toMatchObject({ code: 'ALREADY_BOOTSTRAPPED' });
       expect(await fresh.db.select().from(t.branches).where(eq(t.branches.code, 'OMD'))).toHaveLength(0);
       expect(await fresh.db.select().from(t.users)).toHaveLength(1);
@@ -169,7 +185,7 @@ describe('production mode (security item 2)', () => {
       // The GM can sign in only to change the password.
       const app = createApp(fctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
       const agent = withIdempotencyKeys(request.agent(app));
-      const li = await agent.post('/api/auth/login').send({ username: 'owner.gm', password: res.temporaryPassword });
+      const li = await agent.post('/api/auth/login').send({ username: 'omer.abdelrahman', password: res.temporaryPassword });
       expect(li.status).toBe(200);
       const blocked = await agent.get('/api/users');
       expect(blocked.body.error.code).toBe('PASSWORD_CHANGE_REQUIRED');
@@ -234,9 +250,10 @@ describe('sign-in throttling and lockout', () => {
       const r = await request(demoApp).post('/api/auth/login').send({ username: 'lock.victim', password: `wrong-${i}` });
       expect(r.status).toBe(401);
     }
+    // While locked even the right password is refused — with the ordinary "sign-in failed" answer.
     const locked = await request(demoApp).post('/api/auth/login').send({ username: 'lock.victim', password: 'Right-Pass-2026' });
-    expect(locked.status).toBe(429);
-    expect(locked.body.error.code).toBe('ACCOUNT_LOCKED');
+    expect(locked.status).toBe(401);
+    expect(locked.body.error.code).toBe('INVALID_CREDENTIALS');
     let row = await userByName('lock.victim');
     const minutes = (row.lockedUntil!.getTime() - Date.now()) / 60_000;
     expect(minutes).toBeGreaterThan(14);
@@ -257,16 +274,21 @@ describe('sign-in throttling and lockout', () => {
     expect(row.lockedUntil).toBeNull();
   });
 
-  it('does not reveal whether a username exists (same status, body and lock behaviour)', async () => {
+  it('does not reveal whether a username exists (same status and body, before and after many attempts)', async () => {
     await makeUser('real.user', 'Real-Pass-2026');
     const known = await request(demoApp).post('/api/auth/login').send({ username: 'real.user', password: 'nope-nope-1' });
     const unknown = await request(demoApp).post('/api/auth/login').send({ username: 'ghost.user', password: 'nope-nope-1' });
     expect(unknown.status).toBe(known.status);
     expect(unknown.body).toEqual(known.body);
-    for (let i = 0; i < 5; i++) await request(demoApp).post('/api/auth/login').send({ username: 'ghost.user', password: `x-${i}` });
-    const ghostLocked = await request(demoApp).post('/api/auth/login').send({ username: 'ghost.user', password: 'x' });
-    expect(ghostLocked.status).toBe(429);
-    expect(ghostLocked.body.error.code).toBe('ACCOUNT_LOCKED');
+    for (let i = 0; i < 6; i++) {
+      await request(demoApp).post('/api/auth/login').send({ username: 'ghost.user', password: `x-${i}` });
+      await request(demoApp).post('/api/auth/login').send({ username: 'real.user', password: `x-${i}` });
+    }
+    const ghostAfter = await request(demoApp).post('/api/auth/login').send({ username: 'ghost.user', password: 'x' });
+    const lockedAfter = await request(demoApp).post('/api/auth/login').send({ username: 'real.user', password: 'x' });
+    expect((await userByName('real.user')).lockedUntil).not.toBeNull();
+    expect(lockedAfter.status).toBe(ghostAfter.status);
+    expect(lockedAfter.body).toEqual(ghostAfter.body);
   });
 
   it('counts parallel failures atomically (no lost updates)', async () => {
