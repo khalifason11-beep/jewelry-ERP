@@ -94,6 +94,37 @@ docs/                 architecture & presentation material
 scripts/i18n-check.mjs  localization scanner (`npm run i18n:check`)
 ```
 
+### Production mode
+
+`APP_MODE=demo` (default) is the self-contained demo: embedded database, demo data, demo accounts on the
+login page, Hasad simulator and "Reset demo data". **`APP_MODE=production`** turns all of that off and refuses
+to start unless the deployment is safe:
+
+| Variable | Required in production | Notes |
+|---|---|---|
+| `APP_MODE` | `production` | |
+| `DATABASE_URL` | yes | Real PostgreSQL; embedded PGlite and well-known default passwords are refused |
+| `APP_ORIGIN` | yes | `https://…` origin of the app; mutations from other origins are rejected |
+| `COOKIE_SECURE` | (default `true`) | Session cookie is `__Host-jerp_session`, HttpOnly, Secure, SameSite=Lax |
+| `TRUST_PROXY` | when behind a proxy | e.g. `1` for one reverse proxy; otherwise `X-Forwarded-For` is ignored |
+| `LOG_LEVEL` | no | `info` (default), `warn`, `error`, `debug` |
+
+First start of a production database:
+
+```bash
+APP_MODE=production DATABASE_URL=… APP_ORIGIN=https://erp.example.com \
+  npm run bootstrap -w @jerp/backend -- --username gm.owner --full-name "Owner Name" --full-name-ar "الاسم" \
+  --branch "KRT:Khartoum Branch:فرع الخرطوم:Khartoum"
+```
+
+This creates the roles, permissions and categories, the listed branches and the first General Manager, and prints
+a one-time password (it must be changed at first sign-in). It refuses to run again once a General Manager exists.
+The server also refuses to start while any demo account still accepts its published demo password.
+
+Authentication: Argon2id password hashes, lockout after 5 failures (15 → 30 → 60 min, the GM can unlock), per-IP
+throttling, idle sign-out (15 min cashiers / 30 min managers) and a 12 h absolute session limit, CSRF tokens, and
+password re-confirmation for rate, role, settings and inventory-adjustment changes. See `docs/decisions.md`.
+
 ### Language
 
 The UI opens in Arabic (RTL) by default; the header switch toggles English. English source strings are the

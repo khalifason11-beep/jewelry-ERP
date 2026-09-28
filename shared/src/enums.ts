@@ -119,6 +119,11 @@ export const AUDIT_ACTIONS = [
   'SETTINGS_CHANGED',
   'GOLD_RATE_CHANGED',
   'DEMO_DATA_RESET',
+  'ACCOUNT_LOCKED',
+  'USER_UNLOCKED',
+  'REAUTHENTICATED',
+  'REAUTH_FAILED',
+  'BOOTSTRAP_COMPLETED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

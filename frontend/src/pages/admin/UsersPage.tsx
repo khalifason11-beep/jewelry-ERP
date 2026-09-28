@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, KeyRound, Pencil, Power, ShieldCheck, UserPlus } from 'lucide-react';
+import { Copy, KeyRound, LockOpen, Pencil, Power, ShieldCheck, UserPlus } from 'lucide-react';
 import { get, patch, post } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { dateTime, relative } from '../../lib/format';
+import { dateTime, relative, time } from '../../lib/format';
 import { useBranches } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
@@ -25,8 +25,12 @@ interface UserRow {
   mustChangePassword: boolean;
   passwordChangedAt: string | null;
   lastLoginAt: string | null;
+  lockedUntil: string | null;
+  failedLoginCount: number;
   activeSessions: number;
 }
+
+const isLocked = (r: UserRow) => !!r.lockedUntil && new Date(r.lockedUntil).getTime() > Date.now();
 interface Role {
   id: number;
   code: string;
@@ -44,6 +48,14 @@ export function UsersPage() {
   const roles = useQuery({ queryKey: ['roles'], queryFn: () => get<Role[]>('/roles') });
   const [editing, setEditing] = useState<UserRow | 'new' | null>(null);
   const [confirm, setConfirm] = useState<{ user: UserRow; action: 'reset' | 'disable' | 'enable' } | null>(null);
+  const unlock = useMutation({
+    mutationFn: (user: UserRow) => post(`/users/${user.id}/unlock`),
+    onSuccess: (_d, user) => {
+      toast.success(t('{user} unlocked', { user: user.username }), t('The user can sign in again.'));
+      qc.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: (e) => toast.fromError(e),
+  });
   const [secret, setSecret] = useState<{ username: string; temporaryPassword: string } | null>(null);
   const manage = can('users.manage');
 
@@ -98,7 +110,16 @@ export function UsersPage() {
               { key: 'lastLoginAt', header: t('Last sign-in'), render: (r) => <span title={dateTime(r.lastLoginAt, lang)}>{relative(r.lastLoginAt)}</span> },
               { key: 'activeSessions', header: t('Live sessions'), align: 'end', render: (r) => (Number(r.activeSessions) > 0 ? <span className="font-medium text-emerald-700 num">{r.activeSessions}</span> : <span className="text-ink-400">0</span>) },
               { key: 'password', header: t('Password'), sortable: false, value: (r) => (r.mustChangePassword ? t('Must change') : t('Set')), render: (r) => (r.mustChangePassword ? <Badge tone="bg-amber-50 text-amber-800 ring-amber-600/25">{t('Must change')}</Badge> : <span className="text-[12px] text-ink-500">{t('Set {when}', { when: relative(r.passwordChangedAt) })}</span>) },
-              { key: 'status', header: t('Status'), render: (r) => <StatusBadge status={r.status} /> },
+              {
+                key: 'status',
+                header: t('Status'),
+                render: (r) => (
+                  <div className="flex flex-wrap items-center gap-1">
+                    <StatusBadge status={r.status} />
+                    {isLocked(r) && <Badge tone="bg-rose-50 text-rose-800 ring-rose-600/25">{t('Locked until {time}', { time: time(r.lockedUntil, lang) })}</Badge>}
+                  </div>
+                ),
+              },
               ...(manage
                 ? [
                     {
@@ -109,6 +130,11 @@ export function UsersPage() {
                       render: (r: UserRow) => (
                         <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                           <Button size="sm" variant="ghost" onClick={() => setEditing(r)} aria-label={t('Edit')}><Pencil className="size-4" /></Button>
+                          {isLocked(r) && (
+                            <Button size="sm" variant="ghost" className="text-emerald-700" icon={<LockOpen className="size-4" />} loading={unlock.isPending && unlock.variables?.id === r.id} onClick={() => unlock.mutate(r)}>
+                              {t('Unlock')}
+                            </Button>
+                          )}
                           <Button size="sm" variant="ghost" icon={<KeyRound className="size-4" />} onClick={() => setConfirm({ user: r, action: 'reset' })}>{t('Reset')}</Button>
                           {r.id !== me?.user.id && (
                             <Button size="sm" variant="ghost" className={r.status === 'ACTIVE' ? 'text-rose-700' : 'text-emerald-700'} icon={<Power className="size-4" />} onClick={() => setConfirm({ user: r, action: r.status === 'ACTIVE' ? 'disable' : 'enable' })}>

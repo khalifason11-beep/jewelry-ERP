@@ -1,21 +1,20 @@
 import { useState, type FormEvent } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, KeyRound, LogIn, ShieldCheck } from 'lucide-react';
-import { ApiError, errorText } from '../lib/api';
+import { ApiError, errorText, get } from '../lib/api';
 import { homePath, useAuth } from '../lib/auth';
+import { humanize } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { Alert, Button, Field, Input } from '../components/ui';
 import { Logo } from '../components/layout/AppShell';
 
-// Clearly fake demo credentials (prototype only).
-const DEMO_ACCOUNTS = [
-  { username: 'general.manager', password: 'demo-gm-2026', role: 'General Manager', branch: 'All branches' },
-  { username: 'branch.manager.kh', password: 'demo-bm-2026', role: 'Branch Manager', branch: 'Khartoum Branch' },
-  { username: 'cashier.kh.01', password: 'demo-cashier-2026', role: 'Cashier', branch: 'Khartoum Branch' },
-  { username: 'cashier.kh.02', password: 'demo-cashier-2026', role: 'Cashier', branch: 'Khartoum Branch' },
-  { username: 'branch.manager.omd', password: 'demo-bm-2026', role: 'Branch Manager', branch: 'Omdurman Branch' },
-  { username: 'cashier.omd.01', password: 'demo-cashier-2026', role: 'Cashier', branch: 'Omdurman Branch' },
-];
+interface Meta {
+  appMode: 'demo' | 'production';
+  demoAccounts: { username: string; password: string; role: string; branch: string | null }[];
+}
+
+const BRANCH_BY_CODE: Record<string, string> = { KRT: 'Khartoum Branch', OMD: 'Omdurman Branch', BHR: 'Bahri Branch', PZU: 'Port Sudan Branch' };
 
 export function LoginPage() {
   const { me, login } = useAuth();
@@ -26,6 +25,9 @@ export function LoginPage() {
   const [show, setShow] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Demo credentials come from the server and only in demo mode (never in production bundles).
+  const meta = useQuery({ queryKey: ['meta'], queryFn: () => get<Meta>('/meta'), staleTime: Infinity, retry: false });
+  const demoAccounts = meta.data?.demoAccounts ?? [];
 
   if (me) return <Navigate to={me.user.mustChangePassword ? '/change-password' : homePath(me)} replace />;
 
@@ -109,12 +111,13 @@ export function LoginPage() {
             </Button>
           </form>
 
+          {demoAccounts.length > 0 && (
           <div className="mt-8 rounded-lg border border-dashed border-gold-500/60 bg-gold-50/60 p-3">
             <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-gold-700">
               <KeyRound className="size-3.5" /> {t('Demo accounts — fictitious credentials')}
             </div>
             <div className="grid gap-1">
-              {DEMO_ACCOUNTS.map((a) => (
+              {demoAccounts.map((a) => (
                 <button
                   key={a.username}
                   type="button"
@@ -126,14 +129,15 @@ export function LoginPage() {
                 >
                   <span className="font-mono text-ink-800">{a.username}</span>
                   <span className="text-ink-500">
-                    {t(a.role)} · {t(a.branch)}
+                    {humanize(a.role)} · {a.branch ? t(BRANCH_BY_CODE[a.branch] ?? a.branch) : t('All branches')}
                   </span>
                 </button>
               ))}
             </div>
           </div>
+          )}
           <p className="mt-4 flex items-center gap-1.5 text-[11.5px] text-ink-400">
-            <ShieldCheck className="size-3.5" /> {t('Passwords are stored as salted scrypt hashes. Sign-ins are recorded in the audit log.')}
+            <ShieldCheck className="size-3.5" /> {t('Passwords are stored as Argon2id hashes. Sign-ins are recorded in the audit log.')}
           </p>
         </div>
       </div>

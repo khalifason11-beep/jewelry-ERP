@@ -4,6 +4,11 @@ import { createContext, openDatabase } from '../bootstrap';
 import { resetDemoData } from './reset';
 import { DEMO_PASSWORDS, USERS } from './catalog';
 
+if (config.appMode !== 'demo') {
+  console.error('Refusing to reset: APP_MODE is not "demo". Production data is never wiped.');
+  process.exit(1);
+}
+
 const handle = await openDatabase({ url: config.databaseUrl, dataDir: config.dataDir });
 const ctx = createContext(handle);
 const started = Date.now();

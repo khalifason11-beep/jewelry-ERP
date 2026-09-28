@@ -1,13 +1,16 @@
 import { desc, eq, sql } from 'drizzle-orm';
 import { t, type DB, type Executor } from '@jerp/database';
 import { DEFAULT_SETTINGS, KARATS, type SystemSettings } from '@jerp/shared';
+import { normaliseSettings, type SettingsPatch } from './schema';
 
 const KEY = 'system';
+const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function deepMerge<T>(base: T, patch: unknown): T {
   if (patch == null || typeof patch !== 'object' || Array.isArray(patch)) return (patch ?? base) as T;
   const out: Record<string, unknown> = { ...(base as Record<string, unknown>) };
   for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
+    if (FORBIDDEN_KEYS.has(k)) continue;
     const b = (base as Record<string, unknown>)?.[k];
     out[k] = b && typeof b === 'object' && !Array.isArray(b) && v && typeof v === 'object' ? deepMerge(b, v) : v;
   }
@@ -23,12 +26,13 @@ export class SettingsStore {
   async get(): Promise<SystemSettings> {
     if (this.cache) return this.cache;
     const [row] = await this.db.select().from(t.settings).where(eq(t.settings.key, KEY));
-    this.cache = deepMerge(DEFAULT_SETTINGS, row?.value ?? {});
+    this.cache = normaliseSettings(deepMerge(DEFAULT_SETTINGS, row?.value ?? {}), DEFAULT_SETTINGS);
     return this.cache;
   }
 
-  async update(exec: Executor, patch: Partial<SystemSettings>, userId: number | null): Promise<SystemSettings> {
-    const next = deepMerge(await this.get(), patch);
+  /** `patch` must already be validated with `settingsPatchSchema` (routes) or come from trusted code. */
+  async update(exec: Executor, patch: SettingsPatch | Partial<SystemSettings>, userId: number | null): Promise<SystemSettings> {
+    const next = normaliseSettings(deepMerge(await this.get(), patch), DEFAULT_SETTINGS);
     await exec
       .insert(t.settings)
       .values({ key: KEY, value: next, updatedBy: userId })

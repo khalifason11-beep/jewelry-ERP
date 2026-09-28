@@ -81,6 +81,10 @@ export const users = pgTable('users', {
   status: text('status').notNull().default('ACTIVE'),
   phone: text('phone'),
   lastLoginAt: ts('last_login_at'),
+  /** Consecutive failed sign-ins since the last success (drives the progressive lockout). */
+  failedLoginCount: integer('failed_login_count').notNull().default(0),
+  /** Sign-in refused until this instant (null = not locked). */
+  lockedUntil: ts('locked_until'),
   createdAt: createdAt(),
   createdBy: integer('created_by'),
 });
@@ -101,6 +105,12 @@ export const sessions = pgTable(
     status: text('status').notNull().default('ACTIVE'),
     endedAt: ts('ended_at'),
     endedReason: text('ended_reason'),
+    /** Hard end of the session regardless of activity (fixed at sign-in). */
+    absoluteExpiresAt: ts('absolute_expires_at'),
+    /** Last successful password re-authentication (sensitive actions need a recent one). */
+    reauthAt: ts('reauth_at'),
+    /** Synchronizer CSRF token for this session (sent back in the x-csrf-token header). */
+    csrfToken: text('csrf_token'),
     /** Demo-only presence rows created by the seed (clearly labelled in the UI). */
     isSimulated: boolean('is_simulated').notNull().default(false),
   },

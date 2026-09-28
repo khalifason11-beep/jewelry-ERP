@@ -3,27 +3,48 @@ import { t } from '@jerp/database';
 import { config } from './config';
 import { createApp } from './app';
 import { createContext, isEmpty, openDatabase } from './bootstrap';
+import { log } from './core/logger';
+import { demoCredentialsInUse, productionConfigProblems } from './core/startup';
 import { releaseStaleReservations } from './modules/hasad/service';
 import { seedDemo } from './seed/demo';
+
+// ── Refuse unsafe production configurations before touching the database (security item 2).
+const problems = productionConfigProblems(config);
+if (problems.length) {
+  log.error('refusing to start: unsafe production configuration', { problems });
+  process.exit(1);
+}
 
 const handle = await openDatabase({ url: config.databaseUrl, dataDir: config.dataDir });
 const ctx = createContext(handle);
 
-if (await isEmpty(ctx)) {
-  console.log('Empty database — loading demo data…');
-  const started = Date.now();
-  await seedDemo(ctx);
-  console.log(`Demo data loaded in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+if (config.appMode === 'demo') {
+  if (await isEmpty(ctx)) {
+    log.info('empty database: loading demo data');
+    const started = Date.now();
+    await seedDemo(ctx);
+    log.info('demo data loaded', { seconds: Number(((Date.now() - started) / 1000).toFixed(1)) });
+  }
+} else {
+  // Production never seeds demo data, and never runs with a published demo password.
+  const leaked = await demoCredentialsInUse(handle.db);
+  if (leaked.length) {
+    log.error('refusing to start: demo accounts still accept their published demo password', { accounts: leaked });
+    await handle.close();
+    process.exit(1);
+  }
+  if (await isEmpty(ctx)) log.warn('no users yet: run `npm run bootstrap -w @jerp/backend` to create the first General Manager');
 }
 
-const app = createApp(ctx);
+const app = createApp(ctx, config);
 app.listen(config.port, () => {
-  console.log(`Jewelry ERP API on http://localhost:${config.port}  (db: ${handle.driver}${handle.driver === 'pglite' ? ` @ ${config.dataDir}` : ''}, Hasad: ${ctx.hasad.mode})`);
+  log.info('server started', { port: config.port, appMode: config.appMode, db: handle.driver, hasad: ctx.hasad.mode });
 });
 
 // Background housekeeping.
 setInterval(() => {
-  releaseStaleReservations(ctx).catch((e) => console.error('reservation sweep failed', e));
+  releaseStaleReservations(ctx).catch((e) => log.error('reservation sweep failed', { err: e }));
+  if (config.appMode !== 'demo') return;
   // Demo presence: keep the clearly-labelled simulated sessions "alive" (except the idle example).
   ctx.db
     .update(t.sessions)

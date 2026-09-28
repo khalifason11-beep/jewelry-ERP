@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import { ShieldX } from 'lucide-react';
 import type { Permission } from '@jerp/shared';
 import { homePath, useAuth } from './lib/auth';
+import { ReauthDialog } from './components/ReauthDialog';
 import { useI18n } from './lib/i18n';
 import { Empty, Loading } from './components/ui';
 import { AppShell } from './components/layout/AppShell';
@@ -103,6 +104,7 @@ export function App() {
           <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
+      <ReauthDialog />
     </BrowserRouter>
   );
 }

@@ -123,7 +123,7 @@ export function AppShell() {
         { to: '/users', label: t('Users'), icon: <Users />, show: (c) => c('users.view') },
         { to: '/sessions', label: t('Active Users'), icon: <MonitorSmartphone />, show: (c) => c('sessions.view') },
         { to: '/audit', label: t('Audit Log'), icon: <ScrollText />, show: (c) => c('audit.view') },
-        { to: '/hasad-simulator', label: t('Hasad Simulator'), icon: <FlaskConical />, show: (c) => c('hasad.simulate') },
+        { to: '/hasad-simulator', label: t('Hasad Simulator'), icon: <FlaskConical />, show: (c) => c('hasad.simulate') && me?.appMode === 'demo' },
         { to: '/settings', label: t('Settings'), icon: <Settings />, show: (c) => c('settings.manage') },
       ],
     },

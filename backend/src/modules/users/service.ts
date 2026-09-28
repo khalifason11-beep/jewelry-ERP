@@ -9,6 +9,8 @@ import { branchScope, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
 import { badRequest, conflict, forbidden, notFound } from '../../core/errors';
 import { generateTemporaryPassword, hashPassword } from '../../auth/password';
+import { assertPasswordPolicy } from '../../auth/policy';
+import { clearFailures } from '../../auth/lockout';
 import { endUserSessions } from '../sessions/service';
 
 export async function listRoles(ctx: Ctx) {
@@ -38,6 +40,8 @@ export async function listUsers(ctx: Ctx, actor: Actor, q: { branchId?: number }
       mustChangePassword: t.users.mustChangePassword,
       passwordChangedAt: t.users.passwordChangedAt,
       lastLoginAt: t.users.lastLoginAt,
+      lockedUntil: t.users.lockedUntil,
+      failedLoginCount: t.users.failedLoginCount,
       createdAt: t.users.createdAt,
       activeSessions: sql<number>`(select count(*) from sessions s where s.user_id = ${t.users.id} and s.status = 'ACTIVE')`,
     })
@@ -94,7 +98,8 @@ export async function createUser(ctx: Ctx, actor: Actor, input: CreateUserInput)
 
   const { security } = await ctx.settings.get();
   const temp = input.temporaryPassword?.trim() || generateTemporaryPassword();
-  if (temp.length < security.minPasswordLength) throw badRequest('Password must be at least {n} characters', { n: security.minPasswordLength });
+  // Temporary passwords typed by an administrator follow the same policy as user-chosen ones (M-8).
+  assertPasswordPolicy(temp, { minLength: security.minPasswordLength, username });
 
   return ctx.db.transaction(async (tx) => {
     const [u] = await tx
@@ -209,6 +214,24 @@ export async function setUserStatus(ctx: Ctx, actor: Actor, id: number, status: 
       entityId: target.u.username,
       branchId: target.u.branchId,
       key: status === 'DISABLED' ? 'Account {username} disabled; active sessions terminated' : 'Account {username} re-enabled',
+      params: { username: target.u.username },
+    });
+  });
+  return { ok: true };
+}
+
+/** Lift a sign-in lockout before it expires (General Manager, audited). */
+export async function unlockUser(ctx: Ctx, actor: Actor, id: number) {
+  requirePerm(actor, 'users.manage');
+  const target = await loadTarget(ctx, actor, id);
+  await ctx.db.transaction(async (tx) => {
+    await clearFailures(tx, id);
+    await writeAudit(tx, actor, {
+      action: 'USER_UNLOCKED',
+      entityType: 'user',
+      entityId: target.u.username,
+      branchId: target.u.branchId,
+      key: 'Sign-in lock of {username} lifted',
       params: { username: target.u.username },
     });
   });

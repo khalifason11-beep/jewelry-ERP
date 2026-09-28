@@ -14,7 +14,8 @@ export function SettingsPage() {
   const { t, lang } = useI18n();
   const toast = useToast();
   const qc = useQueryClient();
-  const { logout } = useAuth();
+  const { logout, me } = useAuth();
+  const isDemo = me?.appMode === 'demo';
   const s = useQuery({ queryKey: ['settings'], queryFn: () => get<SystemSettings>('/settings') });
   const rates = useGoldRates();
   const [draft, setDraft] = useState<SystemSettings | null>(null);
@@ -128,14 +129,28 @@ export function SettingsPage() {
         <Card padded={false}>
           <CardHeader title={t('Security & sessions')} actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={save.isPending} onClick={() => save.mutate({ security: draft.security })}>{t('Save')}</Button>} />
           <div className="grid gap-3 p-5 sm:grid-cols-3">
-            <Field label={t('Idle after (minutes)')}>
-              <Input type="number" value={draft.security.sessionIdleMinutes} onChange={(e) => set('security', { sessionIdleMinutes: Number(e.target.value) })} />
+            {Object.entries(draft.security.idleMinutesByRole).map(([role, v]) => (
+              <Field key={role} label={t('Sign out after inactivity · {role} (minutes)', { role: humanize(role) })}>
+                <Input type="number" min={1} max={240} value={v} onChange={(e) => set('security', { idleMinutesByRole: { ...draft.security.idleMinutesByRole, [role]: Number(e.target.value) } })} />
+              </Field>
+            ))}
+            <Field label={t('Maximum session length (hours)')}>
+              <Input type="number" min={1} max={24} value={draft.security.sessionAbsoluteHours} onChange={(e) => set('security', { sessionAbsoluteHours: Number(e.target.value) })} />
             </Field>
-            <Field label={t('Expire after inactivity (hours)')}>
-              <Input type="number" value={draft.security.sessionExpiryHours} onChange={(e) => set('security', { sessionExpiryHours: Number(e.target.value) })} />
+            <Field label={t('Shown as idle after (minutes)')}>
+              <Input type="number" min={1} value={draft.security.sessionIdleMinutes} onChange={(e) => set('security', { sessionIdleMinutes: Number(e.target.value) })} />
             </Field>
             <Field label={t('Min. password length')}>
-              <Input type="number" value={draft.security.minPasswordLength} onChange={(e) => set('security', { minPasswordLength: Number(e.target.value) })} />
+              <Input type="number" min={10} value={draft.security.minPasswordLength} onChange={(e) => set('security', { minPasswordLength: Number(e.target.value) })} />
+            </Field>
+            <Field label={t('Lock account after failed attempts')}>
+              <Input type="number" min={3} max={20} value={draft.security.lockoutThreshold} onChange={(e) => set('security', { lockoutThreshold: Number(e.target.value) })} />
+            </Field>
+            <Field label={t('First lock (minutes)')}>
+              <Input type="number" min={1} value={draft.security.lockoutBaseMinutes} onChange={(e) => set('security', { lockoutBaseMinutes: Number(e.target.value) })} />
+            </Field>
+            <Field label={t('Longest lock (minutes)')}>
+              <Input type="number" min={1} value={draft.security.lockoutMaxMinutes} onChange={(e) => set('security', { lockoutMaxMinutes: Number(e.target.value) })} />
             </Field>
             <label className="flex items-center gap-2 text-[13px] sm:col-span-3">
               <input type="checkbox" className="size-4 accent-ink-900" checked={draft.security.allowSelfPasswordChange} onChange={(e) => set('security', { allowSelfPasswordChange: e.target.checked })} />
@@ -144,6 +159,7 @@ export function SettingsPage() {
           </div>
         </Card>
 
+        {isDemo && (
         <Card padded={false}>
           <CardHeader title={t('Mock Hasad Gold service')} subtitle={t('Demo controls for the simulated integration')} actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={save.isPending} onClick={() => save.mutate({ mockHasad: draft.mockHasad })}>{t('Save')}</Button>} />
           <div className="grid gap-3 p-5 sm:grid-cols-2">
@@ -157,6 +173,8 @@ export function SettingsPage() {
           </div>
         </Card>
 
+        )}
+        {isDemo && (
         <Card padded={false}>
           <CardHeader title={t('Demo data')} />
           <div className="p-5">
@@ -166,6 +184,7 @@ export function SettingsPage() {
             <Button variant="danger" icon={<RotateCcw className="size-4" />} onClick={() => setResetOpen(true)}>{t('Reset demo data')}</Button>
           </div>
         </Card>
+        )}
       </div>
       <Dialog
         open={resetOpen}

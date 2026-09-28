@@ -35,9 +35,19 @@ export interface SystemSettings {
   security: {
     /** Centralized password control: users cannot change their password except when forced. */
     allowSelfPasswordChange: boolean;
+    /** Minutes without activity after which a user is *shown* as idle on the sessions screen. */
     sessionIdleMinutes: number;
-    sessionExpiryHours: number;
+    /** Sessions end after this many minutes without user input, per role (unknown roles: strictest value). */
+    idleMinutesByRole: Record<string, number>;
+    /** Hard limit on a session's lifetime, fixed at sign-in. */
+    sessionAbsoluteHours: number;
     minPasswordLength: number;
+    /** Consecutive failures that lock an account. */
+    lockoutThreshold: number;
+    /** First lock duration; each further failure doubles it … */
+    lockoutBaseMinutes: number;
+    /** … up to this cap. */
+    lockoutMaxMinutes: number;
   };
   mockHasad: {
     latencyMs: number;
@@ -67,8 +77,12 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   security: {
     allowSelfPasswordChange: false,
     sessionIdleMinutes: 10,
-    sessionExpiryHours: 12,
-    minPasswordLength: 8,
+    idleMinutesByRole: { CASHIER: 15, BRANCH_MANAGER: 30, GENERAL_MANAGER: 30 },
+    sessionAbsoluteHours: 12,
+    minPasswordLength: 10,
+    lockoutThreshold: 5,
+    lockoutBaseMinutes: 15,
+    lockoutMaxMinutes: 60,
   },
   mockHasad: {
     latencyMs: 250,

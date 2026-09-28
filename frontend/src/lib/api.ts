@@ -83,7 +83,32 @@ export function onAuthError(l: Listener) {
   };
 }
 
-export async function api<T = unknown>(path: string, init: { method?: string; body?: unknown; query?: Record<string, unknown> } = {}): Promise<T> {
+// ───────── session security plumbing ─────────
+/** CSRF token of the current session (from /auth/login, /auth/me); sent on every mutation. */
+let csrfToken: string | null = null;
+export function setCsrfToken(token: string | null | undefined) {
+  csrfToken = token ?? null;
+}
+
+/**
+ * Time of the user's last real input. Sent as x-client-idle-ms so background polling never keeps
+ * an unattended terminal signed in (server-side idle timeout, docs/decisions.md D-1a-5).
+ */
+let lastInputAt = Date.now();
+if (typeof window !== 'undefined') {
+  for (const ev of ['pointerdown', 'keydown', 'touchstart', 'wheel']) {
+    window.addEventListener(ev, () => (lastInputAt = Date.now()), { capture: true, passive: true });
+  }
+}
+
+/** Asks the user to confirm their password; resolves true when re-authenticated. */
+type ReauthHandler = () => Promise<boolean>;
+let reauthHandler: ReauthHandler | null = null;
+export function setReauthHandler(h: ReauthHandler | null) {
+  reauthHandler = h;
+}
+
+export async function api<T = unknown>(path: string, init: { method?: string; body?: unknown; query?: Record<string, unknown> } = {}, retried = false): Promise<T> {
   let url = `/api${path}`;
   if (init.query) {
     const qs = new URLSearchParams();
@@ -98,7 +123,12 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
   try {
     res = await fetch(url, {
       method: init.method ?? (init.body !== undefined ? 'POST' : 'GET'),
-      headers: { 'Content-Type': 'application/json', 'X-Client-Module': currentModule },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Client-Module': currentModule,
+        'X-Client-Idle-Ms': String(Math.max(0, Date.now() - lastInputAt)),
+        ...(csrfToken && (init.method ?? (init.body !== undefined ? 'POST' : 'GET')) !== 'GET' ? { 'X-CSRF-Token': csrfToken } : {}),
+      },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
       credentials: 'same-origin',
     });
@@ -109,6 +139,9 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
     const err = new ApiError(res.status, data?.error?.code ?? 'ERROR', data?.error?.message ?? res.statusText, data?.error?.details, data?.error?.key, data?.error?.params);
+    if (err.code === 'REAUTH_REQUIRED' && reauthHandler && !retried && (await reauthHandler())) {
+      return api<T>(path, init, true);
+    }
     if (res.status === 401 || err.code === 'PASSWORD_CHANGE_REQUIRED') authListeners.forEach((l) => l(err));
     throw err;
   }

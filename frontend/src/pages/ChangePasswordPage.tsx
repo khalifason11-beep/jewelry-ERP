@@ -54,14 +54,14 @@ export function ChangePasswordPage() {
             </div>
           </div>
           <Alert tone="gold" className="mb-4">
-            {t('Your account uses a temporary password issued by the General Manager. Choose a personal password to continue. At least 8 characters, with letters and digits.')}
+            {t('Your account uses a temporary password issued by the General Manager. Choose a personal password to continue. At least 10 characters, with letters and digits, not containing your username.')}
           </Alert>
           <form onSubmit={submit} className="space-y-3.5">
             <Field label={t('Temporary password')}>
               <Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required autoComplete="current-password" />
             </Field>
             <Field label={t('New password')}>
-              <Input type="password" value={next} onChange={(e) => setNext(e.target.value)} required minLength={8} autoComplete="new-password" />
+              <Input type="password" value={next} onChange={(e) => setNext(e.target.value)} required minLength={10} autoComplete="new-password" />
             </Field>
             <Field label={t('Confirm new password')}>
               <Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required autoComplete="new-password" />

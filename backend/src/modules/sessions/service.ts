@@ -2,7 +2,7 @@
 // Monitoring is transparent: users can see their own session; admins see sessions in scope.
 
 import { createHash, randomBytes } from 'node:crypto';
-import { and, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, or, sql } from 'drizzle-orm';
 import { t, type Executor } from '@jerp/database';
 import type { Permission, SessionPresence } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
@@ -48,23 +48,33 @@ export function describeDevice(ua: string | undefined | null): string {
 
 export async function createSession(
   exec: Executor,
-  input: { userId: number; branchId: number | null; userAgent?: string; ip?: string },
-): Promise<{ token: string; id: string }> {
+  input: { userId: number; branchId: number | null; userAgent?: string; ip?: string; absoluteHours: number; at?: Date },
+): Promise<{ token: string; id: string; csrfToken: string }> {
   const token = randomBytes(32).toString('base64url');
+  const csrfToken = randomBytes(24).toString('base64url');
   const id = hashToken(token);
+  const at = input.at ?? new Date();
   await exec.insert(t.sessions).values({
     id,
     userId: input.userId,
     branchId: input.branchId,
-    userAgent: input.userAgent ?? null,
+    userAgent: input.userAgent?.slice(0, 400) ?? null,
     device: describeDevice(input.userAgent),
     ipAddress: input.ip ?? null,
     currentModule: 'login',
+    loginAt: at,
+    lastActivityAt: at,
+    absoluteExpiresAt: new Date(at.getTime() + input.absoluteHours * 3600_000),
+    csrfToken,
   });
-  return { token, id };
+  return { token, id, csrfToken };
 }
 
-/** Build the Actor (identity + effective permissions) for a user. */
+/** Idle limit for a role (minutes); unknown roles get the strictest configured value. */
+export function idleLimitMinutes(idleByRole: Record<string, number>, roleCode: string): number {
+  return idleByRole[roleCode] ?? Math.min(15, ...Object.values(idleByRole));
+}
+
 export async function loadActor(exec: Executor, userId: number, sessionId: string | null): Promise<Actor | null> {
   const [u] = await exec
     .select({
@@ -111,8 +121,10 @@ export async function resolveSession(ctx: Ctx, token: string) {
   const [s] = await ctx.db.select().from(t.sessions).where(eq(t.sessions.id, id));
   if (!s || s.status !== 'ACTIVE') return null;
   const { security } = await ctx.settings.get();
-  if (Date.now() - s.lastActivityAt.getTime() > security.sessionExpiryHours * 3600_000) {
-    await endSession(ctx.db, id, 'EXPIRED', 'Inactivity timeout');
+  const now = Date.now();
+  const absolute = s.absoluteExpiresAt?.getTime() ?? s.loginAt.getTime() + security.sessionAbsoluteHours * 3600_000;
+  if (now >= absolute) {
+    await endSession(ctx.db, id, 'EXPIRED', 'Absolute session limit');
     return null;
   }
   const actor = await loadActor(ctx.db, s.userId, s.id);
@@ -120,18 +132,43 @@ export async function resolveSession(ctx: Ctx, token: string) {
     await endSession(ctx.db, id, 'REVOKED', 'Account disabled');
     return null;
   }
+  if (now - s.lastActivityAt.getTime() > idleLimitMinutes(security.idleMinutesByRole, actor.roleCode) * 60_000) {
+    await endSession(ctx.db, id, 'EXPIRED', 'Inactivity timeout');
+    return null;
+  }
   return { session: s, actor };
 }
 
-/** Record activity (throttled) and the module the user is currently in. */
-export async function touchSession(ctx: Ctx, s: typeof t.sessions.$inferSelect, module?: string) {
-  const stale = Date.now() - s.lastActivityAt.getTime() > 15_000;
+/**
+ * Record activity (throttled) and the module the user is currently in.
+ * `idleMs` = milliseconds since the user's last real input, reported by the browser; background
+ * polling therefore never keeps an unattended terminal signed in (docs/decisions.md D-1a-5).
+ */
+export async function touchSession(ctx: Ctx, s: typeof t.sessions.$inferSelect, module?: string, idleMs = 0) {
+  const activityAt = Date.now() - Math.min(Math.max(0, idleMs), 24 * 3600_000);
+  const advanced = activityAt - s.lastActivityAt.getTime() > 15_000;
   const moved = module && module !== s.currentModule;
-  if (!stale && !moved) return;
+  if (!advanced && !moved) return;
   await ctx.db
     .update(t.sessions)
-    .set({ lastActivityAt: new Date(), ...(module ? { currentModule: module.slice(0, 60) } : {}) })
+    .set({ ...(advanced ? { lastActivityAt: new Date(activityAt) } : {}), ...(module ? { currentModule: module.slice(0, 60) } : {}) })
     .where(eq(t.sessions.id, s.id));
+}
+
+/** Mark a successful password re-authentication on this session. */
+export async function markReauthenticated(exec: Executor, sessionId: string, at = new Date()) {
+  await exec.update(t.sessions).set({ reauthAt: at }).where(eq(t.sessions.id, sessionId));
+}
+
+/** CSRF token of a live session (created lazily for sessions opened before migration 0002). */
+export async function csrfTokenFor(exec: Executor, sessionId: string): Promise<string | null> {
+  const [s] = await exec.select({ token: t.sessions.csrfToken, status: t.sessions.status }).from(t.sessions).where(eq(t.sessions.id, sessionId));
+  if (!s || s.status !== 'ACTIVE') return null;
+  if (s.token) return s.token;
+  const token = randomBytes(24).toString('base64url');
+  await exec.update(t.sessions).set({ csrfToken: token }).where(and(eq(t.sessions.id, sessionId), isNull(t.sessions.csrfToken)));
+  const [again] = await exec.select({ token: t.sessions.csrfToken }).from(t.sessions).where(eq(t.sessions.id, sessionId));
+  return again?.token ?? null;
 }
 
 export async function endSession(exec: Executor, id: string, status: 'LOGGED_OUT' | 'EXPIRED' | 'REVOKED', reason: string) {
@@ -208,12 +245,14 @@ export async function listSessions(
 
 export async function revokeSession(ctx: Ctx, actor: Actor, key: string) {
   requirePerm(actor, 'sessions.revoke');
+  // `key` is the 16-hex-char prefix shown in the sessions list; match it exactly (never LIKE).
+  if (!/^[0-9a-f]{16}$/.test(key)) throw notFound('Session');
   const [s] = await ctx.db
     .select({ id: t.sessions.id, userId: t.sessions.userId, status: t.sessions.status, username: t.users.username, branchId: t.users.branchId, rank: t.roles.rank })
     .from(t.sessions)
     .innerJoin(t.users, eq(t.users.id, t.sessions.userId))
     .innerJoin(t.roles, eq(t.roles.id, t.users.roleId))
-    .where(sql`${t.sessions.id} LIKE ${key + '%'}`);
+    .where(sql`left(${t.sessions.id}, 16) = ${key}`);
   if (!s) throw notFound('Session');
   if (s.branchId != null) branchScope(actor, s.branchId);
   if (s.id === actor.sessionId) throw forbidden('Use Sign out to end your own session');

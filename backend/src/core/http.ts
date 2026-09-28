@@ -3,6 +3,7 @@ import { z, type ZodType } from 'zod';
 import { HasadError } from '@jerp/hasad';
 import type { Actor } from './context';
 import { AppError, badRequest, unauthorized } from './errors';
+import { log } from './logger';
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -21,7 +22,8 @@ export function parse<T>(schema: ZodType<T>, data: unknown): T {
   const r = schema.safeParse(data);
   if (!r.success) {
     const first = r.error.issues[0];
-    throw badRequest('Invalid value for {field}', { field: first.path.join('.') || 'input' }, r.error.issues);
+    // Only paths and issue codes go back to the client (M-10), never received values.
+    throw badRequest('Invalid value for {field}', { field: first.path.join('.') || 'input' }, r.error.issues.map((i) => ({ path: i.path.join('.'), code: i.code })));
   }
   return r.data;
 }
@@ -42,6 +44,13 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     res.status(status).json({ error: { code: `HASAD_${err.code}`, message: err.message, key: err.key, params: err.params } });
     return;
   }
-  console.error(err);
+  // express.json() body errors: malformed JSON or payload over the size limit.
+  const status = (err as { status?: number; type?: string })?.status;
+  if (status === 413 || status === 400) {
+    const tooLarge = status === 413;
+    res.status(status).json({ error: { code: tooLarge ? 'PAYLOAD_TOO_LARGE' : 'BAD_REQUEST', message: tooLarge ? 'Request is too large' : 'Malformed request', key: tooLarge ? 'Request is too large' : 'Malformed request' } });
+    return;
+  }
+  log.error('unhandled error', { err, method: _req.method, path: _req.path });
   res.status(500).json({ error: { code: 'INTERNAL', message: 'Unexpected server error', key: 'Unexpected server error' } });
 }

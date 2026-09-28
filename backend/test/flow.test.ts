@@ -23,7 +23,15 @@ async function login(username: string, password?: string) {
   const role = username.startsWith('general') ? 'GENERAL_MANAGER' : username.startsWith('branch') ? 'BRANCH_MANAGER' : 'CASHIER';
   const res = await agent.post('/api/auth/login').send({ username, password: password ?? DEMO_PASSWORDS[role] });
   expect(res.status, JSON.stringify(res.body)).toBe(200);
+  // Every mutation must echo the session's CSRF token (security item 8).
+  agent.set('x-csrf-token', res.body.csrfToken);
   return agent;
+}
+
+/** Open the step-up re-authentication window (rate/role/settings changes, adjustments). */
+async function reauth(agent: ReturnType<typeof request.agent>, password: string) {
+  const res = await agent.post('/api/auth/reauth').send({ password });
+  expect(res.status, JSON.stringify(res.body)).toBe(200);
 }
 
 async function itemByCode(code: string) {
@@ -63,7 +71,7 @@ describe('demo data', () => {
   it('never stores plaintext passwords', async () => {
     const users = await ctx.db.select().from(t.users);
     for (const u of users) {
-      expect(u.passwordHash.startsWith('scrypt$')).toBe(true);
+      expect(u.passwordHash.startsWith('$argon2id$')).toBe(true);
       expect(u.passwordHash).not.toContain('demo-');
     }
   });
@@ -236,20 +244,22 @@ describe('vertical slice: sale → Hasad redemption → dashboards → audit', (
 
   it('Hasad outage is reported cleanly and never corrupts inventory', async () => {
     const gm = await login('general.manager');
-    await gm.put('/api/settings').send({ mockHasad: { simulateOutage: true } });
+    await reauth(gm, DEMO_PASSWORDS.GENERAL_MANAGER);
+    expect((await gm.put('/api/settings').send({ mockHasad: { simulateOutage: true } })).status).toBe(200);
     const cashier = await login('cashier.omd.01');
     const list = (await cashier.get('/api/hasad/withdrawals')).body;
     const w = list.withdrawals.find((x: { externalId: string }) => x.externalId === 'HG-10028');
     const res = await cashier.post(`/api/hasad/withdrawals/${w.id}/open`).send({ verification: 'ID_DOCUMENT' });
     expect(res.status).toBe(502);
     expect(res.body.error.code).toBe('HASAD_UNAVAILABLE');
-    await gm.put('/api/settings').send({ mockHasad: { simulateOutage: false } });
+    expect((await gm.put('/api/settings').send({ mockHasad: { simulateOutage: false } })).status).toBe(200);
   });
 });
 
 describe('user administration & sessions', () => {
   it('GM creates a user with a temporary password; user must change it before working', async () => {
     const gm = await login('general.manager');
+    await reauth(gm, DEMO_PASSWORDS.GENERAL_MANAGER);
     const created = await gm.post('/api/users').send({ username: 'cashier.kh.03', fullName: 'New Cashier', roleCode: 'CASHIER', branchId: 1 });
     expect(created.status, JSON.stringify(created.body)).toBe(200);
     const temp = created.body.temporaryPassword;
@@ -259,7 +269,10 @@ describe('user administration & sessions', () => {
     const blocked = await user.get('/api/inventory/items');
     expect(blocked.status).toBe(403);
     expect(blocked.body.error.code).toBe('PASSWORD_CHANGE_REQUIRED');
-    expect((await user.post('/api/auth/change-password').send({ currentPassword: temp, newPassword: 'Counter2026' })).status).toBe(200);
+    const changed = await user.post('/api/auth/change-password').send({ currentPassword: temp, newPassword: 'Counter2026' });
+    expect(changed.status, JSON.stringify(changed.body)).toBe(200);
+    // The session is rotated on a password change: continue with the new CSRF token.
+    user.set('x-csrf-token', changed.body.csrfToken);
     expect((await user.get('/api/inventory/items')).status).toBe(200);
 
     // Centralized password control: no further self-service changes.

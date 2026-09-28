@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import { config } from '../config';
+import type { Config } from '../config';
 import type { Ctx } from '../core/context';
 import { AppError, unauthorized } from '../core/errors';
 import { resolveSession, touchSession } from '../modules/sessions/service';
@@ -12,7 +12,7 @@ export function clientIp(req: Request): string {
 }
 
 /** Attach the authenticated actor (if any) and record session activity. */
-export function authenticate(ctx: Ctx) {
+export function authenticate(ctx: Ctx, config: Config) {
   return async (req: Request, _res: Response, next: NextFunction) => {
     const token = req.cookies?.[config.cookieName];
     if (!token) return next();
@@ -22,7 +22,9 @@ export function authenticate(ctx: Ctx) {
     req.actor = resolved.actor;
     req.sessionId = resolved.session.id;
     const module = req.header('x-client-module') ?? undefined;
-    await touchSession(ctx, resolved.session, module);
+    // Milliseconds since the user's last real input, reported by the SPA (D-1a-5).
+    const idleMs = Number.parseInt(req.header('x-client-idle-ms') ?? '0', 10);
+    await touchSession(ctx, resolved.session, module, Number.isFinite(idleMs) ? idleMs : 0);
     const [u] = await ctx.db.select({ m: t.users.mustChangePassword }).from(t.users).where(eq(t.users.id, resolved.actor.userId));
     req.mustChangePassword = !!u?.m;
     next();

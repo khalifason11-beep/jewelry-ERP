@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Permission } from '@jerp/shared';
-import { ApiError, get, onAuthError, post } from './api';
+import { ApiError, get, onAuthError, post, setCsrfToken } from './api';
 
 export interface Me {
   user: {
@@ -16,6 +16,8 @@ export interface Me {
   };
   session: { ref: string; loginAt: string; device: string; ipAddress: string } | null;
   company: { name: string; nameAr: string; currency: string; timezone: string };
+  appMode: 'demo' | 'production';
+  csrfToken: string | null;
   allowSelfPasswordChange: boolean;
   maxDiscountPercent: number;
   hasadMode: 'MOCK' | 'LIVE';
@@ -39,9 +41,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryKey: ['me'],
     queryFn: async () => {
       try {
-        return await get<Me>('/auth/me');
+        const me = await get<Me>('/auth/me');
+        setCsrfToken(me.csrfToken);
+        return me;
       } catch (e) {
-        if (e instanceof ApiError && e.status === 401) return null;
+        if (e instanceof ApiError && e.status === 401) {
+          setCsrfToken(null);
+          return null;
+        }
         throw e;
       }
     },
@@ -52,7 +59,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(
     () =>
       onAuthError((e) => {
-        if (e.status === 401) qc.setQueryData(['me'], null);
+        if (e.status === 401) {
+          setCsrfToken(null);
+          qc.setQueryData(['me'], null);
+        }
         if (e.code === 'PASSWORD_CHANGE_REQUIRED') qc.invalidateQueries({ queryKey: ['me'] });
       }),
     [qc],
@@ -67,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isGlobal: perms.has('scope.all_branches'),
     login: async (username, password) => {
       const res = await post<Me>('/auth/login', { username, password });
+      setCsrfToken(res.csrfToken);
       // Drop the previous user's cached data but keep the live `me` query observed by this provider.
       qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
       qc.setQueryData(['me'], res);
@@ -76,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         await post('/auth/logout');
       } finally {
+        setCsrfToken(null);
         qc.setQueryData(['me'], null);
         qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
       }

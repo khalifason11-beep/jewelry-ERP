@@ -231,6 +231,9 @@ for (const file of [...BACKEND_DIRS.flatMap((d) => walk(d, ['.ts']))]) {
         if (ts.isCallExpression(a) && ts.isPropertyAccessExpression(a.expression) && a.expression.expression.getText() === 'ap') skip = true;
         if (ts.isVariableDeclaration(a) && /^ua/.test(a.name.getText())) skip = true;
         if (ts.isPropertyAssignment(a) && ['metadata', 'completion', 'key'].includes(a.name.getText())) skip = true;
+        // Operator-only output of CLI tools and internal invariant errors never reach the UI.
+        if (ts.isCallExpression(a) && ts.isPropertyAccessExpression(a.expression) && a.expression.expression.getText() === 'console') skip = true;
+        if (ts.isNewExpression(a) && a.expression.getText() === 'Error') skip = true;
         if (ts.isStatement(a)) break;
       }
       if (!skip && isProse(text) && /[A-Za-z]{2,}[^A-Za-z]+[A-Za-z]{2,}/.test(text) && !/^[\w.-]+@|^[A-Z]{2,}-/.test(text.trim())) seedEnglish.push({ where: loc(n), text: text.trim().slice(0, 90) });

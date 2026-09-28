@@ -10,10 +10,7 @@ import { t } from '@jerp/database';
 import { hasadMockTables } from '@jerp/hasad';
 import {
   calculateSettlement,
-  DEFAULT_ROLE_PERMISSIONS,
-  DEFAULT_ROLES,
   DEFAULT_SETTINGS,
-  PERMISSIONS,
   type PaymentMethod,
   ap,
 } from '@jerp/shared';
@@ -29,6 +26,7 @@ import { createExpense } from '../modules/expenses/service';
 import { createTransfer, receiveTransfer } from '../modules/transfers/service';
 import { adjustItem } from '../modules/inventory/service';
 import { changeStatus, recordMovement } from '../modules/inventory/ledger';
+import { seedRolesAndPermissions } from './reference';
 import { BRANCHES, CATEGORIES, CUSTOMER_NAMES, DEMO_PASSWORDS, HASAD_CUSTOMERS, PRODUCTS, SUPPLIERS, USERS } from './catalog';
 
 const { mockCustomers, mockWithdrawals } = hasadMockTables;
@@ -82,18 +80,8 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
   };
 
   // ───────── settings, permissions, roles ─────────
-  await db.insert(t.settings).values({ key: 'system', value: DEFAULT_SETTINGS });
+  const roleId = await seedRolesAndPermissions(db);
   ctx.settings.invalidate();
-  await db.insert(t.permissions).values(Object.entries(PERMISSIONS).map(([code, description]) => ({ code, description })));
-  const rank = { CASHIER: 10, BRANCH_MANAGER: 50, GENERAL_MANAGER: 100 } as const;
-  const roleRows = await db
-    .insert(t.roles)
-    .values(DEFAULT_ROLES.map((r) => ({ ...r, isSystem: true, rank: rank[r.code] })))
-    .returning();
-  const roleId = Object.fromEntries(roleRows.map((r) => [r.code, r.id]));
-  for (const r of DEFAULT_ROLES) {
-    await db.insert(t.rolePermissions).values(DEFAULT_ROLE_PERMISSIONS[r.code].map((p) => ({ roleId: roleId[r.code], permissionCode: p })));
-  }
 
   // ───────── branches & users ─────────
   const branchRows = await db.insert(t.branches).values([...BRANCHES].map((b) => ({ ...b, createdAt: at(-400, 9) }))).returning();
@@ -513,8 +501,8 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
   ];
   for (const l of live) {
     const a = actors[l.user];
-    const s = await createSession(db, { userId: a.userId, branchId: a.branchId, userAgent: l.ua, ip: l.ip });
     const loginAt = new Date(now.getTime() - l.minutesAgoLogin * 60_000);
+    const s = await createSession(db, { userId: a.userId, branchId: a.branchId, userAgent: l.ua, ip: l.ip, absoluteHours: DEFAULT_SETTINGS.security.sessionAbsoluteHours, at: loginAt });
     await db
       .update(t.sessions)
       .set({ loginAt, lastActivityAt: new Date(now.getTime() - l.minutesIdle * 60_000), currentModule: l.module, isSimulated: true })
