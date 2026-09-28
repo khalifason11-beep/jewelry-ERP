@@ -43,6 +43,13 @@
       "when": 1790611068181,
       "tag": "0005_least_privilege_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790611580280,
+      "tag": "0006_cost_model_ledger",
+      "breakpoints": true
     }
   ]
 }

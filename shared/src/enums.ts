@@ -18,6 +18,10 @@ export type ItemStatus = (typeof ITEM_STATUSES)[number];
  */
 export const ITEM_HISTORY_STATUSES = [...ITEM_STATUSES, 'PURCHASED', 'RECEIVED'] as const;
 
+/** Where a piece came from (Phase 2b cost model, decisions Q3/Q4/Q9). */
+export const ITEM_ORIGINS = ['OPENING', 'SUPPLIER_NEW', 'SCRAP'] as const;
+export type ItemOrigin = (typeof ITEM_ORIGINS)[number];
+
 /** Statuses that count as the branch's sellable stock on hand. */
 export const STOCK_STATUSES: readonly ItemStatus[] = ['AVAILABLE', 'RESERVED'];
 
@@ -55,6 +59,29 @@ export const PAYMENT_METHODS = ['CASH', 'BANK_TRANSFER', 'CARD', 'MOBILE_WALLET'
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
 export const SALE_STATUSES = ['COMPLETED', 'VOIDED'] as const;
+
+/** How a sale line's price was set (Q2 is CLIENT-PENDING: only FIXED_TAG is used today). */
+export const PRICING_MODES = ['FIXED_TAG', 'COMPUTED'] as const;
+export type PricingMode = (typeof PRICING_MODES)[number];
+
+// ── Branch money ledger (Phase 2b, decisions Q5–Q8, D-2b-*) ──
+export const LEDGER_ACCOUNT_KINDS = ['CASH', 'BANK', 'FUNDS_IN_TRANSIT'] as const;
+export type LedgerAccountKind = (typeof LEDGER_ACCOUNT_KINDS)[number];
+
+export const LEDGER_EVENT_TYPES = ['SALE', 'SALE_VOID', 'EXPENSE', 'HASAD_SETTLEMENT', 'REVERSAL'] as const;
+export type LedgerEventType = (typeof LEDGER_EVENT_TYPES)[number];
+
+/** Q5: which branch account a payment method moves. Every entry keeps its own payment method too. */
+export const PAYMENT_ACCOUNT: Record<PaymentMethod, LedgerAccountKind> = {
+  CASH: 'CASH',
+  BANK_TRANSFER: 'BANK',
+  CARD: 'BANK',
+  MOBILE_WALLET: 'BANK',
+};
+
+/** Q7: an expense is paid from the drawer or the bank, chosen per expense. */
+export const EXPENSE_PAYMENT_SOURCES = ['CASH', 'BANK'] as const;
+export type ExpensePaymentSource = (typeof EXPENSE_PAYMENT_SOURCES)[number];
 export type SaleStatus = (typeof SALE_STATUSES)[number];
 
 export const EXPENSE_CATEGORIES = [
@@ -146,6 +173,7 @@ export const AUDIT_ACTIONS = [
   'BRANDING_CHANGED',
   'BRANCH_CREATED',
   'BRANCH_UPDATED',
+  'CASH_COUNTED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

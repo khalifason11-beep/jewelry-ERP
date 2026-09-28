@@ -157,11 +157,22 @@ export const jewelryItems = pgTable(
     karat: smallint('karat').notNull(),
     grossWeightMg: integer('gross_weight_mg').notNull(),
     netWeightMg: integer('net_weight_mg').notNull(),
-    // Cost components are kept separate: the client will define later what "cost" includes.
+    // DEPRECATED (Phase 2b): kept and still written for compatibility; the cost model is below.
     purchaseCost: money('purchase_cost').notNull(),
     makingCost: money('making_cost').notNull().default(0),
     otherCost: money('other_cost').notNull().default(0),
     totalCost: money('total_cost').notNull(),
+    // ── Cost model (Phase 2b, decisions Q3/Q4/Q9) ──
+    /** OPENING | SUPPLIER_NEW | SCRAP */
+    origin: text('origin').notNull().default('SUPPLIER_NEW'),
+    /** What the piece cost the company (for SUPPLIER_NEW it includes the making charge). GM only. */
+    acquisitionCost: money('acquisition_cost').notNull(),
+    /** True when the acquisition cost is an estimate (e.g. opening stock without invoices). */
+    costIsEstimated: boolean('cost_is_estimated').notNull().default(false),
+    supplierId: integer('supplier_id').references(() => suppliers.id),
+    supplierInvoiceRef: text('supplier_invoice_ref'),
+    /** Making charge paid to the supplier; part of acquisition_cost for SUPPLIER_NEW, kept apart for reports. */
+    makingCharge: money('making_charge').notNull().default(0),
     sellingPrice: money('selling_price').notNull(),
     branchId: integer('branch_id').notNull().references(() => branches.id),
     status: text('status').notNull(),
@@ -289,8 +300,19 @@ export const saleItems = pgTable('sale_items', {
   listPrice: money('list_price').notNull(),
   discount: money('discount').notNull().default(0),
   finalPrice: money('final_price').notNull(),
-  /** Cost snapshot so later cost edits never rewrite historical profit. */
+  /** Cost snapshot so later cost edits never rewrite historical profit. DEPRECATED: see acquisition_cost. */
   unitCost: money('unit_cost').notNull(),
+  // ── Phase 2b ──
+  /** Acquisition cost of the piece at the time of sale (snapshot). GM only. */
+  acquisitionCost: money('acquisition_cost').notNull(),
+  /** final_price − acquisition_cost, computed and stored by the server. GM only. */
+  profit: money('profit').notNull(),
+  /** FIXED_TAG today; COMPUTED (rate × weight + making) once the client decides (Q2). */
+  pricingMode: text('pricing_mode').notNull().default('FIXED_TAG'),
+  /** Price components for a computed price; NULL for a fixed tag price. */
+  priceGoldValue: money('price_gold_value'),
+  priceMakingCharge: money('price_making_charge'),
+  priceRatePerGram: money('price_rate_per_gram'),
 });
 
 // ───────────────────────────── Expenses ─────────────────────────────
@@ -311,6 +333,8 @@ export const expenses = pgTable(
     reviewedBy: integer('reviewed_by').references(() => users.id),
     reviewedAt: ts('reviewed_at'),
     reviewNote: text('review_note'),
+    /** CASH | BANK, chosen per expense (Q7). NULL only for expenses recorded before Phase 2b. */
+    paidFrom: text('paid_from'),
   },
   (t) => [index('exp_branch_date_idx').on(t.branchId, t.expenseDate)],
 );
@@ -494,6 +518,70 @@ export const documentSequences = pgTable(
     next: integer('next').notNull(),
   },
   (t) => [uniqueIndex('doc_seq_scope_idx').on(t.scope)],
+);
+
+// ───────────────────────────── Branch money ledger (Phase 2b) ─────────────────────────────
+
+/** One account per branch and kind (CASH, BANK, FUNDS_IN_TRANSIT); created by a trigger on branches. */
+export const ledgerAccounts = pgTable(
+  'ledger_accounts',
+  {
+    id: serial('id').primaryKey(),
+    branchId: integer('branch_id').notNull().references(() => branches.id),
+    kind: text('kind').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('ledger_accounts_branch_kind_idx').on(t.branchId, t.kind)],
+);
+
+/**
+ * Append-only money ledger. Balance of an account = SUM(amount) (no cached balance). Positive =
+ * money into the account. Corrections are new reversing entries (`reverses_entry_id`), never edits.
+ */
+export const ledgerEntries = pgTable(
+  'ledger_entries',
+  {
+    id: serial('id').primaryKey(),
+    accountId: integer('account_id').notNull().references(() => ledgerAccounts.id),
+    branchId: integer('branch_id').notNull().references(() => branches.id),
+    /** Signed whole SDG, never 0. */
+    amount: money('amount').notNull(),
+    eventType: text('event_type').notNull(),
+    paymentMethod: text('payment_method'),
+    refType: text('ref_type').notNull(),
+    refId: integer('ref_id').notNull(),
+    refNumber: text('ref_number'),
+    reversesEntryId: integer('reverses_entry_id'),
+    actorId: integer('actor_id').references(() => users.id),
+    sessionId: text('session_id'),
+    idempotencyKey: text('idempotency_key'),
+    note: text('note'),
+    at: ts('at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('ledger_entries_account_at_idx').on(t.accountId, t.at),
+    index('ledger_entries_branch_at_idx').on(t.branchId, t.at),
+    index('ledger_entries_ref_idx').on(t.refType, t.refId),
+    // An entry can be reversed at most once (a double void cannot refund twice).
+    uniqueIndex('ledger_entries_reverses_idx').on(t.reversesEntryId),
+  ],
+);
+
+/** Cash counted in the drawer (append-only: a recount is a new row; the latest one counts). */
+export const cashCounts = pgTable(
+  'cash_counts',
+  {
+    id: serial('id').primaryKey(),
+    branchId: integer('branch_id').notNull().references(() => branches.id),
+    businessDay: date('business_day', { mode: 'string' }).notNull(),
+    countedAmount: money('counted_amount').notNull(),
+    /** Expected cash at the moment of the count (snapshot, for the record). */
+    expectedAmount: money('expected_amount').notNull(),
+    countedBy: integer('counted_by').notNull().references(() => users.id),
+    note: text('note'),
+    at: ts('at').notNull().defaultNow(),
+  },
+  (t) => [index('cash_counts_branch_day_idx').on(t.branchId, t.businessDay, t.at)],
 );
 
 /**

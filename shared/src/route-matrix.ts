@@ -38,6 +38,11 @@ export interface RouteRule {
    * The same key + same body replays the first response; the same key + a different body is 422.
    */
   idempotent?: boolean;
+  /**
+   * Money route: the key is claimed and the result stored INSIDE the business transaction that also
+   * writes the ledger (no reservation outside it). Implies `idempotent`.
+   */
+  idempotencyInTx?: boolean;
 }
 
 const r = (method: HttpMethod, path: string, scope: RouteScope, extra: Omit<RouteRule, 'method' | 'path' | 'scope'> = {}): RouteRule => ({
@@ -101,10 +106,10 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/inventory/items/:id/adjust', 'branch', { all: ['inventory.adjust'], reauth: true }),
 
   // ── sales
-  r('POST', '/sales', 'branch', { all: ['sales.create'], idempotent: true }),
+  r('POST', '/sales', 'branch', { all: ['sales.create'], idempotent: true, idempotencyInTx: true }),
   r('GET', '/sales', 'branch', { any: ['sales.view', 'sales.view_own'] }),
   r('GET', '/sales/:id', 'branch', { any: ['sales.view', 'sales.view_own'] }),
-  r('POST', '/sales/:id/void', 'branch', { all: ['sales.void'], idempotent: true }),
+  r('POST', '/sales/:id/void', 'branch', { all: ['sales.void'], idempotent: true, idempotencyInTx: true }),
 
   // ── Hasad Gold
   r('GET', '/hasad/withdrawals', 'branch', { any: ['hasad.process', 'hasad.view'] }),
@@ -113,7 +118,7 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/hasad/withdrawals/:id/open', 'branch', { all: ['hasad.process'] }),
   r('POST', '/hasad/withdrawals/:id/items', 'branch', { all: ['hasad.process'] }),
   r('DELETE', '/hasad/withdrawals/:id/items/:itemId', 'branch', { all: ['hasad.process'] }),
-  r('POST', '/hasad/withdrawals/:id/complete', 'branch', { all: ['hasad.process'], idempotent: true }),
+  r('POST', '/hasad/withdrawals/:id/complete', 'branch', { all: ['hasad.process'], idempotent: true, idempotencyInTx: true }),
   r('POST', '/hasad/withdrawals/:id/abort', 'branch', { all: ['hasad.process'] }),
   r('POST', '/hasad/withdrawals/:id/cancel', 'branch', { all: ['hasad.cancel'] }),
 
@@ -122,8 +127,12 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('GET', '/purchases/:id', 'branch', { all: ['purchases.view'] }),
   r('POST', '/purchases', 'branch', { all: ['purchases.create'], idempotent: true }),
   r('GET', '/expenses', 'branch', { all: ['expenses.view'] }),
-  r('POST', '/expenses', 'branch', { all: ['expenses.create'], idempotent: true }),
-  r('POST', '/expenses/:id/review', 'branch', { all: ['expenses.approve'], idempotent: true }),
+  r('POST', '/expenses', 'branch', { all: ['expenses.create'], idempotent: true, idempotencyInTx: true }),
+  r('POST', '/expenses/:id/review', 'branch', { all: ['expenses.approve'], idempotent: true, idempotencyInTx: true }),
+  // ── cash (Phase 2b): expected drawer balance, daily reconciliation, counted cash
+  r('GET', '/cash/drawer', 'branch', { all: ['cash.view'] }),
+  r('GET', '/cash/reconciliation', 'branch', { all: ['cash.view'] }),
+  r('POST', '/cash/counts', 'branch', { all: ['cash.count'], idempotent: true }),
   r('GET', '/transfers', 'branch', { all: ['inventory.transfer'] }),
   r('POST', '/transfers', 'branch', { all: ['inventory.transfer'], idempotent: true }),
   r('POST', '/transfers/:id/receive', 'branch', { all: ['inventory.transfer'], idempotent: true }),

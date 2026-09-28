@@ -7,6 +7,7 @@ import { log } from './core/logger';
 import { demoCredentialsInUse, productionConfigProblems, runtimeRoleProblems, unvalidatedConstraints } from './core/startup';
 import { releaseStaleReservations } from './modules/hasad/service';
 import { seedDemo } from './seed/demo';
+import { backfillDemoLedger } from './seed/ledger-backfill';
 
 // ── Refuse unsafe production configurations before touching the database (security item 2).
 const problems = productionConfigProblems(config);
@@ -24,6 +25,11 @@ if (notValidated.length) {
 }
 
 if (config.appMode === 'demo') {
+  if (!(await isEmpty(ctx))) {
+    // Demo databases created before Phase 2b: recreate the ledger from the demo history (demo only).
+    const r = await backfillDemoLedger(ctx);
+    if (r.entries) log.info('demo ledger recreated from the demo history', r);
+  }
   if (await isEmpty(ctx)) {
     log.info('empty database: loading demo data');
     const started = Date.now();

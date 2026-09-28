@@ -21,6 +21,7 @@ import { SalesPage, SaleDetailPage } from './pages/sales/SalesPages';
 import { InventoryPage, ItemDetailPage } from './pages/inventory/InventoryPages';
 import { PurchasesPage, PurchaseDetailPage } from './pages/purchases/PurchasesPages';
 import { ExpensesPage } from './pages/expenses/ExpensesPage';
+import { CashPage } from './pages/cash/CashPage';
 import { TransfersPage } from './pages/transfers/TransfersPage';
 import { ReportsHubPage, ReportPage } from './pages/reports/ReportPages';
 import { UsersPage } from './pages/admin/UsersPage';
@@ -95,6 +96,7 @@ export function App() {
           <Route path="purchases" element={<Guard perm="purchases.view"><PurchasesPage /></Guard>} />
           <Route path="purchases/:id" element={<Guard perm="purchases.view"><PurchaseDetailPage /></Guard>} />
           <Route path="expenses" element={<Guard perm="expenses.view"><ExpensesPage /></Guard>} />
+          <Route path="cash" element={<Guard perm="cash.view"><CashPage /></Guard>} />
           <Route path="transfers" element={<Guard perm="inventory.transfer"><TransfersPage /></Guard>} />
           <Route path="reports" element={<Guard perm="reports.view"><ReportsHubPage /></Guard>} />
           <Route path="reports/:key" element={<Guard perm="reports.view"><ReportPage /></Guard>} />

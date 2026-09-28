@@ -12,6 +12,9 @@ import {
   mulDivRound,
   parseScaled,
   pureGoldMg,
+  roundMoney,
+  PAYMENT_ACCOUNT,
+  PAYMENT_METHODS,
   sumInt,
   valueOfWeight,
   weightedPricePerGram,
@@ -189,5 +192,70 @@ describe('Hasad settlement (L-7)', () => {
   it('matches known values', () => {
     const s = calculateSettlement({ entitledWeightMg: 10_000, entitlementKarat: 21, items: [{ netWeightMg: 9_873, karat: 21 }], ratePerGram: 190_500, basis: 'NET_WEIGHT' });
     expect(s).toMatchObject({ direction: 'BRANCH_PAYS_CUSTOMER', absDifferenceMg: 127, amount: 24_194 }); // 127 × 190.5 = 24 193.5 → 24 194
+  });
+});
+
+describe('money rounding and ledger arithmetic (Phase 2b, Q1)', () => {
+  it('roundMoney: whole SDG, half away from zero, symmetric, never off by more than ½', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: -1e12, max: 1e12 }), fc.integer({ min: 0, max: 999 }), (whole, milli) => {
+        const text = `${whole < 0 ? '-' : ''}${Math.abs(whole)}.${String(milli).padStart(3, '0')}`;
+        const x = Number(text);
+        const r = roundMoney(x);
+        const exact = BigInt(Math.abs(whole)) * 1000n + BigInt(milli);
+        const expected = (exact + 500n) / 1000n; // half up on the magnitude
+        return Number.isSafeInteger(r) && BigInt(Math.abs(r)) === expected && roundMoney(-x) === -r + 0;
+      }),
+      RUNS,
+    );
+    expect(roundMoney(2.5)).toBe(3);
+    expect(roundMoney(-2.5)).toBe(-3);
+    expect(roundMoney(1.005)).toBe(1);
+    expect(roundMoney(2.675)).toBe(3);
+    expect(roundMoney(1_500_000)).toBe(1_500_000);
+    expect(() => roundMoney(Number.NaN)).toThrow(RangeError);
+  });
+
+  it('profit per line = final price − acquisition cost, exactly, and sums without drift', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.record({ listPrice: fc.integer({ min: 0, max: 50_000_000 }), discountPct: fc.integer({ min: 0, max: 20 }), acquisition: fc.integer({ min: 0, max: 50_000_000 }) }), { maxLength: 30 }),
+        (lines) => {
+          let total = 0n;
+          let profit = 0n;
+          for (const l of lines) {
+            const discount = roundMoney((l.listPrice * l.discountPct) / 100);
+            const final = l.listPrice - discount;
+            total += BigInt(final);
+            profit += BigInt(final - l.acquisition);
+          }
+          const cost = lines.reduce((s, l) => s + BigInt(l.acquisition), 0n);
+          return total - cost === profit;
+        },
+      ),
+      RUNS,
+    );
+  });
+
+  it('a set of sales and voids nets to the sum of the sales that were not voided, per account', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.record({ amount: fc.integer({ min: 1, max: 100_000_000 }), method: fc.constantFrom(...PAYMENT_METHODS), voided: fc.boolean() }), { maxLength: 60 }),
+        (events) => {
+          const entries: { kind: string; amount: number }[] = [];
+          for (const e of events) {
+            entries.push({ kind: PAYMENT_ACCOUNT[e.method], amount: e.amount });
+            if (e.voided) entries.push({ kind: PAYMENT_ACCOUNT[e.method], amount: -e.amount });
+          }
+          for (const kind of ['CASH', 'BANK']) {
+            const bal = entries.filter((x) => x.kind === kind).reduce((s, x) => s + x.amount, 0);
+            const kept = events.filter((e) => !e.voided && PAYMENT_ACCOUNT[e.method] === kind).reduce((s, e) => s + e.amount, 0);
+            if (bal !== kept) return false;
+          }
+          return true;
+        },
+      ),
+      RUNS,
+    );
   });
 });

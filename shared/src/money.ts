@@ -80,3 +80,15 @@ export function parseScaled(text: string, scale: number): number {
   if (rest && rest[0] >= '5') v += 1n; // half away from zero on the magnitude
   return toSafeNumber(negative ? -v : v);
 }
+
+/**
+ * Q1: the ONE rounding entry point for money typed or computed as a decimal: whole SDG, half away
+ * from zero (−2.5 → −3). Works on the decimal text of the number, so 1.005 or 2.675 never fall on the
+ * wrong side because of their binary representation.
+ */
+export function roundMoney(value: number): number {
+  if (!Number.isFinite(value)) throw new RangeError(`not a finite amount: ${value}`);
+  if (Number.isSafeInteger(value)) return value;
+  const text = /e/i.test(String(value)) ? value.toFixed(20) : String(value);
+  return parseScaled(text, 0);
+}

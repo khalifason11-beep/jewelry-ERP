@@ -1,7 +1,10 @@
-import { ap } from '@jerp/shared';
+import { ap, roundMoney } from '@jerp/shared';
 import { and, desc, eq, gte, ilike, lte, or, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import type { ExpenseCategory } from '@jerp/shared';
+import type { ExpenseCategory, ExpensePaymentSource } from '@jerp/shared';
+import type { Executor } from '@jerp/database';
+import type { TxIdempotency } from '../../core/idempotency';
+import { post } from '../ledger/service';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
@@ -15,9 +18,27 @@ export interface CreateExpenseInput {
   amount: number;
   expenseDate?: string;
   description: string;
+  /** Q7: paid from the drawer or the bank (default CASH). */
+  paidFrom?: ExpensePaymentSource;
 }
 
-export async function createExpense(ctx: Ctx, actor: Actor, input: CreateExpenseInput, opts: { at?: Date } = {}) {
+/** Q7: an approved expense takes the money out of CASH or BANK — only then, never while PENDING. */
+async function postExpense(
+  tx: Executor,
+  e: { id: number; number: string; branchId: number; amount: number; paidFrom: string | null },
+  actor: Actor,
+  idem: TxIdempotency | undefined,
+  at: Date,
+) {
+  const source = (e.paidFrom ?? 'CASH') as ExpensePaymentSource;
+  await post(
+    tx,
+    [{ branchId: e.branchId, kind: source, amount: -e.amount, eventType: 'EXPENSE', paymentMethod: source === 'CASH' ? 'CASH' : 'BANK_TRANSFER', ref: { refType: 'expense', refId: e.id, refNumber: e.number }, at }],
+    { actor, idempotencyKey: idem?.key },
+  );
+}
+
+export async function createExpense(ctx: Ctx, actor: Actor, input: CreateExpenseInput, opts: { at?: Date; idem?: TxIdempotency } = {}) {
   requirePerm(actor, 'expenses.create');
   const branchId = branchScope(actor, input.branchId);
   if (branchId == null) throw badRequest('Select a branch');
@@ -27,6 +48,7 @@ export async function createExpense(ctx: Ctx, actor: Actor, input: CreateExpense
   const needsApproval = input.amount > settings.expenses.approvalThreshold && !can(actor, 'expenses.approve');
   const at = opts.at ?? new Date();
   return ctx.db.transaction(async (tx) => {
+    await opts.idem?.claim(tx);
     const [branch] = await tx.select().from(t.branches).where(eq(t.branches.id, branchId));
     const number = await nextNumber(tx, branch.code, 'EXP');
     const [row] = await tx
@@ -35,10 +57,11 @@ export async function createExpense(ctx: Ctx, actor: Actor, input: CreateExpense
         number,
         branchId,
         category: input.category,
-        amount: Math.round(input.amount),
+        amount: roundMoney(input.amount),
         expenseDate: input.expenseDate ?? dayKey(at, settings.company.timezone),
         description: input.description.trim(),
         status: needsApproval ? 'PENDING' : 'APPROVED',
+        paidFrom: input.paidFrom ?? 'CASH',
         createdBy: actor.userId,
         createdAt: at,
       })
@@ -52,13 +75,23 @@ export async function createExpense(ctx: Ctx, actor: Actor, input: CreateExpense
       key: needsApproval ? 'Expense {number} ({category}) {amount} — {description} [pending GM approval]' : 'Expense {number} ({category}) {amount} — {description}',
       params: { number, category: ap.enum(input.category), amount: ap.money(input.amount), description: input.description.trim() },
     });
+    if (row.status === 'APPROVED') await postExpense(tx, row, actor, opts.idem, at);
+    await opts.idem?.complete(tx, row);
     return row;
   });
 }
 
-export async function reviewExpense(ctx: Ctx, actor: Actor, id: number, decision: 'APPROVED' | 'REJECTED', note?: string) {
+export async function reviewExpense(
+  ctx: Ctx,
+  actor: Actor,
+  id: number,
+  decision: 'APPROVED' | 'REJECTED',
+  note?: string,
+  opts: { idem?: TxIdempotency; paidFrom?: ExpensePaymentSource } = {},
+) {
   requirePerm(actor, 'expenses.approve');
   return ctx.db.transaction(async (tx) => {
+    await opts.idem?.claim(tx);
     // Row lock (M-3): two concurrent reviews serialise here; the second sees the new status.
     const [e] = await tx.select().from(t.expenses).where(eq(t.expenses.id, id)).for('update');
     if (!e) throw notFound('Expense');
@@ -66,8 +99,9 @@ export async function reviewExpense(ctx: Ctx, actor: Actor, id: number, decision
     if (e.status !== 'PENDING') throw badRequest('Expense is already {status}', { status: e.status });
     await tx
       .update(t.expenses)
-      .set({ status: decision, reviewedBy: actor.userId, reviewedAt: new Date(), reviewNote: note ?? null })
+      .set({ status: decision, reviewedBy: actor.userId, reviewedAt: new Date(), reviewNote: note ?? null, ...(opts.paidFrom && !e.paidFrom ? { paidFrom: opts.paidFrom } : {}) })
       .where(and(eq(t.expenses.id, id), eq(t.expenses.status, 'PENDING')));
+    if (decision === 'APPROVED') await postExpense(tx, { ...e, paidFrom: e.paidFrom ?? opts.paidFrom ?? null }, actor, opts.idem, new Date());
     await writeAudit(tx, actor, {
       action: decision === 'APPROVED' ? 'EXPENSE_APPROVED' : 'EXPENSE_REJECTED',
       entityType: 'expense',
@@ -79,7 +113,9 @@ export async function reviewExpense(ctx: Ctx, actor: Actor, id: number, decision
           : note ? 'Expense {number} rejected ({amount}): {note}' : 'Expense {number} rejected ({amount})',
       params: { number: e.number, amount: ap.money(e.amount), ...(note ? { note } : {}) },
     });
-    return { ok: true };
+    const result = { ok: true };
+    await opts.idem?.complete(tx, result);
+    return result;
   });
 }
 
@@ -108,6 +144,7 @@ export async function listExpenses(
       branchName: t.branches.name,
       category: t.expenses.category,
       amount: t.expenses.amount,
+      paidFrom: t.expenses.paidFrom,
       expenseDate: t.expenses.expenseDate,
       description: t.expenses.description,
       status: t.expenses.status,

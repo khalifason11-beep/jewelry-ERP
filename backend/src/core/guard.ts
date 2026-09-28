@@ -7,7 +7,7 @@ import { findRouteRule, permitsRule, routeId, type HttpMethod, type RouteRule } 
 import type { Ctx } from './context';
 import { AppError, forbidden, unauthorized } from './errors';
 import { requireRecentReauth } from '../auth/reauth';
-import { idempotency } from './idempotency';
+import { idempotency, idempotencyInTx } from './idempotency';
 
 export interface RouteRegistry {
   /** Rules registered on this router (tests compare them with the matrix). */
@@ -53,7 +53,7 @@ export function defineRoutes(router: Router, ctx: Ctx, opts: { demo: boolean }):
       const m = method.toLowerCase() as 'get' | 'post' | 'put' | 'patch' | 'delete';
       // Order: access rule (auth, permissions, re-auth) → idempotency → handler. A refused request
       // never consumes an idempotency key.
-      router[m](path, guard, ...(rule.idempotent ? [idempotency(ctx, rule)] : []), ...handlers);
+      router[m](path, guard, ...(rule.idempotent ? [rule.idempotencyInTx ? idempotencyInTx(ctx, rule) : idempotency(ctx, rule)] : []), ...handlers);
     },
   };
 }

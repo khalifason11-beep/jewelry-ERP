@@ -27,7 +27,7 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   branding_assets: { safe: words('id kind mime bytes sha256 size width height uploaded_by uploaded_at') },
   categories: { safe: words('id code name name_ar') },
   document_sequences: { safe: words('scope next') },
-  expenses: { safe: words('id number branch_id category amount expense_date description status created_by created_at reviewed_by reviewed_at review_note') },
+  expenses: { safe: words('id number branch_id category amount expense_date description status created_by created_at reviewed_by reviewed_at review_note paid_from') },
   gold_rates: { safe: words('id karat price_per_gram effective_at set_by') },
   hasad_redemption_items: { cost: ['unit_cost'], safe: words('id redemption_id item_id net_weight_mg karat active added_at released_at') },
   hasad_redemptions: {
@@ -45,8 +45,9 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   inventory_movements: { cost: ['cost_value'], safe: words('id item_id branch_id type direction from_branch_id to_branch_id ref_type ref_id ref_number net_weight_mg user_id note at') },
   item_status_history: { safe: words('id item_id from_status to_status branch_id ref_type ref_id ref_number user_id note at') },
   jewelry_items: {
-    cost: words('purchase_cost making_cost other_cost total_cost'),
-    safe: words('id code barcode product_id karat gross_weight_mg net_weight_mg selling_price branch_id status purchase_id reservation_ref reserved_at reserved_by created_at updated_at'),
+    // Phase 2b cost model: acquisition cost, the making charge inside it, and whether it is an estimate.
+    cost: words('purchase_cost making_cost other_cost total_cost acquisition_cost making_charge cost_is_estimated'),
+    safe: words('id code barcode product_id karat gross_weight_mg net_weight_mg selling_price branch_id status purchase_id reservation_ref reserved_at reserved_by created_at updated_at origin supplier_id supplier_invoice_ref'),
   },
   permissions: { safe: words('code description') },
   products: { safe: words('id sku name name_ar category_id karat description created_at') },
@@ -54,7 +55,11 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   purchases: { cost: ['total_cost'], safe: words('id number branch_id supplier_id supplier_invoice_no status item_count total_net_weight_mg notes created_by created_at') },
   role_permissions: { safe: words('role_id permission_code') },
   roles: { safe: words('id code name name_ar description is_system rank') },
-  sale_items: { cost: ['unit_cost'], safe: words('id sale_id item_id product_name karat net_weight_mg list_price discount final_price') },
+  // Price components (price_*) describe the SELLING price (Q2), not the cost: SAFE.
+  sale_items: {
+    cost: words('unit_cost acquisition_cost profit'),
+    safe: words('id sale_id item_id product_name karat net_weight_mg list_price discount final_price pricing_mode price_gold_value price_making_charge price_rate_per_gram'),
+  },
   sales: {
     cost: ['cost_total'],
     safe: words('id number branch_id cashier_id session_id customer_name customer_name_ar customer_phone subtotal discount_total total payment_method status voided_at voided_by void_reason created_at'),
@@ -67,6 +72,10 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   transfer_items: { safe: words('transfer_id item_id') },
   transfers: { safe: words('id number from_branch_id to_branch_id status notes created_by created_at received_by received_at') },
   users: { safe: words('id username full_name full_name_ar role_id branch_id password_hash must_change_password password_changed_at status phone last_login_at failed_login_count locked_until created_at created_by') },
+  // ── Branch money ledger (Phase 2b): money flows of the branch, visible to its manager.
+  ledger_accounts: { safe: words('id branch_id kind created_at') },
+  ledger_entries: { safe: words('id account_id branch_id amount event_type payment_method ref_type ref_id ref_number reverses_entry_id actor_id session_id idempotency_key note at') },
+  cash_counts: { safe: words('id branch_id business_day counted_amount expected_amount counted_by note at') },
   // ── Hasad mock schema (integrations/hasad/src/mock/schema.ts, demo only)
   api_calls: { safe: words('id at operation request response_status response duration_ms') },
   customers: { safe: words('id full_name full_name_ar phone national_id_masked balance_mg karat created_at') },
@@ -95,6 +104,9 @@ export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
   'margin',
   'contribution',
   'responseBody',
+  'acquisitionCost',
+  'makingCharge',
+  'costIsEstimated',
 ]);
 
 /** Every other field name the API sends, classified SAFE (one registry; unknown names fail tests). */
@@ -136,7 +148,10 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     versions voidReason voided voidedAt voidedBy voidedByName waiting weight weightDeliveredMg weightIn weightMg weightOut
     weightSoldMg withdrawableGrams withdrawal withdrawalId withdrawals hidden list key width height size mime uploadedAt
     temporaryPassword itemsReleased expectedDirection expectedAmount changed redemptionItemId version actorId actorUsername
-    assetId
+    assetId origin supplierInvoiceRef pricingMode priceGoldValue priceMakingCharge priceRatePerGram paidFrom
+    accountId eventType reversesEntryId idempotencyKey expectedCash bank fundsInTransit openingCash salesByMethod
+    voidsByMethod voidsTotal expensesCash expensesBank settlementsCash settlementsBank cashMovement counted difference
+    countedAmount expectedAmount countedBy countedByName businessDay
   `),
 );
 

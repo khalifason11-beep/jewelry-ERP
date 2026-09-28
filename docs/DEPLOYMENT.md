@@ -116,7 +116,7 @@ anyone would block sign-in for the whole company.
 ## 5. Database roles and integrity rules
 
 - **Why roles matter.** The append-only tables (`audit_logs`, `inventory_movements`, `item_status_history`,
-  `gold_rates`, `settings_history`, and from Phase 2b the money ledger) are protected by triggers and by missing
+  `gold_rates`, `settings_history`, `ledger_entries`, `cash_counts`) are protected by triggers and by missing
   privileges. A role that **owns** those tables can still drop the triggers or grant itself the privileges back,
   and a superuser ignores privileges altogether. So the app should run as a role that owns nothing.
 - **One role (simplest, Render's default).** `DATABASE_URL` both migrates and runs the app. Migrations take
@@ -170,7 +170,8 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO jerp_app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO jerp_app;
 -- then, as jerp_owner: step 2 above, and re-apply the append-only lock:
 SELECT jerp_lock_append_only(t::regclass)
-FROM unnest(ARRAY['audit_logs','inventory_movements','item_status_history','gold_rates','settings_history']) AS t;
+FROM unnest(ARRAY['audit_logs','inventory_movements','item_status_history','gold_rates','settings_history',
+                   'ledger_entries','cash_counts']) AS t;
 ```
 
 Start the service; the log must **not** contain `SECURITY WARNING: the database role can alter the append-only tables`.
@@ -185,6 +186,16 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   one new key per business action, reused only for retries of that action) on: create sale, void sale, create
   purchase, create expense, review expense, create transfer, receive transfer and complete Hasad withdrawal.
   Without it the server answers `428`.
+
+### Money ledger (Phase 2b)
+
+- Upgrading an existing database creates the branch accounts (CASH, BANK, FUNDS_IN_TRANSIT) and backfills the
+  item cost model, but **never creates ledger entries** for past sales, expenses or settlements. A real company's
+  books start at the opening balance (Phase 3); until then the Cash screen only reflects events recorded after the
+  upgrade. (Demo databases are the one exception: in `APP_MODE=demo` their history is re-posted at start-up.)
+- API clients: create sale, void sale, create expense, review expense and complete Hasad withdrawal store their
+  idempotency record in the same transaction as the money movement; a retry with the same key returns the first
+  result, and nothing is ever posted twice.
 
 ## 6. After every deploy
 

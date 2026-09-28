@@ -356,6 +356,9 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'POST /transfers': () => ({ path: '/transfers', body: {} }),
   'POST /transfers/:id/receive': () => ({ path: `/transfers/${NONE}/receive` }),
   'GET /dashboard/branch': () => ({ path: '/dashboard/branch' }),
+  'GET /cash/drawer': () => ({ path: '/cash/drawer' }),
+  'GET /cash/reconciliation': () => ({ path: '/cash/reconciliation' }),
+  'POST /cash/counts': () => ({ path: '/cash/counts', body: {} }),
   'GET /dashboard/company': () => ({ path: '/dashboard/company' }),
   'GET /reports/:key': () => ({ path: '/reports/sales' }),
   'GET /audit': () => ({ path: '/audit', query: { limit: 5 } }),
@@ -406,6 +409,9 @@ const CROSS: Record<string, (f: Fixtures) => Req> = {
   'GET /dashboard/branch': (f) => ({ path: '/dashboard/branch', query: { branchId: f.omd } }),
   'GET /reports/:key': (f) => ({ path: '/reports/sales', query: { branchId: f.omd } }),
   'GET /audit': (f) => ({ path: '/audit', query: { branchId: f.omd } }),
+  'GET /cash/drawer': (f) => ({ path: '/cash/drawer', query: { branchId: f.omd } }),
+  'GET /cash/reconciliation': (f) => ({ path: '/cash/reconciliation', query: { branchId: f.omd } }),
+  'POST /cash/counts': (f) => ({ path: '/cash/counts', body: { branchId: f.omd, day: '2026-01-01', countedAmount: 1 } }),
 };
 
 let F: Fixtures;

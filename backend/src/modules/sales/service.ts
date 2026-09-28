@@ -1,4 +1,4 @@
-import { ap } from '@jerp/shared';
+import { ap, roundMoney } from '@jerp/shared';
 import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import type { PaymentMethod } from '@jerp/shared';
@@ -9,6 +9,8 @@ import { badRequest, forbidden, notFound } from '../../core/errors';
 import { nextNumber } from '../../core/numbering';
 import { dayRange } from '../../core/time';
 import { changeStatus, lockItems, recordMovement } from '../inventory/ledger';
+import { accountKindFor, post, reverseRef } from '../ledger/service';
+import type { TxIdempotency } from '../../core/idempotency';
 
 export interface CreateSaleInput {
   branchId?: number;
@@ -19,7 +21,7 @@ export interface CreateSaleInput {
   customerPhone?: string;
 }
 
-export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput, opts: { at?: Date } = {}) {
+export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput, opts: { at?: Date; idem?: TxIdempotency } = {}) {
   requirePerm(actor, 'sales.create');
   const branchId = branchScope(actor, input.branchId);
   if (branchId == null) throw badRequest('Select the branch the sale is made in');
@@ -34,6 +36,8 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
 
   const at = opts.at ?? new Date();
   return ctx.db.transaction(async (tx) => {
+    // Money route (D-2b-6): claim the idempotency key first, in this transaction.
+    await opts.idem?.claim(tx);
     const locked = await lockItems(tx, ids);
     const byId = new Map(locked.map((i) => [i.id, i]));
     const [branch] = await tx.select().from(t.branches).where(eq(t.branches.id, branchId));
@@ -47,7 +51,7 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       const item = byId.get(line.itemId)!;
       if (item.branchId !== branchId) throw forbidden('Item {code} does not belong to this branch', { code: item.code });
       if (item.status !== 'AVAILABLE') throw badRequest('Item {code} is {status} and cannot be sold', { code: item.code, status: item.status });
-      const discount = Math.round(line.discount ?? 0);
+      const discount = roundMoney(line.discount ?? 0);
       if (discount < 0) throw badRequest('Discount cannot be negative');
       if (discount > (item.sellingPrice * maxPct) / 100) {
         throw forbidden('Discount on {code} exceeds your limit of {pct}%', { code: item.code, pct: maxPct });
@@ -57,7 +61,7 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
 
     const subtotal = lines.reduce((s, l) => s + l.item.sellingPrice, 0);
     const discountTotal = lines.reduce((s, l) => s + l.discount, 0);
-    const costTotal = lines.reduce((s, l) => s + l.item.totalCost, 0);
+    const costTotal = lines.reduce((s, l) => s + l.item.acquisitionCost, 0);
     const number = await nextNumber(tx, branch.code, 'INV');
 
     const [sale] = await tx
@@ -90,7 +94,11 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
         listPrice: l.item.sellingPrice,
         discount: l.discount,
         finalPrice: l.finalPrice,
-        unitCost: l.item.totalCost,
+        unitCost: l.item.acquisitionCost,
+        // Snapshots: later cost changes never rewrite the profit of a past sale (GM-only fields).
+        acquisitionCost: l.item.acquisitionCost,
+        profit: l.finalPrice - l.item.acquisitionCost,
+        pricingMode: 'FIXED_TAG',
       });
       await changeStatus(tx, { item: l.item, to: 'SOLD', from: ['AVAILABLE'], userId: actor.userId, ref, at });
       await recordMovement(tx, { item: l.item, type: 'SALE', branchId, ref, userId: actor.userId, at });
@@ -106,6 +114,13 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       params: { number, n: lines.length, total: ap.money(subtotal - discountTotal), payment: ap.enum(input.paymentMethod) },
       metadata: { items: lines.map((l) => l.item.code), total: subtotal - discountTotal, discountTotal },
     });
+    // The money: into the drawer (CASH) or the bank (CARD, MOBILE_WALLET, BANK_TRANSFER) — Q5.
+    await post(
+      tx,
+      [{ branchId, kind: accountKindFor(input.paymentMethod), amount: subtotal - discountTotal, eventType: 'SALE', paymentMethod: input.paymentMethod, ref: { refType: 'sale', refId: sale.id, refNumber: number }, at }],
+      { actor, idempotencyKey: opts.idem?.key },
+    );
+    await opts.idem?.complete(tx, sale);
     return sale;
   });
 }
@@ -212,6 +227,12 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
       discount: t.saleItems.discount,
       finalPrice: t.saleItems.finalPrice,
       unitCost: t.saleItems.unitCost,
+      acquisitionCost: t.saleItems.acquisitionCost,
+      profit: t.saleItems.profit,
+      pricingMode: t.saleItems.pricingMode,
+      priceGoldValue: t.saleItems.priceGoldValue,
+      priceMakingCharge: t.saleItems.priceMakingCharge,
+      priceRatePerGram: t.saleItems.priceRatePerGram,
       purchaseCost: t.jewelryItems.purchaseCost,
       makingCost: t.jewelryItems.makingCost,
       otherCost: t.jewelryItems.otherCost,
@@ -241,18 +262,19 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
     cashierUsername: sale.cashierUsername,
     voidedByName,
     items: items.map((i) => {
-      if (showProfit) return { ...i, profit: i.finalPrice - i.unitCost };
-      const { unitCost: _u, purchaseCost: _p, makingCost: _m, otherCost: _o, ...rest } = i;
+      if (showProfit) return i;
+      const { unitCost: _u, acquisitionCost: _a, profit: _pr, purchaseCost: _p, makingCost: _m, otherCost: _o, ...rest } = i;
       return rest;
     }),
   };
 }
 
-export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: string, opts: { at?: Date } = {}) {
+export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: string, opts: { at?: Date; idem?: TxIdempotency } = {}) {
   const at = opts.at ?? new Date();
   requirePerm(actor, 'sales.void');
   if (!reason?.trim()) throw badRequest('A reason is required to cancel a sale');
   return ctx.db.transaction(async (tx) => {
+    await opts.idem?.claim(tx);
     const [sale] = await tx.select().from(t.sales).where(eq(t.sales.id, id)).for('update');
     if (!sale) throw notFound('Sale');
     branchScope(actor, sale.branchId);
@@ -278,6 +300,17 @@ export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: strin
       params: { number: sale.number, total: ap.money(sale.total), reason },
       metadata: { reason, items: items.map((i) => i.code) },
     });
-    return { ok: true };
+    // Refund through the original payment method (Q6): reverse the sale's own ledger entries.
+    const by = { actor, idempotencyKey: opts.idem?.key };
+    const saleRef = { refType: 'sale', refId: sale.id, refNumber: sale.number };
+    const reversed = await reverseRef(tx, saleRef, 'SALE', 'SALE_VOID', by, { note: reason, at });
+    if (!reversed) {
+      // A sale recorded before the ledger existed: the refund still leaves the account.
+      const method = sale.paymentMethod as PaymentMethod;
+      await post(tx, [{ branchId: sale.branchId, kind: accountKindFor(method), amount: -sale.total, eventType: 'SALE_VOID', paymentMethod: method, ref: saleRef, note: `${reason} (sale recorded before the ledger)`, at }], by);
+    }
+    const result = { ok: true };
+    await opts.idem?.complete(tx, result);
+    return result;
   });
 }

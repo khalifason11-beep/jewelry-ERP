@@ -49,6 +49,8 @@ export const PERMISSIONS = {
   'audit.view': 'View the audit log',
   'settings.manage': 'Change system settings, branding, gold rates and demo tools',
   'branches.manage': 'Create and edit branches',
+  'cash.view': 'See the expected cash in the drawer and the daily cash reconciliation',
+  'cash.count': 'Record the counted cash of a business day',
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -85,6 +87,9 @@ const BRANCH_MANAGER: Permission[] = [
   'hasad.cancel',
   'dashboard.branch',
   'reports.view',
+  // Expected cash and the daily reconciliation of the own branch (Phase 2b).
+  'cash.view',
+  'cash.count',
   // No 'profit.view': cost, acquisition cost and profit are General Manager only (decision Q15).
   'users.view',
   'sessions.view',

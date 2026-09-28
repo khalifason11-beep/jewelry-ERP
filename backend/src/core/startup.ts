@@ -58,7 +58,7 @@ export async function unvalidatedConstraints(exec: Executor): Promise<{ table: s
 }
 
 /** Tables whose rows may never be changed or removed (triggers + privileges, D-2a-4). */
-export const APPEND_ONLY_TABLES = ['audit_logs', 'inventory_movements', 'item_status_history', 'gold_rates', 'settings_history'] as const;
+export const APPEND_ONLY_TABLES = ['audit_logs', 'inventory_movements', 'item_status_history', 'gold_rates', 'settings_history', 'ledger_entries', 'cash_counts'] as const;
 
 export interface RoleProblem {
   table: string;

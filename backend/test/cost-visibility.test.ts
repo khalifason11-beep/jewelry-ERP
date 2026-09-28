@@ -137,6 +137,8 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /dashboard/company': ['/dashboard/company'],
       'GET /reports/:key': reportPaths,
       'GET /audit': ['/audit', '/audit?limit=5000'],
+      'GET /cash/drawer': [`/cash/drawer?branchId=${krt.id}`],
+      'GET /cash/reconciliation': [`/cash/reconciliation?branchId=${krt.id}`],
       'GET /hasad/simulator/customers': ['/hasad/simulator/customers'],
       'GET /hasad/integration-log': ['/hasad/integration-log'],
     };

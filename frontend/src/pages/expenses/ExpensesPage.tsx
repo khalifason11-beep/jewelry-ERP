@@ -24,6 +24,7 @@ interface ExpenseRow {
   expenseDate: string;
   description: string;
   status: string;
+  paidFrom: 'CASH' | 'BANK' | null;
   createdByName: string;
   reviewNote: string | null;
 }
@@ -60,6 +61,7 @@ export function ExpensesTable({ branchId, from, to, toolbar, status }: { branchI
         ...(isGlobal && !branchId ? [{ key: 'branchName', header: t('Branch'), render: (r: ExpenseRow) => t(r.branchName) }] : []),
         { key: 'category', header: t('Category'), render: (r) => humanize(r.category) },
         { key: 'description', header: t('Description'), className: 'max-w-[320px] truncate' },
+        { key: 'paidFrom', header: t('Paid from'), render: (r) => (r.paidFrom ? t(r.paidFrom === 'CASH' ? 'Cash drawer' : 'Bank') : '—') },
         { key: 'amount', header: t('Amount'), align: 'end', render: (r) => <span className="font-medium num">{money(r.amount, false)}</span>, footer: money(rows.filter((r) => r.status === 'APPROVED').reduce((s, r) => s + r.amount, 0), false) },
         { key: 'createdByName', header: t('Created by') },
         {
@@ -124,7 +126,7 @@ function NewExpenseDialog({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const qc = useQueryClient();
   const branches = useBranches();
-  const [f, setF] = useState({ branchId: me?.user.branch?.id ?? ('' as number | ''), category: 'OTHER', amount: '', expenseDate: todayKey(), description: '' });
+  const [f, setF] = useState({ branchId: me?.user.branch?.id ?? ('' as number | ''), category: 'OTHER', amount: '', expenseDate: todayKey(), description: '', paidFrom: 'CASH' as 'CASH' | 'BANK' });
   const actionKeys = useActionKeys();
   const m = useMutation({
     mutationFn: () => postOnce<{ number: string; status: string }>('/expenses', { ...f, branchId: f.branchId || undefined, amount: Number(f.amount) }, actionKeys.for('expense')),
@@ -162,6 +164,12 @@ function NewExpenseDialog({ onClose }: { onClose: () => void }) {
         </Field>
         <Field label={t('Amount ({currency})', { currency: currencyLabel() })} className="sm:col-span-2">
           <Input type="number" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} className="num" />
+        </Field>
+        <Field label={t('Paid from')} hint={t('The money leaves this account when the expense is approved')} className="sm:col-span-2">
+          <Select value={f.paidFrom} onChange={(e) => setF({ ...f, paidFrom: e.target.value as 'CASH' | 'BANK' })}>
+            <option value="CASH">{t('Cash drawer')}</option>
+            <option value="BANK">{t('Bank')}</option>
+          </Select>
         </Field>
         <Field label={t('Description')} className="sm:col-span-2">
           <Textarea value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />

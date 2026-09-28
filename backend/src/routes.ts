@@ -9,7 +9,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { EXPENSE_CATEGORIES, KARATS, PAYMENT_METHODS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
+import { EXPENSE_CATEGORIES, EXPENSE_PAYMENT_SOURCES, KARATS, PAYMENT_METHODS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
@@ -33,6 +33,8 @@ import * as branding from './modules/branding/service';
 import { publicBranding } from './modules/branding/service';
 import { LOGO_MAX_BYTES } from './modules/branding/image';
 import * as branches from './modules/branches/service';
+import * as ledger from './modules/ledger/service';
+import { runIdempotent } from './core/idempotency';
 import { defineRoutes } from './core/guard';
 import { costRedaction } from './core/cost-redaction';
 import { notificationsFor } from './modules/notifications/service';
@@ -369,7 +371,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
         .strict(),
       req.body,
     );
-    const sale = await sales.createSale(ctx, actorOf(req), body);
+    const sale = await runIdempotent(ctx, req, res, (idem) => sales.createSale(ctx, actorOf(req), body, { idem }));
     res.json(await sales.getSale(ctx, actorOf(req), sale.id));
   });
   route('GET', '/sales', async (req, res) => {
@@ -384,7 +386,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('GET', '/sales/:id', async (req, res) => res.json(await sales.getSale(ctx, actorOf(req), parse(zId, req.params.id))));
   route('POST', '/sales/:id/void', async (req, res) => {
     const body = parse(z.object({ reason: zText(500).min(3) }).strict(), req.body);
-    res.json(await sales.voidSale(ctx, actorOf(req), parse(zId, req.params.id), body.reason));
+    const id = parse(zId, req.params.id);
+    res.json(await runIdempotent(ctx, req, res, (idem) => sales.voidSale(ctx, actorOf(req), id, body.reason, { idem })));
   });
 
   // ─────────── Hasad ───────────
@@ -420,7 +423,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
         .strict(),
       req.body,
     );
-    res.json(await hasad.completeWithdrawal(ctx, actorOf(req), parse(zId, req.params.id), body));
+    const id = parse(zId, req.params.id);
+    res.json(await runIdempotent(ctx, req, res, (idem) => hasad.completeWithdrawal(ctx, actorOf(req), id, body, { idem })));
   });
   route('POST', '/hasad/withdrawals/:id/abort', async (req, res) => {
     const body = parse(z.object({ reason: zText(500).min(3).default('Customer left without completing') }).strict(), req.body);
@@ -477,14 +481,38 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   });
   route('POST', '/expenses', async (req, res) => {
     const body = parse(
-      z.object({ branchId: zIdBody.optional(), category: z.enum(EXPENSE_CATEGORIES), amount: zPositiveMoney, expenseDate: zDay.optional(), description: zText(500).min(2) }).strict(),
+      z
+        .object({
+          branchId: zIdBody.optional(),
+          category: z.enum(EXPENSE_CATEGORIES),
+          amount: zPositiveMoney,
+          expenseDate: zDay.optional(),
+          description: zText(500).min(2),
+          paidFrom: z.enum(EXPENSE_PAYMENT_SOURCES).optional(),
+        })
+        .strict(),
       req.body,
     );
-    res.json(await expenses.createExpense(ctx, actorOf(req), body));
+    res.json(await runIdempotent(ctx, req, res, (idem) => expenses.createExpense(ctx, actorOf(req), body, { idem })));
   });
   route('POST', '/expenses/:id/review', async (req, res) => {
-    const body = parse(z.object({ decision: z.enum(['APPROVED', 'REJECTED']), note: zText(500).optional() }).strict(), req.body);
-    res.json(await expenses.reviewExpense(ctx, actorOf(req), parse(zId, req.params.id), body.decision, body.note));
+    const body = parse(z.object({ decision: z.enum(['APPROVED', 'REJECTED']), note: zText(500).optional(), paidFrom: z.enum(EXPENSE_PAYMENT_SOURCES).optional() }).strict(), req.body);
+    const id = parse(zId, req.params.id);
+    res.json(await runIdempotent(ctx, req, res, (idem) => expenses.reviewExpense(ctx, actorOf(req), id, body.decision, body.note, { idem, paidFrom: body.paidFrom })));
+  });
+
+  // ─────────── Cash: expected drawer balance, daily reconciliation, counted cash (Phase 2b) ───────────
+  route('GET', '/cash/drawer', async (req, res) => {
+    const q = parse(z.object({ branchId: zOptId }).strict(), req.query);
+    res.json(await ledger.drawer(ctx, actorOf(req), q));
+  });
+  route('GET', '/cash/reconciliation', async (req, res) => {
+    const q = parse(z.object({ branchId: zOptId, day: zDay.optional() }).strict(), req.query);
+    res.json(await ledger.reconciliation(ctx, actorOf(req), q));
+  });
+  route('POST', '/cash/counts', async (req, res) => {
+    const body = parse(z.object({ branchId: zIdBody.optional(), day: zDay, countedAmount: zMoney, note: zText(500).optional() }).strict(), req.body);
+    res.json(await ledger.recordCount(ctx, actorOf(req), body));
   });
 
   route('GET', '/transfers', async (req, res) => {

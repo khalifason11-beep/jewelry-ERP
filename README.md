@@ -179,6 +179,19 @@ npm run ops -w @jerp/backend -- reset-gm-password --username <gm user>
   `shared/src/field-classification.ts`; tests fail if anything is unclassified or if a cost figure reaches a branch
   manager or cashier (including amounts inside audit texts).
 
+### Cost model and money ledger (Phase 2b)
+
+- **Items** record where they came from (opening stock, supplier, scrap), their **acquisition cost** (for supplier
+  pieces including the making charge, also kept apart) and whether that cost is an estimate. **Sale lines** store the
+  acquisition-cost snapshot and the profit. Cost and profit are General-Manager-only.
+- **Every branch has a money ledger** (CASH drawer, BANK, funds in transit). Sales, cancellations (through the
+  original payment method), approved expenses (from the drawer or the bank) and Hasad settlements post their entries
+  in the same database transaction as the business change. Entries can never be edited or deleted; a balance is
+  always the sum of its entries; corrections are reversing entries.
+- **Cash** screen (branch managers: own branch; GM: all): expected cash in each drawer now, and the daily
+  reconciliation — opening cash, sales by payment method, cancellations, expenses, settlements, expected cash, the
+  counted cash and the difference.
+
 ### Language
 
 The UI opens in Arabic (RTL) by default; the header switch toggles English. English source strings are the

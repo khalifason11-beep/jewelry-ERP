@@ -72,6 +72,7 @@ describe('idempotency keys', () => {
         'POST /sales/:id/void',
         'POST /transfers',
         'POST /transfers/:id/receive',
+        'POST /cash/counts',
       ].sort(),
     );
     // Only mutating routes can be idempotent.
@@ -164,35 +165,40 @@ describe('idempotency keys', () => {
     expect(await saleCount()).toBe(before + 1);
   });
 
+  // Reservation mode (non-money routes such as purchases): a key reserved outside the business
+  // transaction. Money routes use the in-transaction mode instead (test/ledger.test.ts).
+  const purchaseBody = async () => {
+    const [product] = await ctx.db.select().from(t.products).limit(1);
+    return { lines: [{ productId: product.id, grossWeightMg: 5_100, netWeightMg: 5_000, purchaseCost: 900_000, makingCost: 50_000, otherCost: 0, sellingPrice: 1_200_000 }] };
+  };
+
   it('a stale reservation without a result is reported as uncertain, never re-run', async () => {
-    const cashier = await login('cashier.kh.01', 'CASHIER', false);
-    const [item] = await availableItems('KRT', 1);
-    const [user] = await ctx.db.select().from(t.users).where(eq(t.users.username, 'cashier.kh.01'));
+    const bm = await login('branch.manager.kh', 'BRANCH_MANAGER', false);
+    const [user] = await ctx.db.select().from(t.users).where(eq(t.users.username, 'branch.manager.kh'));
     const k = key();
-    const body = { items: [{ itemId: item.id }], paymentMethod: 'CASH' };
+    const body = await purchaseBody();
     await ctx.db.insert(t.idempotencyKeys).values({
       userId: user.id,
       key: k,
-      route: 'POST /sales',
-      requestHash: requestHash('POST', '/api/sales', body),
+      route: 'POST /purchases',
+      requestHash: requestHash('POST', '/api/purchases', body),
       status: 'IN_PROGRESS',
       createdAt: new Date(Date.now() - IDEMPOTENCY_STALE_MS - 1000),
     });
-    const res = await cashier.post('/api/sales').set('Idempotency-Key', k).send(body);
+    const res = await bm.post('/api/purchases').set('Idempotency-Key', k).send(body);
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('IDEMPOTENCY_UNCERTAIN');
   });
 
   it('stores the response as the caller saw it (cost fields already removed for a branch manager)', async () => {
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER', false);
-    const [item] = await availableItems('KRT', 1);
     const k = key();
-    const res = await bm.post('/api/sales').set('Idempotency-Key', k).send({ items: [{ itemId: item.id }], paymentMethod: 'CASH' });
+    const res = await bm.post('/api/purchases').set('Idempotency-Key', k).send(await purchaseBody());
     expect(res.status).toBe(200);
-    expect(res.body).not.toHaveProperty('costTotal');
+    expect(res.body).not.toHaveProperty('totalCost');
     const [row] = await ctx.db.select().from(t.idempotencyKeys).where(eq(t.idempotencyKeys.key, k));
     expect(row.status).toBe('COMPLETED');
-    expect(JSON.stringify(row.responseBody)).not.toContain('costTotal');
+    expect(JSON.stringify(row.responseBody)).not.toContain('totalCost');
   });
 
   it('hashes requests canonically', () => {

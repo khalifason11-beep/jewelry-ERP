@@ -17,6 +17,8 @@ import { badRequest, conflict, forbidden, notFound } from '../../core/errors';
 import { nextNumber } from '../../core/numbering';
 import { dayRange } from '../../core/time';
 import { changeStatus, itemQuery, lockItems, recordMovement } from '../inventory/ledger';
+import { accountKindFor, post } from '../ledger/service';
+import type { TxIdempotency } from '../../core/idempotency';
 import { syncWithdrawals } from './sync';
 
 type WithdrawalRow = typeof t.hasadWithdrawals.$inferSelect;
@@ -331,7 +333,7 @@ export async function addItem(ctx: Ctx, actor: Actor, id: number, itemId: number
       itemId: item.id,
       netWeightMg: item.netWeightMg,
       karat: item.karat,
-      unitCost: item.totalCost,
+      unitCost: item.acquisitionCost,
     });
     await writeAudit(tx, actor, {
       action: 'ITEM_RESERVED',
@@ -395,7 +397,7 @@ export interface CompleteInput {
   expectedAmount: number;
 }
 
-export async function completeWithdrawal(ctx: Ctx, actor: Actor, id: number, input: CompleteInput) {
+export async function completeWithdrawal(ctx: Ctx, actor: Actor, id: number, input: CompleteInput, opts: { idem?: TxIdempotency } = {}) {
   requirePerm(actor, 'hasad.process');
   if (!input.customerAcknowledged) throw badRequest('The customer must acknowledge the settlement before completion');
 
@@ -432,6 +434,7 @@ export async function completeWithdrawal(ctx: Ctx, actor: Actor, id: number, inp
 
   // 3. Commit the ERP side atomically.
   return ctx.db.transaction(async (tx) => {
+    await opts.idem?.claim(tx);
     const now = new Date();
     // Row locks: of two concurrent confirmations only the first commits; the second sees COMPLETED.
     const [cur] = await tx.select().from(t.hasadWithdrawals).where(eq(t.hasadWithdrawals.id, w.id)).for('update');
@@ -443,7 +446,7 @@ export async function completeWithdrawal(ctx: Ctx, actor: Actor, id: number, inp
       await changeStatus(tx, { item, to: 'REDEEMED', from: ['RESERVED'], userId: actor.userId, ref, note: `Delivered to Hasad customer (${w.externalId})`, at: now });
       await recordMovement(tx, { item, type: 'HASAD_REDEMPTION', branchId: w.branchId, ref, userId: actor.userId, at: now });
     }
-    const itemsCost = locked.reduce((sum, i) => sum + i.totalCost, 0);
+    const itemsCost = locked.reduce((sum, i) => sum + i.acquisitionCost, 0);
     await tx
       .update(t.hasadRedemptions)
       .set({
@@ -473,6 +476,20 @@ export async function completeWithdrawal(ctx: Ctx, actor: Actor, id: number, inp
         confirmedBy: actor.userId,
         confirmedAt: now,
       });
+      // Q8: the difference is paid out of / into the drawer (CASH, default) or the bank.
+      await post(
+        tx,
+        [{
+          branchId: w.branchId,
+          kind: accountKindFor(input.paymentMethod),
+          amount: s.direction === 'BRANCH_PAYS_CUSTOMER' ? -s.amount : s.amount,
+          eventType: 'HASAD_SETTLEMENT',
+          paymentMethod: input.paymentMethod,
+          ref: { refType: 'hasad_redemption', refId: draft.id, refNumber: settlementNumber },
+          at: now,
+        }],
+        { actor, idempotencyKey: opts.idem?.key },
+      );
       await writeAudit(tx, actor, {
         action: 'HASAD_SETTLEMENT_CONFIRMED',
         entityType: 'settlement',
@@ -498,7 +515,9 @@ export async function completeWithdrawal(ctx: Ctx, actor: Actor, id: number, inp
       params: { id: w.externalId, entitled: ap.mg(s.entitledWeightMg), delivered: ap.mg(s.deliveredWeightMg), codes: locked.map((i) => i.code).join(', ') },
       metadata: { redemption: draft.number, settlement: settlementNumber },
     });
-    return { redemptionNumber: draft.number, settlementNumber, settlement: s };
+    const result = { redemptionNumber: draft.number, settlementNumber, settlement: s };
+    await opts.idem?.complete(tx, result);
+    return result;
   });
 }
 
@@ -600,5 +619,5 @@ export async function candidateItems(ctx: Ctx, actor: Actor, id: number, q: { q?
     .where(and(...where))
     .orderBy(sql`abs(${t.jewelryItems.netWeightMg} - ${w.entitledWeightMg})`)
     .limit(200);
-  return rowsAll.map(({ purchaseCost: _p, makingCost: _m, otherCost: _o, totalCost: _t, ...r }) => r);
+  return rowsAll.map(({ purchaseCost: _p, makingCost: _m, otherCost: _o, totalCost: _t, acquisitionCost: _a, makingCharge: _mc, costIsEstimated: _ce, ...r }) => r);
 }

@@ -34,6 +34,11 @@ export const itemColumns = {
   makingCost: t.jewelryItems.makingCost,
   otherCost: t.jewelryItems.otherCost,
   totalCost: t.jewelryItems.totalCost,
+  origin: t.jewelryItems.origin,
+  acquisitionCost: t.jewelryItems.acquisitionCost,
+  makingCharge: t.jewelryItems.makingCharge,
+  costIsEstimated: t.jewelryItems.costIsEstimated,
+  supplierInvoiceRef: t.jewelryItems.supplierInvoiceRef,
   sellingPrice: t.jewelryItems.sellingPrice,
   branchId: t.jewelryItems.branchId,
   branchCode: t.branches.code,
@@ -119,7 +124,7 @@ export async function changeStatus(exec: Executor, c: StatusChange): Promise<Ite
 }
 
 export interface Movement {
-  item: Pick<ItemRow, 'id' | 'netWeightMg' | 'totalCost'>;
+  item: Pick<ItemRow, 'id' | 'netWeightMg' | 'acquisitionCost'>;
   type: MovementType;
   branchId: number;
   direction?: 1 | -1;
@@ -145,7 +150,7 @@ export async function recordMovement(exec: Executor, m: Movement): Promise<void>
     refId: m.ref?.refId ?? null,
     refNumber: m.ref?.refNumber ?? null,
     netWeightMg: m.item.netWeightMg,
-    costValue: m.item.totalCost,
+    costValue: m.item.acquisitionCost,
     userId: m.userId,
     note: m.note ?? null,
     at: m.at ?? new Date(),

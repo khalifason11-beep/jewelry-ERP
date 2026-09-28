@@ -10,15 +10,20 @@
 import {
   BRANDING_ASSET_KINDS,
   EXPENSE_CATEGORIES,
+  EXPENSE_PAYMENT_SOURCES,
   EXPENSE_STATUSES,
   HASAD_EXTERNAL_STATUSES,
   HASAD_REDEMPTION_STATUSES,
   HASAD_WITHDRAWAL_STATUSES,
   IDEMPOTENCY_STATUSES,
+  ITEM_ORIGINS,
   ITEM_HISTORY_STATUSES,
   ITEM_STATUSES,
+  LEDGER_ACCOUNT_KINDS,
+  LEDGER_EVENT_TYPES,
   MOVEMENT_TYPES,
   PAYMENT_METHODS,
+  PRICING_MODES,
   PURCHASE_STATUSES,
   SALE_STATUSES,
   SESSION_STATUSES,
@@ -76,6 +81,13 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   e('branding_assets', 'kind', BRANDING_ASSET_KINDS),
   e('branding_assets', 'mime', ['image/png', 'image/jpeg', 'image/webp']),
   e('idempotency_keys', 'status', IDEMPOTENCY_STATUSES),
+  // ── Phase 2b
+  e('jewelry_items', 'origin', ITEM_ORIGINS),
+  e('sale_items', 'pricing_mode', PRICING_MODES),
+  e('expenses', 'paid_from', EXPENSE_PAYMENT_SOURCES, true),
+  e('ledger_accounts', 'kind', LEDGER_ACCOUNT_KINDS),
+  e('ledger_entries', 'event_type', LEDGER_EVENT_TYPES),
+  e('ledger_entries', 'payment_method', PAYMENT_METHODS, true),
 ];
 
 const nonNeg = (table: string, ...columns: string[]): ExprCheck[] =>
@@ -121,6 +133,26 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   { name: 'ck_transfers_distinct_branches', table: 'transfers', expr: 'from_branch_id <> to_branch_id' },
   ...nonNeg('users', 'failed_login_count'),
   ...nonNeg('branding_assets', 'size', 'width', 'height'),
+  // ── Phase 2b: cost model, sale-line profit, ledger
+  ...nonNeg('jewelry_items', 'acquisition_cost', 'making_charge'),
+  {
+    name: 'ck_jewelry_items_making_in_acquisition',
+    table: 'jewelry_items',
+    // Q3: for supplier pieces the making charge is part of the acquisition cost.
+    expr: "origin <> 'SUPPLIER_NEW' OR making_charge <= acquisition_cost",
+  },
+  ...nonNeg('sale_items', 'acquisition_cost'),
+  { name: 'ck_sale_items_profit_sum', table: 'sale_items', expr: 'profit = final_price - acquisition_cost' },
+  { name: 'ck_sale_items_price_components_nonneg', table: 'sale_items', expr: 'coalesce(price_gold_value, 0) >= 0 AND coalesce(price_making_charge, 0) >= 0 AND coalesce(price_rate_per_gram, 0) >= 0' },
+  { name: 'ck_ledger_entries_amount_nonzero', table: 'ledger_entries', expr: 'amount <> 0' },
+  {
+    name: 'ck_ledger_entries_reversal_type',
+    table: 'ledger_entries',
+    // Only a void or an explicit reversal may reverse an entry; a REVERSAL must say which one. A void
+    // of a sale recorded before the ledger existed has nothing to reverse but still refunds money.
+    expr: "(reverses_entry_id IS NULL OR event_type IN ('SALE_VOID', 'REVERSAL')) AND (event_type <> 'REVERSAL' OR reverses_entry_id IS NOT NULL)",
+  },
+  ...nonNeg('cash_counts', 'counted_amount'),
 ];
 
 /** The SQL expression for an enum check. */

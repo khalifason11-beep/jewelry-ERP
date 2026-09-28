@@ -23,6 +23,7 @@ import { createSession, hashToken, loadActor } from '../modules/sessions/service
 import { createPurchase, type PurchaseLine } from '../modules/purchases/service';
 import { createSale, voidSale } from '../modules/sales/service';
 import { createExpense } from '../modules/expenses/service';
+import { post as postLedger } from '../modules/ledger/service';
 import { createTransfer, receiveTransfer } from '../modules/transfers/service';
 import { adjustItem } from '../modules/inventory/service';
 import { changeStatus, recordMovement } from '../modules/inventory/ledger';
@@ -412,7 +413,7 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
       deliveredWeightMg: s.deliveredWeightMg, differenceMg: s.differenceMg, settlementDirection: s.direction, settlementAmount: s.amount,
       ratePerGram: s.ratePerGram, itemsCost: item.totalCost, customerVerified: true, createdAt: openedAt, completedAt,
     }).returning();
-    await db.insert(t.hasadRedemptionItems).values({ redemptionId: r.id, itemId: item.id, netWeightMg: item.netWeightMg, karat: item.karat, unitCost: item.totalCost, addedAt: reservedAt });
+    await db.insert(t.hasadRedemptionItems).values({ redemptionId: r.id, itemId: item.id, netWeightMg: item.netWeightMg, karat: item.karat, unitCost: item.acquisitionCost, addedAt: reservedAt });
     const ref = { refType: 'hasad_redemption', refId: r.id, refNumber: number };
     const reserved = await changeStatus(db, { item, to: 'RESERVED', from: ['AVAILABLE'], userId: cashier.userId, ref, at: reservedAt, note: `Selected by Hasad customer (${id})`, reservation: { ref: `HASAD:${number}`, userId: cashier.userId } });
     await changeStatus(db, { item: reserved, to: 'REDEEMED', from: ['RESERVED'], userId: cashier.userId, ref, at: completedAt, note: `Delivered to Hasad customer (${id})` });
@@ -421,6 +422,8 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
     if (s.direction !== 'NONE') {
       settlementNumber = await nextNumber(db, b.code, 'SET');
       await db.insert(t.settlements).values({ number: settlementNumber, type: 'HASAD_WEIGHT_DIFFERENCE', redemptionId: r.id, branchId: b.id, direction: s.direction, weightMg: s.absDifferenceMg, ratePerGram: s.ratePerGram, amount: s.amount, paymentMethod: 'CASH', confirmedBy: cashier.userId, confirmedAt: completedAt });
+      // Demo history goes through the same ledger as live settlements (CASH, Q8).
+      await postLedger(db, [{ branchId: b.id, kind: 'CASH', amount: s.direction === 'BRANCH_PAYS_CUSTOMER' ? -s.amount : s.amount, eventType: 'HASAD_SETTLEMENT', paymentMethod: 'CASH', ref: { refType: 'hasad_redemption', refId: r.id, refNumber: settlementNumber }, at: completedAt }], { actor: cashier });
     }
     await db.insert(mockWithdrawals).values({
       id, customerId: c.id, weightMg: ev.mg, karat: 21, branchCode: b.hasadBranchCode!, status: 'COMPLETED', pickupCode: w.pickupCode, requestedAt, updatedAt: completedAt,

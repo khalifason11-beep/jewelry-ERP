@@ -8,7 +8,7 @@ import { writeAudit } from '../../core/audit';
 import { badRequest, notFound } from '../../core/errors';
 import { changeStatus, itemQuery, lockItems, recordMovement } from './ledger';
 
-const COST_FIELDS = ['purchaseCost', 'makingCost', 'otherCost', 'totalCost'] as const;
+const COST_FIELDS = ['purchaseCost', 'makingCost', 'otherCost', 'totalCost', 'acquisitionCost', 'makingCharge', 'costIsEstimated'] as const;
 
 /** Users without `profit.view` never receive cost fields. */
 export function redactCosts<T extends Record<string, unknown>>(actor: Actor, row: T): T {
