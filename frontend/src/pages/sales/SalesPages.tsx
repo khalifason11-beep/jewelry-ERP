@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, ChevronRight, FileText, Printer } from 'lucide-react';
-import { get, post } from '../../lib/api';
+import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, karatLabel, money, pct } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
@@ -11,6 +11,7 @@ import { Alert, Button, Card, CardHeader, Dialog, ErrorState, Field, KeyValue, L
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
 import { InvoiceDocument, type SaleDetail } from '../../components/InvoiceDocument';
+import { useActionKeys } from '../../lib/idempotency';
 
 export interface SaleRow {
   id: number;
@@ -127,9 +128,11 @@ export function SaleDetailPage() {
   const [reason, setReason] = useState('');
   const [printOpen, setPrintOpen] = useState(false);
   const q = useQuery({ queryKey: ['sale', id], queryFn: () => get<SaleDetail>(`/sales/${id}`) });
+  const actionKeys = useActionKeys();
   const voidM = useMutation({
-    mutationFn: () => post(`/sales/${id}/void`, { reason }),
+    mutationFn: () => postOnce(`/sales/${id}/void`, { reason }, actionKeys.for(`void:${id}`)),
     onSuccess: () => {
+      actionKeys.rotate(`void:${id}`);
       toast.success(t('Sale cancelled'), t('Items returned to AVAILABLE with a RETURN movement.'));
       setVoidOpen(false);
       qc.invalidateQueries();

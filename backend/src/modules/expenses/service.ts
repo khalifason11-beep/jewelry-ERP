@@ -59,14 +59,15 @@ export async function createExpense(ctx: Ctx, actor: Actor, input: CreateExpense
 export async function reviewExpense(ctx: Ctx, actor: Actor, id: number, decision: 'APPROVED' | 'REJECTED', note?: string) {
   requirePerm(actor, 'expenses.approve');
   return ctx.db.transaction(async (tx) => {
-    const [e] = await tx.select().from(t.expenses).where(eq(t.expenses.id, id));
+    // Row lock (M-3): two concurrent reviews serialise here; the second sees the new status.
+    const [e] = await tx.select().from(t.expenses).where(eq(t.expenses.id, id)).for('update');
     if (!e) throw notFound('Expense');
     branchScope(actor, e.branchId);
     if (e.status !== 'PENDING') throw badRequest('Expense is already {status}', { status: e.status });
     await tx
       .update(t.expenses)
       .set({ status: decision, reviewedBy: actor.userId, reviewedAt: new Date(), reviewNote: note ?? null })
-      .where(eq(t.expenses.id, id));
+      .where(and(eq(t.expenses.id, id), eq(t.expenses.status, 'PENDING')));
     await writeAudit(tx, actor, {
       action: decision === 'APPROVED' ? 'EXPENSE_APPROVED' : 'EXPENSE_REJECTED',
       entityType: 'expense',

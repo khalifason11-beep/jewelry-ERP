@@ -1,6 +1,7 @@
 // Demo tool: plays the role of a customer using the Hasad Gold app, and shows the calls
 // the ERP makes to the (mock) Hasad API. Not part of the future production scope.
 
+import { gramsToMg } from '@jerp/shared';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -43,7 +44,7 @@ export function HasadSimulatorPage() {
   const selected = customers.data?.find((c) => c.customer.customerId === customerId);
 
   const send = useMutation({
-    mutationFn: () => post<{ withdrawalId: string }>('/hasad/simulator/withdrawals', { customerId, branchId, weightMg: weight ? Math.round(Number(weight) * 1000) : undefined }),
+    mutationFn: () => post<{ withdrawalId: string }>('/hasad/simulator/withdrawals', { customerId, branchId, weightMg: weight ? gramsToMg(weight) : undefined }),
     onSuccess: (w) => {
       toast.success(t('Withdrawal {id} sent to the ERP', { id: w.withdrawalId }), t('It now appears in the branch’s Hasad queue. No inventory was reserved.'));
       qc.invalidateQueries();

@@ -317,7 +317,7 @@ export function SettingsPage() {
         <Card padded={false}>
           <CardHeader
             title={t('Security & sessions')}
-            actions={saveBtn(['security.idleMinutes', 'security.sessionAbsoluteHours', 'security.sessionIdleMinutes', 'security.minPasswordLength', 'security.lockoutThreshold', 'security.lockoutBaseMinutes', 'security.lockoutMaxMinutes', 'security.allowSelfPasswordChange'])}
+            actions={saveBtn(['security.idleMinutes', 'security.sessionAbsoluteHours', 'security.reauthWindowMinutes', 'security.sessionIdleMinutes', 'security.minPasswordLength', 'security.lockoutThreshold', 'security.lockoutBaseMinutes', 'security.lockoutMaxMinutes', 'security.allowSelfPasswordChange'])}
           />
           <div className="grid gap-3 p-5 sm:grid-cols-3">
             <Field label={t('Sign out after inactivity (minutes, all roles)')}>
@@ -325,6 +325,9 @@ export function SettingsPage() {
             </Field>
             <Field label={t('Maximum session length (hours)')}>
               {numberInput(draft.security.sessionAbsoluteHours, (n) => set('security', { sessionAbsoluteHours: n }), { min: 1, max: 24 })}
+            </Field>
+            <Field label={t('Password re-confirmation valid for (minutes)')} hint={t('How long sensitive actions stay allowed after the password is re-entered (1–30)')}>
+              {numberInput(draft.security.reauthWindowMinutes, (n) => set('security', { reauthWindowMinutes: n }), { min: 1, max: 30 })}
             </Field>
             <Field label={t('Shown as idle after (minutes)')}>
               {numberInput(draft.security.sessionIdleMinutes, (n) => set('security', { sessionIdleMinutes: n }), { min: 1 })}

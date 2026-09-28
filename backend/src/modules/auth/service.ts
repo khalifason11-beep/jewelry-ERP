@@ -9,7 +9,6 @@ import { log } from '../../core/logger';
 import { burnVerification, hashPassword, needsRehash, verifyPassword } from '../../auth/password';
 import { assertPasswordPolicy } from '../../auth/policy';
 import { accountLocked, clearFailures, ghostFailure, ghostLocked, ipBlocked, ipFailure, ipThrottled, recordFailure } from '../../auth/lockout';
-import { REAUTH_WINDOW_MINUTES } from '../../auth/reauth';
 import { publicBranding } from '../branding/service';
 import { createSession, csrfTokenFor, endSession, endUserSessions, loadActor, markReauthenticated, sessionRef } from '../sessions/service';
 
@@ -172,7 +171,7 @@ export async function reauthenticate(ctx: Ctx, actor: Actor, password: string) {
       params: { username: actor.username },
     });
   });
-  return { ok: true, validForMinutes: REAUTH_WINDOW_MINUTES };
+  return { ok: true, validForMinutes: (await ctx.settings.get()).security.reauthWindowMinutes };
 }
 
 /**

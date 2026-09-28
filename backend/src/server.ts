@@ -4,7 +4,7 @@ import { config } from './config';
 import { createApp } from './app';
 import { createContext, isEmpty, openDatabase } from './bootstrap';
 import { log } from './core/logger';
-import { demoCredentialsInUse, productionConfigProblems } from './core/startup';
+import { demoCredentialsInUse, productionConfigProblems, unvalidatedConstraints } from './core/startup';
 import { releaseStaleReservations } from './modules/hasad/service';
 import { seedDemo } from './seed/demo';
 
@@ -17,6 +17,11 @@ if (problems.length) {
 
 const handle = await openDatabase({ url: config.databaseUrl, dataDir: config.dataDir });
 const ctx = createContext(handle);
+
+const notValidated = await unvalidatedConstraints(handle.db);
+if (notValidated.length) {
+  log.warn('integrity constraints left NOT VALID: existing rows violate them (new rows are still checked); correct the rows, then run ALTER TABLE … VALIDATE CONSTRAINT', { constraints: notValidated });
+}
 
 if (config.appMode === 'demo') {
   if (await isEmpty(ctx)) {

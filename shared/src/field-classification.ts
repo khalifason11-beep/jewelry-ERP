@@ -1,0 +1,217 @@
+// Cost visibility (decision Q15, docs/decisions.md D-2a-7): cost, acquisition cost and profit are
+// General-Manager-only. This registry classifies EVERY database column and EVERY API response
+// field as COST or SAFE. It drives the server's response filter (backend/src/core/cost-redaction.ts),
+// and tests fail the build when
+//   * a database column is not classified (test walks the Drizzle schema), or
+//   * any API response contains a field name that is not classified, or
+//   * a COST field reaches a caller without `profit.view` (every GET route, BM and cashier).
+
+export type FieldClass = 'COST' | 'SAFE';
+
+/** A table's columns (SQL names): the COST ones and the SAFE ones; together they must list every column. */
+interface TableClasses {
+  cost?: readonly string[];
+  safe: readonly string[];
+}
+
+const words = (s: string) => s.trim().split(/\s+/);
+
+export const COLUMN_CLASSES: Record<string, TableClasses> = {
+  // ── ERP schema (database/src/schema.ts)
+  audit_logs: {
+    // description / description_params / metadata may *mention* amounts: audit rows are redacted at
+    // read time for callers without profit.view (cost-named params hidden, description re-rendered).
+    safe: words('id at user_id username user_full_name role branch_id action entity_type entity_id description description_key description_params metadata session_id ip_address'),
+  },
+  branches: { safe: words('id code name name_ar city address phone hasad_branch_code is_active created_at') },
+  branding_assets: { safe: words('id kind mime bytes sha256 size width height uploaded_by uploaded_at') },
+  categories: { safe: words('id code name name_ar') },
+  document_sequences: { safe: words('scope next') },
+  expenses: { safe: words('id number branch_id category amount expense_date description status created_by created_at reviewed_by reviewed_at review_note') },
+  gold_rates: { safe: words('id karat price_per_gram effective_at set_by') },
+  hasad_redemption_items: { cost: ['unit_cost'], safe: words('id redemption_id item_id net_weight_mg karat active added_at released_at') },
+  hasad_redemptions: {
+    cost: ['items_cost'],
+    safe: words('id number withdrawal_id branch_id cashier_id status entitled_weight_mg delivered_weight_mg difference_mg settlement_direction settlement_amount rate_per_gram customer_verified created_at completed_at aborted_at abort_reason'),
+  },
+  hasad_withdrawals: {
+    safe: words(
+      'id external_id hasad_customer_id customer_name customer_name_ar customer_phone customer_national_id_masked entitled_weight_mg entitlement_karat branch_id status external_status pickup_code requested_at received_at opened_at opened_by completed_at completed_by cancelled_at cancelled_by cancel_reason last_synced_at',
+    ),
+  },
+  // Stored responses are replayed only to the user who made the request, already filtered for them;
+  // a GM's stored response can hold cost figures, hence COST.
+  idempotency_keys: { cost: ['response_body'], safe: words('id user_id key route request_hash status response_status created_at completed_at') },
+  inventory_movements: { cost: ['cost_value'], safe: words('id item_id branch_id type direction from_branch_id to_branch_id ref_type ref_id ref_number net_weight_mg user_id note at') },
+  item_status_history: { safe: words('id item_id from_status to_status branch_id ref_type ref_id ref_number user_id note at') },
+  jewelry_items: {
+    cost: words('purchase_cost making_cost other_cost total_cost'),
+    safe: words('id code barcode product_id karat gross_weight_mg net_weight_mg selling_price branch_id status purchase_id reservation_ref reserved_at reserved_by created_at updated_at'),
+  },
+  permissions: { safe: words('code description') },
+  products: { safe: words('id sku name name_ar category_id karat description created_at') },
+  purchase_items: { cost: words('purchase_cost making_cost other_cost'), safe: words('id purchase_id item_id') },
+  purchases: { cost: ['total_cost'], safe: words('id number branch_id supplier_id supplier_invoice_no status item_count total_net_weight_mg notes created_by created_at') },
+  role_permissions: { safe: words('role_id permission_code') },
+  roles: { safe: words('id code name name_ar description is_system rank') },
+  sale_items: { cost: ['unit_cost'], safe: words('id sale_id item_id product_name karat net_weight_mg list_price discount final_price') },
+  sales: {
+    cost: ['cost_total'],
+    safe: words('id number branch_id cashier_id session_id customer_name customer_name_ar customer_phone subtotal discount_total total payment_method status voided_at voided_by void_reason created_at'),
+  },
+  sessions: { safe: words('id user_id branch_id login_at last_activity_at user_agent device ip_address current_module status ended_at ended_reason absolute_expires_at reauth_at csrf_token is_simulated') },
+  settings: { safe: words('key value version updated_at updated_by') },
+  settings_history: { safe: words('id key old_value new_value version actor_id actor_username reason at') },
+  settlements: { safe: words('id number type redemption_id branch_id direction weight_mg rate_per_gram amount payment_method confirmed_by confirmed_at') },
+  suppliers: { safe: words('id name name_ar phone') },
+  transfer_items: { safe: words('transfer_id item_id') },
+  transfers: { safe: words('id number from_branch_id to_branch_id status notes created_by created_at received_by received_at') },
+  users: { safe: words('id username full_name full_name_ar role_id branch_id password_hash must_change_password password_changed_at status phone last_login_at failed_login_count locked_until created_at created_by') },
+  // ── Hasad mock schema (integrations/hasad/src/mock/schema.ts, demo only)
+  api_calls: { safe: words('id at operation request response_status response duration_ms') },
+  customers: { safe: words('id full_name full_name_ar phone national_id_masked balance_mg karat created_at') },
+  withdrawals: { safe: words('id customer_id weight_mg karat branch_code status pickup_code requested_at updated_at completion cancellation') },
+};
+
+/** Response field names that carry cost, acquisition cost, margin or profit. */
+export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
+  'cost',
+  'costs',
+  'unitCost',
+  'costTotal',
+  'costValue',
+  'costOfSales',
+  'totalCost',
+  'purchaseCost',
+  'makingCost',
+  'otherCost',
+  'itemsCost',
+  'hasadItemsCost',
+  'inventoryCost',
+  'purchasesCost',
+  'acquisitionCost',
+  'grossProfit',
+  'profit',
+  'margin',
+  'contribution',
+  'responseBody',
+]);
+
+/** Every other field name the API sends, classified SAFE (one registry; unknown names fail tests). */
+export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
+  words(`
+    abortReason abortedAt absDifferenceMg action actions active activeSessions actual address addedAt allowSelfPasswordChange
+    allowedKarats alreadyOpen amount appMode approvalThreshold ar asOf at attention availableItems availableWeightMg
+    balanceGrams barcode basis branch branchAddress branchCode branchId branchName branchNameAr branchPhone branches branding
+    byCategory cancelReason cancelled cancelledAt cancelledBy cashierId cashierName cashierNameAr cashierUsername cashiers
+    category categoryCode categoryId categoryName categoryNameAr city closing closingItems closingWeightMg code codes
+    collectedFromCustomers columns company completed completedAt completedBy completedByName completedToday concurrentSessions
+    confirmedAt confirmedBy count createdAt createdBy createdByName csrfToken currency currencyCode currencyLabelAr
+    currencyLabelEn current currentModule customer customerId customerName customerNameAr customerNationalIdMasked
+    customerPhone customerVerified damaged date dateRange day delivered deliveredWeightMg demoAccounts description
+    descriptionKey descriptionParams device differenceMg direction discount discountTotal discounts draft driver durationMs
+    effectiveAt en enabledPerBranch endedAt endedReason entitled entitledWeightMg entitlementKarat entityId entityType enum
+    error expenseDate expenses externalId externalStatus failedLoginCount failedLogins filters finalPrice firstLogin from
+    fromBranchId fromBranchName fromStatus fullName fullNameAr goldRateScope grossWeightMg hasPickupCode hasad
+    hasadBranchCode hasadCancelled hasadCollectedFromCustomers hasadCompleted hasadCount hasadCustomerId hasadInProgress
+    hasadMode hasadOpen hasadPaidToCustomers hasadReceived hasadWeightMg history hour hourly id idleMinutes inProgress
+    inventory inventoryByKarat inventoryRetail invoiceFooterAr invoiceFooterEn ip ipAddress isActive isCurrent isSimulated
+    isSystem item itemCode itemCodes itemCount itemId items itemsSold karat key kind kpis label labelAr labelEn lastActivity
+    lastActivityAt lastLoginAt lastSyncedAt latencyMs lines link listPrice liveSessions lockedUntil lockoutBaseMinutes
+    lockoutMaxMinutes lockoutThreshold loginAt logins logoAssetId logoUrl maxDiscountPercent maxDiscountPercentByRole mg
+    minPasswordLength minimumWithdrawalGrams mockHasad mode money movement movements mtd mustChangePassword n name nameAr
+    nameEn nationalIdMasked netWeightMg newRequests note notes number ok openedAt openedBy openedByName opening openingItems
+    openingWeightMg operation paidToCustomers params password passwordChangedAt payment paymentMethod pendingClaimStaleHours
+    pendingExpenses pendingExpensesAmount period permissions phone pickupCode presence pricePerGram productId productName
+    productNameAr purchaseId purchasedItems purchases purchasesCount queue rank rate rateChangeMaxPct rateKarats ratePerGram
+    rateSource rates reason reauthWindowMinutes receivedAt receivedBy receivedByName recent redemptionId redemptionNumber
+    ref refId refNumber refType request requestedAt requireGmApprovalForScrapOverride reservationRef
+    reservationTimeoutMinutes reservedAt reservedBy reservedCount reservedItems response responseStatus returns revenue
+    reviewNote reviewedAt reviewedBy role roleCode roleName roleRank rows saleId sales salesByCategory salesCount salesTotal
+    scrapPriceTolerancePct security sellingPrice session sessionAbsoluteHours sessionId sessionIdleMinutes sessionRef setBy
+    settings settlement settlementAmount settlementBasis settlementDirection settlementNumber severity simulateOutage sku
+    staffCount status subtotal supplierCreditEnabled supplierId supplierInvoiceNo supplierName syncError syncedAt timeline
+    timezone title to toBranchId toBranchName toStatus total totalNetWeightMg totals transferId transfers transfersIn
+    transfersInTransit transfersOut trend type updatedAt user userAgent userFullName userId userName username validForMinutes
+    versions voidReason voided voidedAt voidedBy voidedByName waiting weight weightDeliveredMg weightIn weightMg weightOut
+    weightSoldMg withdrawableGrams withdrawal withdrawalId withdrawals hidden list key width height size mime uploadedAt
+    temporaryPassword itemsReleased expectedDirection expectedAmount changed redemptionItemId version actorId actorUsername
+    assetId
+  `),
+);
+
+/**
+ * Free-form containers: their inner keys are data (setting names, audit parameters, external
+ * payloads), so they are not looked up in the registry — but they are still searched for COST names.
+ */
+export const OPAQUE_CONTAINERS: ReadonlySet<string> = new Set([
+  'metadata',
+  'descriptionParams',
+  'params',
+  'details',
+  'settings',
+  'versions',
+  'value',
+  'oldValue',
+  'newValue',
+  'request',
+  'response',
+  'body',
+  'completion',
+  'cancellation',
+  'filters',
+]);
+
+/** Keys that are data, not field names: karats ("21"), codes (KRT, CASHIER), setting keys, series ids (b3). */
+export function isDynamicKey(k: string): boolean {
+  return /^\d+$/.test(k) || /^[A-Z][A-Z0-9_]*$/.test(k) || /^[a-z]+\.[A-Za-z.]+$/.test(k) || /^b\d+$/.test(k);
+}
+
+export function classifyResponseField(name: string): FieldClass | undefined {
+  if (COST_RESPONSE_FIELDS.has(name)) return 'COST';
+  if (SAFE_RESPONSE_FIELDS.has(name) || OPAQUE_CONTAINERS.has(name) || isDynamicKey(name)) return 'SAFE';
+  return undefined;
+}
+
+export interface FieldFinding {
+  /** JSON path, e.g. ".rows[3].totalCost" or ".columns[5](key=grossProfit)". */
+  path: string;
+  name: string;
+  kind: 'COST' | 'UNCLASSIFIED';
+}
+
+/**
+ * Walk a response body. Reports every COST field (at any depth, inside arrays and opaque containers)
+ * and every field name the registry does not know (outside opaque containers). Report column
+ * descriptors (`columns: [{ key: 'totalCost', … }]`) count as the field they describe.
+ */
+export function scanResponse(body: unknown): FieldFinding[] {
+  const out: FieldFinding[] = [];
+  const walk = (v: unknown, path: string, opaque: boolean, parentKey: string | null) => {
+    if (Array.isArray(v)) {
+      v.forEach((x, i) => {
+        const p = `${path}[${i}]`;
+        if (parentKey === 'columns' && x && typeof x === 'object' && typeof (x as { key?: unknown }).key === 'string') {
+          const col = (x as { key: string }).key;
+          const cls = classifyResponseField(col);
+          if (cls === 'COST') out.push({ path: `${p}(key=${col})`, name: col, kind: 'COST' });
+          else if (!cls && !opaque) out.push({ path: `${p}(key=${col})`, name: col, kind: 'UNCLASSIFIED' });
+        }
+        walk(x, p, opaque, parentKey);
+      });
+      return;
+    }
+    if (!v || typeof v !== 'object') return;
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      const p = `${path}.${k}`;
+      const cls = classifyResponseField(k);
+      // An audit parameter already replaced by the redaction marker carries no value.
+      const redacted = !!x && typeof x === 'object' && (x as { hidden?: unknown }).hidden === true && Object.keys(x).length === 1;
+      if (cls === 'COST' && !redacted) out.push({ path: p, name: k, kind: 'COST' });
+      else if (!cls && !opaque) out.push({ path: p, name: k, kind: 'UNCLASSIFIED' });
+      walk(x, p, opaque || OPAQUE_CONTAINERS.has(k), k);
+    }
+  };
+  walk(body, '', false, null);
+  return out;
+}

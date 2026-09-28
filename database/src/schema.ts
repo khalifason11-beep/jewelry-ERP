@@ -496,6 +496,30 @@ export const documentSequences = pgTable(
   (t) => [uniqueIndex('doc_seq_scope_idx').on(t.scope)],
 );
 
+/**
+ * Idempotency keys for requests that create or confirm business records (see
+ * backend/src/core/idempotency.ts). One row per (user, key): the first request reserves it
+ * (IN_PROGRESS); a successful response is stored and replayed for retries with the same body.
+ */
+export const idempotencyKeys = pgTable(
+  'idempotency_keys',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id').notNull().references(() => users.id),
+    key: text('key').notNull(),
+    /** Route template, e.g. "POST /sales/:id/void". */
+    route: text('route').notNull(),
+    /** SHA-256 of method, concrete path and canonical JSON body. */
+    requestHash: text('request_hash').notNull(),
+    status: text('status').notNull(),
+    responseStatus: integer('response_status'),
+    responseBody: jsonb('response_body'),
+    createdAt: createdAt(),
+    completedAt: ts('completed_at'),
+  },
+  (t) => [uniqueIndex('idem_user_key_idx').on(t.userId, t.key), index('idem_created_idx').on(t.createdAt)],
+);
+
 export const auditLogs = pgTable(
   'audit_logs',
   {

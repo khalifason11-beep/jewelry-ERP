@@ -59,7 +59,8 @@ export async function receiveTransfer(ctx: Ctx, actor: Actor, id: number, opts: 
   requirePerm(actor, 'inventory.transfer');
   const at = opts.at ?? new Date();
   return ctx.db.transaction(async (tx) => {
-    const [tr] = await tx.select().from(t.transfers).where(eq(t.transfers.id, id));
+    // Row lock (M-4): a second concurrent receive waits here, then sees RECEIVED and stops.
+    const [tr] = await tx.select().from(t.transfers).where(eq(t.transfers.id, id)).for('update');
     if (!tr) throw notFound('Transfer');
     if (!isGlobal(actor) && actor.branchId !== tr.toBranchId) throw forbidden('Only the receiving branch can confirm receipt');
     if (tr.status !== 'IN_TRANSIT') throw badRequest('Transfer is {status}', { status: tr.status });
@@ -70,7 +71,10 @@ export async function receiveTransfer(ctx: Ctx, actor: Actor, id: number, opts: 
       await changeStatus(tx, { item, to: 'AVAILABLE', from: ['TRANSFERRED'], userId: actor.userId, ref, note: 'Received', branchId: tr.toBranchId, at });
       await recordMovement(tx, { item, type: 'TRANSFER_IN', branchId: tr.toBranchId, fromBranchId: tr.fromBranchId, toBranchId: tr.toBranchId, ref, userId: actor.userId, at });
     }
-    await tx.update(t.transfers).set({ status: 'RECEIVED', receivedAt: at, receivedBy: actor.userId }).where(eq(t.transfers.id, id));
+    await tx
+      .update(t.transfers)
+      .set({ status: 'RECEIVED', receivedAt: at, receivedBy: actor.userId })
+      .where(and(eq(t.transfers.id, id), eq(t.transfers.status, 'IN_TRANSIT')));
     await writeAudit(tx, actor, {
       action: 'INVENTORY_TRANSFER_RECEIVED',
       entityType: 'transfer',

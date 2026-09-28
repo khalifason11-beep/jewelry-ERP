@@ -12,6 +12,12 @@ export const ITEM_STATUSES = [
 ] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
+/**
+ * Values allowed in `item_status_history`: every item status plus the two lifecycle steps a new
+ * piece passes through on a purchase receipt before it becomes AVAILABLE.
+ */
+export const ITEM_HISTORY_STATUSES = [...ITEM_STATUSES, 'PURCHASED', 'RECEIVED'] as const;
+
 /** Statuses that count as the branch's sellable stock on hand. */
 export const STOCK_STATUSES: readonly ItemStatus[] = ['AVAILABLE', 'RESERVED'];
 
@@ -65,6 +71,9 @@ export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
 export const EXPENSE_STATUSES = ['APPROVED', 'PENDING', 'REJECTED'] as const;
 export type ExpenseStatus = (typeof EXPENSE_STATUSES)[number];
 
+export const PURCHASE_STATUSES = ['RECEIVED'] as const;
+export type PurchaseStatus = (typeof PURCHASE_STATUSES)[number];
+
 export const TRANSFER_STATUSES = ['IN_TRANSIT', 'RECEIVED', 'CANCELLED'] as const;
 export type TransferStatus = (typeof TRANSFER_STATUSES)[number];
 
@@ -72,11 +81,21 @@ export type TransferStatus = (typeof TRANSFER_STATUSES)[number];
 export const HASAD_WITHDRAWAL_STATUSES = ['READY_FOR_PICKUP', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const;
 export type HasadWithdrawalStatus = (typeof HASAD_WITHDRAWAL_STATUSES)[number];
 
+/** Statuses as the Hasad Gold system reports them (mirrored in `hasad_withdrawals.external_status`). */
+export const HASAD_EXTERNAL_STATUSES = ['PENDING', 'READY_FOR_PICKUP', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const;
+export type HasadExternalStatusValue = (typeof HASAD_EXTERNAL_STATUSES)[number];
+
 export const HASAD_REDEMPTION_STATUSES = ['DRAFT', 'COMPLETED', 'ABORTED'] as const;
 export type HasadRedemptionStatus = (typeof HASAD_REDEMPTION_STATUSES)[number];
 
 export const SETTLEMENT_DIRECTIONS = ['BRANCH_PAYS_CUSTOMER', 'CUSTOMER_PAYS_BRANCH', 'NONE'] as const;
 export type SettlementDirection = (typeof SETTLEMENT_DIRECTIONS)[number];
+
+export const SETTLEMENT_TYPES = ['HASAD_WEIGHT_DIFFERENCE'] as const;
+export type SettlementType = (typeof SETTLEMENT_TYPES)[number];
+
+export const BRANDING_ASSET_KINDS = ['LOGO'] as const;
+export const IDEMPOTENCY_STATUSES = ['IN_PROGRESS', 'COMPLETED'] as const;
 
 export const SESSION_STATUSES = ['ACTIVE', 'LOGGED_OUT', 'EXPIRED', 'REVOKED'] as const;
 export type SessionStatus = (typeof SESSION_STATUSES)[number];

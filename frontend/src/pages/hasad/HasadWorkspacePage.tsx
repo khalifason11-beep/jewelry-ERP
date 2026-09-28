@@ -25,7 +25,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { calculateSettlement, PAYMENT_METHODS, type PaymentMethod, type AuditParams } from '@jerp/shared';
-import { ApiError, del, errorText, get, post } from '../../lib/api';
+import { ApiError, del, errorText, get, post, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, humanize, karatLabel, money, relative, signedGrams } from '../../lib/format';
 import { useCategories, useDebounced, useGoldRates } from '../../lib/hooks';
@@ -34,6 +34,7 @@ import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import type { ItemRow, Settlement, Withdrawal } from '../../lib/types';
 import { Alert, Button, Card, CardHeader, Dialog, Empty, ErrorState, Field, Input, ItemThumb, Loading, Mono, Select, StatusBadge, Textarea } from '../../components/ui';
+import { useActionKeys } from '../../lib/idempotency';
 
 interface SelectedItem {
   redemptionItemId: number;
@@ -605,15 +606,17 @@ function CompleteDialog({ detail, onClose, onDone, onStale }: { detail: Detail; 
   const s = detail.settlement;
   const [ack, setAck] = useState(false);
   const [payment, setPayment] = useState<PaymentMethod>('CASH');
+  const actionKeys = useActionKeys();
   const complete = useMutation({
     mutationFn: () =>
-      post<{ redemptionNumber: string; settlementNumber: string | null }>(`/hasad/withdrawals/${detail.withdrawal.id}/complete`, {
+      postOnce<{ redemptionNumber: string; settlementNumber: string | null }>(`/hasad/withdrawals/${detail.withdrawal.id}/complete`, {
         paymentMethod: payment,
         customerAcknowledged: ack,
         expectedDirection: s.direction,
         expectedAmount: s.amount,
-      }),
+      }, actionKeys.for('complete')),
     onSuccess: (r) => {
+      actionKeys.rotate('complete');
       toast.success(
         t('{id} completed', { id: detail.withdrawal.externalId }),
         r.settlementNumber
@@ -623,7 +626,7 @@ function CompleteDialog({ detail, onClose, onDone, onStale }: { detail: Detail; 
       onDone();
     },
     onError: (e) => {
-      if (e instanceof ApiError && e.status === 409) {
+      if (e instanceof ApiError && e.status === 409 && e.code === 'CONFLICT') {
         toast.error(t('Settlement changed'), errorText(e));
         onStale();
         onClose();

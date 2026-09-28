@@ -33,6 +33,11 @@ export interface RouteRule {
   demoOnly?: boolean;
   /** Destroys business data — only ever allowed in demo mode. */
   destructive?: boolean;
+  /**
+   * Creates or confirms a business record: the request must carry an `Idempotency-Key` header.
+   * The same key + same body replays the first response; the same key + a different body is 422.
+   */
+  idempotent?: boolean;
 }
 
 const r = (method: HttpMethod, path: string, scope: RouteScope, extra: Omit<RouteRule, 'method' | 'path' | 'scope'> = {}): RouteRule => ({
@@ -96,10 +101,10 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/inventory/items/:id/adjust', 'branch', { all: ['inventory.adjust'], reauth: true }),
 
   // ── sales
-  r('POST', '/sales', 'branch', { all: ['sales.create'] }),
+  r('POST', '/sales', 'branch', { all: ['sales.create'], idempotent: true }),
   r('GET', '/sales', 'branch', { any: ['sales.view', 'sales.view_own'] }),
   r('GET', '/sales/:id', 'branch', { any: ['sales.view', 'sales.view_own'] }),
-  r('POST', '/sales/:id/void', 'branch', { all: ['sales.void'] }),
+  r('POST', '/sales/:id/void', 'branch', { all: ['sales.void'], idempotent: true }),
 
   // ── Hasad Gold
   r('GET', '/hasad/withdrawals', 'branch', { any: ['hasad.process', 'hasad.view'] }),
@@ -108,20 +113,20 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/hasad/withdrawals/:id/open', 'branch', { all: ['hasad.process'] }),
   r('POST', '/hasad/withdrawals/:id/items', 'branch', { all: ['hasad.process'] }),
   r('DELETE', '/hasad/withdrawals/:id/items/:itemId', 'branch', { all: ['hasad.process'] }),
-  r('POST', '/hasad/withdrawals/:id/complete', 'branch', { all: ['hasad.process'] }),
+  r('POST', '/hasad/withdrawals/:id/complete', 'branch', { all: ['hasad.process'], idempotent: true }),
   r('POST', '/hasad/withdrawals/:id/abort', 'branch', { all: ['hasad.process'] }),
   r('POST', '/hasad/withdrawals/:id/cancel', 'branch', { all: ['hasad.cancel'] }),
 
   // ── purchases, expenses, transfers
   r('GET', '/purchases', 'branch', { all: ['purchases.view'] }),
   r('GET', '/purchases/:id', 'branch', { all: ['purchases.view'] }),
-  r('POST', '/purchases', 'branch', { all: ['purchases.create'] }),
+  r('POST', '/purchases', 'branch', { all: ['purchases.create'], idempotent: true }),
   r('GET', '/expenses', 'branch', { all: ['expenses.view'] }),
-  r('POST', '/expenses', 'branch', { all: ['expenses.create'] }),
-  r('POST', '/expenses/:id/review', 'branch', { all: ['expenses.approve'] }),
+  r('POST', '/expenses', 'branch', { all: ['expenses.create'], idempotent: true }),
+  r('POST', '/expenses/:id/review', 'branch', { all: ['expenses.approve'], idempotent: true }),
   r('GET', '/transfers', 'branch', { all: ['inventory.transfer'] }),
-  r('POST', '/transfers', 'branch', { all: ['inventory.transfer'] }),
-  r('POST', '/transfers/:id/receive', 'branch', { all: ['inventory.transfer'] }),
+  r('POST', '/transfers', 'branch', { all: ['inventory.transfer'], idempotent: true }),
+  r('POST', '/transfers/:id/receive', 'branch', { all: ['inventory.transfer'], idempotent: true }),
 
   // ── dashboards, reports, audit
   r('GET', '/dashboard/branch', 'branch', { all: ['dashboard.branch'] }),

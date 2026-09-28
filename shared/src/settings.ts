@@ -83,6 +83,8 @@ export interface SystemSettings {
     idleMinutes: number;
     /** Hard limit on a session's lifetime, fixed at sign-in. */
     sessionAbsoluteHours: number;
+    /** After re-entering their password, a user may perform sensitive actions for this many minutes. */
+    reauthWindowMinutes: number;
     minPasswordLength: number;
     /** Consecutive failures that lock an account. */
     lockoutThreshold: number;
@@ -144,6 +146,7 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     sessionIdleMinutes: 10,
     idleMinutes: 60,
     sessionAbsoluteHours: 12,
+    reauthWindowMinutes: 5,
     minPasswordLength: 10,
     lockoutThreshold: 5,
     lockoutBaseMinutes: 15,
@@ -214,6 +217,7 @@ export const SETTINGS_REGISTRY = {
   'security.sessionIdleMinutes': { schema: int(1, 240) },
   'security.idleMinutes': { schema: int(5, 240) },
   'security.sessionAbsoluteHours': { schema: int(1, 24) },
+  'security.reauthWindowMinutes': { schema: int(1, 30) },
   'security.minPasswordLength': { schema: int(10, 128) },
   'security.lockoutThreshold': { schema: int(3, 20) },
   'security.lockoutBaseMinutes': { schema: int(1, 24 * 60) },

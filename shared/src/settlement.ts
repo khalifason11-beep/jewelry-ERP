@@ -7,6 +7,7 @@
 //   equal                 -> nothing to settle
 
 import type { SettlementDirection } from './enums';
+import { sumInt, valueOfWeight } from './money';
 import { pureGoldMg } from './units';
 
 export type SettlementBasis = 'NET_WEIGHT' | 'PURE_GOLD_EQUIVALENT';
@@ -44,18 +45,19 @@ export function calculateSettlement(input: SettlementInput): SettlementResult {
   const { entitledWeightMg, entitlementKarat, items, ratePerGram, basis } = input;
 
   let entitled = entitledWeightMg;
-  let delivered = items.reduce((s, i) => s + i.netWeightMg, 0);
+  let delivered = sumInt(items.map((i) => i.netWeightMg));
 
   if (basis === 'PURE_GOLD_EQUIVALENT') {
     entitled = pureGoldMg(entitledWeightMg, entitlementKarat);
-    delivered = items.reduce((s, i) => s + pureGoldMg(i.netWeightMg, i.karat), 0);
+    delivered = sumInt(items.map((i) => pureGoldMg(i.netWeightMg, i.karat)));
   }
 
   const differenceMg = delivered - entitled;
   const absDifferenceMg = Math.abs(differenceMg);
   const direction: SettlementDirection =
     differenceMg < 0 ? 'BRANCH_PAYS_CUSTOMER' : differenceMg > 0 ? 'CUSTOMER_PAYS_BRANCH' : 'NONE';
-  const amount = Math.round((absDifferenceMg / 1000) * ratePerGram);
+  // Exact integer arithmetic (L-7): round(|Δmg| × rate / 1000), no float intermediate.
+  const amount = valueOfWeight(absDifferenceMg, ratePerGram);
 
   return {
     entitledWeightMg: entitled,

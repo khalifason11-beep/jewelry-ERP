@@ -108,7 +108,40 @@ export function setReauthHandler(h: ReauthHandler | null) {
   reauthHandler = h;
 }
 
-export async function api<T = unknown>(path: string, init: { method?: string; body?: unknown; query?: Record<string, unknown>; raw?: Blob } = {}, retried = false): Promise<T> {
+// ───────── idempotency (docs/decisions.md D-2a-4) ─────────
+/** A new random Idempotency-Key (one per user action; see lib/idempotency.ts). */
+export function newActionKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+/** Requests in flight per key + body: a double click joins the first request instead of sending again. */
+const inFlight = new Map<string, Promise<unknown>>();
+
+interface ApiInit {
+  method?: string;
+  body?: unknown;
+  query?: Record<string, unknown>;
+  raw?: Blob;
+  /** Sent as Idempotency-Key; the server replays the first result for a retry with the same key. */
+  idempotencyKey?: string;
+}
+
+export async function api<T = unknown>(path: string, init: ApiInit = {}, retried = false): Promise<T> {
+  if (init.idempotencyKey && !retried) {
+    const id = `${init.idempotencyKey} ${path} ${JSON.stringify(init.body ?? null)}`;
+    const running = inFlight.get(id);
+    if (running) return running as Promise<T>;
+    const p = send<T>(path, init, false).finally(() => inFlight.delete(id));
+    inFlight.set(id, p);
+    return p;
+  }
+  return send<T>(path, init, retried);
+}
+
+async function send<T>(path: string, init: ApiInit, retried: boolean): Promise<T> {
   let url = `/api${path}`;
   if (init.query) {
     const qs = new URLSearchParams();
@@ -128,6 +161,7 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
         'X-Client-Module': currentModule,
         'X-Client-Idle-Ms': String(Math.max(0, Date.now() - lastInputAt)),
         ...(csrfToken && (init.method ?? (init.body !== undefined ? 'POST' : 'GET')) !== 'GET' ? { 'X-CSRF-Token': csrfToken } : {}),
+        ...(init.idempotencyKey ? { 'Idempotency-Key': init.idempotencyKey } : {}),
       },
       body: init.raw ?? (init.body !== undefined ? JSON.stringify(init.body) : undefined),
       credentials: 'same-origin',
@@ -139,8 +173,9 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
     const err = new ApiError(res.status, data?.error?.code ?? 'ERROR', data?.error?.message ?? res.statusText, data?.error?.details, data?.error?.key, data?.error?.params);
+    // The retry after re-authentication reuses the same Idempotency-Key: it is the same action.
     if (err.code === 'REAUTH_REQUIRED' && reauthHandler && !retried && (await reauthHandler())) {
-      return api<T>(path, init, true);
+      return send<T>(path, init, true);
     }
     if (res.status === 401 || err.code === 'PASSWORD_CHANGE_REQUIRED') authListeners.forEach((l) => l(err));
     throw err;
@@ -150,6 +185,8 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
 
 export const get = <T,>(path: string, query?: Record<string, unknown>) => api<T>(path, { query });
 export const post = <T,>(path: string, body: unknown = {}) => api<T>(path, { method: 'POST', body });
+/** POST that creates or confirms a business record: carries the action's Idempotency-Key. */
+export const postOnce = <T,>(path: string, body: unknown, idempotencyKey: string) => api<T>(path, { method: 'POST', body, idempotencyKey });
 export const put = <T,>(path: string, body: unknown) => api<T>(path, { method: 'PUT', body });
 export const patch = <T,>(path: string, body: unknown) => api<T>(path, { method: 'PATCH', body });
 export const del = <T,>(path: string) => api<T>(path, { method: 'DELETE' });

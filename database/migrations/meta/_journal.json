@@ -29,6 +29,13 @@
       "when": 1790591259266,
       "tag": "0003_settings_registry_branding",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790605785011,
+      "tag": "0004_integrity_foundation",
+      "breakpoints": true
     }
   ]
 }

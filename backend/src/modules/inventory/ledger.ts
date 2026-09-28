@@ -57,7 +57,8 @@ export function itemQuery(exec: Executor) {
 
 export async function lockItems(exec: Executor, ids: number[]): Promise<ItemRow[]> {
   if (!ids.length) return [];
-  const rowsAll = await exec.select().from(t.jewelryItems).where(inArray(t.jewelryItems.id, ids)).for('update');
+  // Locks are always taken in id order so two transactions locking overlapping sets cannot deadlock.
+  const rowsAll = await exec.select().from(t.jewelryItems).where(inArray(t.jewelryItems.id, ids)).orderBy(t.jewelryItems.id).for('update');
   if (rowsAll.length !== new Set(ids).size) throw notFound('Item');
   return rowsAll;
 }

@@ -9,7 +9,7 @@
 
 import { and, asc, desc, eq, gte, ilike, inArray, lt, lte, or, sql, type SQL } from 'drizzle-orm';
 import { t, type Executor } from '@jerp/database';
-import { calculateSettlement, type HasadWithdrawalStatus, type PaymentMethod, type SettlementResult, ap } from '@jerp/shared';
+import { calculateSettlement, type HasadWithdrawalStatus, type PaymentMethod, type SettlementResult, ap, weightedPricePerGram } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requireAny, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
@@ -164,8 +164,8 @@ export async function computeSettlement(
   if (settings.hasad.rateSource === 'ENTITLEMENT_KARAT' || !items.length) {
     rate = rates[w.entitlementKarat]?.pricePerGram ?? 0;
   } else {
-    const totalW = items.reduce((s, i) => s + i.netWeightMg, 0);
-    rate = Math.round(items.reduce((s, i) => s + (rates[i.karat]?.pricePerGram ?? 0) * i.netWeightMg, 0) / (totalW || 1));
+    // Weight-averaged rate of the chosen pieces, exact integer arithmetic (no float intermediate).
+    rate = weightedPricePerGram(items.map((i) => ({ weightMg: i.netWeightMg, pricePerGram: rates[i.karat]?.pricePerGram ?? 0 })));
   }
   const result = calculateSettlement({
     entitledWeightMg: w.entitledWeightMg,
@@ -271,6 +271,11 @@ export async function openWithdrawal(ctx: Ctx, actor: Actor, id: number, input: 
   await ctx.hasad.markInProgress(w.externalId, { branchCode: branch.hasadBranchCode!, openedBy: actor.username });
 
   return ctx.db.transaction(async (tx) => {
+    // Row lock: a concurrent second "open" waits here and then finds the draft created by the first.
+    const [cur] = await tx.select().from(t.hasadWithdrawals).where(eq(t.hasadWithdrawals.id, w.id)).for('update');
+    if (cur.status === 'COMPLETED' || cur.status === 'CANCELLED') throw badRequest('Withdrawal {id} is {status}', { id: cur.externalId, status: cur.status });
+    const again = await draftRedemption(tx, id);
+    if (again) return { redemptionId: again.id, alreadyOpen: true };
     const number = await nextNumber(tx, branch.code, 'HR');
     const [r] = await tx
       .insert(t.hasadRedemptions)
@@ -428,6 +433,10 @@ export async function completeWithdrawal(ctx: Ctx, actor: Actor, id: number, inp
   // 3. Commit the ERP side atomically.
   return ctx.db.transaction(async (tx) => {
     const now = new Date();
+    // Row locks: of two concurrent confirmations only the first commits; the second sees COMPLETED.
+    const [cur] = await tx.select().from(t.hasadWithdrawals).where(eq(t.hasadWithdrawals.id, w.id)).for('update');
+    const [curDraft] = await tx.select().from(t.hasadRedemptions).where(eq(t.hasadRedemptions.id, draft.id)).for('update');
+    if (cur.status !== 'IN_PROGRESS' || curDraft.status !== 'DRAFT') throw conflict('Withdrawal is {status}', { status: cur.status });
     const locked = await lockItems(tx, items.map((i) => i.id));
     const ref = { refType: 'hasad_redemption', refId: draft.id, refNumber: draft.number };
     for (const item of locked) {

@@ -44,10 +44,16 @@ Use a real PostgreSQL server instead of the embedded one:
 DATABASE_URL=postgres://user:pass@localhost:5432/jewelry_erp npm run demo
 ```
 
-Run the tests (end-to-end API flow on an in-memory database):
+Run the tests. Without `TEST_DATABASE_URL` every suite runs on embedded PGlite (fast, no install) and a warning says the
+real-PostgreSQL project was skipped. With it, every suite runs a second time on real PostgreSQL, plus the race and
+privilege tests in `backend/test/pg/` (each test file gets its own database, dropped afterwards):
 
 ```bash
 npm test
+# real PostgreSQL too — the role must be allowed to CREATE DATABASE and must NOT be a superuser:
+TEST_DATABASE_URL=postgres://jerp_test:secret@localhost:5432/postgres npm test
+# CI: fail instead of skipping when TEST_DATABASE_URL is missing
+npm run test:pg -w @jerp/backend
 ```
 
 ## Demo accounts (fictitious credentials)
@@ -153,6 +159,21 @@ npm run ops -w @jerp/backend -- reset-gm-password --username <gm user>
   a route not in the table cannot be registered, and the tests are generated from the table for every route and
   role. Cost, acquisition cost and profit figures are removed from API responses for everyone except the General
   Manager.
+
+### Data integrity (Phase 2a)
+
+- **Database rules**: every status column only accepts its known values, weights and money cannot be negative, net
+  weight ≤ gross, karat 1–24, totals equal their parts. The list lives in `shared/src/db-checks.ts`; a test fails if
+  the database and the list ever differ.
+- **Append-only ledgers**: the audit log, inventory movements, item history, gold rates and settings history cannot be
+  edited, deleted or emptied — refused by database triggers and, on PostgreSQL, by the app role's missing privileges.
+- **No duplicates from double clicks or retries**: sales, voids, purchases, expenses, expense reviews, transfers,
+  transfer receipts and Hasad completions require an `Idempotency-Key` header; a repeated request returns the first
+  result instead of creating a second record.
+- **Exact arithmetic**: money and weights are integers; rounding is exact and symmetric (`shared/src/money.ts`).
+- **Cost visibility**: every database column and every API field is classified COST or SAFE in
+  `shared/src/field-classification.ts`; tests fail if anything is unclassified or if a cost figure reaches a branch
+  manager or cashier (including amounts inside audit texts).
 
 ### Language
 

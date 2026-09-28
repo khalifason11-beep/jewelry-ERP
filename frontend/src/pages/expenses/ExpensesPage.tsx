@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Plus, X } from 'lucide-react';
 import { EXPENSE_CATEGORIES } from '@jerp/shared';
-import { get, post } from '../../lib/api';
+import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { date, humanize, money, todayKey, currencyLabel } from '../../lib/format';
 import { useBranches } from '../../lib/hooks';
@@ -12,6 +12,7 @@ import { useToast } from '../../lib/toast';
 import { Alert, Button, Card, Dialog, ErrorState, Field, Input, Loading, Mono, PageHeader, Select, StatusBadge, Textarea } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
+import { useActionKeys } from '../../lib/idempotency';
 
 interface ExpenseRow {
   id: number;
@@ -33,9 +34,11 @@ export function ExpensesTable({ branchId, from, to, toolbar, status }: { branchI
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['expenses', branchId, from, to, status], queryFn: () => get<ExpenseRow[]>('/expenses', { branchId, from, to, status }) });
+  const actionKeys = useActionKeys();
   const review = useMutation({
-    mutationFn: ({ id, decision }: { id: number; decision: 'APPROVED' | 'REJECTED' }) => post(`/expenses/${id}/review`, { decision }),
+    mutationFn: ({ id, decision }: { id: number; decision: 'APPROVED' | 'REJECTED' }) => postOnce(`/expenses/${id}/review`, { decision }, actionKeys.for(`review:${id}`)),
     onSuccess: (_d, v) => {
+      actionKeys.rotate(`review:${v.id}`);
       toast.success(v.decision === 'APPROVED' ? t('Expense approved') : t('Expense rejected'));
       qc.invalidateQueries();
     },
@@ -66,8 +69,8 @@ export function ExpensesTable({ branchId, from, to, toolbar, status }: { branchI
             r.status === 'PENDING' && can('expenses.approve') ? (
               <div className="flex items-center gap-1">
                 <StatusBadge status="PENDING" />
-                <Button size="sm" variant="ghost" className="h-7 px-2 text-emerald-700" onClick={() => review.mutate({ id: r.id, decision: 'APPROVED' })} aria-label={t('Approve')}><Check className="size-4" /></Button>
-                <Button size="sm" variant="ghost" className="h-7 px-2 text-rose-700" onClick={() => review.mutate({ id: r.id, decision: 'REJECTED' })} aria-label={t('Reject')}><X className="size-4" /></Button>
+                <Button size="sm" variant="ghost" className="h-7 px-2 text-emerald-700" disabled={review.isPending} onClick={() => review.mutate({ id: r.id, decision: 'APPROVED' })} aria-label={t('Approve')}><Check className="size-4" /></Button>
+                <Button size="sm" variant="ghost" className="h-7 px-2 text-rose-700" disabled={review.isPending} onClick={() => review.mutate({ id: r.id, decision: 'REJECTED' })} aria-label={t('Reject')}><X className="size-4" /></Button>
               </div>
             ) : (
               <StatusBadge status={r.status} />
@@ -122,9 +125,11 @@ function NewExpenseDialog({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const branches = useBranches();
   const [f, setF] = useState({ branchId: me?.user.branch?.id ?? ('' as number | ''), category: 'OTHER', amount: '', expenseDate: todayKey(), description: '' });
+  const actionKeys = useActionKeys();
   const m = useMutation({
-    mutationFn: () => post<{ number: string; status: string }>('/expenses', { ...f, branchId: f.branchId || undefined, amount: Number(f.amount) }),
+    mutationFn: () => postOnce<{ number: string; status: string }>('/expenses', { ...f, branchId: f.branchId || undefined, amount: Number(f.amount) }, actionKeys.for('expense')),
     onSuccess: (e) => {
+      actionKeys.rotate('expense');
       toast.success(t('Expense {number} recorded', { number: e.number }), e.status === 'PENDING' ? t('Above the approval threshold: waiting for General Manager approval.') : undefined);
       qc.invalidateQueries();
       onClose();

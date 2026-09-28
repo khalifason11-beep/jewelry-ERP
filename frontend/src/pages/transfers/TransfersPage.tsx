@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, PackageCheck, Plus } from 'lucide-react';
-import { get, post } from '../../lib/api';
+import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams } from '../../lib/format';
 import { useBranchDirectory, useBranches } from '../../lib/hooks';
@@ -10,6 +10,7 @@ import { useToast } from '../../lib/toast';
 import type { ItemRow } from '../../lib/types';
 import { Button, Card, Dialog, Empty, ErrorState, Field, Loading, Mono, PageHeader, Select, StatusBadge, Textarea } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
+import { useActionKeys } from '../../lib/idempotency';
 
 interface TransferRow {
   id: number;
@@ -36,9 +37,11 @@ export function TransfersPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const q = useQuery({ queryKey: ['transfers'], queryFn: () => get<TransferRow[]>('/transfers') });
+  const actionKeys = useActionKeys();
   const receive = useMutation({
-    mutationFn: (id: number) => post(`/transfers/${id}/receive`),
-    onSuccess: () => {
+    mutationFn: (id: number) => postOnce(`/transfers/${id}/receive`, {}, actionKeys.for(`receive:${id}`)),
+    onSuccess: (_d, id) => {
+      actionKeys.rotate(`receive:${id}`);
       toast.success(t('Transfer received'), t('Pieces are now AVAILABLE in your branch (TRANSFER_IN).'));
       qc.invalidateQueries();
     },
@@ -107,9 +110,11 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
     queryFn: () => get<{ items: ItemRow[] }>('/inventory/items', { branchId: from, status: 'AVAILABLE', sort: 'code', limit: 500 }),
     enabled: !!from,
   });
+  const actionKeys = useActionKeys();
   const m = useMutation({
-    mutationFn: () => post<{ number: string }>('/transfers', { fromBranchId: from || undefined, toBranchId: to, itemIds: [...selected], notes }),
+    mutationFn: () => postOnce<{ number: string }>('/transfers', { fromBranchId: from || undefined, toBranchId: to, itemIds: [...selected], notes }, actionKeys.for('transfer')),
     onSuccess: (r) => {
+      actionKeys.rotate('transfer');
       toast.success(t('Transfer {number} sent', { number: r.number }), t('{n} piece(s) are now in transit.', { n: selected.size }));
       qc.invalidateQueries();
       onClose();

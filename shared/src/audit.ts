@@ -11,7 +11,9 @@ export type AuditParam =
   | { karat: number }
   | { en: string; ar: string | null }
   | { list: AuditParam[] }
-  | { key: string; params?: AuditParams };
+  | { key: string; params?: AuditParams }
+  /** A value the reader may not see (e.g. a cost figure shown to a branch manager); rendered as "—". */
+  | { hidden: true };
 
 export type AuditParams = Record<string, AuditParam>;
 
@@ -31,6 +33,7 @@ export const ap = {
 export function formatAuditParamEn(p: AuditParam): string {
   if (typeof p === 'string') return p;
   if (typeof p === 'number') return p.toLocaleString('en-US');
+  if ('hidden' in p) return '—';
   if ('money' in p) return `${Math.round(p.money).toLocaleString('en-US')} SDG`;
   if ('mg' in p) return `${(p.mg / 1000).toFixed(3)} g`;
   if ('enum' in p) return p.enum.replaceAll('_', ' ').toLowerCase();

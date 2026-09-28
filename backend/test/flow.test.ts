@@ -3,11 +3,12 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
+import { openTestDatabase, withIdempotencyKeys } from './helpers';
 import { eq } from 'drizzle-orm';
 import { t, type DatabaseHandle } from '@jerp/database';
 import { hasadMockTables } from '@jerp/hasad';
 import { createApp } from '../src/app';
-import { createContext, openDatabase } from '../src/bootstrap';
+import { createContext } from '../src/bootstrap';
 import type { Ctx } from '../src/core/context';
 import { seedDemo } from '../src/seed/demo';
 import { movementSummary } from '../src/modules/reports/metrics';
@@ -19,7 +20,7 @@ let ctx: Ctx;
 let app: ReturnType<typeof createApp>;
 
 async function login(username: string, password?: string) {
-  const agent = request.agent(app);
+  const agent = withIdempotencyKeys(request.agent(app));
   const role = username.startsWith('general') ? 'GENERAL_MANAGER' : username.startsWith('branch') ? 'BRANCH_MANAGER' : 'CASHIER';
   const res = await agent.post('/api/auth/login').send({ username, password: password ?? DEMO_PASSWORDS[role] });
   expect(res.status, JSON.stringify(res.body)).toBe(200);
@@ -40,7 +41,7 @@ async function itemByCode(code: string) {
 }
 
 beforeAll(async () => {
-  handle = await openDatabase({ dataDir: 'memory://' });
+  handle = await openTestDatabase();
   ctx = createContext(handle);
   await seedDemo(ctx);
   await ctx.settings.update(ctx.db, { mockHasad: { latencyMs: 0, simulateOutage: false } }, null);

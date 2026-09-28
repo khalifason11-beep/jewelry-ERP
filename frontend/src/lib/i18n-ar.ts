@@ -1184,4 +1184,13 @@ export const AR: Record<string, string> = {
   "The file content does not match its type": "محتوى الملف لا يطابق نوعه",
   "The logo must be at most {px}×{px} pixels": "يجب ألا تتجاوز أبعاد الشعار {px}×{px} بكسل",
   "The image dimensions could not be read": "تعذّرت قراءة أبعاد الصورة",
+
+  // ── generated from translation sheets ──
+  "Password re-confirmation valid for (minutes)": "صلاحية إعادة تأكيد كلمة المرور (دقائق)",
+  "How long sensitive actions stay allowed after the password is re-entered (1–30)": "المدة التي تبقى فيها الإجراءات الحساسة مسموحة بعد إعادة إدخال كلمة المرور (من 1 إلى 30)",
+  "Invalid Idempotency-Key": "مفتاح عدم التكرار غير صالح",
+  "This request needs an Idempotency-Key header": "هذا الطلب يحتاج إلى مفتاح عدم التكرار",
+  "The same request is still being processed. Please wait.": "الطلب نفسه ما زال قيد المعالجة. يرجى الانتظار.",
+  "This Idempotency-Key was already used for a different request": "مفتاح عدم التكرار هذا استُخدم من قبل لطلب مختلف",
+  "An earlier attempt of this action did not finish. Check whether it was recorded before trying again.": "لم تكتمل محاولة سابقة لهذا الإجراء. تحقّق مما إذا كان قد سُجّل قبل المحاولة مرة أخرى.",
 };

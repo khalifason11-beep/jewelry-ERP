@@ -1,8 +1,9 @@
+import { gramsToMg } from '@jerp/shared';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
-import { get, post } from '../../lib/api';
+import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, money } from '../../lib/format';
 import { useBranches, useGoldRates } from '../../lib/hooks';
@@ -12,6 +13,7 @@ import { Button, Card, CardHeader, Dialog, ErrorState, Field, Input, KeyValue, L
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
 import { Crumbs } from '../sales/SalesPages';
+import { useActionKeys } from '../../lib/idempotency';
 
 interface PurchaseRow {
   id: number;
@@ -120,23 +122,25 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
   const valid = lines.every((l) => l.productId && Number(l.net) > 0 && Number(l.gross) >= Number(l.net) && Number(l.purchaseCost) > 0 && Number(l.sellingPrice) > 0) && (branchId || !isGlobal);
   const total = lines.reduce((s, l) => s + (Number(l.purchaseCost) || 0) + (Number(l.makingCost) || 0) + (Number(l.otherCost) || 0), 0);
 
+  const actionKeys = useActionKeys();
   const m = useMutation({
     mutationFn: () =>
-      post<{ id: number; number: string; itemCodes: string[] }>('/purchases', {
+      postOnce<{ id: number; number: string; itemCodes: string[] }>('/purchases', {
         branchId: branchId || undefined,
         supplierId: supplierId || undefined,
         supplierInvoiceNo: invoiceNo || undefined,
         lines: lines.map((l) => ({
           productId: Number(l.productId),
-          grossWeightMg: Math.round(Number(l.gross) * 1000),
-          netWeightMg: Math.round(Number(l.net) * 1000),
+          grossWeightMg: gramsToMg(l.gross),
+          netWeightMg: gramsToMg(l.net),
           purchaseCost: Number(l.purchaseCost),
           makingCost: Number(l.makingCost) || 0,
           otherCost: Number(l.otherCost) || 0,
           sellingPrice: Number(l.sellingPrice),
         })),
-      }),
+      }, actionKeys.for('purchase')),
     onSuccess: (p) => {
+      actionKeys.rotate('purchase');
       toast.success(t('Purchase {number} received', { number: p.number }), t('{n} piece(s) now AVAILABLE: {codes}', { n: p.itemCodes.length, codes: p.itemCodes.join('، ') }));
       qc.invalidateQueries();
       onClose();

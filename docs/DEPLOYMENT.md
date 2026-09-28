@@ -111,11 +111,31 @@ anyone would block sign-in for the whole company.
 3. Note: staff in one shop sharing one internet connection correctly share one IP. 30 failures per
    15 minutes is well above normal use, but a shared connection is the reason the limit is not lower.
 
-## 5. After every deploy
+## 5. Database role and integrity rules
+
+- **One role (Render's default).** The role in `DATABASE_URL` runs the migrations and owns the tables. Migration
+  0004 removes its `UPDATE`, `DELETE` and `TRUNCATE` privileges on the append-only tables (`audit_logs`,
+  `inventory_movements`, `item_status_history`, `gold_rates`, `settings_history`); database triggers refuse the same
+  statements for everyone. Do not connect the app as a superuser: privileges do not apply to a superuser (the
+  triggers still do).
+- **Separate migration and app roles (optional, stricter).** If you run migrations with an owner role and the app
+  with another role, grant the app role `SELECT, INSERT, UPDATE, DELETE` on the ordinary tables but only
+  `SELECT, INSERT` on the five append-only tables, plus `USAGE` on their sequences.
+- **Start-up warning about NOT VALID constraints.** If old rows violate one of the integrity rules added in Phase 2a,
+  that rule is left `NOT VALID` (it still applies to every new or changed row) and the server logs
+  `integrity constraints left NOT VALID` with the table and constraint names at every start. Correct the rows,
+  then run `ALTER TABLE <table> VALIDATE CONSTRAINT <name>;`. On a fresh database this never appears.
+- **API clients other than the web app** must send an `Idempotency-Key` header (16–128 characters of `A–Z a–z 0–9 _ -`,
+  one new key per business action, reused only for retries of that action) on: create sale, void sale, create
+  purchase, create expense, review expense, create transfer, receive transfer and complete Hasad withdrawal.
+  Without it the server answers `428`.
+
+## 6. After every deploy
 
 - `GET /api/health` returns `200`.
 - The login page shows the company name and logo from Settings, not "Jewelry ERP".
 - No demo accounts are listed on the login page (they are listed only in demo mode).
+- The start-up log has no `integrity constraints left NOT VALID` warning (see section 5).
 
 ## Remaining limits (known and accepted for now)
 

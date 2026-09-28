@@ -21,7 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { PAYMENT_METHODS, type PaymentMethod } from '@jerp/shared';
-import { get, post } from '../../lib/api';
+import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { grams, karatLabel, money, relative } from '../../lib/format';
 import { useBranches, useCategories, useDebounced } from '../../lib/hooks';
@@ -30,6 +30,7 @@ import { useToast } from '../../lib/toast';
 import type { ItemRow, WithdrawalList } from '../../lib/types';
 import { Button, Dialog, Empty, ErrorState, Input, ItemThumb, Select, Skeleton } from '../../components/ui';
 import { InvoiceDocument, type SaleDetail } from '../../components/InvoiceDocument';
+import { useActionKeys } from '../../lib/idempotency';
 
 interface CartLine {
   item: ItemRow;
@@ -143,16 +144,18 @@ export function PosPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const actionKeys = useActionKeys();
   const complete = useMutation({
     mutationFn: () =>
-      post<SaleDetail>('/sales', {
+      postOnce<SaleDetail>('/sales', {
         branchId,
         items: cart.map((l) => ({ itemId: l.item.id, discount: l.discount })),
         paymentMethod: payment,
         customerName: customerName || undefined,
         customerPhone: customerPhone || undefined,
-      }),
+      }, actionKeys.for('sale')),
     onSuccess: (sale) => {
+      actionKeys.rotate('sale');
       toast.success(`${t('Sale completed')} · ${sale.number}`, t('{total}: {n} item(s) marked SOLD', { total: money(sale.total), n: sale.items.length }));
       setInvoice(sale);
       reset();

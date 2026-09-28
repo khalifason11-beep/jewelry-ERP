@@ -4,13 +4,14 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
+import { openTestDatabase, withIdempotencyKeys } from './helpers';
 import { and, desc, eq, ne, sql } from 'drizzle-orm';
 import { t, type DatabaseHandle } from '@jerp/database';
 import { DEFAULT_ROLE_PERMISSIONS, ROUTE_MATRIX, permitsRule, routeId, type Permission, type RouteRule } from '@jerp/shared';
 import { Router } from 'express';
 import { createApp } from '../src/app';
 import { defineRoutes } from '../src/core/guard';
-import { createContext, openDatabase } from '../src/bootstrap';
+import { createContext } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
 import type { Ctx } from '../src/core/context';
 import { COST_FIELDS } from '../src/core/cost-redaction';
@@ -34,7 +35,7 @@ type Role = keyof typeof ROLE_USER;
 const ROLES = Object.keys(ROLE_USER) as Role[];
 
 async function login(username: string, password?: string): Promise<Agent> {
-  const agent = request.agent(app);
+  const agent = withIdempotencyKeys(request.agent(app));
   const role = username.startsWith('general') ? 'GENERAL_MANAGER' : username.startsWith('branch') ? 'BRANCH_MANAGER' : 'CASHIER';
   const res = await agent.post('/api/auth/login').send({ username, password: password ?? DEMO_PASSWORDS[role] });
   expect(res.status, JSON.stringify(res.body)).toBe(200);
@@ -51,7 +52,7 @@ const gmAgent = async () => {
 };
 
 beforeAll(async () => {
-  handle = await openDatabase({ dataDir: 'memory://' });
+  handle = await openTestDatabase();
   ctx = createContext(handle);
   await seedDemo(ctx);
   app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
@@ -93,7 +94,9 @@ describe('typed settings: one row per key, history, versions', () => {
     const refused = async (q: Promise<unknown>) => {
       const e = await q.then(() => null, (err: Error & { cause?: Error }) => err);
       expect(e, 'statement should have been refused').not.toBeNull();
-      expect(`${e!.message} ${e!.cause?.message ?? ''}`).toMatch(/append-only/);
+      // Embedded PGlite (superuser): the trigger refuses. Real PostgreSQL app role: the REVOKE refuses
+      // first (both layers are proven separately in test/pg/integrity.test.ts).
+      expect(`${e!.message} ${e!.cause?.message ?? ''}`).toMatch(/append-only|permission denied/);
     };
     await refused(ctx.db.execute(sql`UPDATE settings_history SET reason = 'tampered'`));
     await refused(ctx.db.execute(sql`DELETE FROM settings_history`));
@@ -274,7 +277,7 @@ describe('operator console (break-glass)', () => {
     const r = await operatorResetGmPassword(ctx, 'general.manager', op);
     expect(r.temporaryPassword).toMatch(/^Temp-/);
     expect((await gm.get('/api/auth/me')).status).toBe(401);
-    const fresh = request.agent(app);
+    const fresh = withIdempotencyKeys(request.agent(app));
     expect((await fresh.post('/api/auth/login').send({ username: 'general.manager', password: r.temporaryPassword })).body.user.mustChangePassword).toBe(true);
     // Restore the demo password for the remaining tests.
     await ctx.db.update(t.users).set({ passwordHash: await hashPassword(DEMO_PASSWORDS.GENERAL_MANAGER), mustChangePassword: false }).where(eq(t.users.username, 'general.manager'));

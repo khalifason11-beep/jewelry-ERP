@@ -6,10 +6,11 @@
 import { randomBytes, scryptSync } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { and, eq } from 'drizzle-orm';
+import { openTestDatabase, withIdempotencyKeys } from './helpers';
+import { and, desc, eq } from 'drizzle-orm';
 import { t, type DatabaseHandle } from '@jerp/database';
 import { createApp } from '../src/app';
-import { createContext, openDatabase } from '../src/bootstrap';
+import { createContext } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
 import type { Ctx } from '../src/core/context';
 import { redact } from '../src/core/logger';
@@ -38,7 +39,7 @@ const prodConfig = loadConfig(PROD_ENV);
 type Agent = ReturnType<typeof request.agent>;
 
 async function login(username: string, password: string): Promise<Agent> {
-  const agent = request.agent(demoApp);
+  const agent = withIdempotencyKeys(request.agent(demoApp));
   const res = await agent.post('/api/auth/login').send({ username, password });
   expect(res.status, JSON.stringify(res.body)).toBe(200);
   agent.set('x-csrf-token', res.body.csrfToken);
@@ -75,7 +76,7 @@ async function prodSession(username: string) {
 }
 
 beforeAll(async () => {
-  handle = await openDatabase({ dataDir: 'memory://' });
+  handle = await openTestDatabase();
   ctx = createContext(handle);
   await seedDemo(ctx);
   demoApp = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
@@ -143,7 +144,7 @@ describe('production mode (security item 2)', () => {
   });
 
   it('bootstraps the first General Manager once, atomically, with a forced password change', async () => {
-    const fresh = await openDatabase({ dataDir: 'memory://' });
+    const fresh = await openTestDatabase();
     try {
       const fctx = createContext(fresh);
       const res = await bootstrapProduction(fctx, {
@@ -167,7 +168,7 @@ describe('production mode (security item 2)', () => {
 
       // The GM can sign in only to change the password.
       const app = createApp(fctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
-      const agent = request.agent(app);
+      const agent = withIdempotencyKeys(request.agent(app));
       const li = await agent.post('/api/auth/login').send({ username: 'owner.gm', password: res.temporaryPassword });
       expect(li.status).toBe(200);
       const blocked = await agent.get('/api/users');
@@ -396,6 +397,29 @@ describe('re-authentication for sensitive actions', () => {
     expect((await gm.post('/api/gold-rates').send({ rates: { '21': 192_000 } })).body.error.code).toBe('REAUTH_REQUIRED');
   });
 
+  it('the GM can change the re-auth window (default 5, 1–30), validated and audited', async () => {
+    const gm = await loginRole('general.manager');
+    const me = await gm.get('/api/auth/me');
+    const ago = (min: number) => ctx.db.update(t.sessions).set({ reauthAt: new Date(Date.now() - min * 60_000) }).where(eq(t.sessions.csrfToken, me.body.csrfToken));
+    expect((await ctx.settings.get()).security.reauthWindowMinutes).toBe(5);
+    await gm.post('/api/auth/reauth').send({ password: DEMO_PASSWORDS.GENERAL_MANAGER });
+    for (const bad of [0, 31, 2.5, '10']) {
+      const r = await gm.put('/api/settings').send({ changes: { 'security.reauthWindowMinutes': bad } });
+      expect(r.status, `value ${bad}`).toBe(400);
+    }
+    const ok = await gm.put('/api/settings').send({ changes: { 'security.reauthWindowMinutes': 15 }, reason: 'Fewer prompts' });
+    expect(ok.status).toBe(200);
+    const [audit] = await ctx.db.select().from(t.auditLogs).where(eq(t.auditLogs.action, 'SETTINGS_CHANGED')).orderBy(desc(t.auditLogs.id)).limit(1);
+    expect(JSON.stringify(audit.metadata)).toContain('security.reauthWindowMinutes');
+    expect((await gm.post('/api/auth/reauth').send({ password: DEMO_PASSWORDS.GENERAL_MANAGER })).body.validForMinutes).toBe(15);
+    await ago(10); // inside the new 15-minute window
+    expect((await gm.post('/api/gold-rates').send({ rates: { '21': 193_000 } })).status).toBe(200);
+    await ago(16);
+    expect((await gm.post('/api/gold-rates').send({ rates: { '21': 193_500 } })).body.error.code).toBe('REAUTH_REQUIRED');
+    await gm.post('/api/auth/reauth').send({ password: DEMO_PASSWORDS.GENERAL_MANAGER });
+    expect((await gm.put('/api/settings').send({ changes: { 'security.reauthWindowMinutes': 5 } })).status).toBe(200);
+  });
+
   it('requires re-auth for role changes', async () => {
     const gm = await loginRole('general.manager');
     const target = await userByName('cashier.bhr.01');
@@ -466,7 +490,7 @@ describe('CSRF, headers, proxy trust and validation', () => {
   });
 
   it('ignores X-Forwarded-For unless a proxy is configured (H-6)', async () => {
-    const agent = request.agent(demoApp);
+    const agent = withIdempotencyKeys(request.agent(demoApp));
     const res = await agent.post('/api/auth/login').set('X-Forwarded-For', '6.6.6.6').send({ username: 'cashier.pzu.01', password: DEMO_PASSWORDS.CASHIER });
     expect(res.body.session.ipAddress).not.toBe('6.6.6.6');
     const proxied = createApp(ctx, loadConfig({ VITEST: '1', TRUST_PROXY: '1' } as NodeJS.ProcessEnv));

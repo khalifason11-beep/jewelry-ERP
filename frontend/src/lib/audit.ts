@@ -11,6 +11,7 @@ const listSep = () => (getLang() === 'ar' ? '، ' : ', ');
 export function formatAuditParam(p: AuditParam): string {
   if (typeof p === 'string') return translate(p);
   if (typeof p === 'number') return p.toLocaleString('en-US');
+  if ('hidden' in p) return '—';
   if ('money' in p) return money(p.money);
   if ('mg' in p) return `${(p.mg / 1000).toFixed(3)} ${getLang() === 'ar' ? 'جم' : 'g'}`;
   if ('enum' in p) return humanize(p.enum);
