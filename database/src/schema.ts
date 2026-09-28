@@ -8,6 +8,7 @@ import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  customType,
   date,
   index,
   integer,
@@ -22,6 +23,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 const money = (name: string) => bigint(name, { mode: 'number' });
+const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({ dataType: () => 'bytea' });
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' });
 const createdAt = () => ts('created_at').notNull().defaultNow();
 
@@ -427,11 +429,48 @@ export const settlements = pgTable('settlements', {
 
 // ───────────────────────────── Configuration & audit ─────────────────────────────
 
+/**
+ * One row per setting key (see shared/src/settings.ts registry). The legacy row `system`
+ * (one JSON blob) is kept for history but no longer read.
+ */
 export const settings = pgTable('settings', {
   key: text('key').primaryKey(),
   value: jsonb('value').notNull(),
+  /** Incremented on every change (optimistic concurrency). */
+  version: integer('version').notNull().default(1),
   updatedAt: ts('updated_at').notNull().defaultNow(),
   updatedBy: integer('updated_by'),
+});
+
+/** Append-only history of every setting change (UPDATE/DELETE blocked by a DB trigger). */
+export const settingsHistory = pgTable(
+  'settings_history',
+  {
+    id: serial('id').primaryKey(),
+    key: text('key').notNull(),
+    oldValue: jsonb('old_value'),
+    newValue: jsonb('new_value').notNull(),
+    version: integer('version').notNull(),
+    actorId: integer('actor_id'),
+    actorUsername: text('actor_username').notNull(),
+    reason: text('reason'),
+    at: ts('at').notNull().defaultNow(),
+  },
+  (t) => [index('settings_history_key_idx').on(t.key, t.at)],
+);
+
+/** Uploaded branding files (logo). Rows are never updated; a new upload is a new row. */
+export const brandingAssets = pgTable('branding_assets', {
+  id: serial('id').primaryKey(),
+  kind: text('kind').notNull(),
+  mime: text('mime').notNull(),
+  bytes: bytea('bytes').notNull(),
+  sha256: text('sha256').notNull(),
+  size: integer('size').notNull(),
+  width: integer('width').notNull(),
+  height: integer('height').notNull(),
+  uploadedBy: integer('uploaded_by').references(() => users.id),
+  uploadedAt: ts('uploaded_at').notNull().defaultNow(),
 });
 
 /** Gold rate history; the latest row per karat is the current rate. */

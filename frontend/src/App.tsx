@@ -4,6 +4,7 @@ import { ShieldX } from 'lucide-react';
 import type { Permission } from '@jerp/shared';
 import { homePath, useAuth } from './lib/auth';
 import { ReauthDialog } from './components/ReauthDialog';
+import { BrandingSync } from './lib/branding';
 import { useI18n } from './lib/i18n';
 import { Empty, Loading } from './components/ui';
 import { AppShell } from './components/layout/AppShell';
@@ -105,6 +106,7 @@ export function App() {
         </Route>
       </Routes>
       <ReauthDialog />
+      <BrandingSync />
     </BrowserRouter>
   );
 }

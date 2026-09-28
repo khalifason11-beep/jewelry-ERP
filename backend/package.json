@@ -8,6 +8,7 @@
     "start": "tsx src/server.ts",
     "seed": "tsx src/seed/cli.ts",
     "bootstrap": "tsx src/bootstrap-cli.ts",
+    "ops": "tsx src/ops-cli.ts",
     "test": "vitest run"
   },
   "dependencies": {

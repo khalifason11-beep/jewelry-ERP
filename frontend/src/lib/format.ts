@@ -5,7 +5,14 @@ import { getLang, translate } from './i18n';
 
 const TZ = 'Africa/Khartoum';
 
-const currency = () => (getLang() === 'ar' ? 'ج.س' : 'SDG');
+/** Currency labels come from the company settings (see lib/branding.tsx). */
+let currencyLabels = { en: '', ar: '' };
+export function setCurrencyLabels(labels: { en: string; ar: string }) {
+  currencyLabels = labels;
+}
+/** Currency label for the current UI language (e.g. "ج.س" / "SDG" by default). */
+export const currencyLabel = () => (getLang() === 'ar' ? currencyLabels.ar : currencyLabels.en) || currencyLabels.en || currencyLabels.ar;
+const currency = currencyLabel;
 const gramUnit = () => (getLang() === 'ar' ? 'جم' : 'g');
 
 export const money = (n: number | null | undefined, withCurrency = true) =>

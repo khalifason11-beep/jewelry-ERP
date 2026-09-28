@@ -4,3 +4,4 @@ export * from './units';
 export * from './settlement';
 export * from './settings';
 export * from './audit';
+export * from './route-matrix';

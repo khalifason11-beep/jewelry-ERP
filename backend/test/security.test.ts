@@ -309,13 +309,28 @@ describe('sessions: timeouts and rotation', () => {
     return s;
   };
 
-  it('ends a cashier session after 15 idle minutes but keeps a manager session (30 min)', async () => {
+  it('ends any session after 60 idle minutes (all roles), not before', async () => {
     const cashier = await loginRole('cashier.kh.02');
     const bm = await loginRole('branch.manager.bhr');
-    const past = new Date(Date.now() - 16 * 60_000);
-    for (const a of [cashier, bm]) await ctx.db.update(t.sessions).set({ lastActivityAt: past }).where(eq(t.sessions.id, (await sessionOf(a)).id));
+    const gm = await loginRole('general.manager');
+    // 59 minutes idle: still signed in.
+    for (const a of [cashier, bm, gm]) await ctx.db.update(t.sessions).set({ lastActivityAt: new Date(Date.now() - 59 * 60_000) }).where(eq(t.sessions.id, (await sessionOf(a)).id));
+    for (const a of [cashier, bm, gm]) expect((await a.get('/api/auth/me').set('x-client-idle-ms', String(59 * 60_000))).status).toBe(200);
+    // 61 minutes idle: signed out, whatever the role.
+    for (const a of [cashier, bm, gm]) await ctx.db.update(t.sessions).set({ lastActivityAt: new Date(Date.now() - 61 * 60_000) }).where(eq(t.sessions.id, (await sessionOf(a)).id));
+    for (const a of [cashier, bm, gm]) expect((await a.get('/api/auth/me')).status).toBe(401);
+  });
+
+  it('lets the GM change the idle timeout from settings (no code change)', async () => {
+    const gm = await loginRole('general.manager');
+    await gm.post('/api/auth/reauth').send({ password: DEMO_PASSWORDS.GENERAL_MANAGER });
+    const res = await gm.put('/api/settings').send({ changes: { 'security.idleMinutes': 20 }, reason: 'Shorter at the counter' });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const cashier = await loginRole('cashier.kh.01');
+    const [s] = await ctx.db.select().from(t.sessions).where(eq(t.sessions.csrfToken, (await cashier.get('/api/auth/me')).body.csrfToken));
+    await ctx.db.update(t.sessions).set({ lastActivityAt: new Date(Date.now() - 21 * 60_000) }).where(eq(t.sessions.id, s.id));
     expect((await cashier.get('/api/auth/me')).status).toBe(401);
-    expect((await bm.get('/api/auth/me')).status).toBe(200);
+    expect((await gm.put('/api/settings').send({ changes: { 'security.idleMinutes': 60 } })).status).toBe(200);
   });
 
   it('enforces the absolute session limit regardless of activity', async () => {
@@ -471,14 +486,15 @@ describe('CSRF, headers, proxy trust and validation', () => {
 
     const gm = await loginRole('general.manager');
     await gm.post('/api/auth/reauth').send({ password: DEMO_PASSWORDS.GENERAL_MANAGER });
-    expect((await gm.put('/api/settings').send({ company: { timezone: 'Mars/Olympus' } })).status).toBe(400);
-    expect((await gm.put('/api/settings').send({ security: { minPasswordLength: 4 } })).status).toBe(400);
-    expect((await gm.put('/api/settings').send({ sales: { maxDiscountPercentByRole: { CASHIER: 150 } } })).status).toBe(400);
-    expect((await gm.put('/api/settings').set('Content-Type', 'application/json').send('{"__proto__":{"polluted":true}}')).status).toBe(400);
+    expect((await gm.put('/api/settings').send({ changes: { 'company.timezone': 'Mars/Olympus' } })).status).toBe(400);
+    expect((await gm.put('/api/settings').send({ changes: { 'security.minPasswordLength': 4 } })).status).toBe(400);
+    expect((await gm.put('/api/settings').send({ changes: { 'sales.maxDiscountPercentByRole': { CASHIER: 150 } } })).status).toBe(400);
+    expect((await gm.put('/api/settings').send({ changes: { 'security.unknownKey': 1 } })).status).toBe(400);
+    expect((await gm.put('/api/settings').set('Content-Type', 'application/json').send('{"changes":{"__proto__":{"polluted":true}}}')).status).toBe(400);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
-    const ok = await gm.put('/api/settings').send({ expenses: { approvalThreshold: 1_600_000 } });
+    const ok = await gm.put('/api/settings').send({ changes: { 'expenses.approvalThreshold': 1_600_000 } });
     expect(ok.status).toBe(200);
-    expect(ok.body.expenses.approvalThreshold).toBe(1_600_000);
+    expect(ok.body.settings.expenses.approvalThreshold).toBe(1_600_000);
 
     const huge = await cashier.post('/api/sales').send({ items: [{ itemId: 1 }], paymentMethod: 'CASH', customerName: 'x'.repeat(150_000) });
     expect(huge.status).toBe(413);

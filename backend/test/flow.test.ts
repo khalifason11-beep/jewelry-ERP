@@ -245,14 +245,14 @@ describe('vertical slice: sale → Hasad redemption → dashboards → audit', (
   it('Hasad outage is reported cleanly and never corrupts inventory', async () => {
     const gm = await login('general.manager');
     await reauth(gm, DEMO_PASSWORDS.GENERAL_MANAGER);
-    expect((await gm.put('/api/settings').send({ mockHasad: { simulateOutage: true } })).status).toBe(200);
+    expect((await gm.put('/api/settings').send({ changes: { 'mockHasad.simulateOutage': true } })).status).toBe(200);
     const cashier = await login('cashier.omd.01');
     const list = (await cashier.get('/api/hasad/withdrawals')).body;
     const w = list.withdrawals.find((x: { externalId: string }) => x.externalId === 'HG-10028');
     const res = await cashier.post(`/api/hasad/withdrawals/${w.id}/open`).send({ verification: 'ID_DOCUMENT' });
     expect(res.status).toBe(502);
     expect(res.body.error.code).toBe('HASAD_UNAVAILABLE');
-    expect((await gm.put('/api/settings').send({ mockHasad: { simulateOutage: false } })).status).toBe(200);
+    expect((await gm.put('/api/settings').send({ changes: { 'mockHasad.simulateOutage': false } })).status).toBe(200);
   });
 });
 

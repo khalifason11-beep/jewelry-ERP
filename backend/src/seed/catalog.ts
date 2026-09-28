@@ -1,5 +1,13 @@
 // Static reference data for the demo (products, people, places). All names are fictional.
 
+/** Branding of the demo deployment (production branding is entered by the GM in Settings). */
+export const COMPANY = {
+  name: 'Loai Tabeede',
+  nameAr: 'لؤي تبيدي',
+  invoiceFooter: 'Thank you for your purchase · Prices include making charges · Prototype document, not a tax invoice',
+  invoiceFooterAr: 'شكراً لتسوقكم معنا · الأسعار شاملة المصنعية · مستند نموذج أولي وليس فاتورة ضريبية',
+};
+
 export const BRANCHES = [
   { code: 'KRT', name: 'Khartoum Branch', nameAr: 'فرع الخرطوم', city: 'Khartoum', address: 'شارع القصر، سوق الذهب، الخرطوم', phone: '+249 183 000 101', hasadBranchCode: 'HG-BR-KRT' },
   { code: 'OMD', name: 'Omdurman Branch', nameAr: 'فرع أم درمان', city: 'Omdurman', address: 'سوق أم درمان، زقاق الذهب 4', phone: '+249 187 000 202', hasadBranchCode: 'HG-BR-OMD' },

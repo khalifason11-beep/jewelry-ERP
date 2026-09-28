@@ -9,6 +9,7 @@ export interface Branch {
   address?: string | null;
   phone?: string | null;
   hasadBranchCode?: string | null;
+  isActive?: boolean;
 }
 
 export interface ItemRow {

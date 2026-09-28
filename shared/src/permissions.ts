@@ -38,7 +38,7 @@ export const PERMISSIONS = {
   'dashboard.branch': 'Branch dashboard',
   'dashboard.company': 'Company executive dashboard',
   'reports.view': 'Operational reports',
-  'profit.view': 'See cost and profit figures',
+  'profit.view': 'See cost, acquisition cost and profit figures (General Manager only)',
 
   // Administration
   'users.view': 'View users',
@@ -47,7 +47,8 @@ export const PERMISSIONS = {
   'sessions.view': 'View active sessions in scope',
   'sessions.revoke': 'Terminate other users’ sessions',
   'audit.view': 'View the audit log',
-  'settings.manage': 'Change system settings, gold rates and demo tools',
+  'settings.manage': 'Change system settings, branding, gold rates and demo tools',
+  'branches.manage': 'Create and edit branches',
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -64,7 +65,6 @@ const CASHIER: Permission[] = [
   'sales.view_own',
   'inventory.view_available',
   'hasad.process',
-  'hasad.cancel',
   'sessions.view_own',
 ];
 
@@ -81,9 +81,11 @@ const BRANCH_MANAGER: Permission[] = [
   'expenses.view',
   'expenses.create',
   'hasad.view',
+  // Cancelling a Hasad request is manager-only (decision Q14).
+  'hasad.cancel',
   'dashboard.branch',
   'reports.view',
-  'profit.view',
+  // No 'profit.view': cost, acquisition cost and profit are General Manager only (decision Q15).
   'users.view',
   'sessions.view',
   'audit.view',

@@ -124,6 +124,9 @@ export const AUDIT_ACTIONS = [
   'REAUTHENTICATED',
   'REAUTH_FAILED',
   'BOOTSTRAP_COMPLETED',
+  'BRANDING_CHANGED',
+  'BRANCH_CREATED',
+  'BRANCH_UPDATED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

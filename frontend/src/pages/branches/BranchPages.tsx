@@ -2,15 +2,16 @@
 
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Building2, ChevronRight, MapPin, Phone } from 'lucide-react';
-import { get } from '../../lib/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Building2, ChevronRight, MapPin, Pencil, Phone, Plus } from 'lucide-react';
+import { get, patch, post } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { grams, money, todayKey } from '../../lib/format';
-import { branchColor } from '../../lib/hooks';
+import { branchColor, useBranches } from '../../lib/hooks';
+import { useToast } from '../../lib/toast';
 import { useI18n } from '../../lib/i18n';
 import type { Branch } from '../../lib/types';
-import { Card, ErrorState, Loading, Mono, PageHeader, Tabs } from '../../components/ui';
+import { Button, Card, CardHeader, Dialog, ErrorState, Field, Input, Loading, Mono, PageHeader, StatusBadge, Tabs } from '../../components/ui';
 import { DateRange, useRangeParams } from '../../components/Filters';
 import { BranchDashboard } from '../dashboard/BranchDashboardPage';
 import { SalesTable, Crumbs } from '../sales/SalesPages';
@@ -26,11 +27,17 @@ interface CompanyBranches {
 
 export function BranchesPage() {
   const { t, L } = useI18n();
+  const { can } = useAuth();
+  const [editing, setEditing] = useState<Branch | 'new' | null>(null);
   const today = todayKey();
   const q = useQuery({ queryKey: ['dashboard', 'company', today.slice(0, 8) + '01', today], queryFn: () => get<CompanyBranches>('/dashboard/company', { from: today.slice(0, 8) + '01', to: today }) });
   return (
     <div className="p-5 lg:p-6">
-      <PageHeader title={t('Branches')} subtitle={t('Month-to-date results. Open a branch to drill into its sales, expenses, inventory, Hasad activity and staff.')} />
+      <PageHeader
+        title={t('Branches')}
+        subtitle={t('Month-to-date results. Open a branch to drill into its sales, expenses, inventory, Hasad activity and staff.')}
+        actions={can('branches.manage') ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>{t('New branch')}</Button> : undefined}
+      />
       {q.isLoading ? (
         <Loading />
       ) : q.isError ? (
@@ -68,7 +75,109 @@ export function BranchesPage() {
           ))}
         </div>
       )}
+      {can('branches.manage') && <BranchRegister onEdit={setEditing} />}
+      {editing && <BranchDialog branch={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
     </div>
+  );
+}
+
+/** All branches with their master data (General Manager). */
+function BranchRegister({ onEdit }: { onEdit: (b: Branch) => void }) {
+  const { t, L } = useI18n();
+  const q = useBranches();
+  return (
+    <Card padded={false} className="mt-5">
+      <CardHeader title={t('Branch register')} subtitle={t('Branch codes are permanent: they appear in every document number.')} />
+      <table className="w-full text-[13px]">
+        <thead className="bg-[#f7f8fa] text-ink-500">
+          <tr>
+            <th className="px-5 py-2 text-start font-medium">{t('Code')}</th>
+            <th className="px-3 py-2 text-start font-medium">{t('Branch')}</th>
+            <th className="px-3 py-2 text-start font-medium">{t('City')}</th>
+            <th className="px-3 py-2 text-start font-medium">{t('Phone')}</th>
+            <th className="px-3 py-2 text-start font-medium">{t('Status')}</th>
+            <th className="px-5 py-2" />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line">
+          {(q.data ?? []).map((b) => (
+            <tr key={b.id}>
+              <td className="px-5 py-2.5"><Mono className="font-semibold">{b.code}</Mono></td>
+              <td className="px-3 py-2.5">{L(b.name, b.nameAr)}</td>
+              <td className="px-3 py-2.5">{t(b.city)}</td>
+              <td className="px-3 py-2.5 num">{b.phone ?? '—'}</td>
+              <td className="px-3 py-2.5"><StatusBadge status={b.isActive === false ? 'DISABLED' : 'ACTIVE'} /></td>
+              <td className="px-5 py-2.5 text-end">
+                <Button size="sm" variant="ghost" icon={<Pencil className="size-4" />} onClick={() => onEdit(b)}>{t('Edit')}</Button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
+  );
+}
+
+function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () => void }) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [f, setF] = useState({
+    code: branch?.code ?? '',
+    name: branch?.name ?? '',
+    nameAr: branch?.nameAr ?? '',
+    city: branch?.city ?? '',
+    address: branch?.address ?? '',
+    phone: branch?.phone ?? '',
+    isActive: branch?.isActive !== false,
+  });
+  const m = useMutation({
+    mutationFn: () => {
+      const common = { name: f.name.trim(), nameAr: f.nameAr.trim(), city: f.city.trim(), ...(f.address.trim() ? { address: f.address.trim() } : {}), ...(f.phone.trim() ? { phone: f.phone.trim() } : {}) };
+      return branch ? patch(`/branches/${branch.id}`, { ...common, isActive: f.isActive }) : post('/branches', { code: f.code.trim().toUpperCase(), ...common });
+    },
+    onSuccess: () => {
+      toast.success(branch ? t('Branch updated') : t('Branch created'), t('Recorded in the audit log.'));
+      qc.invalidateQueries();
+      onClose();
+    },
+    onError: (e) => toast.fromError(e),
+  });
+  const valid = /^[A-Z]{2,6}$/.test(f.code.trim().toUpperCase()) && f.name.trim().length >= 2 && f.nameAr.trim().length >= 2 && f.city.trim().length >= 2;
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={branch ? t('Edit branch {code}', { code: branch.code }) : t('New branch')}
+      footer={<><Button onClick={onClose}>{t('Cancel')}</Button><Button variant="primary" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()}>{t('Save')}</Button></>}
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label={t('Code')} hint={branch ? t('The code cannot be changed.') : t('2–6 capital letters, e.g. KRT. It can never be changed later.')}>
+          <Input value={f.code} disabled={!!branch} maxLength={6} onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })} className="font-mono" />
+        </Field>
+        <Field label={t('City')}>
+          <Input value={f.city} maxLength={60} onChange={(e) => setF({ ...f, city: e.target.value })} />
+        </Field>
+        <Field label={t('Name (English)')}>
+          <Input value={f.name} maxLength={80} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        </Field>
+        <Field label={t('Name (Arabic)')}>
+          <Input value={f.nameAr} maxLength={80} onChange={(e) => setF({ ...f, nameAr: e.target.value })} />
+        </Field>
+        <Field label={t('Address')} className="sm:col-span-2">
+          <Input value={f.address} maxLength={200} onChange={(e) => setF({ ...f, address: e.target.value })} />
+        </Field>
+        <Field label={t('Phone')}>
+          <Input value={f.phone} maxLength={30} onChange={(e) => setF({ ...f, phone: e.target.value })} className="num" />
+        </Field>
+        {branch && (
+          <label className="flex items-center gap-2 self-end pb-2 text-[13px]">
+            <input type="checkbox" className="size-4 accent-ink-900" checked={f.isActive} onChange={(e) => setF({ ...f, isActive: e.target.checked })} />
+            {t('Branch is active')}
+          </label>
+        )}
+      </div>
+    </Dialog>
   );
 }
 

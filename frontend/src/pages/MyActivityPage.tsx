@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { MonitorSmartphone, Receipt } from 'lucide-react';
 import { get } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { dateTime, deviceText, money, todayKey } from '../lib/format';
+import { dateTime, deviceText, money, todayKey, currencyLabel } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { Card, CardHeader, KeyValue, Kpi, Mono, PageHeader } from '../components/ui';
 import { DateRange, useRangeParams } from '../components/Filters';
@@ -22,7 +22,7 @@ export function MyActivityPage() {
     <div className="p-5 lg:p-6">
       <PageHeader title={t('My Activity')} subtitle={`${me.user.fullName} · ${L(me.user.role.name, me.user.role.nameAr)} · ${me.user.branch ? L(me.user.branch.name, me.user.branch.nameAr) : t('All branches')}`} />
       <div className="mb-5 grid gap-3 md:grid-cols-3">
-        <Kpi tone="dark" label={t('My sales today')} value={money(done.reduce((s, r) => s + r.total, 0), false)} sub={t('{n} invoice(s) · SDG', { n: done.length })} icon={<Receipt className="size-4" />} />
+        <Kpi tone="dark" label={t('My sales today')} value={money(done.reduce((s, r) => s + r.total, 0), false)} sub={t('{n} invoice(s) · {currency}', { n: done.length, currency: currencyLabel() })} icon={<Receipt className="size-4" />} />
         <Card className="md:col-span-2">
           <div className="mb-3 flex items-center gap-2 text-[13px] font-semibold"><MonitorSmartphone className="size-4 text-ink-500" /> {t('My current session')}</div>
           {me.session && (

@@ -70,11 +70,6 @@ export async function createSession(
   return { token, id, csrfToken };
 }
 
-/** Idle limit for a role (minutes); unknown roles get the strictest configured value. */
-export function idleLimitMinutes(idleByRole: Record<string, number>, roleCode: string): number {
-  return idleByRole[roleCode] ?? Math.min(15, ...Object.values(idleByRole));
-}
-
 export async function loadActor(exec: Executor, userId: number, sessionId: string | null): Promise<Actor | null> {
   const [u] = await exec
     .select({
@@ -132,7 +127,7 @@ export async function resolveSession(ctx: Ctx, token: string) {
     await endSession(ctx.db, id, 'REVOKED', 'Account disabled');
     return null;
   }
-  if (now - s.lastActivityAt.getTime() > idleLimitMinutes(security.idleMinutesByRole, actor.roleCode) * 60_000) {
+  if (now - s.lastActivityAt.getTime() > security.idleMinutes * 60_000) {
     await endSession(ctx.db, id, 'EXPIRED', 'Inactivity timeout');
     return null;
   }

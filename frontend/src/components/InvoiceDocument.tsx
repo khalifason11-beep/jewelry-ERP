@@ -1,7 +1,7 @@
 import { Gem } from 'lucide-react';
 import { dateTime, grams, karatLabel, money } from '../lib/format';
 import { useI18n } from '../lib/i18n';
-import { useAuth } from '../lib/auth';
+import { useBranding } from '../lib/branding';
 
 export interface SaleDetail {
   id: number;
@@ -54,17 +54,17 @@ export interface SaleDetail {
 /** Printable customer invoice (no cost or profit information). */
 export function InvoiceDocument({ sale }: { sale: SaleDetail }) {
   const { t, L, lang } = useI18n();
-  const { me } = useAuth();
+  const branding = useBranding();
   const weight = sale.items.reduce((s, i) => s + i.netWeightMg, 0);
   return (
     <div className="print-area mx-auto max-w-[720px] bg-white text-[13px] text-ink-900">
       <div className="flex items-start justify-between border-b-2 border-ink-900 pb-4">
         <div className="flex items-center gap-3">
-          <div className="grid size-11 place-items-center rounded-lg bg-ink-900">
-            <Gem className="size-5 text-gold-400" />
+          <div className="grid size-11 place-items-center overflow-hidden rounded-lg bg-ink-900">
+            {branding.logoUrl ? <img src={branding.logoUrl} alt="" className="max-h-full max-w-full object-contain" /> : <Gem className="size-5 text-gold-400" />}
           </div>
           <div>
-            <div className="text-lg font-semibold">{L(me?.company.name, me?.company.nameAr)}</div>
+            <div className="text-lg font-semibold">{L(branding.company.nameEn, branding.company.nameAr)}</div>
             <div className="text-ink-500">{L(sale.branchName, sale.branchNameAr)}</div>
             <div className="text-xs text-ink-500">
               {sale.branchAddress} · {sale.branchPhone}
@@ -148,7 +148,7 @@ export function InvoiceDocument({ sale }: { sale: SaleDetail }) {
         </div>
       </div>
       <div className="mt-8 border-t border-dashed border-ink-900/20 pt-3 text-center text-[11px] text-ink-500">
-        {t('Thank you for your purchase · Prices include making charges · Prototype document, not a tax invoice')}
+        {L(branding.invoiceFooterEn, branding.invoiceFooterAr)}
       </div>
     </div>
   );

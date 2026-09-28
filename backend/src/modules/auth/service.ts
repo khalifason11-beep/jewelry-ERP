@@ -10,6 +10,7 @@ import { burnVerification, hashPassword, needsRehash, verifyPassword } from '../
 import { assertPasswordPolicy } from '../../auth/policy';
 import { accountLocked, clearFailures, ghostFailure, ghostLocked, ipBlocked, ipFailure, ipThrottled, recordFailure } from '../../auth/lockout';
 import { REAUTH_WINDOW_MINUTES } from '../../auth/reauth';
+import { publicBranding } from '../branding/service';
 import { createSession, csrfTokenFor, endSession, endUserSessions, loadActor, markReauthenticated, sessionRef } from '../sessions/service';
 
 export interface LoginInput {
@@ -231,7 +232,8 @@ export async function me(ctx: Ctx, actor: Actor) {
     session: session
       ? { ref: sessionRef(session.id), loginAt: session.loginAt, device: session.device, ipAddress: session.ipAddress }
       : null,
-    company: settings.company,
+    branding: publicBranding(settings),
+    timezone: settings.company.timezone,
     appMode: config.appMode,
     csrfToken: actor.sessionId ? await csrfTokenFor(ctx.db, actor.sessionId) : null,
     allowSelfPasswordChange: settings.security.allowSelfPasswordChange,

@@ -56,7 +56,7 @@ const T_FUNCS = new Set(['t', 'translate', 'tk']);
 // Local helpers that forward their argument to a toast (e.g. `const done = (msg) => toast.success(msg)`).
 const TOAST_HELPERS = /^(done|notify|onDone|showToast|toast\w*|flash)$/;
 // Language self-names are intentionally shown in their own script by the switcher.
-const ALLOW = new Set(['English', 'Loai Tabeede']);
+const ALLOW = new Set(['English']);
 /** Prose, not CSS classes / identifiers: has a capital letter, or several plain lowercase words. */
 function isProse(text) {
   const s = text.trim();
@@ -225,7 +225,8 @@ for (const file of [...BACKEND_DIRS.flatMap((d) => walk(d, ['.ts']))]) {
       const pairedWithArabic = obj && obj.properties.some((q) => ts.isPropertyAssignment(q) && q.name.getText() === twin);
       // Ledger notes written in the same template form as the services (rendered via noteText()).
       const isNoteTemplate = field === 'note' && NOTE_PREFIXES.some((pre) => text.startsWith(pre));
-      let skip = ts.isImportDeclaration(p) || (field && SEED_TECH_FIELDS.has(field)) || pairedWithArabic || hasArabic(text) || isNoteTemplate || AR.has(text.trim());
+      // A quoted property name (e.g. a dotted settings key) is an identifier, not text.
+      let skip = (ts.isPropertyAssignment(p) && p.name === n) || ts.isImportDeclaration(p) || (field && SEED_TECH_FIELDS.has(field)) || pairedWithArabic || hasArabic(text) || isNoteTemplate || AR.has(text.trim());
       // Arguments of ap.*(), writeAudit keys, and user-agent constants are not free text.
       for (let a = p; a && !skip; a = a.parent) {
         if (ts.isCallExpression(a) && ts.isPropertyAccessExpression(a.expression) && a.expression.expression.getText() === 'ap') skip = true;

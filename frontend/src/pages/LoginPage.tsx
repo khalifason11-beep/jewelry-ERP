@@ -1,18 +1,14 @@
 import { useState, type FormEvent } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, KeyRound, LogIn, ShieldCheck } from 'lucide-react';
-import { ApiError, errorText, get } from '../lib/api';
+import { ApiError, errorText } from '../lib/api';
+import { useMeta } from '../lib/branding';
 import { homePath, useAuth } from '../lib/auth';
 import { humanize } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { Alert, Button, Field, Input } from '../components/ui';
 import { Logo } from '../components/layout/AppShell';
 
-interface Meta {
-  appMode: 'demo' | 'production';
-  demoAccounts: { username: string; password: string; role: string; branch: string | null }[];
-}
 
 const BRANCH_BY_CODE: Record<string, string> = { KRT: 'Khartoum Branch', OMD: 'Omdurman Branch', BHR: 'Bahri Branch', PZU: 'Port Sudan Branch' };
 
@@ -26,7 +22,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Demo credentials come from the server and only in demo mode (never in production bundles).
-  const meta = useQuery({ queryKey: ['meta'], queryFn: () => get<Meta>('/meta'), staleTime: Infinity, retry: false });
+  const meta = useMeta();
   const demoAccounts = meta.data?.demoAccounts ?? [];
 
   if (me) return <Navigate to={me.user.mustChangePassword ? '/change-password' : homePath(me)} replace />;

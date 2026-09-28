@@ -5,7 +5,7 @@ import clsx from 'clsx';
 import { CheckCircle2, Coins, Gem, Receipt, ScaleIcon, Truck, TrendingUp, Wallet, AlertTriangle } from 'lucide-react';
 import { get } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { date as formatDate, dateTime, grams, humanize, money, num, relative, todayKey } from '../../lib/format';
+import { date as formatDate, dateTime, grams, humanize, money, num, relative, todayKey, currencyLabel } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { Card, CardHeader, Empty, ErrorState, Input, Kpi, Loading, Mono, PageHeader, StatusBadge } from '../../components/ui';
 import { MoneyLineChart } from '../../components/charts';
@@ -21,7 +21,8 @@ export interface BranchDash {
     salesTotal: number;
     salesCount: number;
     itemsSold: number;
-    purchasesCost: number;
+    /** Omitted for users without profit.view (cost is General Manager only). */
+    purchasesCost?: number;
     purchasesCount: number;
     expenses: number;
     pendingExpenses: number;
@@ -112,9 +113,9 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
       {embedded ? <div className="flex justify-end"><Input type="date" value={date} max={todayKey()} onChange={(e) => e.target.value && setDate(e.target.value)} className="w-40" aria-label={t('Business date')} /></div> : header}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Kpi tone="dark" label={`${dayLabel} · ${t('Sales')}`} value={money(k.salesTotal, false)} sub={t('{invoices} invoices · {pieces} pieces · {currency}', { invoices: k.salesCount, pieces: k.itemsSold, currency: t('SDG') })} icon={<Receipt className="size-4" />} onClick={() => navigate(`/reports/sales?from=${date}&to=${date}&branchId=${d.branchId}`)} />
-        <Kpi label={`${dayLabel} · ${t('Purchases')}`} value={money(k.purchasesCost, false)} sub={t('{n} receipts · {currency}', { n: k.purchasesCount, currency: t('SDG') })} icon={<Truck className="size-4" />} onClick={() => navigate(`/reports/purchases?from=${date}&to=${date}&branchId=${d.branchId}`)} />
-        <Kpi label={`${dayLabel} · ${t('Expenses')}`} value={money(k.expenses, false)} sub={k.pendingExpenses ? t('+ {amount} pending approval', { amount: money(k.pendingExpenses) }) : t('Approved · {currency}', { currency: t('SDG') })} icon={<Wallet className="size-4" />} onClick={() => navigate(`/reports/expenses?from=${date}&to=${date}&branchId=${d.branchId}`)} />
+        <Kpi tone="dark" label={`${dayLabel} · ${t('Sales')}`} value={money(k.salesTotal, false)} sub={t('{invoices} invoices · {pieces} pieces · {currency}', { invoices: k.salesCount, pieces: k.itemsSold, currency: currencyLabel() })} icon={<Receipt className="size-4" />} onClick={() => navigate(`/reports/sales?from=${date}&to=${date}&branchId=${d.branchId}`)} />
+        <Kpi label={`${dayLabel} · ${t('Purchases')}`} value={k.purchasesCost != null ? money(k.purchasesCost, false) : String(k.purchasesCount)} sub={k.purchasesCost != null ? t('{n} receipts · {currency}', { n: k.purchasesCount, currency: currencyLabel() }) : t('Receipts')} icon={<Truck className="size-4" />} onClick={() => navigate(`/reports/purchases?from=${date}&to=${date}&branchId=${d.branchId}`)} />
+        <Kpi label={`${dayLabel} · ${t('Expenses')}`} value={money(k.expenses, false)} sub={k.pendingExpenses ? t('+ {amount} pending approval', { amount: money(k.pendingExpenses) }) : t('Approved · {currency}', { currency: currencyLabel() })} icon={<Wallet className="size-4" />} onClick={() => navigate(`/reports/expenses?from=${date}&to=${date}&branchId=${d.branchId}`)} />
         <Kpi tone="gold" label={t('Gross Profit')} value={k.grossProfit != null ? money(k.grossProfit, false) : '—'} sub={k.contribution != null ? t('Contribution {amount}', { amount: money(k.contribution) }) : undefined} icon={<TrendingUp className="size-4" />} />
         <Kpi label={t('Available Inventory')} value={t('{n} pcs', { n: num(k.availableItems) })} sub={`${grams(k.availableWeightMg)}${k.reservedItems ? ` · ${t('{n} reserved', { n: k.reservedItems })}` : ''}`} icon={<Gem className="size-4" />} onClick={() => navigate(`/inventory?branchId=${d.branchId}`)} />
         <Kpi label={t('Hasad Withdrawals')} value={t('{n} done', { n: k.hasadCompleted })} sub={t('{n} open request(s)', { n: k.hasadOpen })} icon={<Coins className="size-4" />} onClick={() => navigate('/hasad')} />

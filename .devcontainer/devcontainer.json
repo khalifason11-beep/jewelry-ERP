@@ -1,7 +1,7 @@
 {
   // GitHub Codespaces: run the prototype in the browser without installing anything locally.
   // Code → Codespaces → Create codespace; the app starts on port 4000 and opens automatically.
-  "name": "Loai Tabeede ERP prototype",
+  "name": "Jewelry ERP (demo)",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
   "postCreateCommand": "npm install && npm run db:reset",
   "postAttachCommand": "npm run demo",

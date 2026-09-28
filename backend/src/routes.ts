@@ -5,18 +5,18 @@
 // fields are rejected), every number is an integer with explicit bounds, money and weights are
 // non-negative, text has a maximum length, karats come from the allowed set.
 
-import { Router, type Request, type Response } from 'express';
+import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { EXPENSE_CATEGORIES, KARATS, PAYMENT_METHODS, ap } from '@jerp/shared';
+import { EXPENSE_CATEGORIES, KARATS, PAYMENT_METHODS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
-import { forbidden, notFound } from './core/errors';
+import { badRequest, forbidden, notFound } from './core/errors';
 import { writeAudit } from './core/audit';
 import { branchScope, isGlobal, requirePerm } from './authz';
-import { clientIp, requireAuth } from './auth/middleware';
+import { clientIp } from './auth/middleware';
 import { requireRecentReauth } from './auth/reauth';
 import * as auth from './modules/auth/service';
 import * as sessions from './modules/sessions/service';
@@ -29,7 +29,12 @@ import * as expenses from './modules/expenses/service';
 import * as transfers from './modules/transfers/service';
 import * as dashboard from './modules/dashboard/service';
 import * as reports from './modules/reports/service';
-import { settingsPatchSchema } from './modules/settings/schema';
+import * as branding from './modules/branding/service';
+import { publicBranding } from './modules/branding/service';
+import { LOGO_MAX_BYTES } from './modules/branding/image';
+import * as branches from './modules/branches/service';
+import { defineRoutes } from './core/guard';
+import { costRedaction } from './core/cost-redaction';
 import { notificationsFor } from './modules/notifications/service';
 import { syncWithdrawals } from './modules/hasad/sync';
 import { resetDemoData } from './seed/reset';
@@ -49,10 +54,15 @@ const zKarat = z.coerce.number().int().refine((k) => (KARATS as readonly number[
 const zStatusList = z.preprocess((v) => (typeof v === 'string' && v ? v.split(',') : undefined), z.array(z.string().regex(/^[A-Z_]{2,40}$/)).max(20).optional());
 const zBool = z.preprocess((v) => v === 'true' || v === '1' || v === true, z.boolean());
 const zQ = zText(100).optional();
+const zPhone = zText(30).regex(/^[+\d\s()-]*$/);
 
-export function apiRouter(ctx: Ctx, config: Config): Router {
+export function apiRouter(ctx: Ctx, config: Config): Router & { registered: RouteRule[] } {
   const r = Router();
   const demo = config.appMode === 'demo';
+  // Every route is registered through the access matrix (deny by default, see core/guard.ts).
+  const { route, registered } = defineRoutes(r, ctx, { demo });
+  // Cost/profit fields never leave the server for callers without profit.view (decision Q15).
+  r.use(costRedaction);
 
   const setSessionCookie = async (res: Response, token: string) => {
     const { security } = await ctx.settings.get();
@@ -66,7 +76,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
   };
 
   // ─────────── public ───────────
-  r.post('/auth/login', async (req, res) => {
+  route('POST', '/auth/login', async (req, res) => {
     const body = parse(z.object({ username: zText(64).min(1), password: z.string().min(1).max(128) }).strict(), req.body);
     const s = await auth.login(ctx, { ...body, userAgent: req.header('user-agent'), ip: clientIp(req) });
     await setSessionCookie(res, s.token);
@@ -74,11 +84,10 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
   });
 
   /** Public, non-sensitive app metadata for the login screen. Demo credentials only in demo mode. */
-  r.get('/meta', async (_req, res) => {
-    const { company } = await ctx.settings.get();
+  route('GET', '/meta', async (_req, res) => {
     res.json({
       appMode: config.appMode,
-      company: { name: company.name, nameAr: company.nameAr },
+      branding: publicBranding(await ctx.settings.get()),
       demoAccounts: demo
         ? USERS.filter((u) => ['general.manager', 'branch.manager.kh', 'cashier.kh.01', 'cashier.kh.02', 'branch.manager.omd', 'cashier.omd.01'].includes(u.username)).map((u) => ({
             username: u.username,
@@ -90,62 +99,63 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
     });
   });
 
-  r.get('/health', async (_req, res) => {
+  route('GET', '/health', async (_req, res) => {
     res.json(config.production ? { ok: true } : { ok: true, driver: ctx.handle.driver, hasad: ctx.hasad.mode, appMode: config.appMode });
   });
 
-  r.use(requireAuth);
 
   // ─────────── own account ───────────
-  r.get('/auth/me', async (req, res) => res.json(await auth.me(ctx, actorOf(req))));
-  r.post('/auth/logout', async (req, res) => {
+  route('GET', '/auth/me', async (req, res) => res.json(await auth.me(ctx, actorOf(req))));
+  route('POST', '/auth/logout', async (req, res) => {
     await auth.logout(ctx, actorOf(req));
     res.clearCookie(config.cookieName, { path: '/', secure: config.cookieSecure, sameSite: 'lax', httpOnly: true });
     res.json({ ok: true });
   });
-  r.post('/auth/change-password', async (req, res) => {
+  route('POST', '/auth/change-password', async (req, res) => {
     const body = parse(z.object({ currentPassword: z.string().min(1).max(128), newPassword: z.string().min(1).max(128) }).strict(), req.body);
     const result = await auth.changePassword(ctx, actorOf(req), { ...body, userAgent: req.header('user-agent') });
     await setSessionCookie(res, result.token);
     const actor = (await sessions.loadActor(ctx.db, actorOf(req).userId, result.sessionId))!;
     res.json(await auth.me(ctx, actor));
   });
-  r.post('/auth/reauth', async (req, res) => {
+  route('POST', '/auth/reauth', async (req, res) => {
     const body = parse(z.object({ password: z.string().min(1).max(128) }).strict(), req.body);
     res.json(await auth.reauthenticate(ctx, actorOf(req), body.password));
   });
 
   // ─────────── reference data ───────────
-  r.get('/branches', async (req, res) => {
+  route('GET', '/branches', async (req, res) => {
     const actor = actorOf(req);
     const all = await ctx.db.select().from(t.branches).orderBy(t.branches.id);
     res.json(isGlobal(actor) ? all : all.filter((b) => b.id === actor.branchId));
   });
   /** All branch names — needed as transfer destinations. Contains no business data. */
-  r.get('/branches/directory', async (_req, res) => {
+  route('GET', '/branches/directory', async (_req, res) => {
     res.json(await ctx.db.select({ id: t.branches.id, code: t.branches.code, name: t.branches.name, nameAr: t.branches.nameAr }).from(t.branches).orderBy(t.branches.id));
   });
-  r.get('/categories', async (_req, res) => res.json(await inventory.listCategories(ctx)));
-  r.get('/products', async (req, res) => res.json(await inventory.listProducts(ctx, actorOf(req))));
-  r.get('/suppliers', async (req, res) => {
+  route('GET', '/categories', async (_req, res) => res.json(await inventory.listCategories(ctx)));
+  route('GET', '/products', async (req, res) => res.json(await inventory.listProducts(ctx, actorOf(req))));
+  route('GET', '/suppliers', async (req, res) => {
     requirePerm(actorOf(req), 'purchases.view');
     res.json(await purchases.listSuppliers(ctx));
   });
-  r.get('/roles', async (req, res) => {
+  route('GET', '/roles', async (req, res) => {
     requirePerm(actorOf(req), 'users.view');
     res.json(await users.listRoles(ctx));
   });
-  r.get('/gold-rates', async (_req, res) => {
+  route('GET', '/gold-rates', async (_req, res) => {
     res.json({ current: await ctx.settings.goldRates(), history: await ctx.settings.goldRateHistory() });
   });
-  r.post('/gold-rates', async (req, res) => {
+  route('POST', '/gold-rates', async (req, res) => {
     const actor = actorOf(req);
     requirePerm(actor, 'settings.manage');
     const body = parse(
       z.object({ rates: z.partialRecord(z.enum(KARATS.map(String) as [string, ...string[]]), zPositiveMoney.max(100_000_000)) }).strict(),
       req.body,
     );
-    await requireRecentReauth(ctx, req);
+    const { inventory: inv } = await ctx.settings.get();
+    const notAllowed = Object.keys(body.rates).find((k) => !inv.allowedKarats.includes(Number(k)));
+    if (notAllowed) throw badRequest('Karat {karat} is not in the allowed karats', { karat: notAllowed });
     const before = await ctx.settings.goldRates();
     await ctx.db.transaction(async (tx) => {
       for (const [k, v] of Object.entries(body.rates) as [string, number][]) {
@@ -165,40 +175,107 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
     res.json({ current: await ctx.settings.goldRates() });
   });
 
-  // ─────────── settings ───────────
-  r.get('/settings', async (req, res) => {
-    requirePerm(actorOf(req), 'settings.manage');
-    res.json(await ctx.settings.get());
+  // ─────────── settings (typed registry, one row per key) ───────────
+  route('GET', '/settings', async (_req, res) => {
+    res.json({ settings: await ctx.settings.get(), versions: Object.fromEntries(Object.entries(await ctx.settings.meta()).map(([k, m]) => [k, m.version])) });
   });
-  r.put('/settings', async (req, res) => {
+  route('PUT', '/settings', async (req, res) => {
     const actor = actorOf(req);
-    requirePerm(actor, 'settings.manage');
-    const patch = parse(settingsPatchSchema, req.body);
-    if (patch.mockHasad && !demo) throw forbidden();
-    await requireRecentReauth(ctx, req);
-    const next = await ctx.db.transaction(async (tx) => {
-      const s = await ctx.settings.update(tx, patch, actor.userId);
-      await writeAudit(tx, actor, {
-        action: 'SETTINGS_CHANGED',
-        entityType: 'settings',
-        entityId: Object.keys(patch).join(','),
-        branchId: null,
-        key: 'System settings changed: {sections}',
-        params: { sections: ap.list(Object.keys(patch).map((k) => ap.enum(k))) },
-        metadata: { patch },
+    const body = parse(
+      z
+        .object({
+          changes: z.record(z.string().regex(/^[a-zA-Z]+\.[a-zA-Z]+$/), z.unknown()).refine((c) => Object.keys(c).length > 0 && Object.keys(c).length <= 40, 'Between 1 and 40 changes'),
+          reason: zText(500).optional(),
+          expectedVersions: z.record(z.string(), z.number().int().min(0)).optional(),
+        })
+        .strict(),
+      req.body,
+    );
+    if ('branding.logoAssetId' in body.changes) throw forbidden('Use the logo upload to change the logo');
+    const result = await ctx.db.transaction(async (tx) => {
+      const { settings, changed } = await ctx.settings.apply(tx, body.changes, {
+        actor: { id: actor.userId, username: actor.username },
+        reason: body.reason,
+        expectedVersions: body.expectedVersions,
+        allowDemoOnly: demo,
       });
-      return s;
+      if (changed.length) {
+        await writeAudit(tx, actor, {
+          action: 'SETTINGS_CHANGED',
+          entityType: 'settings',
+          entityId: changed.map((c) => c.key).join(',').slice(0, 200),
+          branchId: null,
+          key: 'System settings changed: {sections}',
+          params: { sections: ap.list(changed.map((c) => ap.enum(c.key))) },
+          metadata: { changes: changed, reason: body.reason ?? null },
+        });
+      }
+      return { settings, changed };
     });
-    res.json(next);
+    res.json({ settings: result.settings, changed: result.changed.map((c) => c.key), versions: Object.fromEntries(Object.entries(await ctx.settings.meta()).map(([k, m]) => [k, m.version])) });
+  });
+  route('GET', '/settings/history/:key', async (req, res) => {
+    const { key } = parse(z.object({ key: z.string().regex(/^[a-zA-Z]+\.[a-zA-Z]+$/) }).strict(), req.params);
+    if (!isSettingKey(key)) throw notFound('Setting');
+    res.json(await ctx.settings.history(ctx.db, key));
+  });
+
+  // ─────────── branding ───────────
+  route('GET', '/branding/logo', async (_req, res) => {
+    const logo = await branding.currentLogo(ctx);
+    res.setHeader('Content-Type', logo.mime);
+    res.setHeader('Content-Disposition', 'inline; filename="logo"');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.setHeader('ETag', logo.etag);
+    res.end(logo.bytes);
+  });
+  route(
+    'POST',
+    '/branding/logo',
+    express.raw({ type: () => true, limit: LOGO_MAX_BYTES + 1024 }),
+    async (req, res) => {
+      const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+      res.json(await branding.uploadLogo(ctx, actorOf(req), bytes, req.header('content-type')));
+    },
+  );
+  route('DELETE', '/branding/logo', async (req, res) => res.json(await branding.clearLogo(ctx, actorOf(req))));
+
+  // ─────────── branches (GM) ───────────
+  const zBranchCode = z.string().regex(/^[A-Z]{2,6}$/);
+  route('POST', '/branches', async (req, res) => {
+    const body = parse(
+      z
+        .object({
+          code: zBranchCode,
+          name: zText(80).min(2),
+          nameAr: zText(80).min(2),
+          city: zText(60).min(2),
+          address: zText(200).optional(),
+          phone: zPhone.optional(),
+          hasadBranchCode: z.string().regex(/^[A-Z0-9-]{2,30}$/).optional(),
+        })
+        .strict(),
+      req.body,
+    );
+    res.json(await branches.createBranch(ctx, actorOf(req), body));
+  });
+  route('PATCH', '/branches/:id', async (req, res) => {
+    const body = parse(
+      z
+        .object({ name: zText(80).min(2).optional(), nameAr: zText(80).min(2).optional(), city: zText(60).min(2).optional(), address: zText(200).optional(), phone: zPhone.optional(), isActive: z.boolean().optional() })
+        .strict(),
+      req.body,
+    );
+    res.json(await branches.updateBranch(ctx, actorOf(req), parse(zId, req.params.id), body));
   });
 
   // ─────────── sessions ───────────
-  r.post('/sessions/heartbeat', async (_req, res) => res.json({ ok: true }));
-  r.get('/sessions', async (req, res) => {
+  route('POST', '/sessions/heartbeat', async (_req, res) => res.json({ ok: true }));
+  route('GET', '/sessions', async (req, res) => {
     const q = parse(z.object({ scope: z.enum(['active', 'recent']).default('active'), branchId: zOptId, mine: zBool.optional() }).strict(), req.query);
     res.json(await sessions.listSessions(ctx, actorOf(req), q));
   });
-  r.post('/sessions/:key/revoke', async (req, res) => {
+  route('POST', '/sessions/:key/revoke', async (req, res) => {
     const { key } = parse(z.object({ key: z.string().regex(/^[0-9a-f]{16}$/) }).strict(), req.params);
     await sessions.revokeSession(ctx, actorOf(req), key);
     res.json({ ok: true });
@@ -207,13 +284,12 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
   // ─────────── users ───────────
   const zUsername = zText(40).min(3);
   const zFullName = zText(120).min(2);
-  const zPhone = zText(30).regex(/^[+\d\s()-]*$/);
   const zRoleCode = z.string().regex(/^[A-Z][A-Z0-9_]{1,39}$/);
-  r.get('/users', async (req, res) => {
+  route('GET', '/users', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId }).strict(), req.query);
     res.json(await users.listUsers(ctx, actorOf(req), q));
   });
-  r.post('/users', async (req, res) => {
+  route('POST', '/users', async (req, res) => {
     const body = parse(
       z
         .object({
@@ -228,11 +304,9 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
         .strict(),
       req.body,
     );
-    requirePerm(actorOf(req), 'users.manage');
-    await requireRecentReauth(ctx, req); // assigns a role
     res.json(await users.createUser(ctx, actorOf(req), body));
   });
-  r.patch('/users/:id', async (req, res) => {
+  route('PATCH', '/users/:id', async (req, res) => {
     const body = parse(
       z
         .object({ fullName: zFullName.optional(), fullNameAr: zText(120).optional(), phone: zPhone.optional(), roleCode: zRoleCode.optional(), branchId: zIdBody.nullable().optional() })
@@ -240,22 +314,19 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
       req.body,
     );
     const id = parse(zId, req.params.id);
-    requirePerm(actorOf(req), 'users.manage');
+    // Role/branch changes need a recent re-authentication (the rest of the profile does not).
     if (body.roleCode !== undefined || body.branchId !== undefined) await requireRecentReauth(ctx, req);
     res.json(await users.updateUser(ctx, actorOf(req), id, body));
   });
-  r.post('/users/:id/reset-password', async (req, res) => {
-    const id = parse(zId, req.params.id);
-    requirePerm(actorOf(req), 'users.manage');
-    await requireRecentReauth(ctx, req);
-    res.json(await users.resetPassword(ctx, actorOf(req), id));
+  route('POST', '/users/:id/reset-password', async (req, res) => {
+    res.json(await users.resetPassword(ctx, actorOf(req), parse(zId, req.params.id)));
   });
-  r.post('/users/:id/disable', async (req, res) => res.json(await users.setUserStatus(ctx, actorOf(req), parse(zId, req.params.id), 'DISABLED')));
-  r.post('/users/:id/enable', async (req, res) => res.json(await users.setUserStatus(ctx, actorOf(req), parse(zId, req.params.id), 'ACTIVE')));
-  r.post('/users/:id/unlock', async (req, res) => res.json(await users.unlockUser(ctx, actorOf(req), parse(zId, req.params.id))));
+  route('POST', '/users/:id/disable', async (req, res) => res.json(await users.setUserStatus(ctx, actorOf(req), parse(zId, req.params.id), 'DISABLED')));
+  route('POST', '/users/:id/enable', async (req, res) => res.json(await users.setUserStatus(ctx, actorOf(req), parse(zId, req.params.id), 'ACTIVE')));
+  route('POST', '/users/:id/unlock', async (req, res) => res.json(await users.unlockUser(ctx, actorOf(req), parse(zId, req.params.id))));
 
   // ─────────── inventory ───────────
-  r.get('/inventory/items', async (req, res) => {
+  route('GET', '/inventory/items', async (req, res) => {
     const q = parse(
       z
         .object({
@@ -274,21 +345,18 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
     );
     res.json(await inventory.searchItems(ctx, actorOf(req), { ...q, status: q.status as never }));
   });
-  r.get('/inventory/items/:id', async (req, res) => res.json(await inventory.getItemDetail(ctx, actorOf(req), parse(zId, req.params.id))));
-  r.post('/inventory/items/:id/price', async (req, res) => {
+  route('GET', '/inventory/items/:id', async (req, res) => res.json(await inventory.getItemDetail(ctx, actorOf(req), parse(zId, req.params.id))));
+  route('POST', '/inventory/items/:id/price', async (req, res) => {
     const body = parse(z.object({ sellingPrice: zPositiveMoney, reason: zText(500).default('') }).strict(), req.body);
     res.json(await inventory.changePrice(ctx, actorOf(req), parse(zId, req.params.id), body.sellingPrice, body.reason));
   });
-  r.post('/inventory/items/:id/adjust', async (req, res) => {
+  route('POST', '/inventory/items/:id/adjust', async (req, res) => {
     const body = parse(z.object({ action: z.enum(['MARK_DAMAGED', 'RESTOCK', 'RETURN_TO_SUPPLIER']), reason: zText(500).min(3) }).strict(), req.body);
-    const id = parse(zId, req.params.id);
-    requirePerm(actorOf(req), 'inventory.adjust');
-    await requireRecentReauth(ctx, req);
-    res.json(await inventory.adjustItem(ctx, actorOf(req), id, body.action, body.reason));
+    res.json(await inventory.adjustItem(ctx, actorOf(req), parse(zId, req.params.id), body.action, body.reason));
   });
 
   // ─────────── sales ───────────
-  r.post('/sales', async (req, res) => {
+  route('POST', '/sales', async (req, res) => {
     const body = parse(
       z
         .object({
@@ -304,7 +372,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
     const sale = await sales.createSale(ctx, actorOf(req), body);
     res.json(await sales.getSale(ctx, actorOf(req), sale.id));
   });
-  r.get('/sales', async (req, res) => {
+  route('GET', '/sales', async (req, res) => {
     const q = parse(
       z
         .object({ from: zDay.optional(), to: zDay.optional(), branchId: zOptId, cashierId: zOptId, q: zQ, status: z.enum(['COMPLETED', 'VOIDED']).optional(), mine: zBool.optional() })
@@ -313,34 +381,34 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
     );
     res.json(await sales.listSales(ctx, actorOf(req), q));
   });
-  r.get('/sales/:id', async (req, res) => res.json(await sales.getSale(ctx, actorOf(req), parse(zId, req.params.id))));
-  r.post('/sales/:id/void', async (req, res) => {
+  route('GET', '/sales/:id', async (req, res) => res.json(await sales.getSale(ctx, actorOf(req), parse(zId, req.params.id))));
+  route('POST', '/sales/:id/void', async (req, res) => {
     const body = parse(z.object({ reason: zText(500).min(3) }).strict(), req.body);
     res.json(await sales.voidSale(ctx, actorOf(req), parse(zId, req.params.id), body.reason));
   });
 
   // ─────────── Hasad ───────────
-  r.get('/hasad/withdrawals', async (req, res) => {
+  route('GET', '/hasad/withdrawals', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId, status: zStatusList, q: zQ, from: zDay.optional(), to: zDay.optional() }).strict(), req.query);
     res.json(await hasad.listWithdrawals(ctx, actorOf(req), { ...q, status: q.status as never }));
   });
-  r.get('/hasad/withdrawals/:id', async (req, res) => res.json(await hasad.getWithdrawal(ctx, actorOf(req), parse(zId, req.params.id))));
-  r.get('/hasad/withdrawals/:id/candidates', async (req, res) => {
+  route('GET', '/hasad/withdrawals/:id', async (req, res) => res.json(await hasad.getWithdrawal(ctx, actorOf(req), parse(zId, req.params.id))));
+  route('GET', '/hasad/withdrawals/:id/candidates', async (req, res) => {
     const q = parse(z.object({ q: zQ, karat: zKarat.optional(), category: z.string().regex(/^[A-Z_]{2,30}$/).optional() }).strict(), req.query);
     res.json(await hasad.candidateItems(ctx, actorOf(req), parse(zId, req.params.id), q));
   });
-  r.post('/hasad/withdrawals/:id/open', async (req, res) => {
+  route('POST', '/hasad/withdrawals/:id/open', async (req, res) => {
     const body = parse(z.object({ verification: z.enum(['PICKUP_CODE', 'ID_DOCUMENT']), pickupCode: z.string().regex(/^\d{4,8}$/).optional() }).strict(), req.body);
     res.json(await hasad.openWithdrawal(ctx, actorOf(req), parse(zId, req.params.id), body));
   });
-  r.post('/hasad/withdrawals/:id/items', async (req, res) => {
+  route('POST', '/hasad/withdrawals/:id/items', async (req, res) => {
     const body = parse(z.object({ itemId: zIdBody }).strict(), req.body);
     res.json(await hasad.addItem(ctx, actorOf(req), parse(zId, req.params.id), body.itemId));
   });
-  r.delete('/hasad/withdrawals/:id/items/:itemId', async (req, res) => {
+  route('DELETE', '/hasad/withdrawals/:id/items/:itemId', async (req, res) => {
     res.json(await hasad.removeItem(ctx, actorOf(req), parse(zId, req.params.id), parse(zId, req.params.itemId)));
   });
-  r.post('/hasad/withdrawals/:id/complete', async (req, res) => {
+  route('POST', '/hasad/withdrawals/:id/complete', async (req, res) => {
     const body = parse(
       z
         .object({
@@ -354,22 +422,22 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
     );
     res.json(await hasad.completeWithdrawal(ctx, actorOf(req), parse(zId, req.params.id), body));
   });
-  r.post('/hasad/withdrawals/:id/abort', async (req, res) => {
+  route('POST', '/hasad/withdrawals/:id/abort', async (req, res) => {
     const body = parse(z.object({ reason: zText(500).min(3).default('Customer left without completing') }).strict(), req.body);
     res.json(await hasad.abortRedemption(ctx, actorOf(req), parse(zId, req.params.id), body.reason));
   });
-  r.post('/hasad/withdrawals/:id/cancel', async (req, res) => {
+  route('POST', '/hasad/withdrawals/:id/cancel', async (req, res) => {
     const body = parse(z.object({ reason: zText(500).min(3) }).strict(), req.body);
     res.json(await hasad.cancelWithdrawal(ctx, actorOf(req), parse(zId, req.params.id), body.reason));
   });
 
   // ─────────── purchases / expenses / transfers ───────────
-  r.get('/purchases', async (req, res) => {
+  route('GET', '/purchases', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId, from: zDay.optional(), to: zDay.optional(), q: zQ }).strict(), req.query);
     res.json(await purchases.listPurchases(ctx, actorOf(req), q));
   });
-  r.get('/purchases/:id', async (req, res) => res.json(await purchases.getPurchase(ctx, actorOf(req), parse(zId, req.params.id))));
-  r.post('/purchases', async (req, res) => {
+  route('GET', '/purchases/:id', async (req, res) => res.json(await purchases.getPurchase(ctx, actorOf(req), parse(zId, req.params.id))));
+  route('POST', '/purchases', async (req, res) => {
     const line = z
       .object({
         productId: zIdBody,
@@ -391,7 +459,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
     res.json(await purchases.createPurchase(ctx, actorOf(req), body));
   });
 
-  r.get('/expenses', async (req, res) => {
+  route('GET', '/expenses', async (req, res) => {
     const q = parse(
       z
         .object({
@@ -407,37 +475,37 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
     );
     res.json(await expenses.listExpenses(ctx, actorOf(req), q));
   });
-  r.post('/expenses', async (req, res) => {
+  route('POST', '/expenses', async (req, res) => {
     const body = parse(
       z.object({ branchId: zIdBody.optional(), category: z.enum(EXPENSE_CATEGORIES), amount: zPositiveMoney, expenseDate: zDay.optional(), description: zText(500).min(2) }).strict(),
       req.body,
     );
     res.json(await expenses.createExpense(ctx, actorOf(req), body));
   });
-  r.post('/expenses/:id/review', async (req, res) => {
+  route('POST', '/expenses/:id/review', async (req, res) => {
     const body = parse(z.object({ decision: z.enum(['APPROVED', 'REJECTED']), note: zText(500).optional() }).strict(), req.body);
     res.json(await expenses.reviewExpense(ctx, actorOf(req), parse(zId, req.params.id), body.decision, body.note));
   });
 
-  r.get('/transfers', async (req, res) => {
+  route('GET', '/transfers', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId, status: z.enum(['IN_TRANSIT', 'RECEIVED', 'CANCELLED']).optional() }).strict(), req.query);
     res.json(await transfers.listTransfers(ctx, actorOf(req), q));
   });
-  r.post('/transfers', async (req, res) => {
+  route('POST', '/transfers', async (req, res) => {
     const body = parse(
       z.object({ fromBranchId: zIdBody.optional(), toBranchId: zIdBody, itemIds: z.array(zIdBody).min(1).max(500), notes: zText(1000).optional() }).strict(),
       req.body,
     );
     res.json(await transfers.createTransfer(ctx, actorOf(req), body));
   });
-  r.post('/transfers/:id/receive', async (req, res) => res.json(await transfers.receiveTransfer(ctx, actorOf(req), parse(zId, req.params.id))));
+  route('POST', '/transfers/:id/receive', async (req, res) => res.json(await transfers.receiveTransfer(ctx, actorOf(req), parse(zId, req.params.id))));
 
   // ─────────── dashboards, reports, audit, notifications ───────────
-  r.get('/dashboard/branch', async (req, res) => {
+  route('GET', '/dashboard/branch', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId, date: zDay.optional() }).strict(), req.query);
     res.json(await dashboard.branchDashboard(ctx, actorOf(req), q));
   });
-  r.get('/dashboard/company', async (req, res) => {
+  route('GET', '/dashboard/company', async (req, res) => {
     const q = parse(z.object({ from: zDay.optional(), to: zDay.optional() }).strict(), req.query);
     res.json(await dashboard.companyDashboard(ctx, actorOf(req), q));
   });
@@ -453,19 +521,19 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
       action: z.string().regex(/^[A-Z_,]{2,400}$/).optional(),
     })
     .strict();
-  r.get('/reports/:key', async (req, res) => {
+  route('GET', '/reports/:key', async (req, res) => {
     const { key } = parse(z.object({ key: z.string().regex(/^[a-z-]{2,40}$/) }).strict(), req.params);
     res.json(await reports.runReport(ctx, actorOf(req), key, parse(reportQuery, req.query)));
   });
-  r.get('/audit', async (req, res) => {
+  route('GET', '/audit', async (req, res) => {
     const q = parse(reportQuery.extend({ entityType: z.string().regex(/^[a-z_]{2,40}$/).optional(), limit: z.coerce.number().int().min(1).max(5000).optional() }), req.query);
     const data = await reports.listAudit(ctx, actorOf(req), q);
     res.json(data.map(({ sessionId, ...a }) => ({ ...a, sessionRef: sessionId ? sessions.sessionRef(sessionId) : null })));
   });
-  r.get('/notifications', async (req, res) => res.json(await notificationsFor(ctx, actorOf(req))));
+  route('GET', '/notifications', async (req, res) => res.json(await notificationsFor(ctx, actorOf(req))));
 
   // Branch-scoped quick lookup used by the drill-down header.
-  r.get('/branches/:id', async (req, res) => {
+  route('GET', '/branches/:id', async (req, res) => {
     const actor = actorOf(req);
     const id = parse(zId, req.params.id);
     branchScope(actor, id);
@@ -477,9 +545,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
 
   // ─────────── demo tooling: NOT registered in production (security item 2) ───────────
   if (demo) {
-    r.post('/demo/reset', async (req: Request, res: Response) => {
-      const actor = actorOf(req);
-      requirePerm(actor, 'settings.manage');
+    route('POST', '/demo/reset', async (req: Request, res: Response) => {
       await resetDemoData(ctx);
       res.clearCookie(config.cookieName, { path: '/' });
       res.json({ ok: true });
@@ -490,11 +556,11 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
       if (!ctx.mockHasad) throw forbidden('Simulator is only available with the mock Hasad service');
       return ctx.mockHasad;
     };
-    r.get('/hasad/simulator/customers', async (req, res) => {
+    route('GET', '/hasad/simulator/customers', async (req, res) => {
       requirePerm(actorOf(req), 'hasad.simulate');
       res.json(await simulator().simulateCustomers());
     });
-    r.post('/hasad/simulator/withdrawals', async (req, res) => {
+    route('POST', '/hasad/simulator/withdrawals', async (req, res) => {
       const actor = actorOf(req);
       requirePerm(actor, 'hasad.simulate');
       const body = parse(z.object({ customerId: z.string().regex(/^[A-Z0-9-]{3,30}$/), branchId: zIdBody, weightMg: zWeightMg.optional() }).strict(), req.body);
@@ -504,10 +570,10 @@ export function apiRouter(ctx: Ctx, config: Config): Router {
       await syncWithdrawals(ctx, true);
       res.json(w);
     });
-    r.get('/hasad/integration-log', async (req, res) => {
+    route('GET', '/hasad/integration-log', async (req, res) => {
       requirePerm(actorOf(req), 'hasad.simulate');
       res.json(ctx.mockHasad ? await ctx.mockHasad.recentCalls(80) : []);
     });
   }
-  return r;
+  return Object.assign(r, { registered });
 }

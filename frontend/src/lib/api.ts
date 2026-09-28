@@ -108,7 +108,7 @@ export function setReauthHandler(h: ReauthHandler | null) {
   reauthHandler = h;
 }
 
-export async function api<T = unknown>(path: string, init: { method?: string; body?: unknown; query?: Record<string, unknown> } = {}, retried = false): Promise<T> {
+export async function api<T = unknown>(path: string, init: { method?: string; body?: unknown; query?: Record<string, unknown>; raw?: Blob } = {}, retried = false): Promise<T> {
   let url = `/api${path}`;
   if (init.query) {
     const qs = new URLSearchParams();
@@ -124,12 +124,12 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
     res = await fetch(url, {
       method: init.method ?? (init.body !== undefined ? 'POST' : 'GET'),
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': init.raw ? init.raw.type || 'application/octet-stream' : 'application/json',
         'X-Client-Module': currentModule,
         'X-Client-Idle-Ms': String(Math.max(0, Date.now() - lastInputAt)),
         ...(csrfToken && (init.method ?? (init.body !== undefined ? 'POST' : 'GET')) !== 'GET' ? { 'X-CSRF-Token': csrfToken } : {}),
       },
-      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      body: init.raw ?? (init.body !== undefined ? JSON.stringify(init.body) : undefined),
       credentials: 'same-origin',
     });
   } catch {
@@ -153,3 +153,5 @@ export const post = <T,>(path: string, body: unknown = {}) => api<T>(path, { met
 export const put = <T,>(path: string, body: unknown) => api<T>(path, { method: 'PUT', body });
 export const patch = <T,>(path: string, body: unknown) => api<T>(path, { method: 'PATCH', body });
 export const del = <T,>(path: string) => api<T>(path, { method: 'DELETE' });
+/** Upload a file as the raw request body (e.g. the company logo). */
+export const upload = <T,>(path: string, file: Blob) => api<T>(path, { method: 'POST', raw: file });

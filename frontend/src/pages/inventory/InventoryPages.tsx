@@ -6,7 +6,7 @@ import { PackageX, Pencil, RotateCcw, Truck } from 'lucide-react';
 import { ITEM_STATUSES } from '@jerp/shared';
 import { get, post } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { dateTime, grams, karatLabel, money, pct } from '../../lib/format';
+import { dateTime, grams, karatLabel, money, pct, currencyLabel } from '../../lib/format';
 import { useCategories, useDebounced } from '../../lib/hooks';
 import { noteText } from '../../lib/audit';
 import { useI18n } from '../../lib/i18n';
@@ -293,7 +293,7 @@ export function ItemDetailPage() {
         footer={<><Button onClick={() => setPriceOpen(false)}>{t('Cancel')}</Button><Button variant="primary" loading={priceM.isPending} disabled={!Number(price)} onClick={() => priceM.mutate()}>{t('Save')}</Button></>}
       >
         <div className="space-y-3">
-          <Field label={t('New selling price (SDG)')} hint={i.totalCost != null ? t('Total cost {cost} · current price {price}', { cost: money(i.totalCost), price: money(i.sellingPrice) }) : undefined}>
+          <Field label={t('New selling price ({currency})', { currency: currencyLabel() })} hint={i.totalCost != null ? t('Total cost {cost} · current price {price}', { cost: money(i.totalCost), price: money(i.sellingPrice) }) : undefined}>
             <Input type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="num" />
           </Field>
           <Field label={t('Reason')}>

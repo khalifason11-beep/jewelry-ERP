@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Permission } from '@jerp/shared';
 import { ApiError, get, onAuthError, post, setCsrfToken } from './api';
+import type { Branding } from './branding';
 
 export interface Me {
   user: {
@@ -15,7 +16,8 @@ export interface Me {
     permissions: Permission[];
   };
   session: { ref: string; loginAt: string; device: string; ipAddress: string } | null;
-  company: { name: string; nameAr: string; currency: string; timezone: string };
+  branding: Branding;
+  timezone: string;
   appMode: 'demo' | 'production';
   csrfToken: string | null;
   allowSelfPasswordChange: boolean;

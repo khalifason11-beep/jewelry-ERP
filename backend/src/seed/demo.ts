@@ -27,7 +27,7 @@ import { createTransfer, receiveTransfer } from '../modules/transfers/service';
 import { adjustItem } from '../modules/inventory/service';
 import { changeStatus, recordMovement } from '../modules/inventory/ledger';
 import { seedRolesAndPermissions } from './reference';
-import { BRANCHES, CATEGORIES, CUSTOMER_NAMES, DEMO_PASSWORDS, HASAD_CUSTOMERS, PRODUCTS, SUPPLIERS, USERS } from './catalog';
+import { BRANCHES, CATEGORIES, COMPANY, CUSTOMER_NAMES, DEMO_PASSWORDS, HASAD_CUSTOMERS, PRODUCTS, SUPPLIERS, USERS } from './catalog';
 
 const { mockCustomers, mockWithdrawals } = hasadMockTables;
 
@@ -82,6 +82,17 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
   // ───────── settings, permissions, roles ─────────
   const roleId = await seedRolesAndPermissions(db);
   ctx.settings.invalidate();
+  await ctx.settings.apply(
+    db,
+    {
+      'company.nameEn': COMPANY.name,
+      'company.nameAr': COMPANY.nameAr,
+      'branding.invoiceFooterEn': COMPANY.invoiceFooter,
+      'branding.invoiceFooterAr': COMPANY.invoiceFooterAr,
+      'hasad.enabledPerBranch': Object.fromEntries(BRANCHES.map((b) => [b.code, true])),
+    },
+    { actor: { id: null, username: 'demo-seed' }, allowDemoOnly: true },
+  );
 
   // ───────── branches & users ─────────
   const branchRows = await db.insert(t.branches).values([...BRANCHES].map((b) => ({ ...b, createdAt: at(-400, 9) }))).returning();

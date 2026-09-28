@@ -30,6 +30,7 @@ interface PurchaseRow {
 
 export function PurchasesTable({ branchId, from, to, toolbar }: { branchId?: number; from: string; to: string; toolbar?: React.ReactNode }) {
   const { t, lang } = useI18n();
+  const showCost = useAuth().can('profit.view');
   const navigate = useNavigate();
   const q = useQuery({ queryKey: ['purchases', branchId, from, to], queryFn: () => get<PurchaseRow[]>('/purchases', { branchId, from, to }) });
   if (q.isLoading) return <Loading />;
@@ -51,7 +52,8 @@ export function PurchasesTable({ branchId, from, to, toolbar }: { branchId?: num
         { key: 'supplierInvoiceNo', header: t('Supplier invoice'), render: (r) => <Mono className="text-ink-500">{r.supplierInvoiceNo ?? '—'}</Mono> },
         { key: 'itemCount', header: t('Items'), align: 'end', footer: rows.reduce((s, r) => s + r.itemCount, 0) },
         { key: 'totalNetWeightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.totalNetWeightMg)}</span>, footer: grams(rows.reduce((s, r) => s + r.totalNetWeightMg, 0)) },
-        { key: 'totalCost', header: t('Total cost'), align: 'end', render: (r) => <span className="font-medium num">{money(r.totalCost, false)}</span>, footer: money(rows.reduce((s, r) => s + r.totalCost, 0), false) },
+        // Cost figures are General Manager only (the API omits them for everyone else).
+        ...(showCost ? [{ key: 'totalCost', header: t('Total cost'), align: 'end' as const, render: (r: PurchaseRow) => <span className="font-medium num">{money(r.totalCost, false)}</span>, footer: money(rows.reduce((s, r) => s + r.totalCost, 0), false) }] : []),
         { key: 'createdByName', header: t('Received by') },
       ]}
     />
@@ -227,7 +229,8 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
 export function PurchaseDetailPage() {
   const id = Number(useParams().id);
   const { t, lang } = useI18n();
-  const { isGlobal } = useAuth();
+  const { isGlobal, can } = useAuth();
+  const showCost = can('profit.view');
   const q = useQuery({
     queryKey: ['purchase', id],
     queryFn: () =>
@@ -244,7 +247,7 @@ export function PurchaseDetailPage() {
         subtitle={t('{when} · {branch} · received by {user}', { when: dateTime(p.createdAt, lang), branch: t(p.branchName), user: p.createdByName })}
       />
       <Card className="mb-5">
-        <KeyValue cols={4} items={[{ label: t('Supplier'), value: p.supplierName ?? '—' }, { label: t('Supplier invoice'), value: p.supplierInvoiceNo ?? '—' }, { label: t('Items'), value: p.itemCount }, { label: t('Total cost'), value: money(p.totalCost) }]} />
+        <KeyValue cols={4} items={[{ label: t('Supplier'), value: p.supplierName ?? '—' }, { label: t('Supplier invoice'), value: p.supplierInvoiceNo ?? '—' }, { label: t('Items'), value: p.itemCount }, ...(showCost ? [{ label: t('Total cost'), value: money(p.totalCost) }] : [])]} />
       </Card>
       <Card padded={false}>
         <CardHeader title={t('Pieces received')} subtitle={t('Current status shows where each piece is now')} />
@@ -253,9 +256,13 @@ export function PurchaseDetailPage() {
             <tr>
               <th className="px-5 py-2 text-start font-medium">{t('Item')}</th>
               <th className="px-3 py-2 text-end font-medium">{t('Net weight')}</th>
-              <th className="px-3 py-2 text-end font-medium">{t('Purchase')}</th>
-              <th className="px-3 py-2 text-end font-medium">{t('Making')}</th>
-              <th className="px-3 py-2 text-end font-medium">{t('Other')}</th>
+              {showCost && (
+                <>
+                  <th className="px-3 py-2 text-end font-medium">{t('Purchase')}</th>
+                  <th className="px-3 py-2 text-end font-medium">{t('Making')}</th>
+                  <th className="px-3 py-2 text-end font-medium">{t('Other')}</th>
+                </>
+              )}
               <th className="px-3 py-2 text-end font-medium">{t('Selling price')}</th>
               <th className="px-5 py-2 text-start font-medium">{t('Now')}</th>
             </tr>
@@ -265,9 +272,13 @@ export function PurchaseDetailPage() {
               <tr key={i.itemId}>
                 <td className="px-5 py-2.5"><Link to={`/inventory/${i.itemId}`} className="hover:underline"><Mono className="font-semibold">{i.code}</Mono> · {i.productName} · {i.karat}K</Link></td>
                 <td className="px-3 py-2.5 text-end num">{grams(i.netWeightMg)}</td>
-                <td className="px-3 py-2.5 text-end num">{money(i.purchaseCost, false)}</td>
-                <td className="px-3 py-2.5 text-end num">{money(i.makingCost, false)}</td>
-                <td className="px-3 py-2.5 text-end num">{money(i.otherCost, false)}</td>
+                {showCost && (
+                  <>
+                    <td className="px-3 py-2.5 text-end num">{money(i.purchaseCost, false)}</td>
+                    <td className="px-3 py-2.5 text-end num">{money(i.makingCost, false)}</td>
+                    <td className="px-3 py-2.5 text-end num">{money(i.otherCost, false)}</td>
+                  </>
+                )}
                 <td className="px-3 py-2.5 text-end num">{money(i.sellingPrice, false)}</td>
                 <td className="px-5 py-2.5"><StatusBadge status={i.status} /></td>
               </tr>

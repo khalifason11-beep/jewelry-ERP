@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { ArrowLeftRight, ChevronRight, Coins, Gem, MonitorSmartphone, Receipt, TrendingUp, Wallet } from 'lucide-react';
 import { get } from '../../lib/api';
-import { addDaysKey, date as formatDate, grams, karatLabel, money, num, pct, todayKey } from '../../lib/format';
+import { addDaysKey, date as formatDate, grams, karatLabel, money, num, pct, todayKey, currencyLabel } from '../../lib/format';
 import { branchColor } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { Card, CardHeader, ErrorState, Input, Kpi, Loading, PageHeader } from '../../components/ui';
@@ -140,10 +140,10 @@ function Body({ d, onBranch, L }: { d: CompanyDash; onBranch: (id: number) => vo
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Kpi tone="dark" label={t('Total Sales')} value={money(T.revenue, false)} sub={t('{n} invoices · {currency}', { n: num(T.salesCount), currency: t('SDG') })} icon={<Receipt className="size-4" />} />
-        <Kpi label={t('Cost of Sales')} value={money(T.costOfSales, false)} sub={t('Item total cost · {currency}', { currency: t('SDG') })} />
+        <Kpi tone="dark" label={t('Total Sales')} value={money(T.revenue, false)} sub={t('{n} invoices · {currency}', { n: num(T.salesCount), currency: currencyLabel() })} icon={<Receipt className="size-4" />} />
+        <Kpi label={t('Cost of Sales')} value={money(T.costOfSales, false)} sub={t('Item total cost · {currency}', { currency: currencyLabel() })} />
         <Kpi tone="gold" label={t('Gross Profit')} value={money(T.grossProfit, false)} sub={t('Margin {pct}', { pct: pct(margin) })} icon={<TrendingUp className="size-4" />} />
-        <Kpi label={t('Total Expenses')} value={money(T.expenses, false)} sub={t('Approved · {currency}', { currency: t('SDG') })} icon={<Wallet className="size-4" />} />
+        <Kpi label={t('Total Expenses')} value={money(T.expenses, false)} sub={t('Approved · {currency}', { currency: currencyLabel() })} icon={<Wallet className="size-4" />} />
         <Kpi label={t('Net Contribution')} value={money(T.contribution, false)} sub={t('Gross profit − expenses')} />
         <Kpi label={t('Inventory Value')} value={money(T.inventoryCost, false)} sub={t('{n} pcs · {weight} · at cost', { n: num(T.availableItems), weight: grams(T.availableWeightMg) })} icon={<Gem className="size-4" />} />
       </div>
@@ -211,12 +211,12 @@ function Body({ d, onBranch, L }: { d: CompanyDash; onBranch: (id: number) => vo
             </tfoot>
           </table>
         </div>
-        <div className="border-t border-line px-5 py-2 text-[11.5px] text-ink-500">{t('Amounts in SDG. Gross profit = selling price after discount − item total cost. Contribution = gross profit − approved branch expenses.')}</div>
+        <div className="border-t border-line px-5 py-2 text-[11.5px] text-ink-500">{t('Amounts in {currency}. Gross profit = selling price after discount − item total cost. Contribution = gross profit − approved branch expenses.', { currency: currencyLabel() })}</div>
       </Card>
 
       <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
         <Card padded={false}>
-          <CardHeader title={t('Daily sales by branch')} subtitle={t('Revenue per day, SDG')} />
+          <CardHeader title={t('Daily sales by branch')} subtitle={t('Revenue per day, {currency}', { currency: currencyLabel() })} />
           <div className="px-3 pb-3 pt-2">
             <StackedMoneyBars data={d.trend} series={series} height={260} />
           </div>

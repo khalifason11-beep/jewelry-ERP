@@ -1,17 +1,15 @@
-// System reference data needed by every deployment (demo AND production): default settings,
-// the permission catalogue, the system roles with their default grants, and product categories.
+// System reference data needed by every deployment (demo AND production): the permission catalogue, the system roles with their default grants, and product categories.
 // Idempotent: existing rows are left untouched, so it is safe to run on every bootstrap.
 
 import { inArray } from 'drizzle-orm';
 import { t, type Executor } from '@jerp/database';
-import { DEFAULT_ROLE_PERMISSIONS, DEFAULT_ROLES, DEFAULT_SETTINGS, PERMISSIONS } from '@jerp/shared';
+import { DEFAULT_ROLE_PERMISSIONS, DEFAULT_ROLES, PERMISSIONS } from '@jerp/shared';
 import { CATEGORIES } from './catalog';
 
 /** Relative privilege of the system roles (users can only manage lower ranks). */
 export const ROLE_RANK = { CASHIER: 10, BRANCH_MANAGER: 50, GENERAL_MANAGER: 100 } as const;
 
 export async function seedRolesAndPermissions(db: Executor): Promise<Record<string, number>> {
-  await db.insert(t.settings).values({ key: 'system', value: DEFAULT_SETTINGS }).onConflictDoNothing();
   await db
     .insert(t.permissions)
     .values(Object.entries(PERMISSIONS).map(([code, description]) => ({ code, description })))

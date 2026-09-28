@@ -61,7 +61,10 @@ export function createApp(ctx: Ctx, config: Config = defaultConfig) {
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
-  app.use('/api', authenticate(ctx, config), csrfProtection(ctx, config), apiRouter(ctx, config));
+  const api = apiRouter(ctx, config);
+  // Exposed for the generated permission tests (matrix ↔ registered routes).
+  app.locals.apiRoutes = api.registered;
+  app.use('/api', authenticate(ctx, config), csrfProtection(ctx, config), api);
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Unknown API endpoint', key: 'Unknown API endpoint' } });
   });

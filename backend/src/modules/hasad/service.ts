@@ -105,6 +105,13 @@ function publicWithdrawal(w: WithdrawalRow, _actor: Actor) {
   return { ...rest, hasPickupCode: !!pickupCode };
 }
 
+/** Hasad Gold counter operations are enabled per branch (setting `hasad.enabledPerBranch`). */
+async function assertHasadEnabled(ctx: Ctx, branchId: number) {
+  const [b] = await ctx.db.select({ code: t.branches.code }).from(t.branches).where(eq(t.branches.id, branchId));
+  const { hasad } = await ctx.settings.get();
+  if (!b || !hasad.enabledPerBranch[b.code]) throw forbidden('Hasad Gold is not enabled for this branch');
+}
+
 async function loadWithdrawal(exec: Executor, actor: Actor, id: number) {
   const [w] = await exec.select().from(t.hasadWithdrawals).where(eq(t.hasadWithdrawals.id, id));
   if (!w) throw notFound('Withdrawal request');
@@ -247,6 +254,7 @@ export interface OpenInput {
 export async function openWithdrawal(ctx: Ctx, actor: Actor, id: number, input: OpenInput) {
   requirePerm(actor, 'hasad.process');
   const w = await loadWithdrawal(ctx.db, actor, id);
+  await assertHasadEnabled(ctx, w.branchId);
   if (w.status === 'COMPLETED' || w.status === 'CANCELLED') throw badRequest('Withdrawal {id} is {status}', { id: w.externalId, status: w.status });
   if (input.verification === 'PICKUP_CODE') {
     if (!input.pickupCode || input.pickupCode.trim() !== w.pickupCode) throw badRequest('Pickup code does not match the Hasad request');
@@ -295,6 +303,7 @@ export async function openWithdrawal(ctx: Ctx, actor: Actor, id: number, input: 
 
 export async function addItem(ctx: Ctx, actor: Actor, id: number, itemId: number) {
   requirePerm(actor, 'hasad.process');
+  await assertHasadEnabled(ctx, (await loadWithdrawal(ctx.db, actor, id)).branchId);
   return ctx.db.transaction(async (tx) => {
     const w = await loadWithdrawal(tx, actor, id);
     if (w.status !== 'IN_PROGRESS') throw badRequest('Open the withdrawal (customer present) before selecting items');
@@ -387,6 +396,7 @@ export async function completeWithdrawal(ctx: Ctx, actor: Actor, id: number, inp
 
   // 1. Validate everything locally before telling Hasad.
   const w = await loadWithdrawal(ctx.db, actor, id);
+  await assertHasadEnabled(ctx, w.branchId);
   if (w.status !== 'IN_PROGRESS') throw badRequest('Withdrawal is {status}', { status: w.status });
   const draft = await draftRedemption(ctx.db, id);
   if (!draft) throw badRequest('No open counter session for this withdrawal');
@@ -410,7 +420,7 @@ export async function completeWithdrawal(ctx: Ctx, actor: Actor, id: number, inp
       direction: s.direction,
       weightGrams: (s.absDifferenceMg / 1000).toFixed(3),
       amount: s.amount,
-      currency: company.currency,
+      currency: company.currencyCode,
     },
     completedBy: actor.username,
   });
@@ -517,6 +527,7 @@ export async function cancelWithdrawal(ctx: Ctx, actor: Actor, id: number, reaso
   requirePerm(actor, 'hasad.cancel');
   if (!reason?.trim()) throw badRequest('A cancellation reason is required');
   const w = await loadWithdrawal(ctx.db, actor, id);
+  await assertHasadEnabled(ctx, w.branchId);
   if (w.status === 'COMPLETED' || w.status === 'CANCELLED') throw badRequest('Withdrawal is already {status}', { status: w.status });
   await ctx.hasad.cancelWithdrawal(w.externalId, reason);
   await ctx.db.transaction(async (tx) => {
@@ -568,6 +579,7 @@ export async function releaseStaleReservations(ctx: Ctx) {
 export async function candidateItems(ctx: Ctx, actor: Actor, id: number, q: { q?: string; karat?: number; category?: string }) {
   requirePerm(actor, 'hasad.process');
   const w = await loadWithdrawal(ctx.db, actor, id);
+  await assertHasadEnabled(ctx, w.branchId);
   const where: SQL[] = [eq(t.jewelryItems.branchId, w.branchId), eq(t.jewelryItems.status, 'AVAILABLE')];
   if (q.karat) where.push(eq(t.jewelryItems.karat, q.karat));
   if (q.category) where.push(eq(t.categories.code, q.category));

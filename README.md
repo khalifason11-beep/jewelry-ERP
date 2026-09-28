@@ -81,6 +81,8 @@ inventory movement, profit, drill-down, active sessions and the audit trail.
 | [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Tables, relationships, traceability, ledger |
 | [docs/HASAD_INTEGRATION.md](docs/HASAD_INTEGRATION.md) | The `HasadService` contract and how to replace the mock |
 | [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | Step-by-step client presentation |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production behind a reverse proxy (Render): env vars, first start, operator console, verifying client IPs |
+| [docs/decisions.md](docs/decisions.md) | Every decision taken under ambiguity, with how to change it |
 
 ## Repository layout
 
@@ -122,8 +124,35 @@ a one-time password (it must be changed at first sign-in). It refuses to run aga
 The server also refuses to start while any demo account still accepts its published demo password.
 
 Authentication: Argon2id password hashes, lockout after 5 failures (15 → 30 → 60 min, the GM can unlock), per-IP
-throttling, idle sign-out (15 min cashiers / 30 min managers) and a 12 h absolute session limit, CSRF tokens, and
-password re-confirmation for rate, role, settings and inventory-adjustment changes. See `docs/decisions.md`.
+throttling, idle sign-out after 60 min without user input (all roles, changeable by the GM in Settings) and a 12 h absolute
+session limit, CSRF tokens, and password re-confirmation for rate, role, settings, branding, branch and
+inventory-adjustment changes. See `docs/decisions.md`.
+
+Deploying behind Render or another reverse proxy: follow **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** (exact env
+vars, and how to check that real client IPs reach the audit log).
+
+Operator console (needs shell access to the server; refuses to run outside `APP_MODE=production` unless given
+`--allow-non-production`; every action is audited):
+
+```bash
+npm run ops -w @jerp/backend -- unlock --username <user>
+npm run ops -w @jerp/backend -- reset-gm-password --username <gm user>
+```
+
+### Settings, branding and branches
+
+- **Settings** (GM, Settings screen): each setting is one row with a version and an append-only history
+  (`settings_history`: old value, new value, who, when, optional reason). The typed registry with each key's
+  validation and default is `shared/src/settings.ts`. Every change needs the password re-entered and is audited.
+- **Branding**: company names (EN/AR), currency labels, invoice footer and logo come from Settings and appear on the
+  login page, header, browser title and invoices. Nothing company-specific is hard-coded. Logos: PNG, JPEG or WebP
+  (checked by content), at most 512 KB and 1024×1024 px; SVG is refused.
+- **Branches** (GM, Branches → New branch / Edit): validated, audited, re-auth required. Branch codes are unique and
+  can never be changed.
+- **Permissions**: one route → permission → scope table (`shared/src/route-matrix.ts`) drives a central guard;
+  a route not in the table cannot be registered, and the tests are generated from the table for every route and
+  role. Cost, acquisition cost and profit figures are removed from API responses for everyone except the General
+  Manager.
 
 ### Language
 

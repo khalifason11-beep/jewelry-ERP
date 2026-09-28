@@ -31,6 +31,7 @@ import type { Permission } from '@jerp/shared';
 import { get, post, setCurrentModule, translateParams } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { deviceText, money, relative } from '../../lib/format';
+import { useBranding } from '../../lib/branding';
 import { useI18n } from '../../lib/i18n';
 
 interface NavItem {
@@ -42,16 +43,20 @@ interface NavItem {
 }
 
 export function Logo({ compact = false }: { compact?: boolean }) {
-  const { me } = useAuth();
+  const branding = useBranding();
   const { t, L } = useI18n();
   return (
     <div className="flex items-center gap-2.5">
-      <div className="grid size-9 shrink-0 place-items-center rounded-lg border border-gold-600/40 bg-ink-850">
-        <Gem className="size-[18px] text-gold-400" strokeWidth={1.75} />
+      <div className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg border border-gold-600/40 bg-ink-850">
+        {branding.logoUrl ? (
+          <img src={branding.logoUrl} alt="" className="max-h-full max-w-full object-contain" />
+        ) : (
+          <Gem className="size-[18px] text-gold-400" strokeWidth={1.75} />
+        )}
       </div>
       {!compact && (
         <div className="min-w-0 leading-tight">
-          <div className="truncate text-[14px] font-semibold text-white">{L(me?.company.name ?? 'Loai Tabeede', me?.company.nameAr ?? 'لؤي تبيدي')}</div>
+          <div className="truncate text-[14px] font-semibold text-white">{L(branding.company.nameEn, branding.company.nameAr)}</div>
           <div className="text-[11px] tracking-wide text-gold-400/90">{t('ERP · Prototype')}</div>
         </div>
       )}

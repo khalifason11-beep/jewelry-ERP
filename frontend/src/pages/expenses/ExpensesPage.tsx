@@ -5,7 +5,7 @@ import { Check, Plus, X } from 'lucide-react';
 import { EXPENSE_CATEGORIES } from '@jerp/shared';
 import { get, post } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { date, humanize, money, todayKey } from '../../lib/format';
+import { date, humanize, money, todayKey, currencyLabel } from '../../lib/format';
 import { useBranches } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
@@ -155,7 +155,7 @@ function NewExpenseDialog({ onClose }: { onClose: () => void }) {
         <Field label={t('Date')}>
           <Input type="date" value={f.expenseDate} max={todayKey()} onChange={(e) => setF({ ...f, expenseDate: e.target.value })} />
         </Field>
-        <Field label={t('Amount (SDG)')} className="sm:col-span-2">
+        <Field label={t('Amount ({currency})', { currency: currencyLabel() })} className="sm:col-span-2">
           <Input type="number" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} className="num" />
         </Field>
         <Field label={t('Description')} className="sm:col-span-2">
