@@ -11,11 +11,15 @@ import { dayRange } from '../../core/time';
 import { changeStatus, lockItems, recordMovement } from '../inventory/ledger';
 import { accountKindFor, post, reverseRef } from '../ledger/service';
 import type { TxIdempotency } from '../../core/idempotency';
+import { allowedKarats } from '../../core/karats';
 
 export interface CreateSaleInput {
   branchId?: number;
   items: { itemId: number; discount?: number }[];
   paymentMethod: PaymentMethod;
+  /** Hasad (D-4-6): the Hasad invoice number (required) and transaction reference (optional). */
+  paymentRefInvoice?: string;
+  paymentRefTransaction?: string;
   customerName?: string;
   customerNameAr?: string;
   customerPhone?: string;
@@ -30,6 +34,16 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
   if (new Set(ids).size !== ids.length) throw badRequest('The same item appears twice in the cart');
 
   const settings = await ctx.settings.get();
+  // Payment methods offered at the counter (D-4-6): the setting decides; CARD and MOBILE_WALLET
+  // stay in the data model but are not accepted unless the General Manager turns them back on.
+  if (!settings.sales.posPaymentMethods.includes(input.paymentMethod)) {
+    throw badRequest('{method} is not accepted at the counter', { method: input.paymentMethod });
+  }
+  const refInvoice = input.paymentRefInvoice?.trim() || null;
+  const refTransaction = input.paymentRefTransaction?.trim() || null;
+  if (input.paymentMethod === 'HASAD' && !refInvoice) throw badRequest('Enter the Hasad invoice number');
+  if (input.paymentMethod !== 'HASAD' && (refInvoice || refTransaction)) throw badRequest('Payment references are only recorded for Hasad payments');
+  const sellable = await allowedKarats(ctx);
   const maxPct = settings.sales.maxDiscountPercentByRole[actor.roleCode] ?? 0;
   const hasDiscount = input.items.some((i) => (i.discount ?? 0) > 0);
   if (hasDiscount && !can(actor, 'sales.discount')) throw forbidden('You are not allowed to give discounts');
@@ -51,6 +65,10 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       const item = byId.get(line.itemId)!;
       if (item.branchId !== branchId) throw forbidden('Item {code} does not belong to this branch', { code: item.code });
       if (item.status !== 'AVAILABLE') throw badRequest('Item {code} is {status} and cannot be sold', { code: item.code, status: item.status });
+      // Karat restriction (D-4-1).
+      if (!sellable.includes(item.karat)) {
+        throw badRequest('{karat}K is not sold here: sellable pieces must be {allowed}', { karat: item.karat, allowed: sellable.map((k) => `${k}K`).join(', ') });
+      }
       const discount = roundMoney(line.discount ?? 0);
       if (discount < 0) throw badRequest('Discount cannot be negative');
       if (discount > (item.sellingPrice * maxPct) / 100) {
@@ -79,6 +97,8 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
         total: subtotal - discountTotal,
         costTotal,
         paymentMethod: input.paymentMethod,
+        paymentRefInvoice: refInvoice,
+        paymentRefTransaction: refTransaction,
         createdAt: at,
       })
       .returning();
@@ -114,7 +134,8 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       params: { number, n: lines.length, total: ap.money(subtotal - discountTotal), payment: ap.enum(input.paymentMethod) },
       metadata: { items: lines.map((l) => l.item.code), total: subtotal - discountTotal, discountTotal },
     });
-    // The money: into the drawer (CASH) or the bank (CARD, MOBILE_WALLET, BANK_TRANSFER) — Q5.
+    // The money: into the drawer (CASH), the bank (CARD, MOBILE_WALLET, BANK_TRANSFER) — Q5 — or the
+    // branch's Hasad receivable (HASAD, D-4-6), held there until a settlement flow is decided.
     await post(
       tx,
       [{ branchId, kind: accountKindFor(input.paymentMethod), amount: subtotal - discountTotal, eventType: 'SALE', paymentMethod: input.paymentMethod, ref: { refType: 'sale', refId: sale.id, refNumber: number }, at }],

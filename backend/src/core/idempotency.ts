@@ -26,6 +26,7 @@ import type { Executor } from '@jerp/database';
 import type { Ctx } from './context';
 import { AppError, badRequest } from './errors';
 import { log } from './logger';
+import { stripCostFields } from './cost-redaction';
 
 export const IDEMPOTENCY_HEADER = 'Idempotency-Key';
 /** Keys are kept this long; a retry after that is treated as a new request. */
@@ -172,6 +173,7 @@ export function idempotencyInTx(ctx: Ctx, rule: RouteRule): RequestHandler {
       if (!key) throw new AppError(428, 'IDEMPOTENCY_KEY_REQUIRED', 'This request needs an Idempotency-Key header');
       if (!KEY_PATTERN.test(key)) throw badRequest('Invalid Idempotency-Key');
       const userId = req.actor!.userId;
+      const canSeeCost = req.actor!.permissions.has('profit.view');
       const hash = requestHash(req.method, req.originalUrl.split('?')[0], req.body);
       await purgeExpired(ctx).catch((e) => log.warn('idempotency purge failed', { error: String(e) }));
       const [prior] = await ctx.db.select().from(t.idempotencyKeys).where(and(eq(t.idempotencyKeys.userId, userId), eq(t.idempotencyKeys.key, key)));
@@ -192,9 +194,13 @@ export function idempotencyInTx(ctx: Ctx, rule: RouteRule): RequestHandler {
           await tx.insert(t.idempotencyKeys).values({ userId, key, route, requestHash: hash, status: 'IN_PROGRESS' });
         },
         async complete(tx, result) {
+          // Store what the caller is allowed to see: never keep COST fields for a caller without
+          // profit.view (the replay is redacted again on the way out anyway).
+          const plain = JSON.parse(JSON.stringify(result ?? null));
+          const stored = canSeeCost ? plain : stripCostFields(plain);
           await tx
             .update(t.idempotencyKeys)
-            .set({ status: 'COMPLETED', responseStatus: 200, responseBody: JSON.parse(JSON.stringify(result ?? null)), completedAt: new Date() })
+            .set({ status: 'COMPLETED', responseStatus: 200, responseBody: stored, completedAt: new Date() })
             .where(and(eq(t.idempotencyKeys.userId, userId), eq(t.idempotencyKeys.key, key)));
         },
       };

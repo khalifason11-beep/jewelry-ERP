@@ -52,7 +52,11 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   permissions: { safe: words('code description') },
   products: { safe: words('id sku name name_ar category_id karat description created_at') },
   purchase_items: { cost: words('purchase_cost making_cost other_cost'), safe: words('id purchase_id item_id') },
-  purchases: { cost: ['total_cost'], safe: words('id number branch_id supplier_id supplier_invoice_no status item_count total_net_weight_mg notes created_by created_at') },
+  // Phase 4: the gold still owed to the supplier and the making charge paid are GM-only (D-4-4).
+  purchases: {
+    cost: words('total_cost gold_debt_mg_pure24 gold_owed_mg_pure24 making_charge_paid'),
+    safe: words('id number branch_id supplier_id supplier_invoice_no status item_count total_net_weight_mg notes created_by created_at making_charge_paid_from'),
+  },
   role_permissions: { safe: words('role_id permission_code') },
   roles: { safe: words('id code name name_ar description is_system rank') },
   // Price components (price_*) describe the SELLING price (Q2), not the cost: SAFE.
@@ -62,7 +66,7 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   },
   sales: {
     cost: ['cost_total'],
-    safe: words('id number branch_id cashier_id session_id customer_name customer_name_ar customer_phone subtotal discount_total total payment_method status voided_at voided_by void_reason created_at'),
+    safe: words('id number branch_id cashier_id session_id customer_name customer_name_ar customer_phone subtotal discount_total total payment_method status voided_at voided_by void_reason created_at payment_ref_invoice payment_ref_transaction'),
   },
   sessions: { safe: words('id user_id branch_id login_at last_activity_at user_agent device ip_address current_module status ended_at ended_reason absolute_expires_at reauth_at csrf_token is_simulated') },
   settings: { safe: words('key value version updated_at updated_by') },
@@ -76,6 +80,19 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   ledger_accounts: { safe: words('id branch_id kind created_at') },
   ledger_entries: { safe: words('id account_id branch_id amount event_type payment_method ref_type ref_id ref_number reverses_entry_id actor_id session_id idempotency_key note at') },
   cash_counts: { safe: words('id branch_id business_day counted_amount expected_amount counted_by note at') },
+  // ── Scrap gold (Phase 4). The pool, rates and counter purchases are branch operations (like the ledger).
+  scrap_rates: { safe: words('id karat price_per_gram effective_at set_by') },
+  scrap_purchases: {
+    safe: words(
+      'id number branch_id kind karat gross_weight_mg net_weight_mg scrap_rate_per_gram agreed_rate_per_gram deviation_bp override_approved amount payment_method item_id customer_name customer_phone customer_id_ref note created_by created_at',
+    ),
+  },
+  scrap_weight_entries: { safe: words('id branch_id karat weight_mg event_type ref_type ref_id ref_number actor_id session_id idempotency_key note at') },
+  // Settlement details are GM-only (D-4-4): distinct column names keep them apart from SAFE weight/karat fields.
+  supplier_settlements: {
+    cost: words('settled_karat settled_weight_mg settled_pure_mg24'),
+    safe: words('id number purchase_id branch_id actor_id session_id idempotency_key note at'),
+  },
   // ── Hasad mock schema (integrations/hasad/src/mock/schema.ts, demo only)
   api_calls: { safe: words('id at operation request response_status response duration_ms') },
   customers: { safe: words('id full_name full_name_ar phone national_id_masked balance_mg karat created_at') },
@@ -107,6 +124,12 @@ export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
   'acquisitionCost',
   'makingCharge',
   'costIsEstimated',
+  'goldDebtMgPure24',
+  'goldOwedMgPure24',
+  'makingChargePaid',
+  'settledKarat',
+  'settledWeightMg',
+  'settledPureMg24',
 ]);
 
 /** Every other field name the API sends, classified SAFE (one registry; unknown names fail tests). */
@@ -152,6 +175,11 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     accountId eventType reversesEntryId idempotencyKey expectedCash bank fundsInTransit openingCash salesByMethod
     voidsByMethod voidsTotal expensesCash expensesBank settlementsCash settlementsBank cashMovement counted difference
     countedAmount expectedAmount countedBy countedByName businessDay
+    makingChargePaidFrom paymentRefInvoice paymentRefTransaction scrapRatePerGram agreedRatePerGram deviationBp overrideApproved
+    customerIdRef hasadReceivable posPaymentMethods brokenScrap pureMg24 brokenScrapPureMg24 itemsPureMg24 totalPureMg24 weightByKarat
+    settlementCount purchaseNumber supplierName origin scrapRates byKarat balanceMg createdByName toleranceBp
+    summary value itemsWeightMg brokenScrapWeightMg totalWeightMg stockWeight items settlements
+    scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates
   `),
 );
 

@@ -96,6 +96,8 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
     const ownSale = await one(ctx.db.select().from(t.sales).where(eq(t.sales.cashierId, cashier.id)).orderBy(desc(t.sales.id)));
     const voided = await one(ctx.db.select().from(t.sales).where(and(eq(t.sales.branchId, krt.id), eq(t.sales.status, 'VOIDED'))));
     const purchase = await one(ctx.db.select().from(t.purchases).where(eq(t.purchases.branchId, krt.id)));
+    // A purchase with supplier settlements (Phase 4): its gold debt and settlements are COST.
+    const settled = await one(ctx.db.select().from(t.supplierSettlements).where(eq(t.supplierSettlements.branchId, krt.id)));
     const done = await one(ctx.db.select().from(t.hasadWithdrawals).where(and(eq(t.hasadWithdrawals.branchId, krt.id), eq(t.hasadWithdrawals.status, 'COMPLETED'))));
     const ready = await one(ctx.db.select().from(t.hasadWithdrawals).where(and(eq(t.hasadWithdrawals.branchId, krt.id), eq(t.hasadWithdrawals.status, 'READY_FOR_PICKUP'))));
     const reportPaths = [
@@ -122,7 +124,7 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /settings/history/:key': ['/settings/history/security.idleMinutes'],
       'GET /sessions': ['/sessions'],
       'GET /users': ['/users'],
-      'GET /inventory/items': ['/inventory/items', `/inventory/items?branchId=${krt.id}&status=SOLD`],
+      'GET /inventory/items': ['/inventory/items', `/inventory/items?branchId=${krt.id}&status=SOLD`, '/inventory/items?origin=SCRAP'],
       'GET /inventory/items/:id': [`/inventory/items/${soldItem.id}`, `/inventory/items/${availItem.id}`],
       'GET /sales': ['/sales', '/sales?mine=true'],
       'GET /sales/:id': [`/sales/${ownSale.id}`, ...(voided ? [`/sales/${voided.id}`] : [])],
@@ -130,7 +132,10 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /hasad/withdrawals/:id': [`/hasad/withdrawals/${done.id}`, `/hasad/withdrawals/${ready.id}`],
       'GET /hasad/withdrawals/:id/candidates': [`/hasad/withdrawals/${ready.id}/candidates`],
       'GET /purchases': ['/purchases'],
-      'GET /purchases/:id': [`/purchases/${purchase.id}`],
+      'GET /purchases/:id': [`/purchases/${purchase.id}`, `/purchases/${settled.purchaseId}`],
+      'GET /scrap-rates': ['/scrap-rates'],
+      'GET /scrap-purchases': ['/scrap-purchases', '/scrap-purchases?kind=SELLABLE'],
+      'GET /scrap-pool': ['/scrap-pool', `/scrap-pool?branchId=${krt.id}`],
       'GET /expenses': ['/expenses'],
       'GET /transfers': ['/transfers'],
       'GET /dashboard/branch': [`/dashboard/branch?branchId=${krt.id}`],

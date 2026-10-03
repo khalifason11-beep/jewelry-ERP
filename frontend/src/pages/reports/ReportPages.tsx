@@ -8,6 +8,7 @@ import {
   Coins,
   Info,
   Receipt,
+  Scale,
   ScrollText,
   TrendingUp,
   Truck,
@@ -32,6 +33,7 @@ const REPORTS: { key: string; title: string; desc: string; icon: LucideIcon; per
   { key: 'purchases', title: tk('Purchases Report'), desc: tk('Stock received from suppliers'), icon: Truck, perm: 'purchases.view' },
   { key: 'expenses', title: tk('Expenses Report'), desc: tk('Operating expenses by branch and category'), icon: Wallet, perm: 'expenses.view' },
   { key: 'inventory', title: tk('Inventory Report'), desc: tk('Every piece with weights, costs and status'), icon: Boxes, perm: 'inventory.view' },
+  { key: 'stock-weight', title: tk('Stock Weight'), desc: tk('Gold held per branch: pieces plus broken scrap, by karat and as 24K'), icon: Scale, perm: 'inventory.view' },
   { key: 'inventory-movement', title: tk('Inventory Movement'), desc: tk('Opening → movements → closing, pieces & grams'), icon: ArrowLeftRight, perm: 'inventory.view' },
   { key: 'profit', title: tk('Profit Report'), desc: tk('Gross profit and contribution by branch, category, karat'), icon: TrendingUp, perm: 'profit.view' },
   { key: 'hasad', title: tk('Hasad Withdrawal Report'), desc: tk('Entitlement vs delivered weight and settlements'), icon: Coins, perm: 'hasad.view' },
@@ -147,6 +149,16 @@ export function ReportPage() {
         title={r?.title ? t(r.title) : meta?.title ? t(meta.title) : t('Report')}
         subtitle={r?.description ? t(r.description) : undefined}
       />
+      {r?.summary?.length ? (
+        <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="report-summary">
+          {r.summary.map((x) => (
+            <div key={x.label} className="rounded-lg border border-line bg-white px-4 py-3">
+              <div className="text-[12px] text-ink-500">{t(x.label)}</div>
+              <div className="mt-1 text-lg font-semibold">{fmt(x.type, x.value)}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <Card padded={false}>
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">
           {(r?.filters.dateRange ?? true) && <DateRange from={from} to={to} onChange={(x) => set(x)} />}

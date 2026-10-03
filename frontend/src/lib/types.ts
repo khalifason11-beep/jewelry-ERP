@@ -31,6 +31,8 @@ export interface ItemRow {
   otherCost?: number;
   totalCost?: number;
   sellingPrice: number;
+  /** OPENING, SUPPLIER_NEW (new from a supplier) or SCRAP (sellable piece bought from a customer). */
+  origin: 'OPENING' | 'SUPPLIER_NEW' | 'SCRAP';
   branchId: number;
   branchCode: string;
   branchName: string;
@@ -107,5 +109,7 @@ export interface Report {
   rows: Record<string, unknown>[];
   totals?: Record<string, number>;
   notes?: string[];
+  /** Headline figures above the table (e.g. stock weight incl. broken scrap). */
+  summary?: { label: string; type: string; value: number }[];
   filters: { dateRange: boolean; branch: boolean; user: boolean; status?: string[] };
 }

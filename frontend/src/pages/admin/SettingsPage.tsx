@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ImageUp, RotateCcw, Save, Trash2 } from 'lucide-react';
-import { settingValue, type SettingKey, type SystemSettings } from '@jerp/shared';
+import { KARATS, PAYMENT_METHODS, settingValue, type SettingKey, type SystemSettings } from '@jerp/shared';
 import { del, get, post, put, upload } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useBranding } from '../../lib/branding';
@@ -209,6 +209,9 @@ export function SettingsPage() {
           </div>
         </Card>
 
+        {/* ── Scrap buying rates (Phase 4) ── */}
+        <ScrapRatesCard />
+
         {/* ── Business rules (client to confirm) ── */}
         <Card padded={false}>
           <CardHeader
@@ -300,8 +303,19 @@ export function SettingsPage() {
 
         {/* ── Sales & expenses ── */}
         <Card padded={false}>
-          <CardHeader title={t('Sales & expenses')} actions={saveBtn(['sales.maxDiscountPercentByRole', 'expenses.approvalThreshold'])} />
+          <CardHeader title={t('Sales & expenses')} actions={saveBtn(['sales.maxDiscountPercentByRole', 'sales.posPaymentMethods', 'expenses.approvalThreshold'])} />
           <div className="grid gap-3 p-5 sm:grid-cols-3">
+            <Field label={t('Payment methods at the counter')} className="sm:col-span-3" hint={t('What the cashier can choose at the POS. Hasad asks for the Hasad invoice number.')}>
+              <div className="flex flex-wrap gap-4 pt-1">
+                {PAYMENT_METHODS.map((m) =>
+                  checkbox(
+                    draft.sales.posPaymentMethods.includes(m),
+                    (on) => set('sales', { posPaymentMethods: on ? PAYMENT_METHODS.filter((x) => x === m || draft.sales.posPaymentMethods.includes(x)) : draft.sales.posPaymentMethods.filter((x) => x !== m) }),
+                    t(m),
+                  ),
+                )}
+              </div>
+            </Field>
             {Object.entries(draft.sales.maxDiscountPercentByRole).map(([role, v]) => (
               <Field key={role} label={t('Max discount · {role} (%)', { role: humanize(role) })}>
                 {numberInput(v, (n) => set('sales', { maxDiscountPercentByRole: { ...draft.sales.maxDiscountPercentByRole, [role]: n } }), { min: 0, max: 100 })}
@@ -384,5 +398,59 @@ export function SettingsPage() {
         <p className="text-[13px] text-ink-600">{t('This takes a few seconds.')}</p>
       </Dialog>
     </div>
+  );
+}
+
+interface ScrapRatesView {
+  rates: { karat: number; pricePerGram: number; effectiveAt: string }[];
+  tolerancePct: number;
+  requireGmApproval: boolean;
+}
+
+/** Scrap BUYING rates per karat (any karat, not limited to the karats sold), set by the GM. */
+function ScrapRatesCard() {
+  const { t, lang } = useI18n();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['scrap-rates'], queryFn: () => get<ScrapRatesView>('/scrap-rates') });
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (q.data) setDraft(Object.fromEntries(q.data.rates.map((r) => [String(r.karat), String(r.pricePerGram)])));
+  }, [q.data]);
+  const m = useMutation({
+    mutationFn: () =>
+      post('/scrap-rates', {
+        rates: Object.entries(draft)
+          .filter(([, v]) => v.trim() && Number(v) > 0)
+          .map(([k, v]) => ({ karat: Number(k), pricePerGram: Number(v) })),
+      }),
+    onSuccess: () => {
+      toast.success(t('Scrap rates updated'), t('Recorded as SCRAP_RATE_CHANGED in the audit log.'));
+      qc.invalidateQueries({ queryKey: ['scrap-rates'] });
+    },
+    onError: (e) => toast.fromError(e),
+  });
+  return (
+    <Card padded={false}>
+      <CardHeader
+        title={t('Scrap buying rates (per gram)')}
+        subtitle={t('What the branches pay customers for scrap gold, by karat. Any karat can be bought as broken scrap.')}
+        actions={
+          <Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={m.isPending} onClick={() => m.mutate()}>
+            {t('Save')}
+          </Button>
+        }
+      />
+      <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
+        {KARATS.map((k) => {
+          const cur = q.data?.rates.find((r) => r.karat === k);
+          return (
+            <Field key={k} label={`${k}K`} hint={cur ? dateTime(cur.effectiveAt, lang) : t('Not set')}>
+              <Input type="number" min={0} value={draft[k] ?? ''} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} className="num" />
+            </Field>
+          );
+        })}
+      </div>
+    </Card>
   );
 }

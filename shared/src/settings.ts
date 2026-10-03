@@ -7,6 +7,7 @@
 
 import { z } from 'zod';
 import type { SettlementBasis } from './settlement';
+import { PAYMENT_METHODS, type PaymentMethod } from './enums';
 
 export type HasadRateSource =
   /** weight-averaged gold rate of the karats of the selected items */
@@ -37,6 +38,8 @@ export interface SystemSettings {
   sales: {
     /** Max discount % of the item price, per role code. Missing role = 0. */
     maxDiscountPercentByRole: Record<string, number>;
+    /** Payment methods the cashier's checkout offers (D-4-6); the others stay valid but hidden. */
+    posPaymentMethods: PaymentMethod[];
   };
   expenses: {
     /** Expenses above this amount created by non-GM users require GM approval. */
@@ -115,12 +118,14 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   },
   sales: {
     maxDiscountPercentByRole: { CASHIER: 3, BRANCH_MANAGER: 10, GENERAL_MANAGER: 20 },
+    posPaymentMethods: ['CASH', 'BANK_TRANSFER', 'HASAD'],
   },
   expenses: {
     approvalThreshold: 1_500_000,
   },
   purchases: {
-    supplierCreditEnabled: false,
+    // Phase 4 (D-4-4): supplier purchases are gold-for-gold debts settled later with broken scrap.
+    supplierCreditEnabled: true,
     scrapPriceTolerancePct: 2,
     requireGmApprovalForScrapOverride: true,
   },
@@ -194,6 +199,13 @@ export const SETTINGS_REGISTRY = {
   'branding.invoiceFooterEn': { schema: text(0, 300) },
   'branding.invoiceFooterAr': { schema: text(0, 300) },
   'sales.maxDiscountPercentByRole': { schema: z.record(roleKey, int(0, 100)) },
+  'sales.posPaymentMethods': {
+    schema: z
+      .array(z.enum(PAYMENT_METHODS))
+      .min(1)
+      .max(PAYMENT_METHODS.length)
+      .refine((a) => new Set(a).size === a.length, 'Duplicate payment method'),
+  },
   'expenses.approvalThreshold': { schema: int(0, 1_000_000_000) },
   'purchases.supplierCreditEnabled': { schema: z.boolean() },
   'purchases.scrapPriceTolerancePct': { schema: z.number().min(0).max(50) },

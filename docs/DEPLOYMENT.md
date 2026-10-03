@@ -57,6 +57,15 @@ Not used in production: `PGLITE_DIR` (embedded demo database only).
    General Manager exists. Further branches can be added later from **Branches → New branch** (GM only).
 3. Sign in as the GM, change the password, then open **Settings** and set the company names, currency
    labels, invoice footer and logo. Enable Hasad Gold per branch only when the Hasad integration is live.
+4. Still in **Settings** (Phase 4):
+   - **Business rules → Allowed karats**: set to **21 only** for this client. Only these karats can be bought from a
+     supplier, bought as a sellable scrap piece, priced, sold or delivered; broken scrap of any karat can still be
+     bought. (The code default lists 18/21/22/24; nothing in the code assumes 21.)
+   - **Scrap buying rates (per gram)**: enter today's rate for every karat the branches buy as scrap. Without a rate
+     for a karat, scrap of that karat cannot be bought.
+   - **Sales & expenses → Payment methods at the counter**: Cash, Bank transfer and Hasad by default. Card and mobile
+     wallet stay off unless the client asks for them.
+   - **Business rules → Scrap price tolerance** and **GM approval beyond tolerance**: check the values with the client.
 
 ### Operator console (shell access only)
 
@@ -197,12 +206,25 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   idempotency record in the same transaction as the money movement; a retry with the same key returns the first
   result, and nothing is ever posted twice.
 
+### Purchases, scrap and supplier settlement (Phase 4)
+
+- Migration 0007 adds a **HASAD_RECEIVABLE** account to every branch (and to every future branch). Sales paid with
+  Hasad are held there; how Hasad pays the shop is not designed yet, so the balance only accumulates.
+- Purchases recorded **before** the upgrade have no gold debt (NULL): they are shown as "recorded before gold
+  settlement" and cannot be settled with scrap. Nothing is backfilled.
+- New append-only tables (`scrap_rates`, `scrap_purchases`, `scrap_weight_entries`, `supplier_settlements`) are
+  locked like the other ledgers by the migration (`jerp_lock_append_only`); with separate owner and runtime roles
+  (section 5) the start-up check covers them too.
+- API clients: `POST /purchases` now stores its idempotency record in the same transaction (it pays the making
+  charge), like scrap purchases and supplier settlements; a retry with the same key never pays or settles twice.
+
 ## 6. After every deploy
 
 - `GET /api/health` returns `200`.
 - The login page shows the company name and logo from Settings, not "Jewelry ERP".
 - No demo accounts are listed on the login page (they are listed only in demo mode).
 - The start-up log has no `integrity constraints left NOT VALID` warning (see section 5).
+- Settings show **Allowed karats = 21** and a scrap buying rate for each karat the branches buy.
 
 ## Remaining limits (known and accepted for now)
 

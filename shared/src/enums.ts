@@ -55,7 +55,12 @@ export type Karat = (typeof KARATS)[number];
 export const CATEGORY_CODES = ['RING', 'BRACELET', 'NECKLACE', 'EARRING', 'CHAIN', 'PENDANT', 'SET'] as const;
 export type CategoryCode = (typeof CATEGORY_CODES)[number];
 
-export const PAYMENT_METHODS = ['CASH', 'BANK_TRANSFER', 'CARD', 'MOBILE_WALLET'] as const;
+/**
+ * Every payment method the system knows. Which ones the POS offers is a setting
+ * (`sales.posPaymentMethods`, D-4-6): CARD and MOBILE_WALLET stay valid but this deployment hides them.
+ * HASAD = the customer paid through the Hasad app; the money is held by Hasad (HASAD_RECEIVABLE).
+ */
+export const PAYMENT_METHODS = ['CASH', 'BANK_TRANSFER', 'CARD', 'MOBILE_WALLET', 'HASAD'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
 export const SALE_STATUSES = ['COMPLETED', 'VOIDED'] as const;
@@ -65,10 +70,11 @@ export const PRICING_MODES = ['FIXED_TAG', 'COMPUTED'] as const;
 export type PricingMode = (typeof PRICING_MODES)[number];
 
 // ── Branch money ledger (Phase 2b, decisions Q5–Q8, D-2b-*) ──
-export const LEDGER_ACCOUNT_KINDS = ['CASH', 'BANK', 'FUNDS_IN_TRANSIT'] as const;
+/** HASAD_RECEIVABLE (Phase 4): sales paid through the Hasad app, held by Hasad until settled (open question). */
+export const LEDGER_ACCOUNT_KINDS = ['CASH', 'BANK', 'FUNDS_IN_TRANSIT', 'HASAD_RECEIVABLE'] as const;
 export type LedgerAccountKind = (typeof LEDGER_ACCOUNT_KINDS)[number];
 
-export const LEDGER_EVENT_TYPES = ['SALE', 'SALE_VOID', 'EXPENSE', 'HASAD_SETTLEMENT', 'REVERSAL'] as const;
+export const LEDGER_EVENT_TYPES = ['SALE', 'SALE_VOID', 'EXPENSE', 'HASAD_SETTLEMENT', 'REVERSAL', 'SCRAP_PURCHASE', 'SUPPLIER_MAKING_CHARGE'] as const;
 export type LedgerEventType = (typeof LEDGER_EVENT_TYPES)[number];
 
 /** Q5: which branch account a payment method moves. Every entry keeps its own payment method too. */
@@ -77,7 +83,21 @@ export const PAYMENT_ACCOUNT: Record<PaymentMethod, LedgerAccountKind> = {
   BANK_TRANSFER: 'BANK',
   CARD: 'BANK',
   MOBILE_WALLET: 'BANK',
+  HASAD: 'HASAD_RECEIVABLE',
 };
+
+// ── Counter scrap purchases and the broken-scrap weight pool (Phase 4, D-4-*) ──
+/** SELLABLE becomes a jewelry item (origin SCRAP); BROKEN only adds weight to the branch pool. */
+export const SCRAP_KINDS = ['SELLABLE', 'BROKEN'] as const;
+export type ScrapKind = (typeof SCRAP_KINDS)[number];
+
+/** Payment to the customer for scrap: from the drawer or the bank. */
+export const SCRAP_PAYMENT_METHODS = ['CASH', 'BANK_TRANSFER'] as const;
+export type ScrapPaymentMethod = (typeof SCRAP_PAYMENT_METHODS)[number];
+
+/** Movements of the broken-scrap weight pool. */
+export const SCRAP_WEIGHT_EVENT_TYPES = ['SCRAP_PURCHASE', 'SUPPLIER_SETTLEMENT', 'REVERSAL'] as const;
+export type ScrapWeightEventType = (typeof SCRAP_WEIGHT_EVENT_TYPES)[number];
 
 /** Q7: an expense is paid from the drawer or the bank, chosen per expense. */
 export const EXPENSE_PAYMENT_SOURCES = ['CASH', 'BANK'] as const;
@@ -146,6 +166,9 @@ export const AUDIT_ACTIONS = [
   'ITEM_RESERVED',
   'ITEM_RELEASED',
   'PURCHASE_CREATED',
+  'SCRAP_PURCHASED',
+  'SCRAP_RATE_CHANGED',
+  'SUPPLIER_SETTLEMENT_RECORDED',
   'HASAD_WITHDRAWAL_RECEIVED',
   'HASAD_WITHDRAWAL_OPENED',
   'HASAD_WITHDRAWAL_COMPLETED',
@@ -183,6 +206,7 @@ export const REPORT_KEYS = [
   'expenses',
   'inventory',
   'inventory-movement',
+  'stock-weight',
   'profit',
   'hasad',
   'branch-performance',

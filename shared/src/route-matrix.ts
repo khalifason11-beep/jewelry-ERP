@@ -125,10 +125,17 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   // ── purchases, expenses, transfers
   r('GET', '/purchases', 'branch', { all: ['purchases.view'] }),
   r('GET', '/purchases/:id', 'branch', { all: ['purchases.view'] }),
-  r('POST', '/purchases', 'branch', { all: ['purchases.create'], idempotent: true }),
+  r('POST', '/purchases', 'branch', { all: ['purchases.create'], idempotent: true, idempotencyInTx: true }),
   r('GET', '/expenses', 'branch', { all: ['expenses.view'] }),
   r('POST', '/expenses', 'branch', { all: ['expenses.create'], idempotent: true, idempotencyInTx: true }),
   r('POST', '/expenses/:id/review', 'branch', { all: ['expenses.approve'], idempotent: true, idempotencyInTx: true }),
+  // ── scrap gold and supplier settlement (Phase 4)
+  r('GET', '/scrap-rates', 'none', { any: ['scrap.buy', 'settings.manage'] }),
+  r('POST', '/scrap-rates', 'global', { all: ['settings.manage'], reauth: true }),
+  r('GET', '/scrap-purchases', 'branch', { any: ['scrap.buy', 'purchases.view'] }),
+  r('POST', '/scrap-purchases', 'branch', { all: ['scrap.buy'], idempotent: true, idempotencyInTx: true }),
+  r('GET', '/scrap-pool', 'branch', { any: ['inventory.view', 'scrap.buy'] }),
+  r('POST', '/purchases/:id/settlements', 'branch', { all: ['purchases.settle'], idempotent: true, idempotencyInTx: true }),
   // ── cash (Phase 2b): expected drawer balance, daily reconciliation, counted cash
   r('GET', '/cash/drawer', 'branch', { all: ['cash.view'] }),
   r('GET', '/cash/reconciliation', 'branch', { all: ['cash.view'] }),

@@ -1,19 +1,31 @@
-import { gramsToMg } from '@jerp/shared';
+import { gramsToMg, KARATS, type ExpensePaymentSource } from '@jerp/shared';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { dateTime, grams, money } from '../../lib/format';
+import { dateTime, grams, karatLabel, money } from '../../lib/format';
 import { useBranches, useGoldRates } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import { Button, Card, CardHeader, Dialog, ErrorState, Field, Input, KeyValue, Loading, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, Dialog, ErrorState, Field, Input, KeyValue, Loading, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
 import { Crumbs } from '../sales/SalesPages';
 import { useActionKeys } from '../../lib/idempotency';
+
+interface Settlement {
+  id: number;
+  number: string;
+  /** COST (General Manager only): absent for everyone else. */
+  settledKarat?: number;
+  settledWeightMg?: number;
+  settledPureMg24?: number;
+  note: string | null;
+  at: string;
+  createdByName: string;
+}
 
 interface PurchaseRow {
   id: number;
@@ -106,7 +118,10 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
   const [branchId, setBranchId] = useState<number | ''>(me?.user.branch?.id ?? '');
   const [supplierId, setSupplierId] = useState<number | ''>('');
   const [invoiceNo, setInvoiceNo] = useState('');
+  const [paidFrom, setPaidFrom] = useState<ExpensePaymentSource>('CASH');
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
+  // Only karats this deployment sells can be bought from a supplier (D-4-1).
+  const sellable = products.data?.filter((p) => me?.allowedKarats.includes(p.karat));
 
   const upd = (i: number, patch: Partial<Line>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   const suggest = (i: number, l: Line) => {
@@ -121,6 +136,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
   };
   const valid = lines.every((l) => l.productId && Number(l.net) > 0 && Number(l.gross) >= Number(l.net) && Number(l.purchaseCost) > 0 && Number(l.sellingPrice) > 0) && (branchId || !isGlobal);
   const total = lines.reduce((s, l) => s + (Number(l.purchaseCost) || 0) + (Number(l.makingCost) || 0) + (Number(l.otherCost) || 0), 0);
+  const making = lines.reduce((s, l) => s + (Number(l.makingCost) || 0), 0);
 
   const actionKeys = useActionKeys();
   const m = useMutation({
@@ -129,6 +145,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
         branchId: branchId || undefined,
         supplierId: supplierId || undefined,
         supplierInvoiceNo: invoiceNo || undefined,
+        makingChargePaidFrom: paidFrom,
         lines: lines.map((l) => ({
           productId: Number(l.productId),
           grossWeightMg: gramsToMg(l.gross),
@@ -160,6 +177,8 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
         <>
           <span className="me-auto text-[13px] text-ink-600">
             {t('{n} piece(s) · total cost', { n: lines.length })} <b className="num">{money(total)}</b>
+            {' · '}
+            {t('Making charge paid now')} <b className="num">{money(making)}</b>
           </span>
           <Button onClick={onClose}>{t('Cancel')}</Button>
           <Button variant="primary" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()}>{t('Receive into stock')}</Button>
@@ -184,7 +203,16 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
         <Field label={t('Supplier invoice no.')}>
           <Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} />
         </Field>
+        <Field label={t('Making charge paid from')}>
+          <Select value={paidFrom} onChange={(e) => setPaidFrom(e.target.value as ExpensePaymentSource)}>
+            <option value="CASH">{t('Cash drawer')}</option>
+            <option value="BANK">{t('Bank')}</option>
+          </Select>
+        </Field>
       </div>
+      <Alert tone="info" className="mb-3">
+        {t('Gold for gold: the supplier is owed the pieces’ weight as 24K pure gold, settled later with broken scrap only. The making charge is the only money paid, now.')}
+      </Alert>
       <div className="overflow-x-auto">
         <table className="w-full text-[12.5px]">
           <thead className="text-ink-500">
@@ -205,7 +233,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
                 <td className="py-1 pe-2">
                   <Select value={l.productId} onChange={(e) => upd(i, { productId: e.target.value ? Number(e.target.value) : '' })} className="h-8 min-w-48 text-[12.5px]">
                     <option value="">{t('Select…')}</option>
-                    {products.data?.map((p) => <option key={p.id} value={p.id}>{L(p.name, p.nameAr)} · {p.karat}K</option>)}
+                    {sellable?.map((p) => <option key={p.id} value={p.id}>{L(p.name, p.nameAr)} · {p.karat}K</option>)}
                   </Select>
                 </td>
                 <td className="py-1 pe-2"><Input type="number" step="0.001" value={l.gross} onChange={(e) => upd(i, { gross: e.target.value })} className="h-8 w-20 text-[12.5px]" /></td>
@@ -238,7 +266,18 @@ export function PurchaseDetailPage() {
   const q = useQuery({
     queryKey: ['purchase', id],
     queryFn: () =>
-      get<PurchaseRow & { notes: string | null; items: { itemId: number; code: string; productName: string; karat: number; netWeightMg: number; purchaseCost: number; makingCost: number; otherCost: number; sellingPrice: number; status: string }[] }>(`/purchases/${id}`),
+      get<
+        PurchaseRow & {
+          notes: string | null;
+          // COST (General Manager only).
+          goldDebtMgPure24?: number | null;
+          goldOwedMgPure24?: number | null;
+          makingChargePaid?: number | null;
+          makingChargePaidFrom: 'CASH' | 'BANK' | null;
+          settlements: Settlement[];
+          items: { itemId: number; code: string; productName: string; karat: number; netWeightMg: number; purchaseCost: number; makingCost: number; otherCost: number; sellingPrice: number; status: string }[];
+        }
+      >(`/purchases/${id}`),
   });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <div className="p-6"><ErrorState error={q.error} /></div>;
@@ -251,8 +290,35 @@ export function PurchaseDetailPage() {
         subtitle={t('{when} · {branch} · received by {user}', { when: dateTime(p.createdAt, lang), branch: t(p.branchName), user: p.createdByName })}
       />
       <Card className="mb-5">
-        <KeyValue cols={4} items={[{ label: t('Supplier'), value: p.supplierName ?? '—' }, { label: t('Supplier invoice'), value: p.supplierInvoiceNo ?? '—' }, { label: t('Items'), value: p.itemCount }, ...(showCost ? [{ label: t('Total cost'), value: money(p.totalCost) }] : [])]} />
+        <KeyValue
+          cols={4}
+          items={[
+            { label: t('Supplier'), value: p.supplierName ?? '—' },
+            { label: t('Supplier invoice'), value: p.supplierInvoiceNo ?? '—' },
+            { label: t('Items'), value: p.itemCount },
+            { label: t('Making charge paid from'), value: p.makingChargePaidFrom ? t(p.makingChargePaidFrom === 'CASH' ? 'Cash drawer' : 'Bank') : '—' },
+            ...(showCost
+              ? [
+                  { label: t('Total cost'), value: money(p.totalCost) },
+                  { label: t('Making charge paid'), value: p.makingChargePaid == null ? '—' : money(p.makingChargePaid) },
+                  { label: t('Gold owed to the supplier (24K)'), value: p.goldDebtMgPure24 == null ? '—' : grams(p.goldDebtMgPure24) },
+                  {
+                    label: t('Still owed (24K)'),
+                    value:
+                      p.goldOwedMgPure24 == null ? (
+                        t('Recorded before gold settlement')
+                      ) : p.goldOwedMgPure24 === 0 ? (
+                        <span className="font-semibold text-emerald-700">{t('Fully settled')}</span>
+                      ) : (
+                        <span className="font-semibold num">{grams(p.goldOwedMgPure24)}</span>
+                      ),
+                  },
+                ]
+              : []),
+          ]}
+        />
       </Card>
+      <SettlementsCard purchaseId={p.id} branchId={p.branchId} settlements={p.settlements} owed={p.goldOwedMgPure24} />
       <Card padded={false}>
         <CardHeader title={t('Pieces received')} subtitle={t('Current status shows where each piece is now')} />
         <table className="w-full text-[13px]">
@@ -290,6 +356,115 @@ export function PurchaseDetailPage() {
           </tbody>
         </table>
       </Card>
+    </div>
+  );
+}
+
+/**
+ * Supplier settlement (D-4-5): when the supplier's representative visits, the branch manager hands
+ * over broken scrap from the branch pool. Weight and karat ONLY: there is no amount, no cash and no
+ * bank option anywhere on this form, and the API refuses any such field.
+ */
+function SettlementsCard({ purchaseId, branchId, settlements, owed }: { purchaseId: number; branchId: number; settlements: Settlement[]; owed?: number | null }) {
+  const { t, lang } = useI18n();
+  const { can } = useAuth();
+  const showCost = can('profit.view');
+  const canSettle = can('purchases.settle') && owed !== 0;
+  return (
+    <Card padded={false} className="mb-5">
+      <CardHeader title={t('Supplier settlements (broken scrap)')} subtitle={t('Gold owed to the supplier is settled only with broken-scrap weight from this branch’s pool. Never with cash or bank.')} />
+      {settlements.length ? (
+        <table className="w-full text-[13px]">
+          <thead className="bg-[#f7f8fa] text-ink-500">
+            <tr>
+              <th className="px-5 py-2 text-start font-medium">{t('Settlement')}</th>
+              <th className="px-3 py-2 text-start font-medium">{t('Date')}</th>
+              {showCost && (
+                <>
+                  <th className="px-3 py-2 text-end font-medium">{t('Karat')}</th>
+                  <th className="px-3 py-2 text-end font-medium">{t('Weight')}</th>
+                  <th className="px-3 py-2 text-end font-medium">{t('24K equivalent')}</th>
+                </>
+              )}
+              <th className="px-3 py-2 text-start font-medium">{t('Recorded by')}</th>
+              <th className="px-5 py-2 text-start font-medium">{t('Note')}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {settlements.map((s) => (
+              <tr key={s.id}>
+                <td className="px-5 py-2"><Mono className="font-semibold">{s.number}</Mono></td>
+                <td className="px-3 py-2">{dateTime(s.at, lang)}</td>
+                {showCost && (
+                  <>
+                    <td className="px-3 py-2 text-end">{s.settledKarat != null ? karatLabel(s.settledKarat) : '—'}</td>
+                    <td className="px-3 py-2 text-end num">{s.settledWeightMg != null ? grams(s.settledWeightMg) : '—'}</td>
+                    <td className="px-3 py-2 text-end num">{s.settledPureMg24 != null ? grams(s.settledPureMg24) : '—'}</td>
+                  </>
+                )}
+                <td className="px-3 py-2">{s.createdByName}</td>
+                <td className="px-5 py-2 text-ink-600">{s.note ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="px-5 py-3 text-[13px] text-ink-500">{t('No settlements yet.')}</p>
+      )}
+      {canSettle && <SettleForm purchaseId={purchaseId} branchId={branchId} />}
+    </Card>
+  );
+}
+
+interface PoolView {
+  branches: { branchId: number; byKarat: { karat: number; weightMg: number; pureMg24: number }[] }[];
+}
+
+function SettleForm({ purchaseId, branchId }: { purchaseId: number; branchId: number }) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const actionKeys = useActionKeys();
+  const pool = useQuery({ queryKey: ['scrap-pool', branchId], queryFn: () => get<PoolView>('/scrap-pool', { branchId }) });
+  const inPool = pool.data?.branches.find((b) => b.branchId === branchId)?.byKarat ?? [];
+  const [karat, setKarat] = useState<number | ''>('');
+  const [weight, setWeight] = useState('');
+  const [note, setNote] = useState('');
+  const scope = `settle:${purchaseId}`;
+  const m = useMutation({
+    mutationFn: () => postOnce<{ number: string }>(`/purchases/${purchaseId}/settlements`, { karat, weightMg: gramsToMg(weight), note: note.trim() || undefined }, actionKeys.for(scope)),
+    onSuccess: (r) => {
+      actionKeys.rotate(scope);
+      toast.success(t('Settlement {number} recorded', { number: r.number }), t('The scrap weight left the branch pool.'));
+      setWeight('');
+      setNote('');
+      qc.invalidateQueries();
+    },
+    onError: (e) => toast.fromError(e),
+  });
+  const available = inPool.find((x) => x.karat === karat)?.weightMg ?? 0;
+  const mg = weight ? gramsToMg(weight) : 0;
+  const valid = karat !== '' && mg > 0 && mg <= available;
+  return (
+    <div className="grid gap-3 border-t border-line px-5 py-4 sm:grid-cols-[160px_160px_1fr_auto] sm:items-end" data-testid="settlement-form">
+      <Field label={t('Scrap karat')}>
+        <Select value={karat} onChange={(e) => setKarat(e.target.value ? Number(e.target.value) : '')}>
+          <option value="">{t('Select…')}</option>
+          {KARATS.filter((k) => inPool.some((x) => x.karat === k)).map((k) => (
+            <option key={k} value={k}>{t('{karat} · {weight} in the pool', { karat: karatLabel(k), weight: grams(inPool.find((x) => x.karat === k)!.weightMg) })}</option>
+          ))}
+        </Select>
+      </Field>
+      <Field label={t('Weight handed over (g)')}>
+        <Input type="number" min={0} step="0.001" value={weight} onChange={(e) => setWeight(e.target.value)} className="num" />
+      </Field>
+      <Field label={t('Note (optional)')}>
+        <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder={t('e.g. representative’s name')} />
+      </Field>
+      <Button variant="primary" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()}>
+        {t('Record settlement')}
+      </Button>
+      {!pool.isLoading && !inPool.length && <p className="text-[12.5px] text-amber-700 sm:col-span-4">{t('The branch scrap pool is empty: buy broken scrap first.')}</p>}
     </div>
   );
 }

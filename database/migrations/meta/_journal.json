@@ -50,6 +50,13 @@
       "when": 1790611580280,
       "tag": "0006_cost_model_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791054669973,
+      "tag": "0007_scrap_supplier_settlement",
+      "breakpoints": true
     }
   ]
 }

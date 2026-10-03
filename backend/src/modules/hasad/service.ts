@@ -13,6 +13,7 @@ import { calculateSettlement, type HasadWithdrawalStatus, type PaymentMethod, ty
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requireAny, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
+import { assertSellableKarat } from '../../core/karats';
 import { badRequest, conflict, forbidden, notFound } from '../../core/errors';
 import { nextNumber } from '../../core/numbering';
 import { dayRange } from '../../core/time';
@@ -318,6 +319,8 @@ export async function addItem(ctx: Ctx, actor: Actor, id: number, itemId: number
     if (!draft) throw badRequest('No open counter session for this withdrawal');
     const [item] = await lockItems(tx, [itemId]);
     if (item.branchId !== w.branchId) throw forbidden('Item {code} is not in this branch', { code: item.code });
+    // Karat restriction (D-4-1): a Hasad delivery hands over sellable stock.
+    await assertSellableKarat(ctx, item.karat);
     // This is the ONLY point where a Hasad withdrawal affects inventory: the customer chose this piece.
     await changeStatus(tx, {
       item,
@@ -400,6 +403,12 @@ export interface CompleteInput {
 export async function completeWithdrawal(ctx: Ctx, actor: Actor, id: number, input: CompleteInput, opts: { idem?: TxIdempotency } = {}) {
   requirePerm(actor, 'hasad.process');
   if (!input.customerAcknowledged) throw badRequest('The customer must acknowledge the settlement before completion');
+  // The weight difference of a Hasad delivery is settled in money; "paid with Hasad" makes no sense here.
+  if (input.paymentMethod === 'HASAD') throw badRequest('Invalid value for {field}', { field: 'paymentMethod' });
+  // Same counter methods as the POS (D-4-6): CARD / MOBILE_WALLET only if the GM turns them back on.
+  if (!(await ctx.settings.get()).sales.posPaymentMethods.includes(input.paymentMethod)) {
+    throw badRequest('{method} is not accepted at the counter', { method: input.paymentMethod });
+  }
 
   // 1. Validate everything locally before telling Hasad.
   const w = await loadWithdrawal(ctx.db, actor, id);

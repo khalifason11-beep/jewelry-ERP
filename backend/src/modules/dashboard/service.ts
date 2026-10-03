@@ -6,6 +6,7 @@ import { badRequest } from '../../core/errors';
 import { rows, num } from '../../core/sql';
 import { addDays, dayKey, dayRange, eachDay } from '../../core/time';
 import { branchMetrics, movementSummary, sumMetrics, type Period } from '../reports/metrics';
+import { emptyStockWeight, stockWeight } from '../stock/weight';
 
 export async function periodFor(ctx: Ctx, from?: string, to?: string): Promise<Period> {
   const { company } = await ctx.settings.get();
@@ -74,9 +75,12 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
       GROUP BY category ORDER BY 2 DESC`);
 
   const showProfit = can(actor, 'profit.view');
+  // Gold held now (D-4-3): pieces + the broken-scrap pool, raw by karat and as 24K.
+  const stock = (await stockWeight(ctx.db, branchId)).byBranch.get(branchId) ?? emptyStockWeight();
   return {
     branchId,
     date: period.fromKey,
+    stockWeight: stock,
     kpis: {
       salesTotal: m.revenue,
       salesCount: m.salesCount,
@@ -150,8 +154,12 @@ export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: strin
   const period = await periodFor(ctx, q.from ?? today.slice(0, 8) + '01', q.to ?? today);
   const metrics = await branchMetrics(ctx.db, period, null);
   const branches = await ctx.db.select().from(t.branches).orderBy(t.branches.id);
-  const list = branches.map((b) => ({ ...metrics.get(b.id)!, code: b.code, name: b.name, nameAr: b.nameAr, city: b.city }));
-  const totals = sumMetrics(list.map(({ code: _c, name: _n, nameAr: _a, city: _ci, ...m }) => m));
+  const stock = await stockWeight(ctx.db, null);
+  const list = branches.map((b) => {
+    const sw = stock.byBranch.get(b.id) ?? emptyStockWeight();
+    return { ...metrics.get(b.id)!, code: b.code, name: b.name, nameAr: b.nameAr, city: b.city, brokenScrapWeightMg: sw.brokenScrap.weightMg, totalWeightMg: sw.totalWeightMg, totalPureMg24: sw.totalPureMg24 };
+  });
+  const totals = sumMetrics(list.map(({ code: _c, name: _n, nameAr: _a, city: _ci, brokenScrapWeightMg: _b, totalWeightMg: _w, totalPureMg24: _p, ...m }) => m));
 
   const tz = company.timezone;
   const iso = (d: Date) => d.toISOString();
@@ -183,6 +191,7 @@ export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: strin
 
   return {
     period: { from: period.fromKey, to: period.toKey },
+    stockWeight: stock.total,
     totals: {
       revenue: totals.revenue,
       costOfSales: totals.costOfSales,

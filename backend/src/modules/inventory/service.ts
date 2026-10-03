@@ -1,7 +1,8 @@
 import { ap } from '@jerp/shared';
 import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import type { ItemStatus } from '@jerp/shared';
+import type { ItemOrigin, ItemStatus } from '@jerp/shared';
+import { assertSellableKarat } from '../../core/karats';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requireAny, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
@@ -26,6 +27,8 @@ export interface ItemSearch {
   status?: ItemStatus[];
   minWeightMg?: number;
   maxWeightMg?: number;
+  /** New (supplier) or sellable scrap; omitted = both (Phase 4). */
+  origin?: ItemOrigin;
   sort?: 'code' | 'weight' | 'price' | 'recent' | 'closest';
   targetWeightMg?: number;
   limit?: number;
@@ -46,6 +49,7 @@ export async function searchItems(ctx: Ctx, actor: Actor, s: ItemSearch) {
   if (s.category) where.push(eq(t.categories.code, s.category));
   if (s.minWeightMg) where.push(sql`${t.jewelryItems.netWeightMg} >= ${s.minWeightMg}`);
   if (s.maxWeightMg) where.push(sql`${t.jewelryItems.netWeightMg} <= ${s.maxWeightMg}`);
+  if (s.origin) where.push(eq(t.jewelryItems.origin, s.origin));
   if (s.q?.trim()) {
     const q = `%${s.q.trim()}%`;
     where.push(
@@ -142,6 +146,8 @@ export async function changePrice(ctx: Ctx, actor: Actor, id: number, newPrice: 
     const [item] = await lockItems(tx, [id]);
     branchScope(actor, item.branchId);
     if (!['AVAILABLE', 'RESERVED'].includes(item.status)) throw badRequest('Cannot reprice an item with status {status}', { status: item.status });
+    // Karat restriction (D-4-1): only a karat this deployment sells can be priced for sale.
+    await assertSellableKarat(ctx, item.karat);
     await tx.update(t.jewelryItems).set({ sellingPrice: newPrice, updatedAt: new Date() }).where(eq(t.jewelryItems.id, id));
     await writeAudit(tx, actor, {
       action: 'PRICE_CHANGED',

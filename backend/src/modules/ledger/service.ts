@@ -1,6 +1,6 @@
 // Branch money ledger (Phase 2b, decisions Q5–Q8, D-2b-*).
 //
-//   * Each branch has three accounts: CASH (the drawer), BANK, FUNDS_IN_TRANSIT (created by a trigger).
+//   * Each branch has four accounts: CASH (the drawer), BANK, FUNDS_IN_TRANSIT and HASAD_RECEIVABLE (created by a trigger).
 //   * ledger_entries is append-only: a signed whole-SDG amount per entry, positive = money into the
 //     account. A balance is always SUM(amount); nothing is cached.
 //   * Every money event posts its entries in the SAME transaction as the business change (callers
@@ -157,7 +157,7 @@ export async function drawer(ctx: Ctx, actor: Actor, q: { branchId?: number }) {
       const b = branchRows.find((x) => x.id === id)!;
       const acc = accounts.filter((a) => a.branchId === id);
       const bal = (k: LedgerAccountKind) => acc.find((a) => a.kind === k)?.balance ?? 0;
-      return { branchId: id, branchCode: b.code, branchName: b.name, branchNameAr: b.nameAr, expectedCash: bal('CASH'), bank: bal('BANK'), fundsInTransit: bal('FUNDS_IN_TRANSIT') };
+      return { branchId: id, branchCode: b.code, branchName: b.name, branchNameAr: b.nameAr, expectedCash: bal('CASH'), bank: bal('BANK'), fundsInTransit: bal('FUNDS_IN_TRANSIT'), hasadReceivable: bal('HASAD_RECEIVABLE') };
     }),
   };
 }
@@ -183,7 +183,7 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
   const openingCash = await cashBalance(ctx.db, branchId, start);
   const cashIn = sum((e) => e.kind === 'CASH');
   const expectedCash = openingCash + cashIn;
-  const methods = ['CASH', 'CARD', 'MOBILE_WALLET', 'BANK_TRANSFER'] as const;
+  const methods = ['CASH', 'CARD', 'MOBILE_WALLET', 'BANK_TRANSFER', 'HASAD'] as const;
   const [count] = await ctx.db
     .select()
     .from(t.cashCounts)
@@ -203,6 +203,11 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
     expensesBank: sum((e) => e.eventType === 'EXPENSE' && e.kind === 'BANK'),
     settlementsCash: sum((e) => e.eventType === 'HASAD_SETTLEMENT' && e.kind === 'CASH'),
     settlementsBank: sum((e) => e.eventType === 'HASAD_SETTLEMENT' && e.kind === 'BANK'),
+    // Phase 4: scrap bought from customers and supplier making charges, both paid out at once.
+    scrapPurchasesCash: sum((e) => e.eventType === 'SCRAP_PURCHASE' && e.kind === 'CASH'),
+    scrapPurchasesBank: sum((e) => e.eventType === 'SCRAP_PURCHASE' && e.kind === 'BANK'),
+    makingChargesCash: sum((e) => e.eventType === 'SUPPLIER_MAKING_CHARGE' && e.kind === 'CASH'),
+    makingChargesBank: sum((e) => e.eventType === 'SUPPLIER_MAKING_CHARGE' && e.kind === 'BANK'),
     cashMovement: cashIn,
     expectedCash,
     counted: count ? { amount: count.countedAmount, at: count.at, countedByName: countedBy, note: count.note } : null,

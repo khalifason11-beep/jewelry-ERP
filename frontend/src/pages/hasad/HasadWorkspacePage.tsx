@@ -24,7 +24,7 @@ import {
   UserRound,
   XCircle,
 } from 'lucide-react';
-import { calculateSettlement, PAYMENT_METHODS, type PaymentMethod, type AuditParams } from '@jerp/shared';
+import { calculateSettlement, type PaymentMethod, type AuditParams } from '@jerp/shared';
 import { ApiError, del, errorText, get, post, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, humanize, karatLabel, money, relative, signedGrams } from '../../lib/format';
@@ -606,6 +606,9 @@ function CompleteDialog({ detail, onClose, onDone, onStale }: { detail: Detail; 
   const s = detail.settlement;
   const [ack, setAck] = useState(false);
   const [payment, setPayment] = useState<PaymentMethod>('CASH');
+  const { me } = useAuth();
+  // The weight difference is settled with a counter method; never "paid with Hasad" (D-4-6).
+  const methods = (me?.posPaymentMethods ?? ['CASH', 'BANK_TRANSFER']).filter((m) => m !== 'HASAD');
   const actionKeys = useActionKeys();
   const complete = useMutation({
     mutationFn: () =>
@@ -667,7 +670,7 @@ function CompleteDialog({ detail, onClose, onDone, onStale }: { detail: Detail; 
         {s.direction !== 'NONE' && (
           <Field label={s.direction === 'BRANCH_PAYS_CUSTOMER' ? t('Paid to customer by') : t('Collected from customer by')}>
             <Select value={payment} onChange={(e) => setPayment(e.target.value as PaymentMethod)}>
-              {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{t(m)}</option>)}
+              {methods.map((m) => <option key={m} value={m}>{t(m)}</option>)}
             </Select>
           </Field>
         )}

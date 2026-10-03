@@ -26,6 +26,8 @@ import { createExpense } from '../modules/expenses/service';
 import { post as postLedger } from '../modules/ledger/service';
 import { createTransfer, receiveTransfer } from '../modules/transfers/service';
 import { adjustItem } from '../modules/inventory/service';
+import { buyScrap } from '../modules/scrap/service';
+import { settleWithScrap } from '../modules/supplier-settlements/service';
 import { changeStatus, recordMovement } from '../modules/inventory/ledger';
 import { seedRolesAndPermissions } from './reference';
 import { BRANCHES, CATEGORIES, COMPANY, CUSTOMER_NAMES, DEMO_PASSWORDS, HASAD_CUSTOMERS, PRODUCTS, SUPPLIERS, USERS } from './catalog';
@@ -91,6 +93,8 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
       'branding.invoiceFooterEn': COMPANY.invoiceFooter,
       'branding.invoiceFooterAr': COMPANY.invoiceFooterAr,
       'hasad.enabledPerBranch': Object.fromEntries(BRANCHES.map((b) => [b.code, true])),
+      // This client sells 21K only (D-4-1). Broken scrap of any karat is still bought.
+      'inventory.allowedKarats': [21],
     },
     { actor: { id: null, username: 'demo-seed' }, allowDemoOnly: true },
   );
@@ -135,7 +139,8 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
   // ───────── gold rate history ─────────
   for (const off of [-60, -45, -30, -21, -14, -7, -3, 0]) {
     const when = off === 0 ? new Date(Math.min(at(0, 8).getTime(), now.getTime() - 60_000)) : at(off, 8);
-    await db.insert(t.goldRates).values([18, 21, 22, 24].map((k) => ({ karat: k, pricePerGram: rateFor(k, off), effectiveAt: when, setBy: gm.userId })));
+    // Selling rates only for the karat this client sells; scrap BUYING rates cover every karat (below).
+    await db.insert(t.goldRates).values([21].map((k) => ({ karat: k, pricePerGram: rateFor(k, off), effectiveAt: when, setBy: gm.userId })));
   }
 
   // ───────── catalogue ─────────
@@ -157,8 +162,8 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
     const grossMg = Math.round((netMg * between(1.02, 1.08)) / 10) * 10;
     const g = netMg / 1000;
     const purchaseCost = Math.round((g * rateFor(p.karat, offset) * between(0.965, 1.0)) / 1000) * 1000;
-    const makingCost = Math.round((g * between(6_000, p.karat === 18 ? 16_000 : 12_000)) / 1000) * 1000;
-    const otherCost = cat.code === 'SET' || sku.startsWith('RG-18') || sku.startsWith('BR-18') ? int(2, 9) * 10_000 : 0;
+    const makingCost = Math.round((g * between(6_000, 12_000)) / 1000) * 1000;
+    const otherCost = cat.code === 'SET' ? int(2, 9) * 10_000 : 0;
     const total = purchaseCost + makingCost + otherCost;
     const sellingPrice = Math.round((total * between(1.16, 1.28)) / 5_000) * 5_000;
     return { productId: p.id, grossWeightMg: grossMg, netWeightMg: netMg, purchaseCost, makingCost, otherCost, sellingPrice };
@@ -187,7 +192,10 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
         lines.push({ productId: ring, grossWeightMg: 4610, netWeightMg: 4350, purchaseCost: 826_000, makingCost: 52_000, otherCost: 0, sellingPrice: 1_090_000 });
       }
       while (lines.length < Math.round(openingSize[code] / batches)) lines.push(makeLine(weightedSku(), offset));
-      const res = await createPurchase(ctx, bm[code], { branchId: branch[code].id, supplierId: pick(supplierRows).id, supplierInvoiceNo: `SUP-${int(10000, 99999)}`, lines, notes: 'رصيد افتتاحي' }, { at: at(offset, 10, int(0, 50)) });
+      // Opening stock: its making charge was paid before the system was used, so it is part of the
+      // piece's cost and no money leaves the drawer now (the gold owed to the supplier remains).
+      const openingLines = lines.map((l) => ({ ...l, purchaseCost: l.purchaseCost + l.makingCost, makingCost: 0 }));
+      const res = await createPurchase(ctx, bm[code], { branchId: branch[code].id, supplierId: pick(supplierRows).id, supplierInvoiceNo: `SUP-${int(10000, 99999)}`, lines: openingLines, notes: 'رصيد افتتاحي' }, { at: at(offset, 10, int(0, 50)) });
       if (code === 'KRT' && b === 0) res.itemCodes.slice(0, 3).forEach((c) => specialCodes.add(c));
     }
   }
@@ -204,10 +212,12 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
       .from(t.jewelryItems)
       .where(and(eq(t.jewelryItems.branchId, branch[code].id), eq(t.jewelryItems.status, 'AVAILABLE'), notInArray(t.jewelryItems.id, protectedList.length ? protectedList : [-1])));
 
+  // The counter takes cash, bank transfer and Hasad (D-4-6).
   const payment = (): PaymentMethod => {
     const r = rand();
-    return r < 0.55 ? 'CASH' : r < 0.84 ? 'BANK_TRANSFER' : r < 0.97 ? 'MOBILE_WALLET' : 'CARD';
+    return r < 0.58 ? 'CASH' : r < 0.9 ? 'BANK_TRANSFER' : 'HASAD';
   };
+  const purchaseLog: { code: string; offset: number; id: number }[] = [];
   const salesPerDay: Record<string, [number, number]> = { KRT: [1, 3], OMD: [0, 2], BHR: [0, 2], PZU: [0, 2] };
   const purchaseDays: Record<string, number[]> = { KRT: [-25, -14, -4, 0], OMD: [-22, -9], BHR: [-18, -6], PZU: [-16, -5] };
   const saleIdsByBranch: Record<string, { id: number; offset: number }[]> = { KRT: [], OMD: [], BHR: [], PZU: [] };
@@ -228,7 +238,13 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
         const when = offset === 0 ? timeOn(0) : at(offset, 10, int(0, 40));
         if (when) {
           const lines = Array.from({ length: int(6, 10) }, () => makeLine(weightedSku(), offset));
-          await createPurchase(ctx, bm[code], { branchId: branch[code].id, supplierId: pick(supplierRows).id, supplierInvoiceNo: `SUP-${int(10000, 99999)}`, lines }, { at: when });
+          const po = await createPurchase(
+            ctx,
+            bm[code],
+            { branchId: branch[code].id, supplierId: pick(supplierRows).id, supplierInvoiceNo: `SUP-${int(10000, 99999)}`, lines, makingChargePaidFrom: chance(0.7) ? 'CASH' : 'BANK' },
+            { at: when },
+          );
+          purchaseLog.push({ code, offset, id: po.id });
         }
       }
       for (const tr of transferPlan.filter((x) => x.day === offset && x.from === code)) {
@@ -262,7 +278,12 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
               itemId: i.id,
               discount: chance(0.25) ? Math.floor((i.sellingPrice * between(0.4, maxPct)) / 100 / 1000) * 1000 : 0,
             })),
-            paymentMethod: payment(),
+            ...(() => {
+              const method = payment();
+              return method === 'HASAD'
+                ? { paymentMethod: method, paymentRefInvoice: `HSD-INV-${int(100000, 999999)}`, ...(chance(0.7) ? { paymentRefTransaction: `HTX${int(10000000, 99999999)}` } : {}) }
+                : { paymentMethod: method };
+            })(),
             ...(chance(0.7) ? (({ en, ar }) => ({ customerName: en, customerNameAr: ar }))(pick(CUSTOMER_NAMES)) : {}),
             customerPhone: chance(0.5) ? `+249 9${int(10, 99)} ${int(100, 999)} ${int(100, 999)}` : undefined,
           },
@@ -327,6 +348,77 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
   await addExpense(bm.KRT, 'KRT', today, 'TRANSPORTATION', 60_000, 'مندوب إلى فرع أم درمان');
   await addExpense(bm.OMD, 'OMD', today, 'OTHER', 20_000, 'مستلزمات نظافة');
   await addExpense(bm.BHR, 'BHR', addDays(today, -1), 'MAINTENANCE', 2_350_000, 'استبدال مكيف منطقة العرض'); // above threshold → PENDING
+
+  // ───────── scrap gold and supplier settlements (Phase 4) ─────────
+  // Scrap BUYING rates (any karat, set by the GM) a little under the selling rate; broken scrap
+  // bought at the counter goes to the branch pool; supplier representatives are paid in that scrap.
+  const scrapRate = (karat: number, offset: number) => Math.round((rateFor(karat, offset) * 0.93) / 500) * 500;
+  const scrapRateDays = [-31, -14, -3];
+  let nextRate = 0;
+  const ratesUpTo = async (offset: number) => {
+    while (nextRate < scrapRateDays.length && scrapRateDays[nextRate] <= offset) {
+      const off = scrapRateDays[nextRate++];
+      await db.insert(t.scrapRates).values([18, 21, 22, 24].map((k) => ({ karat: k, pricePerGram: scrapRate(k, off), effectiveAt: at(off, 8, 5), setBy: gm.userId })));
+    }
+  };
+  type ScrapEvent =
+    | { day: number; code: string; kind: 'BROKEN'; karat: number; g: number; pay: 'CASH' | 'BANK_TRANSFER' }
+    | { day: number; code: string; kind: 'SELLABLE'; sku: string; g: number; pay: 'CASH' | 'BANK_TRANSFER' }
+    | { day: number; code: string; kind: 'SETTLE'; purchase: number; karat: number; g: number | 'REST' };
+  const krtPO = purchaseLog.find((p) => p.code === 'KRT' && p.offset === -25)!;
+  const omdPO = purchaseLog.find((p) => p.code === 'OMD' && p.offset === -22)!;
+  const bhrPO = purchaseLog.find((p) => p.code === 'BHR' && p.offset === -18)!;
+  const scrapPlan: ScrapEvent[] = [
+    { day: -27, code: 'KRT', kind: 'BROKEN', karat: 21, g: 38.6, pay: 'CASH' },
+    { day: -24, code: 'OMD', kind: 'BROKEN', karat: 21, g: 22.4, pay: 'CASH' },
+    { day: -21, code: 'KRT', kind: 'BROKEN', karat: 18, g: 14.2, pay: 'CASH' },
+    { day: -19, code: 'BHR', kind: 'BROKEN', karat: 21, g: 17.9, pay: 'CASH' },
+    { day: -17, code: 'KRT', kind: 'SELLABLE', sku: 'BR-21-001', g: 12.35, pay: 'CASH' },
+    { day: -16, code: 'PZU', kind: 'BROKEN', karat: 22, g: 9.8, pay: 'CASH' },
+    { day: -15, code: 'KRT', kind: 'BROKEN', karat: 21, g: 41.3, pay: 'BANK_TRANSFER' },
+    { day: -13, code: 'KRT', kind: 'SETTLE', purchase: krtPO.id, karat: 21, g: 45 },
+    { day: -12, code: 'OMD', kind: 'BROKEN', karat: 24, g: 6.5, pay: 'CASH' },
+    { day: -11, code: 'OMD', kind: 'SELLABLE', sku: 'RG-21-001', g: 4.6, pay: 'CASH' },
+    { day: -10, code: 'OMD', kind: 'SETTLE', purchase: omdPO.id, karat: 21, g: 20 },
+    { day: -9, code: 'KRT', kind: 'BROKEN', karat: 21, g: 28.7, pay: 'CASH' },
+    { day: -8, code: 'BHR', kind: 'BROKEN', karat: 18, g: 11.1, pay: 'CASH' },
+    { day: -7, code: 'KRT', kind: 'SETTLE', purchase: krtPO.id, karat: 18, g: 14.2 },
+    { day: -6, code: 'BHR', kind: 'SETTLE', purchase: bhrPO.id, karat: 21, g: 15 },
+    { day: -4, code: 'PZU', kind: 'BROKEN', karat: 21, g: 19.4, pay: 'CASH' },
+    { day: -3, code: 'KRT', kind: 'BROKEN', karat: 21, g: 64.2, pay: 'BANK_TRANSFER' },
+    { day: -2, code: 'KRT', kind: 'SETTLE', purchase: krtPO.id, karat: 21, g: 'REST' },
+    { day: -1, code: 'KRT', kind: 'BROKEN', karat: 22, g: 7.3, pay: 'CASH' },
+    { day: -1, code: 'OMD', kind: 'BROKEN', karat: 21, g: 13.6, pay: 'CASH' },
+  ];
+  for (const ev of scrapPlan) {
+    await ratesUpTo(ev.day);
+    const when = at(ev.day, 15, int(0, 50));
+    const customer = pick(CUSTOMER_NAMES);
+    if (ev.kind === 'SETTLE') {
+      let weightMg: number;
+      if (ev.g === 'REST') {
+        // The last visit settles the order in full: the weight whose 24K equivalent is exactly what is owed.
+        const [po] = await db.select({ owed: t.purchases.goldOwedMgPure24 }).from(t.purchases).where(eq(t.purchases.id, ev.purchase));
+        weightMg = Math.round((po.owed! * 24) / ev.karat);
+      } else weightMg = Math.round(ev.g * 1000);
+      await settleWithScrap(ctx, bm[ev.code], ev.purchase, { karat: ev.karat, weightMg, note: 'زيارة مندوب المورد' }, { at: when });
+      continue;
+    }
+    const mg = Math.round(ev.g * 100) * 10;
+    if (ev.kind === 'BROKEN') {
+      await buyScrap(ctx, bm[ev.code], { branchId: branch[ev.code].id, kind: 'BROKEN', karat: ev.karat, grossWeightMg: mg, netWeightMg: mg, paymentMethod: ev.pay, customerName: customer.ar, note: 'كسر ذهب من عميل' }, { at: when });
+    } else {
+      const p = productBySku[ev.sku];
+      const sellingPrice = Math.round((mg / 1000) * rateFor(21, ev.day) * 1.12 / 5_000) * 5_000;
+      await buyScrap(
+        ctx,
+        bm[ev.code],
+        { branchId: branch[ev.code].id, kind: 'SELLABLE', karat: 21, grossWeightMg: mg, netWeightMg: mg, paymentMethod: ev.pay, productId: p.id, sellingPrice, customerName: customer.ar, note: 'قطعة سليمة صالحة للبيع' },
+        { at: when },
+      );
+    }
+  }
+  await ratesUpTo(0);
 
   // ───────── Hasad Gold (mock system + ERP history) ─────────
   await db.insert(mockCustomers).values(
@@ -396,7 +488,7 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
     const completedAt = at(ev.day, int(10, 19), int(0, 59));
     const openedAt = new Date(completedAt.getTime() - 12 * 60_000);
     const reservedAt = new Date(completedAt.getTime() - 7 * 60_000);
-    const pool = (await available(ev.code)).filter((i) => i.karat === 21 || i.karat === 18);
+    const pool = (await available(ev.code)).filter((i) => i.karat === 21);
     pool.sort((x, y) => Math.abs(x.netWeightMg - ev.mg) - Math.abs(y.netWeightMg - ev.mg));
     const choice = pool[int(0, 2)];
     const [item] = await db.select().from(t.jewelryItems).where(eq(t.jewelryItems.id, choice.id));

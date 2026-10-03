@@ -18,9 +18,10 @@ import {
   ShoppingBag,
   Smartphone,
   Trash2,
+  Wheat,
   X,
 } from 'lucide-react';
-import { PAYMENT_METHODS, type PaymentMethod } from '@jerp/shared';
+import type { PaymentMethod } from '@jerp/shared';
 import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { grams, karatLabel, money, relative } from '../../lib/format';
@@ -44,7 +45,9 @@ interface HeldSale {
   customerPhone: string;
 }
 
-const PAY_ICON: Record<PaymentMethod, typeof Banknote> = { CASH: Banknote, BANK_TRANSFER: Landmark, CARD: CreditCard, MOBILE_WALLET: Smartphone };
+const PAY_ICON: Record<PaymentMethod, typeof Banknote> = { CASH: Banknote, BANK_TRANSFER: Landmark, CARD: CreditCard, MOBILE_WALLET: Smartphone, HASAD: Wheat };
+/** What the counter offers when the setting is not loaded yet (D-4-6). */
+const DEFAULT_POS_METHODS: PaymentMethod[] = ['CASH', 'BANK_TRANSFER', 'HASAD'];
 
 export function PosPage() {
   const { me, can, isGlobal } = useAuth();
@@ -77,6 +80,11 @@ export function PosPage() {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [payment, setPayment] = useState<PaymentMethod>('CASH');
+  // Hasad: the cashier types the Hasad invoice number (required) and transaction reference.
+  const [hasadInvoice, setHasadInvoice] = useState('');
+  const [hasadTxn, setHasadTxn] = useState('');
+  const payMethods = me?.posPaymentMethods?.length ? me.posPaymentMethods : DEFAULT_POS_METHODS;
+  const sellableKarats = me?.allowedKarats ?? [];
   const [invoice, setInvoice] = useState<SaleDetail | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [showHeld, setShowHeld] = useState(false);
@@ -118,6 +126,8 @@ export function PosPage() {
     setCustomerName('');
     setCustomerPhone('');
     setPayment('CASH');
+    setHasadInvoice('');
+    setHasadTxn('');
   };
 
   // Barcode scanners type the code and press Enter.
@@ -151,6 +161,7 @@ export function PosPage() {
         branchId,
         items: cart.map((l) => ({ itemId: l.item.id, discount: l.discount })),
         paymentMethod: payment,
+        ...(payment === 'HASAD' ? { paymentRefInvoice: hasadInvoice.trim(), paymentRefTransaction: hasadTxn.trim() || undefined } : {}),
         customerName: customerName || undefined,
         customerPhone: customerPhone || undefined,
       }, actionKeys.for('sale')),
@@ -208,7 +219,7 @@ export function PosPage() {
             </div>
             <Select value={karat} onChange={(e) => setKarat(e.target.value ? Number(e.target.value) : '')} className="h-10 w-32" aria-label={t('Karat')}>
               <option value="">{t('Karat')}: {t('All')}</option>
-              {[18, 21, 22, 24].map((k) => (
+              {sellableKarats.map((k) => (
                 <option key={k} value={k}>{karatLabel(k)}</option>
               ))}
             </Select>
@@ -327,8 +338,8 @@ export function PosPage() {
             <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder={t('Customer name (optional)')} className="h-8 text-[13px]" />
             <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder={t('Phone (optional)')} className="h-8 text-[13px]" />
           </div>
-          <div className="mt-2 grid grid-cols-4 gap-1.5" role="radiogroup" aria-label={t('Payment method')}>
-            {PAYMENT_METHODS.map((m) => {
+          <div className={clsx('mt-2 grid gap-1.5', payMethods.length === 3 ? 'grid-cols-3' : 'grid-cols-4')} role="radiogroup" aria-label={t('Payment method')} data-testid="pos-payment-methods">
+            {payMethods.map((m) => {
               const Icon = PAY_ICON[m];
               return (
                 <button
@@ -347,6 +358,12 @@ export function PosPage() {
               );
             })}
           </div>
+          {payment === 'HASAD' && (
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <Input value={hasadInvoice} onChange={(e) => setHasadInvoice(e.target.value)} maxLength={80} placeholder={t('Hasad invoice number')} aria-label={t('Hasad invoice number')} className="h-8 text-[13px]" />
+              <Input value={hasadTxn} onChange={(e) => setHasadTxn(e.target.value)} maxLength={80} placeholder={t('Transaction reference (optional)')} aria-label={t('Transaction reference (optional)')} className="h-8 text-[13px]" />
+            </div>
+          )}
           <dl className="mt-3 space-y-1 text-[13px]">
             <div className="flex justify-between text-ink-600">
               <dt>{t('{n} pieces', { n: cart.length })} · {t('Net weight')}</dt>
@@ -367,7 +384,7 @@ export function PosPage() {
               <dd className="text-2xl font-semibold tracking-tight num">{money(totals.total)}</dd>
             </div>
           </dl>
-          <Button variant="gold" size="lg" className="mt-3 w-full text-[15px]" disabled={!cart.length || !branchId} loading={complete.isPending} onClick={() => complete.mutate()}>
+          <Button variant="gold" size="lg" className="mt-3 w-full text-[15px]" disabled={!cart.length || !branchId || (payment === 'HASAD' && !hasadInvoice.trim())} loading={complete.isPending} onClick={() => complete.mutate()}>
             {t('Complete Sale')} <ArrowRight className="size-4 rtl:rotate-180" />
           </Button>
           <div className="mt-2 grid grid-cols-3 gap-2">

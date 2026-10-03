@@ -9,7 +9,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { EXPENSE_CATEGORIES, EXPENSE_PAYMENT_SOURCES, KARATS, PAYMENT_METHODS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
+import { EXPENSE_CATEGORIES, EXPENSE_PAYMENT_SOURCES, ITEM_ORIGINS, KARATS, PAYMENT_METHODS, SCRAP_KINDS, SCRAP_PAYMENT_METHODS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
@@ -34,6 +34,8 @@ import { publicBranding } from './modules/branding/service';
 import { LOGO_MAX_BYTES } from './modules/branding/image';
 import * as branches from './modules/branches/service';
 import * as ledger from './modules/ledger/service';
+import * as scrap from './modules/scrap/service';
+import * as supplierSettlements from './modules/supplier-settlements/service';
 import { runIdempotent } from './core/idempotency';
 import { defineRoutes } from './core/guard';
 import { costRedaction } from './core/cost-redaction';
@@ -337,6 +339,9 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           karat: zKarat.optional(),
           category: z.string().regex(/^[A-Z_]{2,30}$/).optional(),
           status: zStatusList,
+          origin: z.enum(ITEM_ORIGINS).optional(),
+          minWeightMg: z.coerce.number().int().min(0).max(MAX_WEIGHT_MG).optional(),
+          maxWeightMg: z.coerce.number().int().min(0).max(MAX_WEIGHT_MG).optional(),
           sort: z.enum(['code', 'weight', 'price', 'recent', 'closest']).optional(),
           targetWeightMg: z.coerce.number().int().min(0).max(MAX_WEIGHT_MG).optional(),
           limit: z.coerce.number().int().min(1).max(1000).optional(),
@@ -365,6 +370,9 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           branchId: zIdBody.optional(),
           items: z.array(z.object({ itemId: zIdBody, discount: zMoney.optional() }).strict()).min(1).max(50),
           paymentMethod: z.enum(PAYMENT_METHODS),
+          // Hasad (D-4-6): the Hasad invoice number is required, the transaction reference optional.
+          paymentRefInvoice: zText(80).min(1).optional(),
+          paymentRefTransaction: zText(80).min(1).optional(),
           customerName: zText(120).optional(),
           customerPhone: zPhone.optional(),
         })
@@ -415,7 +423,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     const body = parse(
       z
         .object({
-          paymentMethod: z.enum(PAYMENT_METHODS),
+          // A Hasad delivery's price difference is settled in money, never "paid with Hasad".
+          paymentMethod: z.enum(PAYMENT_METHODS).exclude(['HASAD']),
           customerAcknowledged: z.boolean(),
           expectedDirection: z.enum(['BRANCH_PAYS_CUSTOMER', 'CUSTOMER_PAYS_BRANCH', 'NONE']),
           expectedAmount: zMoney,
@@ -456,11 +465,66 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
       .refine((l) => l.netWeightMg <= l.grossWeightMg, { message: 'Net weight must not exceed gross weight', path: ['netWeightMg'] });
     const body = parse(
       z
-        .object({ branchId: zIdBody.optional(), supplierId: zIdBody.optional(), supplierInvoiceNo: zText(60).optional(), notes: zText(1000).optional(), lines: z.array(line).min(1).max(200) })
+        .object({
+          branchId: zIdBody.optional(),
+          supplierId: zIdBody.optional(),
+          supplierInvoiceNo: zText(60).optional(),
+          notes: zText(1000).optional(),
+          makingChargePaidFrom: z.enum(EXPENSE_PAYMENT_SOURCES).optional(),
+          lines: z.array(line).min(1).max(200),
+        })
         .strict(),
       req.body,
     );
-    res.json(await purchases.createPurchase(ctx, actorOf(req), body));
+    res.json(await runIdempotent(ctx, req, res, (idem) => purchases.createPurchase(ctx, actorOf(req), body, { idem })));
+  });
+  // Supplier settlement (D-4-5): broken-scrap weight and karat only. There is deliberately no
+  // amount, payment method or account field: a settlement can never move CASH or BANK.
+  route('POST', '/purchases/:id/settlements', async (req, res) => {
+    const body = parse(z.object({ karat: zKarat, weightMg: zWeightMg, note: zText(500).optional() }).strict(), req.body);
+    const id = parse(zId, req.params.id);
+    res.json(await runIdempotent(ctx, req, res, (idem) => supplierSettlements.settleWithScrap(ctx, actorOf(req), id, body, { idem })));
+  });
+
+  // ─────────── scrap gold (Phase 4) ───────────
+  route('GET', '/scrap-rates', async (req, res) => res.json(await scrap.scrapRatesView(ctx, actorOf(req))));
+  route('POST', '/scrap-rates', async (req, res) => {
+    const body = parse(z.object({ rates: z.array(z.object({ karat: zKarat, pricePerGram: zPositiveMoney }).strict()).min(1).max(KARATS.length) }).strict(), req.body);
+    await scrap.setScrapRates(ctx, actorOf(req), Object.fromEntries(body.rates.map((r) => [r.karat, r.pricePerGram])));
+    res.json(await scrap.scrapRatesView(ctx, actorOf(req)));
+  });
+  route('GET', '/scrap-purchases', async (req, res) => {
+    const q = parse(z.object({ branchId: zOptId, from: zDay.optional(), to: zDay.optional(), kind: z.enum(SCRAP_KINDS).optional() }).strict(), req.query);
+    res.json(await scrap.listScrapPurchases(ctx, actorOf(req), q));
+  });
+  route('POST', '/scrap-purchases', async (req, res) => {
+    const body = parse(
+      z
+        .object({
+          branchId: zIdBody.optional(),
+          kind: z.enum(SCRAP_KINDS),
+          // Any karat may be bought as broken scrap; sellable pieces are checked against the setting.
+          karat: zKarat,
+          grossWeightMg: zWeightMg,
+          netWeightMg: zWeightMg,
+          agreedRatePerGram: zPositiveMoney.optional(),
+          paymentMethod: z.enum(SCRAP_PAYMENT_METHODS),
+          productId: zIdBody.optional(),
+          sellingPrice: zPositiveMoney.optional(),
+          customerName: zText(120).optional(),
+          customerPhone: zPhone.optional(),
+          customerIdRef: zText(60).optional(),
+          note: zText(500).optional(),
+        })
+        .strict()
+        .refine((b) => b.netWeightMg <= b.grossWeightMg, { message: 'Net weight must not exceed gross weight', path: ['netWeightMg'] }),
+      req.body,
+    );
+    res.json(await runIdempotent(ctx, req, res, (idem) => scrap.buyScrap(ctx, actorOf(req), body, { idem })));
+  });
+  route('GET', '/scrap-pool', async (req, res) => {
+    const q = parse(z.object({ branchId: zOptId }).strict(), req.query);
+    res.json(await scrap.poolView(ctx, actorOf(req), q));
   });
 
   route('GET', '/expenses', async (req, res) => {

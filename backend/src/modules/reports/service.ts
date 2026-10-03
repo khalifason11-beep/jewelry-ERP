@@ -14,6 +14,7 @@ import { searchItems } from '../inventory/service';
 import { listPurchases } from '../purchases/service';
 import { listSales } from '../sales/service';
 import { branchMetrics, movementSummary } from './metrics';
+import { stockWeight, stockWeightRows, type StockWeight } from '../stock/weight';
 
 export type ColumnType = 'text' | 'money' | 'weight' | 'number' | 'percent' | 'date' | 'datetime' | 'status' | 'code' | 'audit';
 
@@ -33,6 +34,8 @@ export interface Report {
   rows: Record<string, unknown>[];
   totals?: Record<string, number>;
   notes?: string[];
+  /** Headline figures shown above the table (Phase 4: stock weight incl. the broken-scrap pool). */
+  summary?: { label: string; type: ColumnType; value: number }[];
   filters: { dateRange: boolean; branch: boolean; user: boolean; status?: string[] };
 }
 
@@ -45,6 +48,15 @@ export interface ReportQuery {
   q?: string;
   group?: string;
   action?: string;
+}
+
+function stockSummary(s: StockWeight): NonNullable<Report['summary']> {
+  return [
+    { label: 'Pieces weight', type: 'weight', value: s.items.weightMg },
+    { label: 'Broken scrap weight', type: 'weight', value: s.brokenScrap.weightMg },
+    { label: 'Total stock weight', type: 'weight', value: s.totalWeightMg },
+    { label: 'Total as 24K pure gold', type: 'weight', value: s.totalPureMg24 },
+  ];
 }
 
 const c = (key: string, label: string, type: ColumnType = 'text', link?: string): Column => ({ key, label, type, link });
@@ -167,7 +179,33 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
         ],
         rows: rowsAll,
         totals: totalsOf(rowsAll, ['netWeightMg', 'purchaseCost', 'totalCost', 'sellingPrice']),
+        summary: stockSummary((await stockWeight(ctx.db, scope)).total),
         filters: { dateRange: false, branch: true, user: false, status: ['AVAILABLE', 'RESERVED', 'SOLD', 'REDEEMED', 'TRANSFERRED', 'DAMAGED', 'RETURNED'] },
+      };
+    }
+    case 'stock-weight': {
+      requirePerm(actor, 'inventory.view');
+      const sw = await stockWeight(ctx.db, scope);
+      const branches = await ctx.db.select().from(t.branches);
+      const bn = new Map(branches.map((b) => [b.id, b.name]));
+      const rowsAll = stockWeightRows(sw.byBranch).map((r) => ({ ...r, branchName: bn.get(r.branchId) }));
+      return {
+        key: 'stock-weight',
+        title: 'Stock Weight',
+        description: 'Gold held by each branch as of now: sellable pieces plus the broken-scrap pool, by karat and as 24K pure gold.',
+        columns: [
+          c('branchName', 'Branch', 'text', '/branches/:branchId'),
+          c('karat', 'Karat', 'number'),
+          c('itemsWeightMg', 'Pieces (available + reserved)', 'weight'),
+          c('brokenScrapWeightMg', 'Broken scrap', 'weight'),
+          c('totalWeightMg', 'Total weight', 'weight'),
+          c('totalPureMg24', '24K equivalent', 'weight'),
+        ],
+        rows: rowsAll,
+        totals: totalsOf(rowsAll, ['itemsWeightMg', 'brokenScrapWeightMg', 'totalWeightMg', 'totalPureMg24']),
+        summary: stockSummary(sw.total),
+        notes: ['24K equivalent = weight × karat ÷ 24, rounded to the milligram once per karat.'],
+        filters: { dateRange: false, branch: true, user: false },
       };
     }
     case 'inventory-movement': {

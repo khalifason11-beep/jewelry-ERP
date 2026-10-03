@@ -24,6 +24,9 @@ import {
   MOVEMENT_TYPES,
   PAYMENT_METHODS,
   PRICING_MODES,
+  SCRAP_KINDS,
+  SCRAP_PAYMENT_METHODS,
+  SCRAP_WEIGHT_EVENT_TYPES,
   PURCHASE_STATUSES,
   SALE_STATUSES,
   SESSION_STATUSES,
@@ -88,6 +91,11 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   e('ledger_accounts', 'kind', LEDGER_ACCOUNT_KINDS),
   e('ledger_entries', 'event_type', LEDGER_EVENT_TYPES),
   e('ledger_entries', 'payment_method', PAYMENT_METHODS, true),
+  // ── Phase 4
+  e('scrap_purchases', 'kind', SCRAP_KINDS),
+  e('scrap_purchases', 'payment_method', SCRAP_PAYMENT_METHODS),
+  e('scrap_weight_entries', 'event_type', SCRAP_WEIGHT_EVENT_TYPES),
+  e('purchases', 'making_charge_paid_from', EXPENSE_PAYMENT_SOURCES, true),
 ];
 
 const nonNeg = (table: string, ...columns: string[]): ExprCheck[] =>
@@ -153,6 +161,21 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
     expr: "(reverses_entry_id IS NULL OR event_type IN ('SALE_VOID', 'REVERSAL')) AND (event_type <> 'REVERSAL' OR reverses_entry_id IS NOT NULL)",
   },
   ...nonNeg('cash_counts', 'counted_amount'),
+  // ── Phase 4: scrap gold, the broken-scrap pool, supplier gold debt, Hasad payments
+  karat('scrap_rates'),
+  ...nonNeg('scrap_rates', 'price_per_gram'),
+  karat('scrap_purchases'),
+  ...nonNeg('scrap_purchases', 'gross_weight_mg', 'scrap_rate_per_gram', 'agreed_rate_per_gram', 'deviation_bp', 'amount'),
+  { name: 'ck_scrap_purchases_net_positive', table: 'scrap_purchases', expr: 'net_weight_mg > 0 AND net_weight_mg <= gross_weight_mg' },
+  { name: 'ck_scrap_purchases_item_iff_sellable', table: 'scrap_purchases', expr: "(kind = 'SELLABLE') = (item_id IS NOT NULL)" },
+  karat('scrap_weight_entries'),
+  { name: 'ck_scrap_weight_entries_weight_nonzero', table: 'scrap_weight_entries', expr: 'weight_mg <> 0' },
+  karat('supplier_settlements', 'settled_karat'),
+  { name: 'ck_supplier_settlements_positive', table: 'supplier_settlements', expr: 'settled_weight_mg > 0 AND settled_pure_mg24 > 0' },
+  { name: 'ck_purchases_gold_debt_pair', table: 'purchases', expr: '(gold_debt_mg_pure24 IS NULL) = (gold_owed_mg_pure24 IS NULL)' },
+  { name: 'ck_purchases_gold_owed_range', table: 'purchases', expr: 'gold_owed_mg_pure24 IS NULL OR (gold_owed_mg_pure24 >= 0 AND gold_owed_mg_pure24 <= gold_debt_mg_pure24)' },
+  { name: 'ck_purchases_making_charge_paid', table: 'purchases', expr: '(making_charge_paid IS NULL) = (making_charge_paid_from IS NULL) AND coalesce(making_charge_paid, 0) >= 0' },
+  { name: 'ck_sales_hasad_reference', table: 'sales', expr: "payment_method <> 'HASAD' OR payment_ref_invoice IS NOT NULL" },
 ];
 
 /** The SQL expression for an enum check. */

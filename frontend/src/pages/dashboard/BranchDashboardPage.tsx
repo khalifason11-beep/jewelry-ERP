@@ -8,6 +8,7 @@ import { useAuth } from '../../lib/auth';
 import { date as formatDate, dateTime, grams, humanize, money, num, relative, todayKey, currencyLabel } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { Card, CardHeader, Empty, ErrorState, Input, Kpi, Loading, Mono, PageHeader, StatusBadge } from '../../components/ui';
+import { StockWeightCard, type StockWeight } from '../../components/StockWeight';
 import { MoneyLineChart } from '../../components/charts';
 
 interface MovementLine {
@@ -35,6 +36,7 @@ export interface BranchDash {
     hasadCompleted: number;
     hasadOpen: number;
   };
+  stockWeight: StockWeight;
   mtd: { revenue: number; grossProfit: number | null; expenses: number; contribution: number | null; salesCount: number; hasadCompleted: number };
   movement: {
     opening: { items: number; weightMg: number; cost: number };
@@ -120,6 +122,8 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
         <Kpi label={t('Available Inventory')} value={t('{n} pcs', { n: num(k.availableItems) })} sub={`${grams(k.availableWeightMg)}${k.reservedItems ? ` · ${t('{n} reserved', { n: k.reservedItems })}` : ''}`} icon={<Gem className="size-4" />} onClick={() => navigate(`/inventory?branchId=${d.branchId}`)} />
         <Kpi label={t('Hasad Withdrawals')} value={t('{n} done', { n: k.hasadCompleted })} sub={t('{n} open request(s)', { n: k.hasadOpen })} icon={<Coins className="size-4" />} onClick={() => navigate('/hasad')} />
       </div>
+
+      <StockWeightCard s={d.stockWeight} reportQuery={`?branchId=${d.branchId}`} />
 
       <div className="grid gap-5 xl:grid-cols-[1.15fr_1fr]">
         <MovementCard d={d} isToday={isToday} />

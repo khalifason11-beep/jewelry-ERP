@@ -73,6 +73,8 @@ describe('idempotency keys', () => {
         'POST /transfers',
         'POST /transfers/:id/receive',
         'POST /cash/counts',
+        'POST /scrap-purchases',
+        'POST /purchases/:id/settlements',
       ].sort(),
     );
     // Only mutating routes can be idempotent.
@@ -172,20 +174,28 @@ describe('idempotency keys', () => {
     return { lines: [{ productId: product.id, grossWeightMg: 5_100, netWeightMg: 5_000, purchaseCost: 900_000, makingCost: 50_000, otherCost: 0, sellingPrice: 1_200_000 }] };
   };
 
+  // Reservation mode (non-money routes such as transfers; purchases moved to in-transaction mode in Phase 4).
+  const transferBody = async () => {
+    const [krt] = await ctx.db.select().from(t.branches).where(eq(t.branches.code, 'KRT'));
+    const [omd] = await ctx.db.select().from(t.branches).where(eq(t.branches.code, 'OMD'));
+    const [item] = await ctx.db.select().from(t.jewelryItems).where(and(eq(t.jewelryItems.branchId, krt.id), eq(t.jewelryItems.status, 'AVAILABLE'))).limit(1);
+    return { fromBranchId: krt.id, toBranchId: omd.id, itemIds: [item.id] };
+  };
+
   it('a stale reservation without a result is reported as uncertain, never re-run', async () => {
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER', false);
     const [user] = await ctx.db.select().from(t.users).where(eq(t.users.username, 'branch.manager.kh'));
     const k = key();
-    const body = await purchaseBody();
+    const body = await transferBody();
     await ctx.db.insert(t.idempotencyKeys).values({
       userId: user.id,
       key: k,
-      route: 'POST /purchases',
-      requestHash: requestHash('POST', '/api/purchases', body),
+      route: 'POST /transfers',
+      requestHash: requestHash('POST', '/api/transfers', body),
       status: 'IN_PROGRESS',
       createdAt: new Date(Date.now() - IDEMPOTENCY_STALE_MS - 1000),
     });
-    const res = await bm.post('/api/purchases').set('Idempotency-Key', k).send(body);
+    const res = await bm.post('/api/transfers').set('Idempotency-Key', k).send(body);
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('IDEMPOTENCY_UNCERTAIN');
   });

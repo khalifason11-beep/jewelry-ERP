@@ -251,6 +251,15 @@ export const purchases = pgTable('purchases', {
   notes: text('notes'),
   createdBy: integer('created_by').notNull().references(() => users.id),
   createdAt: createdAt(),
+  // ── Phase 4: gold-for-gold supplier debt (D-4-4). NULL for orders recorded before Phase 4. ──
+  /** Gold owed when the order was received: Σ pureGoldMg(net, karat) of the delivered pieces (24K mg). */
+  goldDebtMgPure24: integer('gold_debt_mg_pure24'),
+  /** Gold still owed after settlements (24K mg); reaches exactly 0, never below. */
+  goldOwedMgPure24: integer('gold_owed_mg_pure24'),
+  /** Making charge paid to the supplier at receipt (the only money ever paid to a supplier). */
+  makingChargePaid: money('making_charge_paid'),
+  /** CASH | BANK: where that making charge was paid from. */
+  makingChargePaidFrom: text('making_charge_paid_from'),
 });
 
 export const purchaseItems = pgTable('purchase_items', {
@@ -286,6 +295,9 @@ export const sales = pgTable(
     voidedBy: integer('voided_by').references(() => users.id),
     voidReason: text('void_reason'),
     createdAt: createdAt(),
+    /** HASAD payments: the app's invoice / transaction reference, typed by the cashier (no API call). */
+    paymentRefInvoice: text('payment_ref_invoice'),
+    paymentRefTransaction: text('payment_ref_transaction'),
   },
   (t) => [index('sales_branch_at_idx').on(t.branchId, t.createdAt)],
 );
@@ -518,6 +530,101 @@ export const documentSequences = pgTable(
     next: integer('next').notNull(),
   },
   (t) => [uniqueIndex('doc_seq_scope_idx').on(t.scope)],
+);
+
+// ───────────────────────────── Scrap gold and supplier settlement (Phase 4) ─────────────────────────────
+
+/** Scrap BUYING rate per karat (any karat: not limited by allowed karats). Append-only history. */
+export const scrapRates = pgTable(
+  'scrap_rates',
+  {
+    id: serial('id').primaryKey(),
+    karat: smallint('karat').notNull(),
+    pricePerGram: money('price_per_gram').notNull(),
+    effectiveAt: ts('effective_at').notNull().defaultNow(),
+    setBy: integer('set_by'),
+  },
+  (t) => [index('scrap_rates_karat_idx').on(t.karat, t.effectiveAt)],
+);
+
+/** A counter purchase of scrap gold from a customer: a sellable piece, or broken scrap for the pool. */
+export const scrapPurchases = pgTable(
+  'scrap_purchases',
+  {
+    id: serial('id').primaryKey(),
+    number: text('number').notNull().unique(),
+    branchId: integer('branch_id').notNull().references(() => branches.id),
+    /** SELLABLE (becomes a jewelry item, origin SCRAP) | BROKEN (weight pool only). */
+    kind: text('kind').notNull(),
+    karat: smallint('karat').notNull(),
+    grossWeightMg: integer('gross_weight_mg').notNull(),
+    netWeightMg: integer('net_weight_mg').notNull(),
+    /** Today's scrap buying rate for the karat, and the rate actually agreed with the customer. */
+    scrapRatePerGram: money('scrap_rate_per_gram').notNull(),
+    agreedRatePerGram: money('agreed_rate_per_gram').notNull(),
+    /** |agreed − rate| / rate in basis points (1% = 100). */
+    deviationBp: integer('deviation_bp').notNull(),
+    /** True when the deviation exceeded the tolerance and was approved (GM). */
+    overrideApproved: boolean('override_approved').notNull().default(false),
+    /** Paid to the customer: round(net mg × agreed rate / 1000). */
+    amount: money('amount').notNull(),
+    paymentMethod: text('payment_method').notNull(),
+    /** The jewelry item created for a SELLABLE purchase. */
+    itemId: integer('item_id').references(() => jewelryItems.id),
+    customerName: text('customer_name'),
+    customerPhone: text('customer_phone'),
+    customerIdRef: text('customer_id_ref'),
+    note: text('note'),
+    createdBy: integer('created_by').notNull().references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [index('scrap_purchases_branch_at_idx').on(t.branchId, t.createdAt)],
+);
+
+/**
+ * Broken-scrap WEIGHT pool per branch (append-only, like ledger_entries). Never a jewelry item.
+ * Balance per branch and karat = SUM(weight_mg); the 24K equivalent is derived from the balances.
+ */
+export const scrapWeightEntries = pgTable(
+  'scrap_weight_entries',
+  {
+    id: serial('id').primaryKey(),
+    branchId: integer('branch_id').notNull().references(() => branches.id),
+    karat: smallint('karat').notNull(),
+    /** Signed mg, never 0: + bought from a customer, − given to a supplier. */
+    weightMg: integer('weight_mg').notNull(),
+    eventType: text('event_type').notNull(),
+    refType: text('ref_type').notNull(),
+    refId: integer('ref_id').notNull(),
+    refNumber: text('ref_number'),
+    actorId: integer('actor_id').references(() => users.id),
+    sessionId: text('session_id'),
+    idempotencyKey: text('idempotency_key'),
+    note: text('note'),
+    at: ts('at').notNull().defaultNow(),
+  },
+  (t) => [index('scrap_weight_branch_karat_idx').on(t.branchId, t.karat), index('scrap_weight_ref_idx').on(t.refType, t.refId)],
+);
+
+/** Gold paid to a supplier against a purchase order, ONLY with broken-scrap weight (append-only). */
+export const supplierSettlements = pgTable(
+  'supplier_settlements',
+  {
+    id: serial('id').primaryKey(),
+    number: text('number').notNull().unique(),
+    purchaseId: integer('purchase_id').notNull().references(() => purchases.id),
+    branchId: integer('branch_id').notNull().references(() => branches.id),
+    settledKarat: smallint('settled_karat').notNull(),
+    settledWeightMg: integer('settled_weight_mg').notNull(),
+    /** pureGoldMg(settled_weight_mg, settled_karat): what the order's debt goes down by. */
+    settledPureMg24: integer('settled_pure_mg24').notNull(),
+    actorId: integer('actor_id').notNull().references(() => users.id),
+    sessionId: text('session_id'),
+    idempotencyKey: text('idempotency_key'),
+    note: text('note'),
+    at: ts('at').notNull().defaultNow(),
+  },
+  (t) => [index('supplier_settlements_purchase_idx').on(t.purchaseId)],
 );
 
 // ───────────────────────────── Branch money ledger (Phase 2b) ─────────────────────────────

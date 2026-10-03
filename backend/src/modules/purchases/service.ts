@@ -1,4 +1,4 @@
-import { ap } from '@jerp/shared';
+import { ap, pureGoldMg, sumInt, type ExpensePaymentSource } from '@jerp/shared';
 import { and, desc, eq, gte, ilike, inArray, lt, or, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import type { Actor, Ctx } from '../../core/context';
@@ -8,6 +8,10 @@ import { badRequest, notFound } from '../../core/errors';
 import { nextItemCode, nextNumber } from '../../core/numbering';
 import { dayRange } from '../../core/time';
 import { recordMovement } from '../inventory/ledger';
+import { assertSellableKarat } from '../../core/karats';
+import type { TxIdempotency } from '../../core/idempotency';
+import { post } from '../ledger/service';
+import { settlementsFor } from '../supplier-settlements/service';
 
 export interface PurchaseLine {
   productId: number;
@@ -24,11 +28,21 @@ export interface CreatePurchaseInput {
   supplierId?: number;
   supplierInvoiceNo?: string;
   notes?: string;
+  /** Where the making charge is paid from, immediately (D-4-4). Default CASH. */
+  makingChargePaidFrom?: ExpensePaymentSource;
   lines: PurchaseLine[];
 }
 
-/** Receive purchased pieces into a branch: PURCHASED → RECEIVED → AVAILABLE, ledger PURCHASE. */
-export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurchaseInput, opts: { at?: Date } = {}) {
+/**
+ * Receive purchased pieces into a branch: PURCHASED → RECEIVED → AVAILABLE, ledger PURCHASE.
+ *
+ * Supplier terms (Phase 4, D-4-4): gold for gold. The order owes the supplier the 24K equivalent of
+ * the pieces' net weight (gold_owed_mg_pure24, settled later only with broken scrap); the making
+ * charge is the only money ever paid to a supplier and is paid now, from the drawer or the bank,
+ * in the same transaction. The per-piece money costs stay the General Manager's valuation for
+ * profit reporting.
+ */
+export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurchaseInput, opts: { at?: Date; idem?: TxIdempotency } = {}) {
   requirePerm(actor, 'purchases.create');
   const branchId = branchScope(actor, input.branchId);
   if (branchId == null) throw badRequest('Select the receiving branch');
@@ -36,15 +50,29 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
   for (const l of input.lines) {
     if (l.netWeightMg <= 0 || l.grossWeightMg < l.netWeightMg) throw badRequest('Gross weight must be ≥ net weight > 0');
     if (l.purchaseCost <= 0 || l.sellingPrice <= 0) throw badRequest('Costs and prices must be positive');
+    if (l.makingCost < 0 || l.otherCost < 0) throw badRequest('Costs and prices must be positive');
   }
+  const settings = await ctx.settings.get();
+  if (!settings.purchases.supplierCreditEnabled) throw badRequest('Supplier purchases on gold credit are turned off in the settings');
+  const paidFrom: ExpensePaymentSource = input.makingChargePaidFrom ?? 'CASH';
   const at = opts.at ?? new Date();
 
   return ctx.db.transaction(async (tx) => {
+    await opts.idem?.claim(tx);
     const [branch] = await tx.select().from(t.branches).where(eq(t.branches.id, branchId));
     const products = await tx.select().from(t.products).where(inArray(t.products.id, input.lines.map((l) => l.productId)));
     const byId = new Map(products.map((p) => [p.id, p]));
+    // Karat restriction (D-4-1): a supplier piece is sellable stock.
+    for (const l of input.lines) {
+      const product = byId.get(l.productId);
+      if (!product) throw notFound('Product');
+      await assertSellableKarat(ctx, product.karat);
+    }
     const number = await nextNumber(tx, branch.code, 'PO');
     const totalCost = input.lines.reduce((s, l) => s + l.purchaseCost + l.makingCost + l.otherCost, 0);
+    // The gold debt: one pureGoldMg rounding per piece (the system's single conversion, D-2a-6).
+    const goldDebt = sumInt(input.lines.map((l) => pureGoldMg(l.netWeightMg, byId.get(l.productId)!.karat)));
+    const makingChargePaid = sumInt(input.lines.map((l) => l.makingCost));
     const [purchase] = await tx
       .insert(t.purchases)
       .values({
@@ -55,12 +83,22 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
         itemCount: input.lines.length,
         totalNetWeightMg: input.lines.reduce((s, l) => s + l.netWeightMg, 0),
         totalCost,
+        goldDebtMgPure24: goldDebt,
+        goldOwedMgPure24: goldDebt,
+        makingChargePaid,
+        makingChargePaidFrom: paidFrom,
         notes: input.notes ?? null,
         createdBy: actor.userId,
         createdAt: at,
       })
       .returning();
     const ref = { refType: 'purchase', refId: purchase.id, refNumber: number };
+    // The making charge leaves the drawer or the bank now (skipped when it is 0).
+    await post(
+      tx,
+      [{ branchId, kind: paidFrom, amount: -makingChargePaid, eventType: 'SUPPLIER_MAKING_CHARGE', paymentMethod: paidFrom === 'CASH' ? 'CASH' : 'BANK_TRANSFER', ref, at }],
+      { actor, idempotencyKey: opts.idem?.key },
+    );
     const codes: string[] = [];
     for (const l of input.lines) {
       const product = byId.get(l.productId);
@@ -115,7 +153,9 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
       params: { number, n: input.lines.length, cost: ap.money(totalCost) },
       metadata: { items: codes },
     });
-    return { ...purchase, itemCodes: codes };
+    const result = { ...purchase, itemCodes: codes };
+    await opts.idem?.complete(tx, result);
+    return result;
   });
 }
 
@@ -185,7 +225,8 @@ export async function getPurchase(ctx: Ctx, actor: Actor, id: number) {
     .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.purchaseItems.itemId))
     .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
     .where(eq(t.purchaseItems.purchaseId, id));
-  return { ...p.p, branchName: p.branchName, supplierName: p.supplierName, createdByName: p.createdByName, items };
+  const settlements = await settlementsFor(ctx, id);
+  return { ...p.p, branchName: p.branchName, supplierName: p.supplierName, createdByName: p.createdByName, items, settlements };
 }
 
 export async function listSuppliers(ctx: Ctx) {

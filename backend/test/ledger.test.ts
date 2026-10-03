@@ -67,14 +67,24 @@ describe('cost model', () => {
   it('every item has an origin and an acquisition cost; supplier pieces include the making charge', async () => {
     const items = await ctx.db.select().from(t.jewelryItems);
     expect(items.length).toBeGreaterThan(100);
-    for (const i of items) {
-      expect(i.origin).toBe('SUPPLIER_NEW');
+    const supplier = items.filter((i) => i.origin === 'SUPPLIER_NEW');
+    const scrap = items.filter((i) => i.origin === 'SCRAP');
+    expect(supplier.length + scrap.length).toBe(items.length);
+    for (const i of supplier) {
       expect(i.acquisitionCost).toBe(i.purchaseCost + i.makingCost + i.otherCost);
       expect(i.makingCharge).toBe(i.makingCost);
       expect(i.makingCharge).toBeLessThanOrEqual(i.acquisitionCost);
       expect(i.costIsEstimated).toBe(false);
+      expect(i.supplierId).not.toBeNull();
     }
-    expect(items.filter((i) => i.supplierId != null).length).toBe(items.length);
+    // Sellable counter scrap (Phase 4): its cost is what the customer was paid; no supplier.
+    expect(scrap.length).toBeGreaterThan(0);
+    const scrapBuys = await ctx.db.select().from(t.scrapPurchases);
+    for (const i of scrap) {
+      const buy = scrapBuys.find((b) => b.itemId === i.id)!;
+      expect(i.acquisitionCost).toBe(buy.amount);
+      expect(i.supplierId).toBeNull();
+    }
   });
 
   it('a sale line stores the acquisition-cost snapshot and profit = final price − acquisition cost', async () => {
@@ -109,13 +119,13 @@ describe('cost model', () => {
 });
 
 describe('ledger basics', () => {
-  it('every branch has CASH, BANK and FUNDS_IN_TRANSIT accounts, also a branch created later', async () => {
+  it('every branch has CASH, BANK, FUNDS_IN_TRANSIT and HASAD_RECEIVABLE accounts, also a branch created later', async () => {
     const accounts = await ctx.db.select().from(t.ledgerAccounts);
     const branches = await ctx.db.select().from(t.branches);
-    expect(accounts).toHaveLength(branches.length * 3);
+    expect(accounts).toHaveLength(branches.length * 4);
     const [b] = await ctx.db.insert(t.branches).values({ code: 'LDGT', name: 'Ledger Test', nameAr: 'اختبار', city: 'Test' }).returning();
     const kinds = (await ctx.db.select().from(t.ledgerAccounts).where(eq(t.ledgerAccounts.branchId, b.id))).map((a) => a.kind).sort();
-    expect(kinds).toEqual(['BANK', 'CASH', 'FUNDS_IN_TRANSIT']);
+    expect(kinds).toEqual(['BANK', 'CASH', 'FUNDS_IN_TRANSIT', 'HASAD_RECEIVABLE']);
   });
 
   it('the demo seed posted entries consistent with its history', async () => {
@@ -175,23 +185,23 @@ describe('ledger basics', () => {
 });
 
 describe('money events post in the same transaction as the business change', () => {
-  it('cash sale → +total to CASH; card sale → BANK with its payment method; void nets each to zero', async () => {
+  it('cash sale → +total to CASH; bank-transfer sale → BANK with its payment method; void nets each to zero', async () => {
     const cashier = await actorOf('cashier.kh.01');
     const bm = await actorOf('branch.manager.kh');
     const krt = await branchId('KRT');
     const [a, b] = await freshItems('KRT', 2);
     const cashBefore = await cashBalance(ctx.db, krt);
     const s1 = await createSale(ctx, cashier, { items: [{ itemId: a.id }], paymentMethod: 'CASH' });
-    const s2 = await createSale(ctx, cashier, { items: [{ itemId: b.id }], paymentMethod: 'CARD' });
+    const s2 = await createSale(ctx, cashier, { items: [{ itemId: b.id }], paymentMethod: 'BANK_TRANSFER' });
     expect(await cashBalance(ctx.db, krt)).toBe(cashBefore + s1.total);
     const e2 = await entriesFor(ctx.db, 'sale', [s2.id]);
     expect(e2).toHaveLength(1);
-    expect(e2[0]).toMatchObject({ amount: s2.total, paymentMethod: 'CARD', eventType: 'SALE' });
+    expect(e2[0]).toMatchObject({ amount: s2.total, paymentMethod: 'BANK_TRANSFER', eventType: 'SALE' });
     const [acc] = await ctx.db.select().from(t.ledgerAccounts).where(eq(t.ledgerAccounts.id, e2[0].accountId));
     expect(acc.kind).toBe('BANK');
 
     await voidSale(ctx, bm, s1.id, 'Customer returned it');
-    await voidSale(ctx, bm, s2.id, 'Card reversed');
+    await voidSale(ctx, bm, s2.id, 'Transfer reversed');
     for (const s of [s1, s2]) {
       const e = await entriesFor(ctx.db, 'sale', [s.id]);
       expect(e).toHaveLength(2);
@@ -248,14 +258,14 @@ describe('money events post in the same transaction as the business change', () 
     const [item] = await freshItems('KRT', 1);
     await addItem(ctx, cashier, w.id, item.id);
     const s = await computeSettlement(ctx, w, [{ netWeightMg: item.netWeightMg, karat: item.karat }]);
-    const res = await completeWithdrawal(ctx, cashier, w.id, { paymentMethod: 'MOBILE_WALLET', customerAcknowledged: true, expectedDirection: s.direction, expectedAmount: s.amount });
+    const res = await completeWithdrawal(ctx, cashier, w.id, { paymentMethod: 'BANK_TRANSFER', customerAcknowledged: true, expectedDirection: s.direction, expectedAmount: s.amount });
     const [draft] = await ctx.db.select().from(t.hasadRedemptions).where(eq(t.hasadRedemptions.number, res.redemptionNumber));
     const e = await entriesFor(ctx.db, 'hasad_redemption', [draft.id]);
     if (s.direction === 'NONE') expect(e).toHaveLength(0);
     else {
       expect(e).toHaveLength(1);
       expect(e[0].amount).toBe(s.direction === 'BRANCH_PAYS_CUSTOMER' ? -s.amount : s.amount);
-      expect(e[0].paymentMethod).toBe('MOBILE_WALLET');
+      expect(e[0].paymentMethod).toBe('BANK_TRANSFER');
       const [acc] = await ctx.db.select().from(t.ledgerAccounts).where(eq(t.ledgerAccounts.id, e[0].accountId));
       expect(acc.kind).toBe('BANK');
     }

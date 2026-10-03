@@ -81,11 +81,14 @@ describe('typed settings: one row per key, history, versions', () => {
   it('exposes the new business settings with safe defaults', async () => {
     const gm = await login(ROLE_USER.GENERAL_MANAGER);
     const s = (await gm.get('/api/settings')).body.settings;
-    expect(s.purchases.supplierCreditEnabled).toBe(false);
+    // Phase 4 (D-4-4): supplier purchases are gold-for-gold debts by default.
+    expect(s.purchases.supplierCreditEnabled).toBe(true);
+    expect(s.sales.posPaymentMethods).toEqual(['CASH', 'BANK_TRANSFER', 'HASAD']);
     expect(s.purchases.requireGmApprovalForScrapOverride).toBe(true);
     expect(s.rates.goldRateScope).toBe('GLOBAL');
     expect(typeof s.rates.rateChangeMaxPct).toBe('number');
-    expect(s.inventory.allowedKarats).toEqual([18, 21, 22, 24]);
+    // The demo seed configures this client's karat (D-4-1); the code default stays generic.
+    expect(s.inventory.allowedKarats).toEqual([21]);
     expect(s.security.idleMinutes).toBe(60);
     expect(s.hasad.enabledPerBranch).toMatchObject({ KRT: true, OMD: true });
   });
@@ -287,7 +290,7 @@ describe('operator console (break-glass)', () => {
 // ───────────────────────── route permission matrix (generated) ─────────────────────────
 type Req = { method?: string; path: string; query?: Record<string, string | number>; body?: unknown; contentType?: string };
 interface Fixtures {
-  krt: number; omd: number; krtItem: number; omdItem: number; krtSale: number; omdSale: number; omdPurchase: number; omdExpense: number;
+  krt: number; omd: number; krtItem: number; omdItem: number; krtSale: number; omdSale: number; krtPurchase: number; omdPurchase: number; omdExpense: number;
   omdWithdrawal: number; omdTransferTo: number; omdUser: number; omdSessionKey: string;
 }
 const NONE = 999_999;
@@ -359,6 +362,12 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'GET /cash/drawer': () => ({ path: '/cash/drawer' }),
   'GET /cash/reconciliation': () => ({ path: '/cash/reconciliation' }),
   'POST /cash/counts': () => ({ path: '/cash/counts', body: {} }),
+  'GET /scrap-rates': () => ({ path: '/scrap-rates' }),
+  'POST /scrap-rates': () => ({ path: '/scrap-rates', body: {} }),
+  'GET /scrap-purchases': () => ({ path: '/scrap-purchases' }),
+  'POST /scrap-purchases': () => ({ path: '/scrap-purchases', body: {} }),
+  'GET /scrap-pool': () => ({ path: '/scrap-pool' }),
+  'POST /purchases/:id/settlements': (f) => ({ path: `/purchases/${f.krtPurchase}/settlements`, body: {} }),
   'GET /dashboard/company': () => ({ path: '/dashboard/company' }),
   'GET /reports/:key': () => ({ path: '/reports/sales' }),
   'GET /audit': () => ({ path: '/audit', query: { limit: 5 } }),
@@ -412,6 +421,10 @@ const CROSS: Record<string, (f: Fixtures) => Req> = {
   'GET /cash/drawer': (f) => ({ path: '/cash/drawer', query: { branchId: f.omd } }),
   'GET /cash/reconciliation': (f) => ({ path: '/cash/reconciliation', query: { branchId: f.omd } }),
   'POST /cash/counts': (f) => ({ path: '/cash/counts', body: { branchId: f.omd, day: '2026-01-01', countedAmount: 1 } }),
+  'GET /scrap-purchases': (f) => ({ path: '/scrap-purchases', query: { branchId: f.omd } }),
+  'POST /scrap-purchases': (f) => ({ path: '/scrap-purchases', body: { branchId: f.omd, kind: 'BROKEN', karat: 21, grossWeightMg: 1000, netWeightMg: 1000, paymentMethod: 'CASH' } }),
+  'GET /scrap-pool': (f) => ({ path: '/scrap-pool', query: { branchId: f.omd } }),
+  'POST /purchases/:id/settlements': (f) => ({ path: `/purchases/${f.omdPurchase}/settlements`, body: { karat: 21, weightMg: 1000 } }),
 };
 
 let F: Fixtures;
@@ -448,6 +461,7 @@ describe('route permission matrix (generated from shared/src/route-matrix.ts)', 
       omdItem: await id(ctx.db.select({ id: t.jewelryItems.id }).from(t.jewelryItems).where(and(eq(t.jewelryItems.branchId, omd), eq(t.jewelryItems.status, 'AVAILABLE'))).limit(1)),
       krtSale: await id(ctx.db.select({ id: t.sales.id }).from(t.sales).where(eq(t.sales.branchId, krt)).limit(1)),
       omdSale: await id(ctx.db.select({ id: t.sales.id }).from(t.sales).where(and(eq(t.sales.branchId, omd), eq(t.sales.status, 'COMPLETED'))).limit(1)),
+      krtPurchase: await id(ctx.db.select({ id: t.purchases.id }).from(t.purchases).where(eq(t.purchases.branchId, krt)).limit(1)),
       omdPurchase: await id(ctx.db.select({ id: t.purchases.id }).from(t.purchases).where(eq(t.purchases.branchId, omd)).limit(1)),
       omdExpense: await id(ctx.db.select({ id: t.expenses.id }).from(t.expenses).where(eq(t.expenses.branchId, omd)).limit(1)),
       omdWithdrawal: await id(ctx.db.select({ id: t.hasadWithdrawals.id }).from(t.hasadWithdrawals).where(and(eq(t.hasadWithdrawals.branchId, omd), eq(t.hasadWithdrawals.status, 'READY_FOR_PICKUP'))).limit(1)),

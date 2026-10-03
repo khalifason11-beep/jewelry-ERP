@@ -192,6 +192,25 @@ npm run ops -w @jerp/backend -- reset-gm-password --username <gm user>
   reconciliation — opening cash, sales by payment method, cancellations, expenses, settlements, expected cash, the
   counted cash and the difference.
 
+### Purchases, scrap gold and supplier settlement (Phase 4)
+
+- **Karat restriction**: only the karats in *Settings → Allowed karats* (21 for this client) can be bought from a
+  supplier, priced, sold or delivered. Broken scrap of any karat can still be bought.
+- **Three kinds of stock**: new pieces from suppliers, sellable scrap pieces bought from customers (both are items in
+  Inventory, filterable by origin, karat and weight), and **broken scrap**, which is never an item but weight in the
+  branch's **scrap pool**. The pool counts in the branch's **total stock weight** (raw by karat and as 24K) on the
+  dashboards, in the inventory report and in the new *Stock Weight* report.
+- **Scrap gold** screen (branch managers, GM): buy from a customer at today's scrap buying rate (set by the GM in
+  Settings, per karat), within the allowed price tolerance; paid from the drawer or by bank transfer.
+- **Supplier purchases are gold for gold**: the supplier is owed the pieces' weight as 24K pure gold; the making
+  charge is the only money paid, immediately, from the drawer or the bank. When the supplier's representative visits,
+  the branch manager settles the order on its purchase page **with broken scrap from the pool only** (weight and
+  karat; never cash or bank), in as many partial visits as needed. The gold owed is visible to the GM only.
+- **POS payment methods**: Cash, Bank transfer and **Hasad** (with the Hasad invoice number and transaction
+  reference). Hasad payments are held in the branch's Hasad receivable.
+- **Transfers**: a branch manager ticks pieces on the Inventory screen and sends them with one *Transfer selected*
+  button (one transfer); the Transfers screen keeps the full log and the receipt confirmation.
+
 ### Language
 
 The UI opens in Arabic (RTL) by default; the header switch toggles English. English source strings are the

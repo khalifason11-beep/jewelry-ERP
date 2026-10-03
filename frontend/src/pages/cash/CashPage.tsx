@@ -17,7 +17,7 @@ import { DataTable } from '../../components/ui/DataTable';
 
 interface Drawer {
   asOf: string;
-  branches: { branchId: number; branchCode: string; branchName: string; branchNameAr: string; expectedCash: number; bank: number; fundsInTransit: number }[];
+  branches: { branchId: number; branchCode: string; branchName: string; branchNameAr: string; expectedCash: number; bank: number; fundsInTransit: number; hasadReceivable: number }[];
 }
 interface ByMethod {
   paymentMethod: string;
@@ -35,6 +35,10 @@ interface Reconciliation {
   expensesBank: number;
   settlementsCash: number;
   settlementsBank: number;
+  scrapPurchasesCash: number;
+  scrapPurchasesBank: number;
+  makingChargesCash: number;
+  makingChargesBank: number;
   cashMovement: number;
   expectedCash: number;
   counted: { amount: number; at: string; countedByName: string | null; note: string | null } | null;
@@ -62,7 +66,7 @@ export function CashPage() {
       <PageHeader title={t('Cash')} subtitle={t('Expected cash in each drawer, from the branch money ledger, and the daily cash reconciliation.')} />
 
       <Card padded={false} className="mb-5">
-        <CardHeader title={t('Expected cash now')} subtitle={t('Every sale, cancellation, approved expense and Hasad settlement moves these balances. Nothing is typed in by hand.')} />
+        <CardHeader title={t('Expected cash now')} subtitle={t('Every sale, cancellation, approved expense, scrap purchase, supplier making charge and Hasad settlement moves these balances. Nothing is typed in by hand.')} />
         {drawer.isLoading ? (
           <Loading />
         ) : drawer.isError ? (
@@ -77,6 +81,8 @@ export function CashPage() {
               { key: 'branchName', header: t('Branch'), render: (r) => L(r.branchName, r.branchNameAr) },
               { key: 'expectedCash', header: t('Cash drawer'), align: 'end', render: (r) => <span className="font-semibold num">{money(r.expectedCash, false)}</span>, footer: money(drawer.data!.branches.reduce((s, r) => s + r.expectedCash, 0), false) },
               { key: 'bank', header: t('Bank'), align: 'end', render: (r) => <span className="num">{money(r.bank, false)}</span>, footer: money(drawer.data!.branches.reduce((s, r) => s + r.bank, 0), false) },
+              // Hasad payments held for the branch until a settlement with Hasad is designed (open question).
+              { key: 'hasadReceivable', header: t('Hasad receivable'), align: 'end', render: (r) => <span className="num">{money(r.hasadReceivable, false)}</span>, footer: money(drawer.data!.branches.reduce((s, r) => s + r.hasadReceivable, 0), false) },
             ]}
           />
         )}
@@ -149,6 +155,10 @@ function ReconciliationView({ r, canCount }: { r: Reconciliation; canCount: bool
               { label: t('Expenses paid from the bank'), value: <span className="num">{signed(r.expensesBank)}</span> },
               { label: t('Hasad settlements in cash'), value: <span className="num">{signed(r.settlementsCash)}</span> },
               { label: t('Hasad settlements via the bank'), value: <span className="num">{signed(r.settlementsBank)}</span> },
+              { label: t('Scrap bought, paid from the drawer'), value: <span className="num">{signed(r.scrapPurchasesCash)}</span> },
+              { label: t('Scrap bought, paid by bank'), value: <span className="num">{signed(r.scrapPurchasesBank)}</span> },
+              { label: t('Supplier making charges from the drawer'), value: <span className="num">{signed(r.makingChargesCash)}</span> },
+              { label: t('Supplier making charges from the bank'), value: <span className="num">{signed(r.makingChargesBank)}</span> },
             ]}
           />
         </div>

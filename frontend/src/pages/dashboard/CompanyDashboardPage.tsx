@@ -8,6 +8,7 @@ import { addDaysKey, date as formatDate, grams, karatLabel, money, num, pct, tod
 import { branchColor } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { Card, CardHeader, ErrorState, Input, Kpi, Loading, PageHeader } from '../../components/ui';
+import { StockWeightCard, type StockWeight } from '../../components/StockWeight';
 import { CategoryBarChart, StackedMoneyBars } from '../../components/charts';
 
 interface BranchRow {
@@ -56,6 +57,7 @@ interface CompanyDash {
   branches: BranchRow[];
   trend: Record<string, number | string>[];
   inventoryByKarat: { karat: number; items: number; weightMg: number; cost: number }[];
+  stockWeight: StockWeight;
   salesByCategory: { category: string; items: number; revenue: number; profit: number }[];
   attention: { pendingExpenses: number; pendingExpensesAmount: number; transfersInTransit: number; activeSessions: number };
 }
@@ -297,6 +299,7 @@ function Body({ d, onBranch, L }: { d: CompanyDash; onBranch: (id: number) => vo
           <div className="border-t border-line px-5 py-2 text-[11.5px] text-ink-500">{t('Retail value of the same stock: {amount}', { amount: money(T.inventoryRetail) })}</div>
         </Card>
       </div>
+      <StockWeightCard s={d.stockWeight} />
     </div>
   );
 }

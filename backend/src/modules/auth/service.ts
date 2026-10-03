@@ -247,5 +247,8 @@ export async function me(ctx: Ctx, actor: Actor) {
     allowSelfPasswordChange: settings.security.allowSelfPasswordChange,
     maxDiscountPercent: settings.sales.maxDiscountPercentByRole[actor.roleCode] ?? 0,
     hasadMode: ctx.hasad.mode,
+    // Phase 4: what the counter offers (D-4-6) and which karats are sold here (D-4-1).
+    posPaymentMethods: settings.sales.posPaymentMethods,
+    allowedKarats: settings.inventory.allowedKarats,
   };
 }

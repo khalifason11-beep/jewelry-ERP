@@ -62,7 +62,7 @@ describe('parallel double-sell of the same item', () => {
       const [item] = await freshItems('KRT', 1);
       const rs = await settled([
         createSale(ctx, c1, { items: [{ itemId: item.id }], paymentMethod: 'CASH' }),
-        createSale(ctx, c2, { items: [{ itemId: item.id }], paymentMethod: 'CARD' }),
+        createSale(ctx, c2, { items: [{ itemId: item.id }], paymentMethod: 'BANK_TRANSFER' }),
         createSale(ctx, c1, { items: [{ itemId: item.id }], paymentMethod: 'CASH' }),
       ]);
       expect(winners(rs), `round ${round}: ${reasons(rs)}`).toHaveLength(1);

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { ArrowRight, PackageCheck, Plus } from 'lucide-react';
 import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -36,6 +37,7 @@ export function TransfersPage() {
   const toast = useToast();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
   const q = useQuery({ queryKey: ['transfers'], queryFn: () => get<TransferRow[]>('/transfers') });
   const actionKeys = useActionKeys();
   const receive = useMutation({
@@ -52,7 +54,15 @@ export function TransfersPage() {
       <PageHeader
         title={t('Transfers')}
         subtitle={t('Two-step inter-branch transfers: sent pieces are in transit (TRANSFERRED) until the receiving branch confirms.')}
-        actions={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setOpen(true)}>{t('New transfer')}</Button>}
+        actions={
+          // Phase 4: a branch manager creates transfers from the Inventory screen (select pieces →
+          // "Transfer selected"). The General Manager keeps this dialog to move stock between any branches.
+          isGlobal ? (
+            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setOpen(true)}>{t('New transfer')}</Button>
+          ) : (
+            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => navigate('/inventory')}>{t('Select pieces in Inventory')}</Button>
+          )
+        }
       />
       <Card padded={false}>
         {q.isLoading ? (
@@ -89,7 +99,7 @@ export function TransfersPage() {
           />
         )}
       </Card>
-      {open && <NewTransferDialog onClose={() => setOpen(false)} />}
+      {open && isGlobal && <NewTransferDialog onClose={() => setOpen(false)} />}
     </div>
   );
 }
