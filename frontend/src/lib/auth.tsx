@@ -27,6 +27,8 @@ export interface Me {
   posPaymentMethods: import('@jerp/shared').PaymentMethod[];
   /** Karats this deployment sells (setting inventory.allowedKarats). */
   allowedKarats: number[];
+  /** Printing settings (D-print-2). */
+  print: { invoiceFormat: import('@jerp/shared').InvoiceFormat; receiptWidthMm: number; autoPrintAfterSale: boolean };
   /** Second factor (passkeys) for this account (Phase 2fa). */
   secondFactor: SecondFactor;
 }

@@ -13,6 +13,7 @@ export const PERMISSIONS = {
   'sales.view_own': 'View own sales',
   'sales.view': 'View all sales in scope',
   'sales.void': 'Cancel (void) a completed sale',
+  'sales.reprint': 'Reprint an invoice (marked COPY n and audited)',
 
   // Inventory
   'inventory.view_available': 'Search sellable inventory in own branch',
@@ -79,6 +80,8 @@ const BRANCH_MANAGER: Permission[] = [
   ...CASHIER,
   'sales.view',
   'sales.void',
+  // Reprints are manager-only; a cashier prints once, right after the sale (D-print-5).
+  'sales.reprint',
   'inventory.view',
   'inventory.adjust',
   'inventory.price_edit',

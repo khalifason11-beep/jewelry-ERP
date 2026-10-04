@@ -72,7 +72,7 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   },
   sales: {
     cost: ['cost_total'],
-    safe: words('id number branch_id cashier_id session_id customer_name customer_name_ar customer_phone subtotal discount_total total payment_method status voided_at voided_by void_reason created_at payment_ref_invoice payment_ref_transaction'),
+    safe: words('id number branch_id cashier_id session_id customer_name customer_name_ar customer_phone subtotal discount_total total payment_method status voided_at voided_by void_reason created_at payment_ref_invoice payment_ref_transaction original_printed_at reprint_count'),
   },
   sessions: {
     safe: words('id user_id branch_id login_at last_activity_at user_agent device ip_address current_module status ended_at ended_reason absolute_expires_at reauth_at csrf_token is_simulated sign_in_method passkey_reauth_at passkey_reauth_uv'),
@@ -200,6 +200,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     secondFactor required enrollmentRequired passkeys recoveryCodesRemaining recoveryCodesAcknowledged userVerification
     method requiredRoles signInMethod newDeviceAlert credentialNickname browser ipApprox uv newDevice nickname lastUsedAt
     uvAtRegistration backedUp deviceType methods expiresAt codes generatedAt validForMinutes revoked changed securityLocked recoveryCodesInvalidated
+    print document layout format invoiceFormat receiptWidthMm autoPrintAfterSale originalPrintedAt reprintCount issuedAt lines copy printedAt invoiceRef transactionRef hasad cashier customer
     backup backupAgeHours verifyAgeHours maxAgeHours maxVerifyAgeDays reasons
     goldOwedMgPure24 owedAfterMgPure24 goldDebtMgPure24 settledKarat settledWeightMg settledPureMg24 bankReference hasadReceivableToBank hasadReceivableBalance
     scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates

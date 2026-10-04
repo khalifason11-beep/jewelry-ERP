@@ -414,6 +414,9 @@ export const sales = pgTable(
     /** HASAD payments: the app's invoice / transaction reference, typed by the cashier (no API call). */
     paymentRefInvoice: text('payment_ref_invoice'),
     paymentRefTransaction: text('payment_ref_transaction'),
+    /** Printing (D-print-5): when the original was printed (once, by the cashier, same session) and how many reprints followed. */
+    originalPrintedAt: ts('original_printed_at'),
+    reprintCount: integer('reprint_count').notNull().default(0),
   },
   (t) => [index('sales_branch_at_idx').on(t.branchId, t.createdAt)],
 );

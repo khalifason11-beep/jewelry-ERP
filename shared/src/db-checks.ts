@@ -191,6 +191,7 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   { name: 'ck_webauthn_credentials_nickname', table: 'webauthn_credentials', expr: 'length(btrim(nickname)) BETWEEN 1 AND 60' },
   { name: 'ck_webauthn_credentials_sign_count_nonneg', table: 'webauthn_credentials', expr: 'sign_count >= 0' },
   { name: 'ck_users_mfa_failed_count_nonneg', table: 'users', expr: 'mfa_failed_count >= 0' },
+  { name: 'ck_sales_reprint_count_nonneg', table: 'sales', expr: 'reprint_count >= 0' },
   { name: 'ck_users_security_lock_reason', table: 'users', expr: '(security_locked_at IS NULL) = (security_lock_reason IS NULL)' },
   // ── Phase 2c: backups
   { name: 'ck_backup_runs_size_nonneg', table: 'backup_runs', expr: 'size_bytes IS NULL OR size_bytes >= 0' },

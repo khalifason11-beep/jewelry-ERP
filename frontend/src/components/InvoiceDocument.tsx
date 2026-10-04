@@ -27,6 +27,9 @@ export interface SaleDetail {
   grossProfit?: number;
   paymentMethod: string;
   status: string;
+  /** Printing (D-print-5). */
+  originalPrintedAt?: string | null;
+  reprintCount?: number;
   voidedAt: string | null;
   voidReason: string | null;
   voidedByName: string | null;
@@ -57,7 +60,7 @@ export function InvoiceDocument({ sale }: { sale: SaleDetail }) {
   const branding = useBranding();
   const weight = sale.items.reduce((s, i) => s + i.netWeightMg, 0);
   return (
-    <div className="print-area mx-auto max-w-[720px] bg-white text-[13px] text-ink-900">
+    <div className="mx-auto max-w-[720px] bg-white text-[13px] text-ink-900">
       <div className="flex items-start justify-between border-b-2 border-ink-900 pb-4">
         <div className="flex items-center gap-3">
           <div className="grid size-11 place-items-center overflow-hidden rounded-lg bg-ink-900">

@@ -13,6 +13,8 @@ import { useToast } from '../lib/toast';
 import { createPasskey, hasBuiltInAuthenticator, PasskeyError, passkeyUnavailable, PROBLEM_TEXT, type PublicKeyCredentialCreationOptionsJSON } from '../lib/webauthn';
 import { Alert, Badge, Button, Card, CardHeader, Dialog, Field, Input, Loading, Mono, PageHeader } from '../components/ui';
 import { Logo } from '../components/layout/AppShell';
+import { printDocument } from '../lib/print';
+import { RecoveryCodesPrint } from '../print/documents';
 
 interface Passkey {
   id: number;
@@ -198,6 +200,7 @@ export function EnrollPage() {
 /** The 10 codes, shown once, with copy/print and an explicit "I saved them". */
 function RecoveryCodesSheet({ codes, onDone }: { codes: string[]; onDone: () => Promise<void> | void }) {
   const { t } = useI18n();
+  const { me } = useAuth();
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -218,7 +221,10 @@ function RecoveryCodesSheet({ codes, onDone }: { codes: string[]; onDone: () => 
         >
           {copied ? t('Copied') : t('Copy')}
         </Button>
-        <Button icon={<Printer className="size-4" />} onClick={() => window.print()}>
+        <Button
+          icon={<Printer className="size-4" />}
+          onClick={() => void printDocument({ layout: { format: 'A4', receiptWidthMm: 72 }, content: <RecoveryCodesPrint codes={codes} username={me?.user.username ?? ''} /> })}
+        >
           {t('Print')}
         </Button>
       </div>

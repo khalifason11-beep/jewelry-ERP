@@ -240,6 +240,19 @@ npm run ops -w @jerp/backend -- reset-gm-password --username <gm user>
   Browser check with a virtual authenticator: `scripts/e2e-passkeys.mjs`.
 - Setup, domain warning, hardware and the lost-device procedure: [docs/DEPLOYMENT.md §8](docs/DEPLOYMENT.md).
 
+### Printing invoices and receipts
+
+- One print module renders each document (invoice, Hasad delivery receipt, recovery codes, printer test page) into a
+  print-only container with its own `@page` rule, then the browser prints through the Windows driver (no ESC/POS).
+- Settings → **Printing**: A4 (default), A5 or a thermal **Receipt** at the driver's printable width (72 mm on an 80 mm
+  roll), auto-print after a sale (off by default) and a **Test print** calibration page.
+- Invoice data is built on the server from a cost-free whitelist (`POST /sales/:id/print`): never cost, profit or gold
+  debt, for any role. The cashier prints once right after the sale; managers **Reprint** (marked "نسخة / COPY n",
+  counted, audited).
+- Silent printing shortcut for Chrome/Edge: `scripts/windows/create-erp-shortcut.cmd`. Browser check with PDF export:
+  `scripts/e2e-print.mjs` (sample PDFs in `docs/print-check/`). Setup and driver troubleshooting:
+  [docs/DEPLOYMENT.md §9](docs/DEPLOYMENT.md).
+
 ### Language
 
 The UI opens in Arabic (RTL) by default; the header switch toggles English. English source strings are the

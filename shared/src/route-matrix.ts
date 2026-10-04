@@ -128,6 +128,8 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/sales', 'branch', { all: ['sales.create'], idempotent: true, idempotencyInTx: true }),
   r('GET', '/sales', 'branch', { any: ['sales.view', 'sales.view_own'] }),
   r('GET', '/sales/:id', 'branch', { any: ['sales.view', 'sales.view_own'] }),
+  // Printing (D-print-5): the service decides original (cashier, same session, once) vs reprint (sales.reprint).
+  r('POST', '/sales/:id/print', 'branch', { any: ['sales.view', 'sales.view_own'] }),
   r('POST', '/sales/:id/void', 'branch', { all: ['sales.void'], idempotent: true, idempotencyInTx: true }),
 
   // ── Hasad Gold

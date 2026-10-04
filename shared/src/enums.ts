@@ -221,6 +221,7 @@ export const AUDIT_ACTIONS = [
   'SIGN_IN_ALERT_DISMISSED',
   'ACCOUNT_SECURED',
   'SECURITY_LOCK_LIFTED',
+  'INVOICE_REPRINTED',
   'SECURITY_SETTING_CHANGED',
   'REAUTH_FAILED',
   'BOOTSTRAP_COMPLETED',
@@ -245,3 +246,7 @@ export const REPORT_KEYS = [
   'audit',
 ] as const;
 export type ReportKey = (typeof REPORT_KEYS)[number];
+
+/** Paper of printed invoices and receipts (setting print.invoiceFormat, D-print-2). */
+export const INVOICE_FORMATS = ['A4', 'A5', 'RECEIPT'] as const;
+export type InvoiceFormat = (typeof INVOICE_FORMATS)[number];

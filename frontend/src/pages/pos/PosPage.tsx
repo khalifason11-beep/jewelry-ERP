@@ -31,6 +31,7 @@ import { useToast } from '../../lib/toast';
 import type { ItemRow, WithdrawalList } from '../../lib/types';
 import { Button, Dialog, Empty, ErrorState, Input, ItemThumb, Select, Skeleton } from '../../components/ui';
 import { InvoiceDocument, type SaleDetail } from '../../components/InvoiceDocument';
+import { printSaleInvoice } from '../../print/actions';
 import { useActionKeys } from '../../lib/idempotency';
 
 interface CartLine {
@@ -86,6 +87,16 @@ export function PosPage() {
   const payMethods = me?.posPaymentMethods?.length ? me.posPaymentMethods : DEFAULT_POS_METHODS;
   const sellableKarats = me?.allowedKarats ?? [];
   const [invoice, setInvoice] = useState<SaleDetail | null>(null);
+  // Printing (D-print-4): never blocks or undoes the sale; the original prints once.
+  const [printing, setPrinting] = useState(false);
+  const [printedId, setPrintedId] = useState<number | null>(null);
+  const printInvoice = async (saleId: number) => {
+    setPrinting(true);
+    const r = await printSaleInvoice(saleId);
+    setPrinting(false);
+    if (r.ok) setPrintedId(saleId);
+    else toast.fromError(r.error, t('Printing failed. The sale is saved; a manager can reprint the invoice.'));
+  };
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [showHeld, setShowHeld] = useState(false);
 
@@ -169,6 +180,7 @@ export function PosPage() {
       actionKeys.rotate('sale');
       toast.success(`${t('Sale completed')} · ${sale.number}`, t('{total}: {n} item(s) marked SOLD', { total: money(sale.total), n: sale.items.length }));
       setInvoice(sale);
+      if (me?.print.autoPrintAfterSale) void printInvoice(sale.id);
       reset();
       qc.invalidateQueries({ queryKey: ['pos-items'] });
       qc.invalidateQueries({ queryKey: ['my-sales'] });
@@ -453,17 +465,21 @@ export function PosPage() {
         footer={
           <>
             <Button onClick={() => setInvoice(null)}>{t('New sale')}</Button>
-            <Button variant="primary" icon={<Printer className="size-4" />} onClick={() => window.print()}>{t('Print')}</Button>
+            <Button
+              variant="primary"
+              icon={<Printer className="size-4" />}
+              loading={printing}
+              disabled={!invoice || (printedId === invoice.id && !can('sales.reprint'))}
+              onClick={() => invoice && void printInvoice(invoice.id)}
+              data-testid="pos-print"
+            >
+              {invoice && printedId === invoice.id ? t('Reprint') : t('Print')}
+            </Button>
           </>
         }
       >
         {invoice && <InvoiceDocument sale={invoice} />}
       </Dialog>
-      {invoice && (
-        <div className="hidden print:block print:fixed print:inset-0 print:z-[200] print:bg-white print:p-8">
-          <InvoiceDocument sale={invoice} />
-        </div>
-      )}
     </div>
   );
 }
@@ -489,6 +505,7 @@ function ProductCard({ item, inCart, onAdd }: { item: ItemRow; inCart: boolean; 
     <button
       onClick={onAdd}
       disabled={reserved}
+      data-testid="pos-product"
       className={clsx(
         'group flex flex-col overflow-hidden rounded-lg border bg-white text-start transition-all',
         inCart ? 'border-gold-500 ring-2 ring-gold-500/30' : 'border-line hover:border-gold-400 hover:shadow-md',

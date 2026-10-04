@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { SettlementBasis } from './settlement';
-import { PAYMENT_METHODS, TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, type PaymentMethod, type TwoFactorRole, type WebauthnUv } from './enums';
+import { INVOICE_FORMATS, PAYMENT_METHODS, TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, type InvoiceFormat, type PaymentMethod, type TwoFactorRole, type WebauthnUv } from './enums';
 
 export type HasadRateSource =
   /** weight-averaged gold rate of the karats of the selected items */
@@ -104,6 +104,14 @@ export interface SystemSettings {
     /** Roles that must sign in with a second factor (passkey or recovery code). Same dedicated flow. */
     twoFactorRequiredRoles: TwoFactorRole[];
   };
+  print: {
+    /** Paper of customer invoices and receipts (D-print-2). */
+    invoiceFormat: InvoiceFormat;
+    /** RECEIPT only: the driver's PRINTABLE width in mm (72 on an 80 mm roll), not the roll width. */
+    receiptWidthMm: number;
+    /** Open the print dialog by itself right after a sale is completed. */
+    autoPrintAfterSale: boolean;
+  };
   backup: {
     /** Warn when the last successful backup is older than this (hours). */
     maxAgeHours: number;
@@ -172,6 +180,11 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     lockoutMaxMinutes: 60,
     webauthnUserVerification: 'required',
     twoFactorRequiredRoles: ['GENERAL_MANAGER'],
+  },
+  print: {
+    invoiceFormat: 'A4',
+    receiptWidthMm: 72,
+    autoPrintAfterSale: false,
   },
   backup: {
     maxAgeHours: 26,
@@ -264,6 +277,9 @@ export const SETTINGS_REGISTRY = {
       .refine((a) => new Set(a).size === a.length, 'Duplicate role'),
     guarded: true,
   },
+  'print.invoiceFormat': { schema: z.enum(INVOICE_FORMATS) },
+  'print.receiptWidthMm': { schema: int(48, 80) },
+  'print.autoPrintAfterSale': { schema: z.boolean() },
   'backup.maxAgeHours': { schema: int(1, 24 * 14) },
   'backup.maxVerifyAgeDays': { schema: int(1, 90) },
   'mockHasad.latencyMs': { schema: int(0, 10_000), demoOnly: true },

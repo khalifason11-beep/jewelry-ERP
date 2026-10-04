@@ -66,15 +66,61 @@
   }
 }
 
+/* ───────── Printing (lib/print.tsx, D-print-1) ─────────
+   #print-root holds the document being printed. On screen it sits off-screen (measurable, never
+   visible); in print it is the only thing shown, and its own <style> carries the @page rule. */
+#print-root {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  visibility: hidden;
+  pointer-events: none;
+  background: #fff;
+  color: #000;
+  font-family: 'IBM Plex Sans Arabic', 'IBM Plex Sans', sans-serif;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
 @media print {
+  html,
   body {
-    background: #fff;
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
   }
-  .no-print {
+  body > *:not(#print-root) {
     display: none !important;
   }
-  .print-area {
-    box-shadow: none !important;
-    border: none !important;
+  #print-root {
+    position: static;
+    visibility: visible;
+    left: auto;
   }
 }
+
+/* Printed documents: black on white, sizes in pt/mm (thermal heads have no grey). */
+.pd { font-size: 10pt; line-height: 1.35; color: #000; overflow-wrap: anywhere; word-break: break-word; }
+.pd * { color: #000; }
+.pd .pd-center { text-align: center; }
+.pd .pd-muted { font-size: 0.85em; }
+.pd .pd-strong { font-weight: 600; }
+.pd .pd-big { font-size: 1.3em; font-weight: 600; }
+.pd .pd-mono { font-family: 'IBM Plex Mono', monospace; direction: ltr; unicode-bidi: isolate; }
+.pd .pd-num { font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
+.pd .pd-rule { border-top: 1px dashed #000; margin: 1.5mm 0; }
+.pd .pd-rule-solid { border-top: 1.5px solid #000; margin: 1.5mm 0; }
+.pd .pd-row { display: flex; justify-content: space-between; gap: 2mm; align-items: baseline; }
+.pd .pd-logo { max-height: 14mm; max-width: 40mm; object-fit: contain; display: block; margin: 0 auto 1mm; }
+.pd .pd-mark { border: 1.5px solid #000; text-align: center; font-weight: 700; padding: 1mm; margin: 1.5mm 0; letter-spacing: 0.05em; }
+.pd .pd-barcode { display: block; margin: 2mm auto 0; max-width: 100%; height: 12mm; }
+.pd table { width: 100%; border-collapse: collapse; }
+.pd th { text-align: start; font-weight: 600; border-bottom: 1px solid #000; padding: 1mm 1mm; font-size: 0.85em; }
+.pd td { padding: 1mm 1mm; border-bottom: 0.5px solid #999; vertical-align: top; }
+.pd .pd-end { text-align: end; }
+/* Receipt: the page IS the printable width; a little inner padding keeps glyphs off the edge. */
+.pd-receipt { padding: 2mm 1.5mm; font-size: 9pt; }
+.pd-receipt .pd-line { padding: 1mm 0; border-bottom: 0.5px dashed #000; }
+.pd-a5 { font-size: 9pt; }
+.pd .pd-tick { position: absolute; top: 0; font-size: 6pt; }
+.pd .pd-tick[data-mid] { transform: translateX(-50%); }
+.pd-receipt .pd-ruler-bleed { margin-left: -1.5mm; margin-right: -1.5mm; }

@@ -261,6 +261,7 @@ export async function me(ctx: Ctx, actor: Actor) {
     secondFactor: await secondFactorSummary(ctx, actor),
     // Phase 4: what the counter offers (D-4-6) and which karats are sold here (D-4-1).
     posPaymentMethods: settings.sales.posPaymentMethods,
+    print: { invoiceFormat: settings.print.invoiceFormat, receiptWidthMm: settings.print.receiptWidthMm, autoPrintAfterSale: settings.print.autoPrintAfterSale },
     allowedKarats: settings.inventory.allowedKarats,
   };
 }

@@ -10,7 +10,8 @@ import { useToast } from '../../lib/toast';
 import { Alert, Button, Card, CardHeader, Dialog, ErrorState, Field, KeyValue, Loading, Mono, PageHeader, StatusBadge, Textarea } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
-import { InvoiceDocument, type SaleDetail } from '../../components/InvoiceDocument';
+import type { SaleDetail } from '../../components/InvoiceDocument';
+import { printSaleInvoice } from '../../print/actions';
 import { useActionKeys } from '../../lib/idempotency';
 
 export interface SaleRow {
@@ -126,7 +127,7 @@ export function SaleDetailPage() {
   const qc = useQueryClient();
   const [voidOpen, setVoidOpen] = useState(false);
   const [reason, setReason] = useState('');
-  const [printOpen, setPrintOpen] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const q = useQuery({ queryKey: ['sale', id], queryFn: () => get<SaleDetail>(`/sales/${id}`) });
   const actionKeys = useActionKeys();
   const voidM = useMutation({
@@ -165,7 +166,21 @@ export function SaleDetailPage() {
         subtitle={`${dateTime(s.createdAt, lang)} · ${L(s.branchName, s.branchNameAr)} · ${L(s.cashierName, s.cashierNameAr)}`}
         actions={
           <>
-            <Button icon={<Printer className="size-4" />} onClick={() => setPrintOpen(true)}>{t('Print')}</Button>
+            <Button
+              icon={<Printer className="size-4" />}
+              loading={printing}
+              data-testid="sale-print"
+              title={s.reprintCount ? t('Printed copies so far: {n}', { n: s.reprintCount }) : undefined}
+              onClick={async () => {
+                setPrinting(true);
+                const r = await printSaleInvoice(s.id);
+                setPrinting(false);
+                if (!r.ok) toast.fromError(r.error, t('Printing failed'));
+                qc.invalidateQueries({ queryKey: ['sale', id] });
+              }}
+            >
+              {can('sales.reprint') && (s.originalPrintedAt || s.reprintCount) ? t('Reprint') : t('Print')}
+            </Button>
             {can('sales.void') && s.status === 'COMPLETED' && (
               <Button variant="danger" icon={<Ban className="size-4" />} onClick={() => setVoidOpen(true)}>{t('Cancel sale')}</Button>
             )}
@@ -272,14 +287,6 @@ export function SaleDetailPage() {
           <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('e.g. Customer returned the item the same day')} />
         </Field>
       </Dialog>
-      <Dialog open={printOpen} onClose={() => setPrintOpen(false)} title={`${t('Invoice')} ${s.number}`} width="max-w-3xl" footer={<Button variant="primary" icon={<Printer className="size-4" />} onClick={() => window.print()}>{t('Print')}</Button>}>
-        <InvoiceDocument sale={s} />
-      </Dialog>
-      {printOpen && (
-        <div className="hidden print:fixed print:inset-0 print:z-[200] print:block print:bg-white print:p-8">
-          <InvoiceDocument sale={s} />
-        </div>
-      )}
     </div>
   );
 }

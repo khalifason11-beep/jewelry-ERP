@@ -24,7 +24,9 @@ import {
   UserRound,
   XCircle,
 } from 'lucide-react';
-import { calculateSettlement, type PaymentMethod, type AuditParams } from '@jerp/shared';
+import { assertPrintable, calculateSettlement, type PaymentMethod, type AuditParams } from '@jerp/shared';
+import { printDocument } from '../../lib/print';
+import { HasadReceiptPrint, type HasadReceiptData } from '../../print/documents';
 import { ApiError, del, errorText, get, post, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, humanize, karatLabel, money, relative, signedGrams } from '../../lib/format';
@@ -694,10 +696,12 @@ function CompleteDialog({ detail, onClose, onDone, onStale }: { detail: Detail; 
 
 function CompletedPanel({ detail }: { detail: Detail }) {
   const { t, L, lang } = useI18n();
+  const { me } = useAuth();
+  const toast = useToast();
   const c = detail.completed!;
   const w = detail.withdrawal;
   return (
-    <Card padded={false} className="print-area">
+    <Card padded={false}>
       <CardHeader
         title={
           <span className="flex items-center gap-2">
@@ -705,7 +709,34 @@ function CompletedPanel({ detail }: { detail: Detail }) {
           </span>
         }
         subtitle={t('Redemption {number} · {when} · {cashier}', { number: c.number, when: dateTime(c.completedAt, lang), cashier: c.cashierName })}
-        actions={<Button size="sm" icon={<Printer className="size-4" />} onClick={() => window.print()}>{t('Print')}</Button>}
+        actions={
+          <Button
+            size="sm"
+            icon={<Printer className="size-4" />}
+            onClick={async () => {
+              const data: HasadReceiptData = {
+                number: c.number,
+                completedAt: c.completedAt,
+                branch: { name: w.branchName, nameAr: w.branchNameAr },
+                cashierName: c.cashierName,
+                customer: { name: w.customerName, nameAr: w.customerNameAr, externalId: w.externalId },
+                entitledWeightMg: w.entitledWeightMg,
+                deliveredWeightMg: c.deliveredWeightMg,
+                differenceMg: c.differenceMg,
+                direction: c.settlementDirection,
+                ratePerGram: c.ratePerGram,
+                amount: c.settlementAmount,
+                settlement: c.settlement ? { number: c.settlement.number, paymentMethod: c.settlement.paymentMethod } : null,
+                items: c.items.map((i) => ({ code: i.code, name: i.productName, nameAr: i.productNameAr, karat: i.karat, netWeightMg: i.netWeightMg })),
+              };
+              assertPrintable(data, 'Hasad receipt');
+              const layout = { format: me?.print.invoiceFormat ?? 'A4', receiptWidthMm: me?.print.receiptWidthMm ?? 72 } as const;
+              if (!(await printDocument({ layout, content: <HasadReceiptPrint data={data} layout={layout} /> }))) toast.error(t('Printing failed'));
+            }}
+          >
+            {t('Print')}
+          </Button>
+        }
       />
       <div className="space-y-4 p-5">
         <div className="grid gap-3 sm:grid-cols-3">

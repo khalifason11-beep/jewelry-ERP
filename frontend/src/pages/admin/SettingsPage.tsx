@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ImageUp, RotateCcw, Save, Trash2 } from 'lucide-react';
-import { KARATS, PAYMENT_METHODS, settingValue, type SettingKey, type SystemSettings } from '@jerp/shared';
+import { ImageUp, Printer, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { KARATS, PAYMENT_METHODS, settingValue, type InvoiceFormat, type SettingKey, type SystemSettings } from '@jerp/shared';
 import { del, get, post, put, upload } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useBranding } from '../../lib/branding';
@@ -9,6 +9,8 @@ import { currencyLabel, dateTime, humanize, money } from '../../lib/format';
 import { useBranches, useGoldRates } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
+import { printDocument } from '../../lib/print';
+import { CalibrationPrint } from '../../print/documents';
 import { errorText as apiErrorText } from '../../lib/api';
 import { Alert, Button, Card, CardHeader, Dialog, Field, Input, Loading, PageHeader, Select, Textarea } from '../../components/ui';
 
@@ -374,6 +376,57 @@ export function SettingsPage() {
             </Field>
             <div className="sm:col-span-3">
               {checkbox(draft.security.allowSelfPasswordChange, (v) => set('security', { allowSelfPasswordChange: v }), t('Allow users to change their own password at any time (off = centralized control; users only set one after a reset)'))}
+            </div>
+          </div>
+        </Card>
+
+        {/* ── Printing (D-print-*) ── */}
+        <Card padded={false}>
+          <CardHeader
+            title={t('Printing')}
+            subtitle={t('Invoices are printed by the browser through the Windows printer driver (no special printer commands).')}
+            actions={
+              <>
+                <Button
+                  size="sm"
+                  icon={<Printer className="size-4" />}
+                  data-testid="test-print"
+                  onClick={() => {
+                    const layout = { format: draft.print.invoiceFormat, receiptWidthMm: draft.print.receiptWidthMm };
+                    void printDocument({ layout, content: <CalibrationPrint layout={layout} /> });
+                  }}
+                >
+                  {t('Test print')}
+                </Button>
+                {saveBtn(['print.invoiceFormat', 'print.receiptWidthMm', 'print.autoPrintAfterSale'])}
+              </>
+            }
+          />
+          <div className="grid gap-4 p-5 lg:grid-cols-2">
+            <div className="grid content-start gap-3">
+              <Field label={t('Invoice paper')}>
+                <Select value={draft.print.invoiceFormat} onChange={(e) => set('print', { invoiceFormat: e.target.value as InvoiceFormat })} data-testid="print-format">
+                  <option value="A4">{t('A4 (office printer)')}</option>
+                  <option value="A5">{t('A5 (half page)')}</option>
+                  <option value="RECEIPT">{t('Receipt (thermal roll)')}</option>
+                </Select>
+              </Field>
+              <Field
+                label={t('Receipt printable width (mm)')}
+                hint={t('The PRINTABLE width from the printer driver, not the roll width: usually 72 for an 80 mm roll and 48 for a 58 mm roll (48–80).')}
+              >
+                {numberInput(draft.print.receiptWidthMm, (n) => set('print', { receiptWidthMm: n }), { min: 48, max: 80 })}
+              </Field>
+              {checkbox(draft.print.autoPrintAfterSale, (v) => set('print', { autoPrintAfterSale: v }), t('Open printing by itself after every completed sale'))}
+            </div>
+            <div className="rounded-lg border border-line bg-canvas/60 p-4 text-[13px] leading-relaxed text-ink-700">
+              <div className="mb-1.5 font-semibold text-ink-900">{t('Setting up the printer on the shop PC')}</div>
+              <ol className="list-decimal space-y-1 ps-5">
+                <li>{t('In Windows, make the receipt (or invoice) printer the DEFAULT printer.')}</li>
+                <li>{t('In the printer driver’s preferences, check the paper size: for an 80 mm roll the printable width is usually 72 mm. Enter that number above.')}</li>
+                <li>{t('Press “Test print”: the ruler must reach both edges of the paper and nothing may be cut off. Adjust the width until it does.')}</li>
+                <li>{t('For printing without the print window, open the system with the desktop shortcut prepared by the administrator (silent printing). Then there is no confirmation: check the paper, and use Reprint if something did not come out.')}</li>
+              </ol>
             </div>
           </div>
         </Card>

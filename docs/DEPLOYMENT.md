@@ -521,6 +521,84 @@ this temporarily, e.g. while replacing hardware, and record why in the "Reason" 
 - [ ] Someone tried one recovery code (then made new codes) and knows where the sheet is kept.
 - [ ] The operator knows the `reset-second-factor` command and has shell access.
 
+## 9. Printing invoices and receipts
+
+The browser prints: Chromium lays out the invoice (Arabic, the bundled font) and hands it to the **Windows printer
+driver**. No ESC/POS commands, no printer-specific code. Decisions: `docs/decisions.md` §10 (D-print-*).
+
+### 9.1 Choose the paper (Settings → Printing)
+
+- **A4** (default) or **A5** for an office printer; **Receipt** for a thermal roll printer.
+- **Receipt printable width**: the width the *driver* can print, **not** the roll width. Typically **72 mm on an 80 mm
+  roll** and 48 mm on a 58 mm roll. Find it in the driver: Printer properties → Preferences / Advanced → Paper size
+  (e.g. "80(72) x 297 mm", "Roll paper 80 x 3276 mm" with 72 mm printable).
+- **Test print** prints a calibration page: a millimetre ruler as wide as the configured width, Arabic text, digits,
+  a long line that must wrap, the logo and a barcode. The ruler must touch both paper edges and nothing may be cut off.
+
+### 9.2 The shop PC
+
+1. Install the printer's **Windows driver** (from the manufacturer; not "Generic / Text Only").
+2. Make that printer the **Windows default printer** (Settings → Bluetooth & devices → Printers & scanners; turn off
+   "Let Windows manage my default printer").
+3. In the driver preferences set the paper (roll, 72 mm printable for an 80 mm roll), the cut mode ("cut after
+   document/page") and, if offered, "paper saving / reduce top margin".
+4. Open the ERP, Settings → Printing → **Test print**, and adjust the width (section 9.5) until the ruler is exact.
+
+### 9.3 Silent printing (optional, recommended for the counter)
+
+Chrome and Edge can print without the print window when started with `--kiosk-printing`. Use the template
+`scripts/windows/create-erp-shortcut.cmd`: edit `APP_URL` (and the shortcut name), copy it to the shop PC, double-click it
+once. It creates a desktop shortcut:
+
+```
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --kiosk-printing --no-first-run ^
+  --user-data-dir="%LOCALAPPDATA%\JewelryERP\BrowserProfile" --app=https://erp.example.com
+```
+
+- `--kiosk-printing`: every print goes straight to the printer.
+- `--user-data-dir`: a **dedicated browser profile**. The flag only takes effect when Chrome *starts*; a separate
+  profile guarantees a fresh process even if Chrome is already open, and keeps its own print settings and no
+  extensions. Sign in to the ERP once inside it (passkeys work there as well).
+- `--app=<url>`: the ERP in its own window, without tabs or address bar.
+- **Which printer**: the destination of the profile's last print; in a fresh dedicated profile that is the **Windows
+  default printer**. Do not print from this profile to another printer, or that printer becomes the destination.
+- Headers and footers: the template sets the per-user Chrome/Edge policy `PrintHeaderFooter = 0` so the date/URL lines
+  never print, even on A4 (set `DISABLE_HEADER_FOOTER=0` in the file to skip this). Check `chrome://policy`.
+- **No feedback**: silent printing reports neither success nor failure (paper out, printer off, wrong default). The
+  sale is always saved first; if nothing came out, a **manager uses Reprint** (marked "نسخة / COPY n", audited).
+- Without the shortcut the normal print window opens: choose the printer, Margins "Default", Headers and footers
+  **off**, Scale 100 %.
+
+### 9.4 Who may print what
+
+- The cashier prints the invoice **once, right after the sale** (same session). Further prints are reprints.
+- **Reprint** (Branch Manager, General Manager, permission `sales.reprint`) from the sale's page: every reprint is
+  marked **"نسخة / COPY n"** with its date, increments the sale's reprint counter and writes `INVOICE_REPRINTED` to the
+  audit log.
+- Printed documents never show cost, acquisition cost, profit or gold debt, for any role.
+
+### 9.5 Verify on the client's printer (the CSS page size is a request, not a guarantee)
+
+Chrome sends `@page { size: 72mm <length>mm; margin: 0 }` for receipts and `size: A4/A5; margin: 10mm` for pages.
+**Whether a given thermal driver honours that size must be checked on the real printer.** Symptoms and what to change:
+
+| What you see | Cause | Fix |
+|---|---|---|
+| Text is tiny / the receipt looks shrunk | The driver kept an A4/Letter page and Chrome scaled to fit | In the print window set Scale 100 % once (kiosk keeps it), and in the driver choose the roll paper size (e.g. 80 × 297 mm / "80(72) x Receipt") |
+| Right or left edge cut off | Width larger than the printable area | Lower **Receipt printable width** (72 → 70 → 68) and Test print again |
+| Blank strip on one side | Width smaller than the printable area, or driver left margin | Raise the width, or set the driver's left margin to 0 |
+| Long blank paper after each receipt | Driver ignores the page length and feeds a fixed page | Driver: paper "Receipt" / "roll", feed "cut at end of document", "reduce bottom margin / paper saving" on |
+| Several receipts' worth of paper, cut mid-text | Driver page shorter than the receipt | Driver: a long roll paper size (e.g. 80 × 3276 mm) |
+| Arabic letters disconnected or as boxes | Not the ERP: printer in "text/ESC-POS" mode or a generic driver | Install the manufacturer's Windows **graphics** driver |
+| Faint barcode | Print density low | Driver: density/darkness up one step |
+
+### 9.6 Before go-live (human)
+
+- [ ] Test print on the real printer at the chosen width: ruler edge to edge, Arabic joined, nothing cut.
+- [ ] One real sale printed from the POS (original), one reprint by a manager (COPY 1 visible, audit entry present).
+- [ ] If silent printing is used: the shortcut opens the ERP, prints without a window, and the cashiers know that a
+      missing receipt means "ask a manager to reprint".
+
 ## Remaining limits (known and accepted for now)
 
 - **One instance.** The per-IP throttle and the dummy counters for unknown usernames are in memory, so a

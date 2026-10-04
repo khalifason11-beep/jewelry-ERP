@@ -23,6 +23,7 @@ import * as sessions from './modules/sessions/service';
 import * as users from './modules/users/service';
 import * as inventory from './modules/inventory/service';
 import * as sales from './modules/sales/service';
+import * as printing from './modules/print/service';
 import * as hasad from './modules/hasad/service';
 import * as purchases from './modules/purchases/service';
 import * as expenses from './modules/expenses/service';
@@ -477,6 +478,10 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     res.json(await sales.listSales(ctx, actorOf(req), q));
   });
   route('GET', '/sales/:id', async (req, res) => res.json(await sales.getSale(ctx, actorOf(req), parse(zId, req.params.id))));
+  route('POST', '/sales/:id/print', async (req, res) => {
+    parse(z.object({}).strict(), req.body ?? {});
+    res.json(await printing.printSale(ctx, actorOf(req), parse(zId, req.params.id)));
+  });
   route('POST', '/sales/:id/void', async (req, res) => {
     const body = parse(z.object({ reason: zText(500).min(3) }).strict(), req.body);
     const id = parse(zId, req.params.id);
