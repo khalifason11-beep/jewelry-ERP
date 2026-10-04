@@ -130,3 +130,6 @@
 .pd .pd-date { white-space: nowrap; unicode-bidi: isolate; }
 /* Codes and karats are single units: never broken (the description column takes the remaining width). */
 .pd .pd-mono, .pd .pd-nowrap { white-space: nowrap; overflow-wrap: normal; word-break: normal; }
+/* Amounts: sign + digits are one LTR run (dir="ltr"), never split; the currency follows in the flow. */
+.pd .pd-amount { white-space: nowrap; unicode-bidi: isolate; font-variant-numeric: tabular-nums; }
+.pd .pd-amount-digits { unicode-bidi: isolate; }

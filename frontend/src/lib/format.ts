@@ -13,7 +13,7 @@ export function setCurrencyLabels(labels: { en: string; ar: string }) {
 /** Currency label for the current UI language (e.g. "ج.س" / "SDG" by default). */
 export const currencyLabel = () => (getLang() === 'ar' ? currencyLabels.ar : currencyLabels.en) || currencyLabels.en || currencyLabels.ar;
 const currency = currencyLabel;
-const gramUnit = () => (getLang() === 'ar' ? 'جم' : 'g');
+export const gramUnit = () => (getLang() === 'ar' ? 'جم' : 'g');
 
 export const money = (n: number | null | undefined, withCurrency = true) =>
   n == null ? '—' : `${Math.round(n).toLocaleString('en-US')}${withCurrency ? ` ${currency()}` : ''}`;

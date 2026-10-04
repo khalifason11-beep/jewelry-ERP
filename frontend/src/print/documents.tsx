@@ -6,7 +6,7 @@ import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import JsBarcode from 'jsbarcode';
 import { contentWidthMm, type InvoicePrintData, type PrintLayout } from '@jerp/shared';
 import { useBranding } from '../lib/branding';
-import { dateTime, grams, karatLabel, money, numericDateTime } from '../lib/format';
+import { currencyLabel, dateTime, gramUnit, grams, karatLabel, money, numericDateTime } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 
 /** Code128 barcode as inline SVG (no script, no network: CSP-safe). */
@@ -70,6 +70,23 @@ export function PrintFooter() {
   ) : null;
 }
 
+/**
+ * A money amount. The sign and the digits form one LTR run (`dir="ltr"`), so a negative value reads
+ * "−32,000" in every layout and direction; the currency label follows in the surrounding flow.
+ */
+export function Amount({ value, negative = false, currency = true }: { value: number; negative?: boolean; currency?: boolean }) {
+  const digits = money(Math.abs(value), false);
+  return (
+    <span className="pd-amount" data-amount={negative ? 'negative' : 'positive'}>
+      <span dir="ltr" className="pd-amount-digits">
+        {negative ? '\u2212' : ''}
+        {digits}
+      </span>
+      {currency && <> {currencyLabel()}</>}
+    </span>
+  );
+}
+
 function Row({ label, value, strong }: { label: ReactNode; value: ReactNode; strong?: boolean }) {
   // Plain strings are amounts/weights (one unbreakable LTR run); elements carry their own direction.
   return (
@@ -129,10 +146,10 @@ export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: P
                 <span>
                     <span className="pd-mono">{l.code}</span> · <span className="pd-nowrap">{karatLabel(l.karat)}</span> · <span className="pd-num">{grams(l.netWeightMg)}</span>
                 </span>
-                <span className="pd-num">{money(l.listPrice, false)}</span>
+                <Amount value={l.listPrice} currency={false} />
               </div>
-              {l.discount > 0 && <Row label={t('Discount')} value={`−${money(l.discount, false)}`} />}
-              {l.discount > 0 && <Row label={t('Total')} value={money(l.finalPrice, false)} />}
+              {l.discount > 0 && <Row label={t('Discount')} value={<Amount value={l.discount} negative currency={false} />} />}
+              {l.discount > 0 && <Row label={t('Total')} value={<Amount value={l.finalPrice} currency={false} />} />}
             </div>
           ))}
         </div>
@@ -161,13 +178,13 @@ export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: P
                   <span className="pd-num">{grams(l.netWeightMg)}</span>
                 </td>
                 <td className="pd-end">
-                  <span className="pd-num">{money(l.listPrice, false)}</span>
+                  <Amount value={l.listPrice} currency={false} />
                 </td>
                 <td className="pd-end">
-                  <span className="pd-num">{l.discount ? `−${money(l.discount, false)}` : '—'}</span>
+                  {l.discount ? <Amount value={l.discount} negative currency={false} /> : '—'}
                 </td>
                 <td className="pd-end">
-                  <span className="pd-num">{money(l.finalPrice, false)}</span>
+                  <Amount value={l.finalPrice} currency={false} />
                 </td>
               </tr>
             ))}
@@ -177,10 +194,10 @@ export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: P
 
       <div style={receipt ? undefined : { width: '45%', marginInlineStart: 'auto', marginTop: '3mm' }}>
         <Row label={t('Net weight')} value={grams(doc.netWeightMg)} />
-        <Row label={t('Subtotal')} value={money(doc.subtotal)} />
-        {doc.discountTotal > 0 && <Row label={t('Discount')} value={`−${money(doc.discountTotal)}`} />}
+        <Row label={t('Subtotal')} value={<Amount value={doc.subtotal} />} />
+        {doc.discountTotal > 0 && <Row label={t('Discount')} value={<Amount value={doc.discountTotal} negative />} />}
         <div className="pd-rule-solid" />
-        <Row label={t('Total')} value={money(doc.total)} strong />
+        <Row label={t('Total')} value={<Amount value={doc.total} />} strong />
         <Row label={t('Payment method')} value={<span>{t(doc.paymentMethod)}</span>} />
         {doc.hasad && (
           <>
@@ -285,7 +302,16 @@ export interface HasadReceiptData {
 /** Hasad Gold delivery receipt (signed by the customer). Built from a whitelist: no cost field. */
 export function HasadReceiptPrint({ data, layout }: { data: HasadReceiptData; layout: PrintLayout }) {
   const { t, L } = useI18n();
-  const signed = (mg: number) => `${mg > 0 ? '+' : mg < 0 ? '−' : ''}${grams(Math.abs(mg))}`;
+  // Same rule as amounts: the sign and the digits are one LTR run.
+  const signed = (mg: number) => (
+    <span className="pd-amount" data-amount={mg < 0 ? 'negative' : 'positive'}>
+      <span dir="ltr" className="pd-amount-digits">
+        {mg > 0 ? '+' : mg < 0 ? '\u2212' : ''}
+        {(Math.abs(mg) / 1000).toFixed(3)}
+      </span>{' '}
+      {gramUnit()}
+    </span>
+  );
   return (
     <Doc layout={layout}>
       <PrintHeader branch={{ ...data.branch, address: null, phone: null }} />
@@ -316,8 +342,8 @@ export function HasadReceiptPrint({ data, layout }: { data: HasadReceiptData; la
       <Row label={t('Difference')} value={signed(data.differenceMg)} />
       {data.direction !== 'NONE' && (
         <>
-          <Row label={t('Rate per gram')} value={money(data.ratePerGram, false)} />
-          <Row label={t(data.direction)} value={money(data.amount)} strong />
+          <Row label={t('Rate per gram')} value={<Amount value={data.ratePerGram} currency={false} />} />
+          <Row label={t(data.direction)} value={<Amount value={data.amount} />} strong />
         </>
       )}
       {data.settlement && <Row label={t('Settlement')} value={<span><span className="pd-mono">{data.settlement.number}</span> · {t(data.settlement.paymentMethod)}</span>} />}

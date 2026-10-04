@@ -99,6 +99,48 @@ async function withNames(page, names) {
 }
 
 /**
+ * Every negative amount in the print container: the minus sign must be drawn immediately to the LEFT
+ * of the digits ("−32,000"), whatever the paper and the surrounding direction. Returns the bad ones.
+ */
+async function misplacedSigns(page) {
+  await page.emulateMedia({ media: 'print' });
+  return page.evaluate(() => {
+    const bad = [];
+    const all = [...document.querySelectorAll('#print-root [data-amount=negative] .pd-amount-digits')];
+    for (const el of all) {
+      const node = el.firstChild;
+      const text = el.textContent;
+      if (!text.startsWith('\u2212')) {
+        bad.push(`no U+2212: ${text}`);
+        continue;
+      }
+      const range = (a, b) => {
+        const r = document.createRange();
+        r.setStart(...pos(a));
+        r.setEnd(...pos(b));
+        return r.getBoundingClientRect();
+      };
+      // Text may be split across text nodes (React): map offsets over the element's text nodes.
+      const nodes = [];
+      const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let n = w.nextNode(); n; n = w.nextNode()) nodes.push(n);
+      function pos(i) {
+        for (const n of nodes) {
+          if (i <= n.data.length) return [n, i];
+          i -= n.data.length;
+        }
+        return [nodes[nodes.length - 1], nodes[nodes.length - 1].data.length];
+      }
+      void node;
+      const minus = range(0, 1);
+      const digits = range(1, text.length);
+      if (!(minus.right <= digits.left + 0.5 && Math.abs(minus.top - digits.top) < 4)) bad.push(text);
+    }
+    return { count: all.length, bad };
+  });
+}
+
+/**
  * Orphans in the print container (print media): a line of a multi-line text block that holds only one
  * or two characters (e.g. "م" or "04" alone). Returns the offending tokens.
  */
@@ -212,6 +254,8 @@ async function main() {
       return { lines: tops.size, inside: text.left >= box.left - 1 && text.right <= box.right + 1 };
     });
     check(wrap.lines >= 2 && wrap.inside, `the long description wraps inside its own cell (${wrap.lines} lines)`);
+    const s0 = await misplacedSigns(cashier);
+    check(s0.count >= 2 && s0.bad.length === 0, `A4: every negative amount reads "−32,000" (${s0.count} checked: table and summary)`);
     const o0 = await orphans(cashier);
     check(o0.length === 0, `A4 invoice: no code, karat, date or digit broken onto its own line${o0.length ? ` (found: ${o0.join(' | ')})` : ''}`);
     const five4 = await exportPdf(cashier, 'invoice-A4-5-lines.pdf');
@@ -250,6 +294,16 @@ async function main() {
     const rc = await exportPdf(gm, 'receipt-72mm-reprint.pdf');
     const p2 = pages(rc.pdf);
     check(p2.length === 1 && Math.abs(p2[0].w - 72) < 0.6, `receipt PDF: one page, ${p2[0].w.toFixed(1)} mm wide × ${p2[0].h.toFixed(1)} mm long`);
+    // The discounted 5-line sale as a 72 mm receipt (reprint).
+    await gm.goto(`${BASE}/sales/${sale5.body.id}`);
+    await gm.getByTestId('sale-print').click();
+    await gm.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
+    const s1 = await misplacedSigns(gm);
+    check(s1.count >= 2 && s1.bad.length === 0, `72 mm receipt: every negative amount reads "−32,000" (${s1.count} checked: line and summary)`);
+    const o3 = await orphans(gm);
+    check(o3.length === 0, `72 mm discounted receipt: no orphaned token${o3.length ? ` (found: ${o3.join(' | ')})` : ''}`);
+    const rd = await exportPdf(gm, 'receipt-72mm-discount.pdf');
+    check(pages(rd.pdf).length === 1, 'receipt PDF of the discounted 5-line sale exported');
     const audit = (await api(gm, 'GET', '/audit?entityType=sale&limit=50')).body;
     check(audit.some((a) => a.action === 'INVOICE_REPRINTED' && a.entityId === sale.number), 'INVOICE_REPRINTED audit entry for the sale');
 
