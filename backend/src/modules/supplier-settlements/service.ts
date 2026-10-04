@@ -90,9 +90,13 @@ export async function settleWithScrap(ctx: Ctx, actor: Actor, purchaseId: number
   });
 }
 
-/** Settlements of one order (COST fields are removed for callers without profit.view). */
+/**
+ * Settlements of one order, oldest first, each with the gold still owed AFTER it (running balance,
+ * SAFE: visible to the branch manager, D-4-13). The settled karat / weight / 24K stay COST.
+ */
 export async function settlementsFor(ctx: Ctx, purchaseId: number) {
-  return ctx.db
+  const [order] = await ctx.db.select({ debt: t.purchases.goldDebtMgPure24 }).from(t.purchases).where(eq(t.purchases.id, purchaseId));
+  const list = await ctx.db
     .select({
       id: t.supplierSettlements.id,
       number: t.supplierSettlements.number,
@@ -107,4 +111,9 @@ export async function settlementsFor(ctx: Ctx, purchaseId: number) {
     .innerJoin(t.users, eq(t.users.id, t.supplierSettlements.actorId))
     .where(eq(t.supplierSettlements.purchaseId, purchaseId))
     .orderBy(asc(t.supplierSettlements.id));
+  let owed = order?.debt ?? null;
+  return list.map((s) => {
+    owed = owed == null ? null : owed - s.settledPureMg24;
+    return { ...s, owedAfterMgPure24: owed };
+  });
 }

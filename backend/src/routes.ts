@@ -55,6 +55,8 @@ const zWeightMg = z.number().int().min(1).max(MAX_WEIGHT_MG);
 const zIdBody = z.number().int().positive().max(2_147_483_647);
 const zText = (max: number) => z.string().trim().max(max);
 const zKarat = z.coerce.number().int().refine((k) => (KARATS as readonly number[]).includes(k), 'Unsupported karat');
+/** Scrap BUYING accepts any karat a customer brings (1–24); selling is still limited by allowedKarats. */
+const zScrapKarat = z.coerce.number().int().min(1).max(24);
 const zStatusList = z.preprocess((v) => (typeof v === 'string' && v ? v.split(',') : undefined), z.array(z.string().regex(/^[A-Z_]{2,40}$/)).max(20).optional());
 const zBool = z.preprocess((v) => v === 'true' || v === '1' || v === true, z.boolean());
 const zQ = zText(100).optional();
@@ -481,7 +483,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   // Supplier settlement (D-4-5): broken-scrap weight and karat only. There is deliberately no
   // amount, payment method or account field: a settlement can never move CASH or BANK.
   route('POST', '/purchases/:id/settlements', async (req, res) => {
-    const body = parse(z.object({ karat: zKarat, weightMg: zWeightMg, note: zText(500).optional() }).strict(), req.body);
+    const body = parse(z.object({ karat: zScrapKarat, weightMg: zWeightMg, note: zText(500).optional() }).strict(), req.body);
     const id = parse(zId, req.params.id);
     res.json(await runIdempotent(ctx, req, res, (idem) => supplierSettlements.settleWithScrap(ctx, actorOf(req), id, body, { idem })));
   });
@@ -489,7 +491,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   // ─────────── scrap gold (Phase 4) ───────────
   route('GET', '/scrap-rates', async (req, res) => res.json(await scrap.scrapRatesView(ctx, actorOf(req))));
   route('POST', '/scrap-rates', async (req, res) => {
-    const body = parse(z.object({ rates: z.array(z.object({ karat: zKarat, pricePerGram: zPositiveMoney }).strict()).min(1).max(KARATS.length) }).strict(), req.body);
+    const body = parse(z.object({ rates: z.array(z.object({ karat: zScrapKarat, pricePerGram: zPositiveMoney }).strict()).min(1).max(24) }).strict(), req.body);
     await scrap.setScrapRates(ctx, actorOf(req), Object.fromEntries(body.rates.map((r) => [r.karat, r.pricePerGram])));
     res.json(await scrap.scrapRatesView(ctx, actorOf(req)));
   });
@@ -503,8 +505,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
         .object({
           branchId: zIdBody.optional(),
           kind: z.enum(SCRAP_KINDS),
-          // Any karat may be bought as broken scrap; sellable pieces are checked against the setting.
-          karat: zKarat,
+          // Any karat 1–24 may be bought as broken scrap; sellable pieces are checked against the setting.
+          karat: zScrapKarat,
           grossWeightMg: zWeightMg,
           netWeightMg: zWeightMg,
           agreedRatePerGram: zPositiveMoney.optional(),
@@ -577,6 +579,16 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('POST', '/cash/counts', async (req, res) => {
     const body = parse(z.object({ branchId: zIdBody.optional(), day: zDay, countedAmount: zMoney, note: zText(500).optional() }).strict(), req.body);
     res.json(await ledger.recordCount(ctx, actorOf(req), body));
+  });
+
+  route('GET', '/cash/hasad-settlements', async (req, res) => {
+    const q = parse(z.object({ branchId: zOptId }).strict(), req.query);
+    res.json(await ledger.listHasadSettlements(ctx, actorOf(req), q));
+  });
+  // Hasad paid the branch by bank transfer: receivable → bank (amount only; never the drawer).
+  route('POST', '/cash/hasad-settlements', async (req, res) => {
+    const body = parse(z.object({ branchId: zIdBody.optional(), amount: zPositiveMoney, bankReference: zText(80).optional(), note: zText(500).optional() }).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => ledger.settleHasadReceivable(ctx, actorOf(req), body, { idem })));
   });
 
   route('GET', '/transfers', async (req, res) => {

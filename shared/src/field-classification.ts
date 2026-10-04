@@ -54,8 +54,12 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   purchase_items: { cost: words('purchase_cost making_cost other_cost'), safe: words('id purchase_id item_id') },
   // Phase 4: the gold still owed to the supplier and the making charge paid are GM-only (D-4-4).
   purchases: {
-    cost: words('total_cost gold_debt_mg_pure24 gold_owed_mg_pure24 making_charge_paid'),
-    safe: words('id number branch_id supplier_id supplier_invoice_no status item_count total_net_weight_mg notes created_by created_at making_charge_paid_from'),
+    cost: words('total_cost gold_debt_mg_pure24 making_charge_paid'),
+    // gold_owed_mg_pure24 is SAFE (client decision, D-4-13): it is an OPERATIONAL quantity — how much
+    // gold is still due to the supplier on this order — not a money cost. Unlike total_cost and
+    // making_charge_paid next to it, it reveals neither what the shop paid nor what it earned; the
+    // branch manager needs it to settle with the supplier's representative.
+    safe: words('id number branch_id supplier_id supplier_invoice_no status item_count total_net_weight_mg notes created_by created_at making_charge_paid_from gold_owed_mg_pure24'),
   },
   role_permissions: { safe: words('role_id permission_code') },
   roles: { safe: words('id code name name_ar description is_system rank') },
@@ -93,6 +97,8 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
     cost: words('settled_karat settled_weight_mg settled_pure_mg24'),
     safe: words('id number purchase_id branch_id actor_id session_id idempotency_key note at'),
   },
+  // Hasad bank transfers received (Phase 4 follow-up): a money movement between two branch accounts, like the ledger.
+  hasad_receivable_settlements: { safe: words('id number branch_id amount bank_reference note actor_id session_id idempotency_key at') },
   // ── Hasad mock schema (integrations/hasad/src/mock/schema.ts, demo only)
   api_calls: { safe: words('id at operation request response_status response duration_ms') },
   customers: { safe: words('id full_name full_name_ar phone national_id_masked balance_mg karat created_at') },
@@ -125,7 +131,6 @@ export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
   'makingCharge',
   'costIsEstimated',
   'goldDebtMgPure24',
-  'goldOwedMgPure24',
   'makingChargePaid',
   'settledKarat',
   'settledWeightMg',
@@ -179,6 +184,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     customerIdRef hasadReceivable posPaymentMethods brokenScrap pureMg24 brokenScrapPureMg24 itemsPureMg24 totalPureMg24 weightByKarat
     settlementCount purchaseNumber supplierName origin scrapRates byKarat balanceMg createdByName toleranceBp
     summary value itemsWeightMg brokenScrapWeightMg totalWeightMg stockWeight items settlements
+    goldOwedMgPure24 owedAfterMgPure24 bankReference hasadReceivableToBank hasadReceivableBalance
     scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates
   `),
 );

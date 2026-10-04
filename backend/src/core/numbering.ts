@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import type { Executor } from '@jerp/database';
 import { rows } from './sql';
 
-export type DocType = 'INV' | 'PO' | 'EXP' | 'TRF' | 'HR' | 'SET' | 'SCR' | 'SST';
+export type DocType = 'INV' | 'PO' | 'EXP' | 'TRF' | 'HR' | 'SET' | 'SCR' | 'SST' | 'HRS';
 
 /** Atomically allocate the next value of a named sequence (starts at `start`). */
 export async function nextSeq(exec: Executor, scope: string, start = 1): Promise<number> {

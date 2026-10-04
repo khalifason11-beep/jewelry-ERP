@@ -20,9 +20,9 @@ import { loadActor } from '../src/modules/sessions/service';
 import { createPurchase } from '../src/modules/purchases/service';
 import { createSale } from '../src/modules/sales/service';
 import { changePrice } from '../src/modules/inventory/service';
-import { buyScrap, poolBalances } from '../src/modules/scrap/service';
+import { buyScrap, poolBalances, setScrapRates } from '../src/modules/scrap/service';
 import { settleWithScrap } from '../src/modules/supplier-settlements/service';
-import { balances } from '../src/modules/ledger/service';
+import { balances, settleHasadReceivable } from '../src/modules/ledger/service';
 import { stockWeight } from '../src/modules/stock/weight';
 import { seedDemo } from '../src/seed/demo';
 import { DEMO_PASSWORDS } from '../src/seed/catalog';
@@ -433,30 +433,145 @@ describe('no code path lets a supplier settlement touch CASH or BANK', () => {
 });
 
 describe('cost visibility of the new fields and routes', () => {
-  it('gold debt and settlement details are COST; the pool, scrap and Hasad references are SAFE', () => {
-    for (const f of ['goldDebtMgPure24', 'goldOwedMgPure24', 'makingChargePaid', 'settledKarat', 'settledWeightMg', 'settledPureMg24']) expect(COST_RESPONSE_FIELDS.has(f)).toBe(true);
-    expect(COLUMN_CLASSES.purchases.cost).toEqual(expect.arrayContaining(['gold_debt_mg_pure24', 'gold_owed_mg_pure24', 'making_charge_paid']));
+  it('gold OWED is SAFE (operational); gold debt, making charge and settlement details stay COST; pool, scrap and Hasad fields are SAFE', () => {
+    for (const f of ['goldDebtMgPure24', 'makingChargePaid', 'settledKarat', 'settledWeightMg', 'settledPureMg24', 'acquisitionCost', 'makingCharge']) expect(COST_RESPONSE_FIELDS.has(f)).toBe(true);
+    expect(COST_RESPONSE_FIELDS.has('goldOwedMgPure24')).toBe(false);
+    expect(COST_RESPONSE_FIELDS.has('owedAfterMgPure24')).toBe(false);
+    expect(COLUMN_CLASSES.purchases.safe).toContain('gold_owed_mg_pure24');
+    expect(COLUMN_CLASSES.purchases.cost).toEqual(expect.arrayContaining(['gold_debt_mg_pure24', 'making_charge_paid', 'total_cost']));
+    expect(COLUMN_CLASSES.purchases.cost).not.toContain('gold_owed_mg_pure24');
     expect(COLUMN_CLASSES.supplier_settlements.cost).toEqual(expect.arrayContaining(['settled_karat', 'settled_weight_mg', 'settled_pure_mg24']));
     expect(COLUMN_CLASSES.scrap_weight_entries.cost ?? []).toEqual([]);
+    expect(COLUMN_CLASSES.hasad_receivable_settlements.cost ?? []).toEqual([]);
     expect(COLUMN_CLASSES.sales.safe).toEqual(expect.arrayContaining(['payment_ref_invoice', 'payment_ref_transaction']));
   });
 
-  it('a branch manager records a settlement but never receives the owed amount or settlement weights; the GM does', async () => {
-    const { po } = await newPurchase('KRT', [7_000]);
-    await stockUp('KRT', 21, 2_000);
+  it('the branch manager sees the gold owed and its running balance after each settlement, but never acquisition cost or making charge on the same screen', async () => {
+    const { po, owed } = await newPurchase('KRT', [7_000]);
+    await stockUp('KRT', 21, 3_000);
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
-    const res = await bm.post(`/api/purchases/${po.id}/settlements`).send({ karat: 21, weightMg: 2_000 });
-    expect(res.status).toBe(200);
-    for (const f of ['goldOwedMgPure24', 'settledWeightMg', 'settledPureMg24', 'settledKarat']) expect(res.body).not.toHaveProperty(f);
-    expect(res.body.number).toMatch(/SST/);
-    const bmView = (await bm.get(`/api/purchases/${po.id}`)).body;
-    expect(bmView).not.toHaveProperty('goldOwedMgPure24');
-    expect(bmView).not.toHaveProperty('makingChargePaid');
-    expect(bmView.settlements[0]).not.toHaveProperty('settledWeightMg');
+    const first = await bm.post(`/api/purchases/${po.id}/settlements`).send({ karat: 21, weightMg: 2_000 });
+    expect(first.status).toBe(200);
+    expect(first.body.goldOwedMgPure24).toBe(owed - pureGoldMg(2_000, 21));
+    for (const f of ['settledWeightMg', 'settledPureMg24', 'settledKarat']) expect(first.body).not.toHaveProperty(f);
+    const second = await bm.post(`/api/purchases/${po.id}/settlements`).send({ karat: 21, weightMg: 1_000 });
+    const left = owed - pureGoldMg(2_000, 21) - pureGoldMg(1_000, 21);
+    expect(second.body.goldOwedMgPure24).toBe(left);
+
+    // The purchase order view (the settlement screen): owed + running balance, no money cost anywhere.
+    const view = (await bm.get(`/api/purchases/${po.id}`)).body;
+    expect(view.goldOwedMgPure24).toBe(left);
+    expect(view.settlements.map((x: { owedAfterMgPure24: number }) => x.owedAfterMgPure24)).toEqual([owed - pureGoldMg(2_000, 21), left]);
+    const text = JSON.stringify(view);
+    for (const f of ['acquisitionCost', 'makingCharge', 'makingChargePaid', 'makingCost', 'purchaseCost', 'totalCost', 'goldDebtMgPure24', 'settledWeightMg']) {
+      expect(text, f).not.toContain(`"${f}"`);
+    }
+    // The GM sees everything.
     const gm = await login('general.manager', 'GENERAL_MANAGER');
     const gmView = (await gm.get(`/api/purchases/${po.id}`)).body;
-    expect(gmView.goldOwedMgPure24).toBe(pureGoldMg(7_000, 21) - pureGoldMg(2_000, 21));
+    expect(gmView).toMatchObject({ goldOwedMgPure24: left, goldDebtMgPure24: owed, makingChargePaid: 50_000 });
     expect(gmView.settlements[0]).toMatchObject({ settledKarat: 21, settledWeightMg: 2_000 });
+  });
+});
+
+// ───────────────────────── odd-karat scrap ─────────────────────────
+describe('scrap buying accepts any karat 1–24; selling stays limited to allowedKarats', () => {
+  it('a 14K broken-scrap purchase is recorded while a 14K sellable piece is still rejected', async () => {
+    const gm = await actorOf('general.manager');
+    const bm = await actorOf('branch.manager.omd');
+    const omd = await branchId('OMD');
+    await setScrapRates(ctx, gm, { 14: 95_000 });
+    const before = await pool(omd, 14);
+    const r = await buyScrap(ctx, bm, { branchId: omd, kind: 'BROKEN', karat: 14, grossWeightMg: 3_300, netWeightMg: 3_300, paymentMethod: 'CASH' });
+    expect(r.karat).toBe(14);
+    expect(await pool(omd, 14)).toBe(before + 3_300);
+    const p = await foreignProduct();
+    expect(await errorOf(buyScrap(ctx, bm, { branchId: omd, kind: 'SELLABLE', karat: 14, grossWeightMg: 3_000, netWeightMg: 3_000, paymentMethod: 'CASH', productId: p.id, sellingPrice: 500_000 }))).toMatchObject({
+      status: 400,
+      key: '{karat}K is not sold here: sellable pieces must be {allowed}',
+    });
+    // Over HTTP too: the route accepts 14 (and 9) for scrap, refuses 0 and 25.
+    const http = await login('branch.manager.omd', 'BRANCH_MANAGER');
+    const ok = await http.post('/api/scrap-purchases').send({ kind: 'BROKEN', karat: 14, grossWeightMg: 1_000, netWeightMg: 1_000, paymentMethod: 'CASH' });
+    expect(ok.status).toBe(200);
+    for (const k of [0, 25]) expect((await http.post('/api/scrap-purchases').send({ kind: 'BROKEN', karat: k, grossWeightMg: 1_000, netWeightMg: 1_000, paymentMethod: 'CASH' })).status).toBe(400);
+    const sell = await http.post('/api/scrap-purchases').send({ kind: 'SELLABLE', karat: 14, grossWeightMg: 1_000, netWeightMg: 1_000, paymentMethod: 'CASH', productId: p.id, sellingPrice: 300_000 });
+    expect(sell.status).toBe(400);
+    // The 24K equivalent of odd karats uses the same helper.
+    const sw = (await stockWeight(ctx.db, omd)).byBranch.get(omd)!;
+    expect(sw.brokenScrap.byKarat.find((x) => x.karat === 14)!.pureMg24).toBe(pureGoldMg(await pool(omd, 14), 14));
+  });
+});
+
+// ───────────────────────── Hasad receivable settled by bank transfer ─────────────────────────
+describe('Hasad receivable settled by bank transfer', () => {
+  const bal = async (branch: number) => Object.fromEntries((await balances(ctx.db, branch)).map((a) => [a.kind, a.balance]));
+  async function receivable(code: string, n: number) {
+    const cashier = await actorOf('cashier.kh.01');
+    let total = 0;
+    for (const item of await freshItems(code, n)) {
+      const s = await createSale(ctx, cashier, { items: [{ itemId: item.id }], paymentMethod: 'HASAD', paymentRefInvoice: `HSD-T-${item.id}` });
+      total += s.total;
+    }
+    return total;
+  }
+
+  it('moves the amount from HASAD_RECEIVABLE to BANK in one transaction (two entries netting to zero); partial is fine', async () => {
+    const krt = await branchId('KRT');
+    await receivable('KRT', 2);
+    const before = await bal(krt);
+    const bm = await actorOf('branch.manager.kh');
+    const part = Math.floor(before.HASAD_RECEIVABLE / 3);
+    const r = await settleHasadReceivable(ctx, bm, { amount: part, bankReference: 'BOK-123' });
+    const after = await bal(krt);
+    expect(after.HASAD_RECEIVABLE).toBe(before.HASAD_RECEIVABLE - part);
+    expect(after.BANK).toBe(before.BANK + part);
+    expect(after.CASH).toBe(before.CASH);
+    expect(r.hasadReceivableBalance).toBe(after.HASAD_RECEIVABLE);
+    const entries = await ctx.db.select().from(t.ledgerEntries).where(and(eq(t.ledgerEntries.refType, 'hasad_receivable_settlement'), eq(t.ledgerEntries.refId, r.id)));
+    expect(entries).toHaveLength(2);
+    expect(sumInt(entries.map((e) => e.amount))).toBe(0);
+    expect(entries.every((e) => e.eventType === 'HASAD_RECEIVABLE_SETTLEMENT')).toBe(true);
+    const [audit] = await ctx.db.select().from(t.auditLogs).where(and(eq(t.auditLogs.action, 'HASAD_RECEIVABLE_SETTLED'), eq(t.auditLogs.entityId, r.number)));
+    expect(audit).toBeTruthy();
+    // The daily reconciliation shows it on the bank side, never in the drawer.
+    const gm = await login('general.manager', 'GENERAL_MANAGER');
+    const rec = (await gm.get('/api/cash/reconciliation').query({ branchId: krt })).body;
+    expect(rec.hasadReceivableToBank).toBeGreaterThanOrEqual(part);
+  });
+
+  it('more than the current receivable is refused and changes nothing; the record is append-only', async () => {
+    const omd = await branchId('OMD');
+    const bm = await actorOf('branch.manager.omd');
+    const before = await bal(omd);
+    const n = (await ctx.db.select({ n: count() }).from(t.hasadReceivableSettlements))[0].n;
+    const e = await errorOf(settleHasadReceivable(ctx, bm, { amount: before.HASAD_RECEIVABLE + 1 }));
+    expect(e).toMatchObject({ status: 400, key: 'This is more than the Hasad receivable of this branch ({balance})' });
+    expect(await bal(omd)).toEqual(before);
+    expect((await ctx.db.select({ n: count() }).from(t.hasadReceivableSettlements))[0].n).toBe(n);
+    expect(await failure('UPDATE hasad_receivable_settlements SET amount = amount + 1')).toMatch(/append-only|permission denied/);
+    expect(await failure('DELETE FROM hasad_receivable_settlements')).toMatch(/append-only|permission denied/);
+  });
+
+  it('over HTTP: idempotent (same key settles once), strict, own branch only, cashier refused', async () => {
+    const krt = await branchId('KRT');
+    await receivable('KRT', 1);
+    const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
+    const before = await bal(krt);
+    const key = randomUUID();
+    const body = { amount: 1_000 };
+    const r1 = await bm.post('/api/cash/hasad-settlements').set('Idempotency-Key', key).send(body);
+    const r2 = await bm.post('/api/cash/hasad-settlements').set('Idempotency-Key', key).send(body);
+    expect([r1.status, r2.status]).toEqual([200, 200]);
+    expect(r2.headers['idempotent-replayed']).toBe('true');
+    expect((await bal(krt)).BANK).toBe(before.BANK + 1_000);
+    expect((await bm.post('/api/cash/hasad-settlements').send({ amount: 1_000, paymentMethod: 'CASH' })).status).toBe(400);
+    expect((await bm.post('/api/cash/hasad-settlements').send({ amount: 0 })).status).toBe(400);
+    expect((await bm.post('/api/cash/hasad-settlements').send({ branchId: await branchId('OMD'), amount: 1_000 })).status).toBe(403);
+    const cashier = await login('cashier.kh.01', 'CASHIER');
+    expect((await cashier.post('/api/cash/hasad-settlements').send(body)).status).toBe(403);
+    const list = (await bm.get('/api/cash/hasad-settlements')).body;
+    expect(list.every((x: { branchId: number }) => x.branchId === krt)).toBe(true);
   });
 });
 

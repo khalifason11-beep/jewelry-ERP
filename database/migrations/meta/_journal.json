@@ -57,6 +57,13 @@
       "when": 1791054669973,
       "tag": "0007_scrap_supplier_settlement",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791057343652,
+      "tag": "0008_hasad_receivable_settlement",
+      "breakpoints": true
     }
   ]
 }

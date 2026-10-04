@@ -414,9 +414,12 @@ function ScrapRatesCard() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['scrap-rates'], queryFn: () => get<ScrapRatesView>('/scrap-rates') });
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [extra, setExtra] = useState('');
   useEffect(() => {
     if (q.data) setDraft(Object.fromEntries(q.data.rates.map((r) => [String(r.karat), String(r.pricePerGram)])));
   }, [q.data]);
+  // The usual karats plus any odd karat that already has a rate or was added here (1–24).
+  const shown = [...new Set([...KARATS, ...Object.keys(draft).map(Number)])].sort((a, b) => a - b);
   const m = useMutation({
     mutationFn: () =>
       post('/scrap-rates', {
@@ -442,7 +445,7 @@ function ScrapRatesCard() {
         }
       />
       <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
-        {KARATS.map((k) => {
+        {shown.map((k) => {
           const cur = q.data?.rates.find((r) => r.karat === k);
           return (
             <Field key={k} label={`${k}K`} hint={cur ? dateTime(cur.effectiveAt, lang) : t('Not set')}>
@@ -450,6 +453,18 @@ function ScrapRatesCard() {
             </Field>
           );
         })}
+      </div>
+      <div className="flex items-end gap-2 border-t border-line px-5 py-3">
+        <Field label={t('Add another karat (1–24)')}>
+          <Input type="number" min={1} max={24} step={1} value={extra} onChange={(e) => setExtra(e.target.value)} className="w-28 num" />
+        </Field>
+        <Button
+          size="sm"
+          disabled={!(Number.isInteger(Number(extra)) && Number(extra) >= 1 && Number(extra) <= 24) || shown.includes(Number(extra))}
+          onClick={() => { setDraft({ ...draft, [Number(extra)]: '' }); setExtra(''); }}
+        >
+          {t('Add')}
+        </Button>
       </div>
     </Card>
   );

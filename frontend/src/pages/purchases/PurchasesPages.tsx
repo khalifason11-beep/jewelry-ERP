@@ -1,4 +1,4 @@
-import { gramsToMg, KARATS, type ExpensePaymentSource } from '@jerp/shared';
+import { gramsToMg, pureGoldMg, type ExpensePaymentSource } from '@jerp/shared';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -22,6 +22,8 @@ interface Settlement {
   settledKarat?: number;
   settledWeightMg?: number;
   settledPureMg24?: number;
+  /** Gold still owed after this settlement (24K mg): operational, visible to the branch manager. */
+  owedAfterMgPure24: number | null;
   note: string | null;
   at: string;
   createdByName: string;
@@ -271,7 +273,8 @@ export function PurchaseDetailPage() {
           notes: string | null;
           // COST (General Manager only).
           goldDebtMgPure24?: number | null;
-          goldOwedMgPure24?: number | null;
+          // Operational (D-4-13): visible to the branch manager too.
+          goldOwedMgPure24: number | null;
           makingChargePaid?: number | null;
           makingChargePaidFrom: 'CASH' | 'BANK' | null;
           settlements: Settlement[];
@@ -302,19 +305,19 @@ export function PurchaseDetailPage() {
                   { label: t('Total cost'), value: money(p.totalCost) },
                   { label: t('Making charge paid'), value: p.makingChargePaid == null ? '—' : money(p.makingChargePaid) },
                   { label: t('Gold owed to the supplier (24K)'), value: p.goldDebtMgPure24 == null ? '—' : grams(p.goldDebtMgPure24) },
-                  {
-                    label: t('Still owed (24K)'),
-                    value:
-                      p.goldOwedMgPure24 == null ? (
-                        t('Recorded before gold settlement')
-                      ) : p.goldOwedMgPure24 === 0 ? (
-                        <span className="font-semibold text-emerald-700">{t('Fully settled')}</span>
-                      ) : (
-                        <span className="font-semibold num">{grams(p.goldOwedMgPure24)}</span>
-                      ),
-                  },
                 ]
               : []),
+            {
+              label: t('Still owed (24K)'),
+              value:
+                p.goldOwedMgPure24 == null ? (
+                  t('Recorded before gold settlement')
+                ) : p.goldOwedMgPure24 === 0 ? (
+                  <span className="font-semibold text-emerald-700">{t('Fully settled')}</span>
+                ) : (
+                  <span className="font-semibold num" data-testid="gold-owed">{grams(p.goldOwedMgPure24)}</span>
+                ),
+            },
           ]}
         />
       </Card>
@@ -386,6 +389,7 @@ function SettlementsCard({ purchaseId, branchId, settlements, owed }: { purchase
                   <th className="px-3 py-2 text-end font-medium">{t('24K equivalent')}</th>
                 </>
               )}
+              <th className="px-3 py-2 text-end font-medium">{t('Still owed after')}</th>
               <th className="px-3 py-2 text-start font-medium">{t('Recorded by')}</th>
               <th className="px-5 py-2 text-start font-medium">{t('Note')}</th>
             </tr>
@@ -402,6 +406,7 @@ function SettlementsCard({ purchaseId, branchId, settlements, owed }: { purchase
                     <td className="px-3 py-2 text-end num">{s.settledPureMg24 != null ? grams(s.settledPureMg24) : '—'}</td>
                   </>
                 )}
+                <td className="px-3 py-2 text-end font-medium num">{s.owedAfterMgPure24 != null ? grams(s.owedAfterMgPure24) : '—'}</td>
                 <td className="px-3 py-2">{s.createdByName}</td>
                 <td className="px-5 py-2 text-ink-600">{s.note ?? '—'}</td>
               </tr>
@@ -411,7 +416,7 @@ function SettlementsCard({ purchaseId, branchId, settlements, owed }: { purchase
       ) : (
         <p className="px-5 py-3 text-[13px] text-ink-500">{t('No settlements yet.')}</p>
       )}
-      {canSettle && <SettleForm purchaseId={purchaseId} branchId={branchId} />}
+      {canSettle && <SettleForm purchaseId={purchaseId} branchId={branchId} owed={owed ?? null} />}
     </Card>
   );
 }
@@ -420,7 +425,7 @@ interface PoolView {
   branches: { branchId: number; byKarat: { karat: number; weightMg: number; pureMg24: number }[] }[];
 }
 
-function SettleForm({ purchaseId, branchId }: { purchaseId: number; branchId: number }) {
+function SettleForm({ purchaseId, branchId, owed }: { purchaseId: number; branchId: number; owed: number | null }) {
   const { t } = useI18n();
   const toast = useToast();
   const qc = useQueryClient();
@@ -444,14 +449,17 @@ function SettleForm({ purchaseId, branchId }: { purchaseId: number; branchId: nu
   });
   const available = inPool.find((x) => x.karat === karat)?.weightMg ?? 0;
   const mg = weight ? gramsToMg(weight) : 0;
-  const valid = karat !== '' && mg > 0 && mg <= available;
+  // Preview with the same single pure-gold helper the server uses.
+  const pure = karat !== '' && mg > 0 ? pureGoldMg(mg, karat) : 0;
+  const tooMuch = owed != null && pure > owed;
+  const valid = karat !== '' && mg > 0 && mg <= available && !tooMuch;
   return (
     <div className="grid gap-3 border-t border-line px-5 py-4 sm:grid-cols-[160px_160px_1fr_auto] sm:items-end" data-testid="settlement-form">
       <Field label={t('Scrap karat')}>
         <Select value={karat} onChange={(e) => setKarat(e.target.value ? Number(e.target.value) : '')}>
           <option value="">{t('Select…')}</option>
-          {KARATS.filter((k) => inPool.some((x) => x.karat === k)).map((k) => (
-            <option key={k} value={k}>{t('{karat} · {weight} in the pool', { karat: karatLabel(k), weight: grams(inPool.find((x) => x.karat === k)!.weightMg) })}</option>
+          {inPool.map((x) => (
+            <option key={x.karat} value={x.karat}>{t('{karat} · {weight} in the pool', { karat: karatLabel(x.karat), weight: grams(x.weightMg) })}</option>
           ))}
         </Select>
       </Field>
@@ -464,6 +472,13 @@ function SettleForm({ purchaseId, branchId }: { purchaseId: number; branchId: nu
       <Button variant="primary" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()}>
         {t('Record settlement')}
       </Button>
+      {pure > 0 && owed != null && (
+        <p className={'text-[12.5px] sm:col-span-4 ' + (tooMuch ? 'text-rose-700' : 'text-ink-600')} data-testid="settle-preview">
+          {tooMuch
+            ? t('This weight is more than the gold still owed on this purchase')
+            : t('Settles {pure} (24K). Still owed after: {left}', { pure: grams(pure), left: grams(owed - pure) })}
+        </p>
+      )}
       {!pool.isLoading && !inPool.length && <p className="text-[12.5px] text-amber-700 sm:col-span-4">{t('The branch scrap pool is empty: buy broken scrap first.')}</p>}
     </div>
   );

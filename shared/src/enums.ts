@@ -74,7 +74,7 @@ export type PricingMode = (typeof PRICING_MODES)[number];
 export const LEDGER_ACCOUNT_KINDS = ['CASH', 'BANK', 'FUNDS_IN_TRANSIT', 'HASAD_RECEIVABLE'] as const;
 export type LedgerAccountKind = (typeof LEDGER_ACCOUNT_KINDS)[number];
 
-export const LEDGER_EVENT_TYPES = ['SALE', 'SALE_VOID', 'EXPENSE', 'HASAD_SETTLEMENT', 'REVERSAL', 'SCRAP_PURCHASE', 'SUPPLIER_MAKING_CHARGE'] as const;
+export const LEDGER_EVENT_TYPES = ['SALE', 'SALE_VOID', 'EXPENSE', 'HASAD_SETTLEMENT', 'REVERSAL', 'SCRAP_PURCHASE', 'SUPPLIER_MAKING_CHARGE', 'HASAD_RECEIVABLE_SETTLEMENT'] as const;
 export type LedgerEventType = (typeof LEDGER_EVENT_TYPES)[number];
 
 /** Q5: which branch account a payment method moves. Every entry keeps its own payment method too. */
@@ -169,6 +169,7 @@ export const AUDIT_ACTIONS = [
   'SCRAP_PURCHASED',
   'SCRAP_RATE_CHANGED',
   'SUPPLIER_SETTLEMENT_RECORDED',
+  'HASAD_RECEIVABLE_SETTLED',
   'HASAD_WITHDRAWAL_RECEIVED',
   'HASAD_WITHDRAWAL_OPENED',
   'HASAD_WITHDRAWAL_COMPLETED',

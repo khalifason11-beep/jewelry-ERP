@@ -16,6 +16,9 @@ import { loadActor } from '../../src/modules/sessions/service';
 import { createPurchase } from '../../src/modules/purchases/service';
 import { buyScrap, poolBalances } from '../../src/modules/scrap/service';
 import { settleWithScrap } from '../../src/modules/supplier-settlements/service';
+import { balances, settleHasadReceivable } from '../../src/modules/ledger/service';
+import { createSale } from '../../src/modules/sales/service';
+import { and } from 'drizzle-orm';
 import { seedDemo } from '../../src/seed/demo';
 import { DEMO_PASSWORDS } from '../../src/seed/catalog';
 import { openTestDatabase, PG_MODE } from '../helpers';
@@ -114,5 +117,47 @@ describe('parallel supplier settlements of one order (row lock)', () => {
     expect(res.filter((r) => r.status === 200).length).toBeGreaterThanOrEqual(1);
     for (const r of res) expect([200, 409]).toContain(r.status);
     expect(await ctx.db.select().from(t.supplierSettlements).where(eq(t.supplierSettlements.purchaseId, po.id))).toHaveLength(1);
+  });
+});
+
+describe('parallel Hasad receivable settlements (account row lock)', () => {
+  it('two transfers each worth 60% of the receivable: exactly one posts, the other is refused; receivable never below 0', async () => {
+    const krt = await branchId('KRT');
+    const cashier = await actorOf('cashier.kh.01');
+    const bm = await actorOf('branch.manager.kh');
+    const bal = async () => Object.fromEntries((await balances(ctx.db, krt)).map((a) => [a.kind, a.balance]));
+    for (let round = 0; round < ROUNDS; round++) {
+      // Bring the receivable to a known amount: settle what is there, then one Hasad sale.
+      const open = (await bal()).HASAD_RECEIVABLE;
+      if (open > 0) await settleHasadReceivable(ctx, bm, { amount: open });
+      const [item] = await ctx.db.select().from(t.jewelryItems).where(and(eq(t.jewelryItems.branchId, krt), eq(t.jewelryItems.status, 'AVAILABLE'))).limit(1);
+      const sale = await createSale(ctx, cashier, { items: [{ itemId: item.id }], paymentMethod: 'HASAD', paymentRefInvoice: `RACE-${round}` });
+      const before = await bal();
+      expect(before.HASAD_RECEIVABLE).toBe(sale.total);
+      const part = Math.floor(sale.total * 0.6);
+      const rs = await Promise.allSettled([1, 2].map(() => settleHasadReceivable(ctx, bm, { amount: part })));
+      expect(winners(rs)).toHaveLength(1);
+      expect(reasons(rs)).toEqual(['This is more than the Hasad receivable of this branch ({balance})']);
+      const after = await bal();
+      expect(after.HASAD_RECEIVABLE).toBe(sale.total - part);
+      expect(after.BANK).toBe(before.BANK + part);
+    }
+  });
+
+  it('many small parallel transfers: Σ posted never exceeds the receivable and the two accounts move by the same total', async () => {
+    const omd = await branchId('OMD');
+    const bm = await actorOf('branch.manager.omd');
+    const bal = async () => Object.fromEntries((await balances(ctx.db, omd)).map((a) => [a.kind, a.balance]));
+    const before = await bal();
+    const due = before.HASAD_RECEIVABLE;
+    if (due <= 0) return;
+    const piece = Math.max(1, Math.floor(due / 7));
+    const rs = await Promise.allSettled(Array.from({ length: 10 }, () => settleHasadReceivable(ctx, bm, { amount: piece })));
+    const ok = winners(rs).length;
+    expect(ok).toBe(Math.min(10, Math.floor(due / piece)));
+    const after = await bal();
+    expect(after.HASAD_RECEIVABLE).toBe(due - ok * piece);
+    expect(after.BANK - before.BANK).toBe(ok * piece);
+    expect(after.HASAD_RECEIVABLE).toBeGreaterThanOrEqual(0);
   });
 });

@@ -75,6 +75,7 @@ describe('idempotency keys', () => {
         'POST /cash/counts',
         'POST /scrap-purchases',
         'POST /purchases/:id/settlements',
+        'POST /cash/hasad-settlements',
       ].sort(),
     );
     // Only mutating routes can be idempotent.

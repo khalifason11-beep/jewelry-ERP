@@ -627,6 +627,29 @@ export const supplierSettlements = pgTable(
   (t) => [index('supplier_settlements_purchase_idx').on(t.purchaseId)],
 );
 
+/**
+ * Hasad pays the shop by an ordinary bank transfer into the branch's bank account. Each transfer
+ * received is recorded here (append-only) and moves the amount from HASAD_RECEIVABLE to BANK in the
+ * same transaction (two ledger entries that net to zero).
+ */
+export const hasadReceivableSettlements = pgTable(
+  'hasad_receivable_settlements',
+  {
+    id: serial('id').primaryKey(),
+    number: text('number').notNull().unique(),
+    branchId: integer('branch_id').notNull().references(() => branches.id),
+    amount: money('amount').notNull(),
+    /** The bank's reference of the incoming transfer (optional). */
+    bankReference: text('bank_reference'),
+    note: text('note'),
+    actorId: integer('actor_id').notNull().references(() => users.id),
+    sessionId: text('session_id'),
+    idempotencyKey: text('idempotency_key'),
+    at: ts('at').notNull().defaultNow(),
+  },
+  (t) => [index('hasad_receivable_settlements_branch_idx').on(t.branchId, t.at)],
+);
+
 // ───────────────────────────── Branch money ledger (Phase 2b) ─────────────────────────────
 
 /** One account per branch and kind (CASH, BANK, FUNDS_IN_TRANSIT); created by a trigger on branches. */

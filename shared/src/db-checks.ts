@@ -175,6 +175,8 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   { name: 'ck_purchases_gold_debt_pair', table: 'purchases', expr: '(gold_debt_mg_pure24 IS NULL) = (gold_owed_mg_pure24 IS NULL)' },
   { name: 'ck_purchases_gold_owed_range', table: 'purchases', expr: 'gold_owed_mg_pure24 IS NULL OR (gold_owed_mg_pure24 >= 0 AND gold_owed_mg_pure24 <= gold_debt_mg_pure24)' },
   { name: 'ck_purchases_making_charge_paid', table: 'purchases', expr: '(making_charge_paid IS NULL) = (making_charge_paid_from IS NULL) AND coalesce(making_charge_paid, 0) >= 0' },
+  // ── Phase 4 follow-up: Hasad receivable settled by bank transfer
+  { name: 'ck_hasad_receivable_settlements_amount_positive', table: 'hasad_receivable_settlements', expr: 'amount > 0' },
   { name: 'ck_sales_hasad_reference', table: 'sales', expr: "payment_method <> 'HASAD' OR payment_ref_invoice IS NOT NULL" },
 ];
 

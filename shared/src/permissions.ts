@@ -51,6 +51,7 @@ export const PERMISSIONS = {
   'branches.manage': 'Create and edit branches',
   'cash.view': 'See the expected cash in the drawer and the daily cash reconciliation',
   'cash.count': 'Record the counted cash of a business day',
+  'cash.settle_hasad': 'Record a Hasad bank transfer received: moves the amount from the Hasad receivable to the bank',
   'scrap.buy': 'Buy scrap gold from customers at the counter (sellable pieces or broken scrap)',
   'scrap.override': 'Approve a scrap price beyond the allowed tolerance from the scrap buying rate',
   'purchases.settle': 'Record a supplier settlement paid with broken-scrap weight',
@@ -96,6 +97,8 @@ const BRANCH_MANAGER: Permission[] = [
   // Phase 4: counter scrap purchases and supplier settlements with broken-scrap weight.
   'scrap.buy',
   'purchases.settle',
+  // Hasad pays the branch by bank transfer: the manager records it (receivable → bank).
+  'cash.settle_hasad',
   // No 'profit.view': cost, acquisition cost and profit are General Manager only (decision Q15).
   'users.view',
   'sessions.view',

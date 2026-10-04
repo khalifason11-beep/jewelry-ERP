@@ -23,7 +23,7 @@ import { createSession, hashToken, loadActor } from '../modules/sessions/service
 import { createPurchase, type PurchaseLine } from '../modules/purchases/service';
 import { createSale, voidSale } from '../modules/sales/service';
 import { createExpense } from '../modules/expenses/service';
-import { post as postLedger } from '../modules/ledger/service';
+import { post as postLedger, settleHasadReceivable, balances as ledgerBalances } from '../modules/ledger/service';
 import { createTransfer, receiveTransfer } from '../modules/transfers/service';
 import { adjustItem } from '../modules/inventory/service';
 import { buyScrap } from '../modules/scrap/service';
@@ -78,7 +78,7 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
   const r21At = (offset: number) => Math.round((190_000 - (Math.max(-60, offset) / -60) * 8_500) / 500) * 500;
   const rateFor = (karat: number, offset: number) => {
     const r21 = r21At(offset);
-    const factor = karat === 24 ? 1.142 : karat === 22 ? 1.047 : karat === 18 ? 0.857 : 1;
+    const factor = karat === 24 ? 1.142 : karat === 22 ? 1.047 : karat === 18 ? 0.857 : karat / 21;
     return Math.round((r21 * factor) / 500) * 500;
   };
 
@@ -358,7 +358,7 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
   const ratesUpTo = async (offset: number) => {
     while (nextRate < scrapRateDays.length && scrapRateDays[nextRate] <= offset) {
       const off = scrapRateDays[nextRate++];
-      await db.insert(t.scrapRates).values([18, 21, 22, 24].map((k) => ({ karat: k, pricePerGram: scrapRate(k, off), effectiveAt: at(off, 8, 5), setBy: gm.userId })));
+      await db.insert(t.scrapRates).values([14, 18, 21, 22, 24].map((k) => ({ karat: k, pricePerGram: scrapRate(k, off), effectiveAt: at(off, 8, 5), setBy: gm.userId })));
     }
   };
   type ScrapEvent =
@@ -388,6 +388,7 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
     { day: -3, code: 'KRT', kind: 'BROKEN', karat: 21, g: 64.2, pay: 'BANK_TRANSFER' },
     { day: -2, code: 'KRT', kind: 'SETTLE', purchase: krtPO.id, karat: 21, g: 'REST' },
     { day: -1, code: 'KRT', kind: 'BROKEN', karat: 22, g: 7.3, pay: 'CASH' },
+    { day: -1, code: 'BHR', kind: 'BROKEN', karat: 14, g: 6.2, pay: 'CASH' }, // odd karat: scrap buying accepts 1–24
     { day: -1, code: 'OMD', kind: 'BROKEN', karat: 21, g: 13.6, pay: 'CASH' },
   ];
   for (const ev of scrapPlan) {
@@ -419,6 +420,15 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
     }
   }
   await ratesUpTo(0);
+
+  // Hasad paid most branches part of what it owes them, by bank transfer (receivable → bank).
+  for (const code of ['KRT', 'OMD']) {
+    const due = (await ledgerBalances(db, branch[code].id)).find((a) => a.kind === 'HASAD_RECEIVABLE')?.balance ?? 0;
+    const amount = Math.floor((due * 0.6) / 1000) * 1000;
+    if (amount > 0) {
+      await settleHasadReceivable(ctx, bm[code], { branchId: branch[code].id, amount, bankReference: `BOK-${int(1000000, 9999999)}`, note: 'دفعة من حصاد' }, { at: at(-1, 11, 30) });
+    }
+  }
 
   // ───────── Hasad Gold (mock system + ERP history) ─────────
   await db.insert(mockCustomers).values(

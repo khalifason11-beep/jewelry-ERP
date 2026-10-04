@@ -7,7 +7,7 @@
 //     pass their `tx`). Corrections are reversing entries that point at the entry they reverse; an
 //     entry can be reversed only once (unique index), so a double void can never refund twice.
 
-import { and, asc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { t, type Executor } from '@jerp/database';
 import { PAYMENT_ACCOUNT, sumInt, type LedgerAccountKind, type LedgerEventType, type PaymentMethod } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
@@ -16,6 +16,8 @@ import { writeAudit } from '../../core/audit';
 import { badRequest } from '../../core/errors';
 import { rows } from '../../core/sql';
 import { addDays, dayKey, dayStart } from '../../core/time';
+import { nextNumber } from '../../core/numbering';
+import type { TxIdempotency } from '../../core/idempotency';
 import { ap } from '@jerp/shared';
 
 export interface LedgerRef {
@@ -203,6 +205,8 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
     expensesBank: sum((e) => e.eventType === 'EXPENSE' && e.kind === 'BANK'),
     settlementsCash: sum((e) => e.eventType === 'HASAD_SETTLEMENT' && e.kind === 'CASH'),
     settlementsBank: sum((e) => e.eventType === 'HASAD_SETTLEMENT' && e.kind === 'BANK'),
+    // Hasad's bank transfers received this day (receivable → bank; never the drawer).
+    hasadReceivableToBank: sum((e) => e.eventType === 'HASAD_RECEIVABLE_SETTLEMENT' && e.kind === 'BANK'),
     // Phase 4: scrap bought from customers and supplier making charges, both paid out at once.
     scrapPurchasesCash: sum((e) => e.eventType === 'SCRAP_PURCHASE' && e.kind === 'CASH'),
     scrapPurchasesBank: sum((e) => e.eventType === 'SCRAP_PURCHASE' && e.kind === 'BANK'),
@@ -240,6 +244,107 @@ export async function recordCount(ctx: Ctx, actor: Actor, input: { branchId?: nu
     });
     return row;
   });
+}
+
+// ───────────────────────── Hasad receivable settled by bank transfer ─────────────────────────
+
+/**
+ * Hasad pays the shop by an ordinary bank transfer into the branch's bank account (client decision,
+ * D-4-14). The branch manager (or the GM) records each transfer received: ONE transaction that
+ *   (1) locks the branch's HASAD_RECEIVABLE account row (FOR UPDATE), so concurrent settlements are
+ *       applied one after the other and can never take the receivable below zero,
+ *   (2) refuses an amount above the current receivable balance (partial amounts are fine: Hasad pays
+ *       in batches that need not match individual sales),
+ *   (3) writes the settlement record and two entries that net to zero: −amount on HASAD_RECEIVABLE,
+ *       +amount on BANK (same event type, same reference).
+ */
+export async function settleHasadReceivable(
+  ctx: Ctx,
+  actor: Actor,
+  input: { branchId?: number; amount: number; bankReference?: string; note?: string },
+  opts: { idem?: TxIdempotency; at?: Date } = {},
+) {
+  requirePerm(actor, 'cash.settle_hasad');
+  const branchId = branchScope(actor, input.branchId);
+  if (branchId == null) throw badRequest('Select a branch');
+  if (!Number.isSafeInteger(input.amount) || input.amount <= 0) throw badRequest('Invalid value for {field}', { field: 'amount' });
+  const at = opts.at ?? new Date();
+  return ctx.db.transaction(async (tx) => {
+    await opts.idem?.claim(tx);
+    const [account] = await tx
+      .select()
+      .from(t.ledgerAccounts)
+      .where(and(eq(t.ledgerAccounts.branchId, branchId), eq(t.ledgerAccounts.kind, 'HASAD_RECEIVABLE')))
+      .for('update');
+    if (!account) throw new Error(`ledger account HASAD_RECEIVABLE missing for branch ${branchId}`);
+    const [{ balance }] = rows<{ balance: string | number }>(
+      await tx.execute(sql`SELECT coalesce(sum(amount), 0)::bigint AS balance FROM ledger_entries WHERE account_id = ${account.id}`),
+    );
+    const receivable = Number(balance);
+    if (input.amount > receivable) {
+      throw badRequest('This is more than the Hasad receivable of this branch ({balance})', { balance: receivable.toLocaleString('en-US') });
+    }
+    const [branch] = await tx.select().from(t.branches).where(eq(t.branches.id, branchId));
+    const number = await nextNumber(tx, branch.code, 'HRS');
+    const [row] = await tx
+      .insert(t.hasadReceivableSettlements)
+      .values({
+        number,
+        branchId,
+        amount: input.amount,
+        bankReference: input.bankReference?.trim() || null,
+        note: input.note?.trim() || null,
+        actorId: actor.userId,
+        sessionId: actor.sessionId,
+        idempotencyKey: opts.idem?.key ?? null,
+        at,
+      })
+      .returning();
+    const ref = { refType: 'hasad_receivable_settlement', refId: row.id, refNumber: number };
+    await post(
+      tx,
+      [
+        { branchId, kind: 'HASAD_RECEIVABLE', amount: -input.amount, eventType: 'HASAD_RECEIVABLE_SETTLEMENT', paymentMethod: 'BANK_TRANSFER', ref, at },
+        { branchId, kind: 'BANK', amount: input.amount, eventType: 'HASAD_RECEIVABLE_SETTLEMENT', paymentMethod: 'BANK_TRANSFER', ref, at },
+      ],
+      { actor, idempotencyKey: opts.idem?.key },
+    );
+    await writeAudit(tx, actor, {
+      action: 'HASAD_RECEIVABLE_SETTLED',
+      entityType: 'hasad_receivable_settlement',
+      entityId: number,
+      branchId,
+      at,
+      key: 'Hasad bank transfer {number} received: {amount} moved from the Hasad receivable to the bank',
+      params: { number, amount: ap.money(input.amount) },
+      metadata: { bankReference: input.bankReference ?? null, receivableBefore: receivable },
+    });
+    const result = { ...row, hasadReceivableBalance: receivable - input.amount };
+    await opts.idem?.complete(tx, result);
+    return result;
+  });
+}
+
+/** Hasad transfers recorded for one branch (own branch for a manager), newest first. */
+export async function listHasadSettlements(ctx: Ctx, actor: Actor, q: { branchId?: number }) {
+  requirePerm(actor, 'cash.view');
+  const scope = branchScope(actor, q.branchId);
+  return ctx.db
+    .select({
+      id: t.hasadReceivableSettlements.id,
+      number: t.hasadReceivableSettlements.number,
+      branchId: t.hasadReceivableSettlements.branchId,
+      amount: t.hasadReceivableSettlements.amount,
+      bankReference: t.hasadReceivableSettlements.bankReference,
+      note: t.hasadReceivableSettlements.note,
+      at: t.hasadReceivableSettlements.at,
+      createdByName: t.users.fullName,
+    })
+    .from(t.hasadReceivableSettlements)
+    .innerJoin(t.users, eq(t.users.id, t.hasadReceivableSettlements.actorId))
+    .where(scope != null ? eq(t.hasadReceivableSettlements.branchId, scope) : undefined)
+    .orderBy(desc(t.hasadReceivableSettlements.at), desc(t.hasadReceivableSettlements.id))
+    .limit(200);
 }
 
 /** Ledger entries of one record (e.g. a sale), for detail screens and tests. */

@@ -5,7 +5,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Recycle, Scale } from 'lucide-react';
-import { gramsToMg, KARATS, valueOfWeight, type ScrapKind, type ScrapPaymentMethod } from '@jerp/shared';
+import { gramsToMg, valueOfWeight, type ScrapKind, type ScrapPaymentMethod } from '@jerp/shared';
 import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, karatLabel, money } from '../../lib/format';
@@ -170,8 +170,8 @@ function BuyForm({ branchId }: { branchId: number }) {
   const [customerIdRef, setCustomerIdRef] = useState('');
   const [note, setNote] = useState('');
 
-  // Broken scrap: any karat. A sellable piece: only a karat this deployment sells (D-4-1).
-  const karats = kind === 'BROKEN' ? [...KARATS] : (me?.allowedKarats ?? []);
+  // Broken scrap: any karat 1–24 typed in. A sellable piece: only a karat this deployment sells (D-4-1).
+  const sellKarats = me?.allowedKarats ?? [];
   const rate = rates.data?.rates.find((r) => r.karat === karat)?.pricePerGram ?? 0;
   const agreedRate = agreed ? Number(agreed) : rate;
   const netMg = net ? gramsToMg(net) : 0;
@@ -246,11 +246,28 @@ function BuyForm({ branchId }: { branchId: number }) {
           ))}
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label={t('Karat')}>
-            <Select value={karat} onChange={(e) => { setKarat(e.target.value ? Number(e.target.value) : ''); setAgreed(''); setProductId(''); }}>
-              <option value="">{t('Select…')}</option>
-              {karats.map((k) => <option key={k} value={k}>{karatLabel(k)}</option>)}
-            </Select>
+          <Field label={t('Karat')} hint={kind === 'BROKEN' ? t('Any karat from 1 to 24') : undefined}>
+            {kind === 'BROKEN' ? (
+              <Input
+                type="number"
+                min={1}
+                max={24}
+                step={1}
+                value={karat}
+                onChange={(e) => {
+                  const k = Number(e.target.value);
+                  setKarat(e.target.value && Number.isInteger(k) && k >= 1 && k <= 24 ? k : '');
+                  setAgreed('');
+                }}
+                className="num"
+                aria-label={t('Karat')}
+              />
+            ) : (
+              <Select value={karat} onChange={(e) => { setKarat(e.target.value ? Number(e.target.value) : ''); setAgreed(''); setProductId(''); }}>
+                <option value="">{t('Select…')}</option>
+                {sellKarats.map((k) => <option key={k} value={k}>{karatLabel(k)}</option>)}
+              </Select>
+            )}
           </Field>
           <Field label={t('Gross weight (g)')}>
             <Input type="number" min={0} step="0.001" value={gross} onChange={(e) => setGross(e.target.value)} className="num" />

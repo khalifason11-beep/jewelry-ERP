@@ -140,6 +140,9 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('GET', '/cash/drawer', 'branch', { all: ['cash.view'] }),
   r('GET', '/cash/reconciliation', 'branch', { all: ['cash.view'] }),
   r('POST', '/cash/counts', 'branch', { all: ['cash.count'], idempotent: true }),
+  // Hasad receivable settled by a bank transfer from Hasad (Phase 4 follow-up).
+  r('GET', '/cash/hasad-settlements', 'branch', { all: ['cash.view'] }),
+  r('POST', '/cash/hasad-settlements', 'branch', { all: ['cash.settle_hasad'], idempotent: true, idempotencyInTx: true }),
   r('GET', '/transfers', 'branch', { all: ['inventory.transfer'] }),
   r('POST', '/transfers', 'branch', { all: ['inventory.transfer'], idempotent: true }),
   r('POST', '/transfers/:id/receive', 'branch', { all: ['inventory.transfer'], idempotent: true }),

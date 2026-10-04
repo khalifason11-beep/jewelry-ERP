@@ -61,8 +61,8 @@ Not used in production: `PGLITE_DIR` (embedded demo database only).
    - **Business rules → Allowed karats**: set to **21 only** for this client. Only these karats can be bought from a
      supplier, bought as a sellable scrap piece, priced, sold or delivered; broken scrap of any karat can still be
      bought. (The code default lists 18/21/22/24; nothing in the code assumes 21.)
-   - **Scrap buying rates (per gram)**: enter today's rate for every karat the branches buy as scrap. Without a rate
-     for a karat, scrap of that karat cannot be bought.
+   - **Scrap buying rates (per gram)**: enter today's rate for every karat the branches buy as scrap (any karat 1–24
+     can be added). Without a rate for a karat, scrap of that karat cannot be bought.
    - **Sales & expenses → Payment methods at the counter**: Cash, Bank transfer and Hasad by default. Card and mobile
      wallet stay off unless the client asks for them.
    - **Business rules → Scrap price tolerance** and **GM approval beyond tolerance**: check the values with the client.
@@ -209,7 +209,9 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
 ### Purchases, scrap and supplier settlement (Phase 4)
 
 - Migration 0007 adds a **HASAD_RECEIVABLE** account to every branch (and to every future branch). Sales paid with
-  Hasad are held there; how Hasad pays the shop is not designed yet, so the balance only accumulates.
+  Hasad are held there. Migration 0008 adds the settlement of that receivable: when Hasad's bank transfer reaches
+  the branch's bank account, a branch manager or the GM records it on the Cash screen and the amount moves from
+  the receivable to BANK (new append-only table `hasad_receivable_settlements`, new permission `cash.settle_hasad`).
 - Purchases recorded **before** the upgrade have no gold debt (NULL): they are shown as "recorded before gold
   settlement" and cannot be settled with scrap. Nothing is backfilled.
 - New append-only tables (`scrap_rates`, `scrap_purchases`, `scrap_weight_entries`, `supplier_settlements`) are
