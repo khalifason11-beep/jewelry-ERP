@@ -9,7 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { and, count, eq, sql } from 'drizzle-orm';
 import { t, type DatabaseHandle } from '@jerp/database';
-import { COLUMN_CLASSES, COST_RESPONSE_FIELDS, pureGoldMg, sumInt } from '@jerp/shared';
+import { COLUMN_CLASSES, COST_RESPONSE_FIELDS, SAFE_RESPONSE_FIELDS, pureGoldMg, sumInt } from '@jerp/shared';
 import { createApp } from '../src/app';
 import { createContext } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
@@ -433,38 +433,46 @@ describe('no code path lets a supplier settlement touch CASH or BANK', () => {
 });
 
 describe('cost visibility of the new fields and routes', () => {
-  it('gold OWED is SAFE (operational); gold debt, making charge and settlement details stay COST; pool, scrap and Hasad fields are SAFE', () => {
-    for (const f of ['goldDebtMgPure24', 'makingChargePaid', 'settledKarat', 'settledWeightMg', 'settledPureMg24', 'acquisitionCost', 'makingCharge']) expect(COST_RESPONSE_FIELDS.has(f)).toBe(true);
-    expect(COST_RESPONSE_FIELDS.has('goldOwedMgPure24')).toBe(false);
-    expect(COST_RESPONSE_FIELDS.has('owedAfterMgPure24')).toBe(false);
-    expect(COLUMN_CLASSES.purchases.safe).toContain('gold_owed_mg_pure24');
-    expect(COLUMN_CLASSES.purchases.cost).toEqual(expect.arrayContaining(['gold_debt_mg_pure24', 'making_charge_paid', 'total_cost']));
-    expect(COLUMN_CLASSES.purchases.cost).not.toContain('gold_owed_mg_pure24');
-    expect(COLUMN_CLASSES.supplier_settlements.cost).toEqual(expect.arrayContaining(['settled_karat', 'settled_weight_mg', 'settled_pure_mg24']));
+  it('every gold WEIGHT of an order and its settlements is SAFE (operational); money costs stay COST; pool, scrap and Hasad fields are SAFE', () => {
+    for (const f of ['makingChargePaid', 'acquisitionCost', 'makingCharge', 'totalCost', 'purchaseCost', 'makingCost']) expect(COST_RESPONSE_FIELDS.has(f), f).toBe(true);
+    for (const f of ['goldDebtMgPure24', 'goldOwedMgPure24', 'owedAfterMgPure24', 'settledKarat', 'settledWeightMg', 'settledPureMg24']) {
+      expect(COST_RESPONSE_FIELDS.has(f), f).toBe(false);
+      expect(SAFE_RESPONSE_FIELDS.has(f), f).toBe(true);
+    }
+    expect(COLUMN_CLASSES.purchases.safe).toEqual(expect.arrayContaining(['gold_owed_mg_pure24', 'gold_debt_mg_pure24']));
+    expect(COLUMN_CLASSES.purchases.cost).toEqual(['total_cost', 'making_charge_paid']);
+    expect(COLUMN_CLASSES.supplier_settlements.cost ?? []).toEqual([]);
+    expect(COLUMN_CLASSES.supplier_settlements.safe).toEqual(expect.arrayContaining(['settled_karat', 'settled_weight_mg', 'settled_pure_mg24']));
     expect(COLUMN_CLASSES.scrap_weight_entries.cost ?? []).toEqual([]);
     expect(COLUMN_CLASSES.hasad_receivable_settlements.cost ?? []).toEqual([]);
     expect(COLUMN_CLASSES.sales.safe).toEqual(expect.arrayContaining(['payment_ref_invoice', 'payment_ref_transaction']));
   });
 
-  it('the branch manager sees the gold owed and its running balance after each settlement, but never acquisition cost or making charge on the same screen', async () => {
+  it('the branch manager sees every gold weight (debt, owed, running balance, settled karat/weight/24K) but never a money cost on the same responses', async () => {
     const { po, owed } = await newPurchase('KRT', [7_000]);
     await stockUp('KRT', 21, 3_000);
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
     const first = await bm.post(`/api/purchases/${po.id}/settlements`).send({ karat: 21, weightMg: 2_000 });
     expect(first.status).toBe(200);
     expect(first.body.goldOwedMgPure24).toBe(owed - pureGoldMg(2_000, 21));
-    for (const f of ['settledWeightMg', 'settledPureMg24', 'settledKarat']) expect(first.body).not.toHaveProperty(f);
+    expect(first.body).toMatchObject({ settledKarat: 21, settledWeightMg: 2_000, settledPureMg24: pureGoldMg(2_000, 21) });
     const second = await bm.post(`/api/purchases/${po.id}/settlements`).send({ karat: 21, weightMg: 1_000 });
     const left = owed - pureGoldMg(2_000, 21) - pureGoldMg(1_000, 21);
     expect(second.body.goldOwedMgPure24).toBe(left);
 
-    // The purchase order view (the settlement screen): owed + running balance, no money cost anywhere.
+    // The purchase order view (the settlement screen): all gold weights, no money cost anywhere.
     const view = (await bm.get(`/api/purchases/${po.id}`)).body;
-    expect(view.goldOwedMgPure24).toBe(left);
+    expect(view).toMatchObject({ goldDebtMgPure24: owed, goldOwedMgPure24: left });
+    expect(view.settlements.map((x: { settledKarat: number; settledWeightMg: number; settledPureMg24: number }) => [x.settledKarat, x.settledWeightMg, x.settledPureMg24])).toEqual([
+      [21, 2_000, pureGoldMg(2_000, 21)],
+      [21, 1_000, pureGoldMg(1_000, 21)],
+    ]);
     expect(view.settlements.map((x: { owedAfterMgPure24: number }) => x.owedAfterMgPure24)).toEqual([owed - pureGoldMg(2_000, 21), left]);
-    const text = JSON.stringify(view);
-    for (const f of ['acquisitionCost', 'makingCharge', 'makingChargePaid', 'makingCost', 'purchaseCost', 'totalCost', 'goldDebtMgPure24', 'settledWeightMg']) {
-      expect(text, f).not.toContain(`"${f}"`);
+    for (const body of [first.body, second.body, view]) {
+      const text = JSON.stringify(body);
+      for (const f of ['acquisitionCost', 'makingCharge', 'makingChargePaid', 'makingCost', 'purchaseCost', 'otherCost', 'totalCost', 'profit']) {
+        expect(text, f).not.toContain(`"${f}"`);
+      }
     }
     // The GM sees everything.
     const gm = await login('general.manager', 'GENERAL_MANAGER');

@@ -52,14 +52,14 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   permissions: { safe: words('code description') },
   products: { safe: words('id sku name name_ar category_id karat description created_at') },
   purchase_items: { cost: words('purchase_cost making_cost other_cost'), safe: words('id purchase_id item_id') },
-  // Phase 4: the gold still owed to the supplier and the making charge paid are GM-only (D-4-4).
+  // Phase 4: MONEY costs of a supplier order (total cost, making charge paid) are GM-only.
   purchases: {
-    cost: words('total_cost gold_debt_mg_pure24 making_charge_paid'),
-    // gold_owed_mg_pure24 is SAFE (client decision, D-4-13): it is an OPERATIONAL quantity — how much
-    // gold is still due to the supplier on this order — not a money cost. Unlike total_cost and
-    // making_charge_paid next to it, it reveals neither what the shop paid nor what it earned; the
-    // branch manager needs it to settle with the supplier's representative.
-    safe: words('id number branch_id supplier_id supplier_invoice_no status item_count total_net_weight_mg notes created_by created_at making_charge_paid_from gold_owed_mg_pure24'),
+    cost: words('total_cost making_charge_paid'),
+    // The order's GOLD weights are SAFE (client decisions D-4-13, D-4-16): gold_debt_mg_pure24 (owed
+    // before settlements) and gold_owed_mg_pure24 (still owed) are OPERATIONAL quantities the branch
+    // manager settles against. They reveal neither what the shop paid nor what it earned, and the debt
+    // is derivable anyway from the visible piece weights and karats.
+    safe: words('id number branch_id supplier_id supplier_invoice_no status item_count total_net_weight_mg notes created_by created_at making_charge_paid_from gold_owed_mg_pure24 gold_debt_mg_pure24'),
   },
   role_permissions: { safe: words('role_id permission_code') },
   roles: { safe: words('id code name name_ar description is_system rank') },
@@ -92,10 +92,9 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
     ),
   },
   scrap_weight_entries: { safe: words('id branch_id karat weight_mg event_type ref_type ref_id ref_number actor_id session_id idempotency_key note at') },
-  // Settlement details are GM-only (D-4-4): distinct column names keep them apart from SAFE weight/karat fields.
+  // Settlement weights are SAFE (D-4-16): the branch manager hands the scrap over and records it himself.
   supplier_settlements: {
-    cost: words('settled_karat settled_weight_mg settled_pure_mg24'),
-    safe: words('id number purchase_id branch_id actor_id session_id idempotency_key note at'),
+    safe: words('id number purchase_id branch_id actor_id session_id idempotency_key note at settled_karat settled_weight_mg settled_pure_mg24'),
   },
   // Hasad bank transfers received (Phase 4 follow-up): a money movement between two branch accounts, like the ledger.
   hasad_receivable_settlements: { safe: words('id number branch_id amount bank_reference note actor_id session_id idempotency_key at') },
@@ -130,11 +129,7 @@ export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
   'acquisitionCost',
   'makingCharge',
   'costIsEstimated',
-  'goldDebtMgPure24',
   'makingChargePaid',
-  'settledKarat',
-  'settledWeightMg',
-  'settledPureMg24',
 ]);
 
 /** Every other field name the API sends, classified SAFE (one registry; unknown names fail tests). */
@@ -184,7 +179,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     customerIdRef hasadReceivable posPaymentMethods brokenScrap pureMg24 brokenScrapPureMg24 itemsPureMg24 totalPureMg24 weightByKarat
     settlementCount purchaseNumber supplierName origin scrapRates byKarat balanceMg createdByName toleranceBp
     summary value itemsWeightMg brokenScrapWeightMg totalWeightMg stockWeight items settlements
-    goldOwedMgPure24 owedAfterMgPure24 bankReference hasadReceivableToBank hasadReceivableBalance
+    goldOwedMgPure24 owedAfterMgPure24 goldDebtMgPure24 settledKarat settledWeightMg settledPureMg24 bankReference hasadReceivableToBank hasadReceivableBalance
     scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates
   `),
 );

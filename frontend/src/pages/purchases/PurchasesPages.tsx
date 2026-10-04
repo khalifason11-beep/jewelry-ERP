@@ -18,10 +18,10 @@ import { useActionKeys } from '../../lib/idempotency';
 interface Settlement {
   id: number;
   number: string;
-  /** COST (General Manager only): absent for everyone else. */
-  settledKarat?: number;
-  settledWeightMg?: number;
-  settledPureMg24?: number;
+  /** Operational gold weights (D-4-16): visible to the branch manager. */
+  settledKarat: number;
+  settledWeightMg: number;
+  settledPureMg24: number;
   /** Gold still owed after this settlement (24K mg): operational, visible to the branch manager. */
   owedAfterMgPure24: number | null;
   note: string | null;
@@ -272,7 +272,7 @@ export function PurchaseDetailPage() {
         PurchaseRow & {
           notes: string | null;
           // COST (General Manager only).
-          goldDebtMgPure24?: number | null;
+          goldDebtMgPure24: number | null;
           // Operational (D-4-13): visible to the branch manager too.
           goldOwedMgPure24: number | null;
           makingChargePaid?: number | null;
@@ -304,9 +304,10 @@ export function PurchaseDetailPage() {
               ? [
                   { label: t('Total cost'), value: money(p.totalCost) },
                   { label: t('Making charge paid'), value: p.makingChargePaid == null ? '—' : money(p.makingChargePaid) },
-                  { label: t('Gold owed to the supplier (24K)'), value: p.goldDebtMgPure24 == null ? '—' : grams(p.goldDebtMgPure24) },
                 ]
               : []),
+            // Gold weights are operational (D-4-13, D-4-16): visible to the branch manager too.
+            { label: t('Gold owed to the supplier (24K)'), value: p.goldDebtMgPure24 == null ? '—' : <span data-testid="gold-debt">{grams(p.goldDebtMgPure24)}</span> },
             {
               label: t('Still owed (24K)'),
               value:
@@ -371,7 +372,6 @@ export function PurchaseDetailPage() {
 function SettlementsCard({ purchaseId, branchId, settlements, owed }: { purchaseId: number; branchId: number; settlements: Settlement[]; owed?: number | null }) {
   const { t, lang } = useI18n();
   const { can } = useAuth();
-  const showCost = can('profit.view');
   const canSettle = can('purchases.settle') && owed !== 0;
   return (
     <Card padded={false} className="mb-5">
@@ -382,13 +382,9 @@ function SettlementsCard({ purchaseId, branchId, settlements, owed }: { purchase
             <tr>
               <th className="px-5 py-2 text-start font-medium">{t('Settlement')}</th>
               <th className="px-3 py-2 text-start font-medium">{t('Date')}</th>
-              {showCost && (
-                <>
-                  <th className="px-3 py-2 text-end font-medium">{t('Karat')}</th>
-                  <th className="px-3 py-2 text-end font-medium">{t('Weight')}</th>
-                  <th className="px-3 py-2 text-end font-medium">{t('24K equivalent')}</th>
-                </>
-              )}
+              <th className="px-3 py-2 text-end font-medium">{t('Karat')}</th>
+              <th className="px-3 py-2 text-end font-medium">{t('Weight')}</th>
+              <th className="px-3 py-2 text-end font-medium">{t('24K equivalent')}</th>
               <th className="px-3 py-2 text-end font-medium">{t('Still owed after')}</th>
               <th className="px-3 py-2 text-start font-medium">{t('Recorded by')}</th>
               <th className="px-5 py-2 text-start font-medium">{t('Note')}</th>
@@ -399,13 +395,9 @@ function SettlementsCard({ purchaseId, branchId, settlements, owed }: { purchase
               <tr key={s.id}>
                 <td className="px-5 py-2"><Mono className="font-semibold">{s.number}</Mono></td>
                 <td className="px-3 py-2">{dateTime(s.at, lang)}</td>
-                {showCost && (
-                  <>
-                    <td className="px-3 py-2 text-end">{s.settledKarat != null ? karatLabel(s.settledKarat) : '—'}</td>
-                    <td className="px-3 py-2 text-end num">{s.settledWeightMg != null ? grams(s.settledWeightMg) : '—'}</td>
-                    <td className="px-3 py-2 text-end num">{s.settledPureMg24 != null ? grams(s.settledPureMg24) : '—'}</td>
-                  </>
-                )}
+                <td className="px-3 py-2 text-end">{karatLabel(s.settledKarat)}</td>
+                <td className="px-3 py-2 text-end num">{grams(s.settledWeightMg)}</td>
+                <td className="px-3 py-2 text-end num">{grams(s.settledPureMg24)}</td>
                 <td className="px-3 py-2 text-end font-medium num">{s.owedAfterMgPure24 != null ? grams(s.owedAfterMgPure24) : '—'}</td>
                 <td className="px-3 py-2">{s.createdByName}</td>
                 <td className="px-5 py-2 text-ink-600">{s.note ?? '—'}</td>
