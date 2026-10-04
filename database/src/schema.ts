@@ -98,6 +98,9 @@ export const users = pgTable('users', {
   /** When the current set of recovery codes was generated, and when the user confirmed saving it. */
   recoveryCodesGeneratedAt: ts('recovery_codes_generated_at'),
   recoveryCodesAcknowledgedAt: ts('recovery_codes_acknowledged_at'),
+  /** Security lock (D-2fa-13): every sign-in refused until the operator console lifts it. */
+  securityLockedAt: ts('security_locked_at'),
+  securityLockReason: text('security_lock_reason'),
 });
 
 export const sessions = pgTable(

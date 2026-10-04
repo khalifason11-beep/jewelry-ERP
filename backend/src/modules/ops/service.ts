@@ -4,7 +4,7 @@
 // the operator's host and OS user.
 
 import { and, eq, isNull } from 'drizzle-orm';
-import { t } from '@jerp/database';
+import { t, type Executor } from '@jerp/database';
 import type { Ctx } from '../../core/context';
 import { writeAudit } from '../../core/audit';
 import { AppError, notFound } from '../../core/errors';
@@ -21,7 +21,7 @@ const ACTOR = 'operator-cli';
 
 async function findUser(ctx: Ctx, username: string) {
   const [u] = await ctx.db
-    .select({ id: t.users.id, username: t.users.username, branchId: t.users.branchId, roleCode: t.roles.code })
+    .select({ id: t.users.id, username: t.users.username, branchId: t.users.branchId, roleCode: t.roles.code, securityLockedAt: t.users.securityLockedAt, securityLockReason: t.users.securityLockReason })
     .from(t.users)
     .innerJoin(t.roles, eq(t.roles.id, t.users.roleId))
     .where(eq(t.users.username, username.trim().toLowerCase()));
@@ -80,19 +80,13 @@ export async function operatorResetGmPassword(ctx: Ctx, username: string, op: Op
  */
 export async function operatorResetSecondFactor(ctx: Ctx, username: string, op: OperatorInfo) {
   const u = await findUser(ctx, username);
+  if (u.securityLockedAt) {
+    // A security lock is only lifted together with a new password (unlock-security-lock): the old
+    // password must be assumed known to whoever used the stolen recovery code.
+    throw new AppError(409, 'SECURITY_LOCKED', 'This account is security-locked: use unlock-security-lock (it also issues a new one-time password)');
+  }
   return ctx.db.transaction(async (tx) => {
-    const now = new Date();
-    const revoked = await tx
-      .update(t.webauthnCredentials)
-      .set({ revokedAt: now, revokedReason: 'Second factor reset from the operator console' })
-      .where(and(eq(t.webauthnCredentials.userId, u.id), isNull(t.webauthnCredentials.revokedAt)))
-      .returning({ id: t.webauthnCredentials.id });
-    const codes = await tx
-      .update(t.recoveryCodes)
-      .set({ invalidatedAt: now })
-      .where(and(eq(t.recoveryCodes.userId, u.id), isNull(t.recoveryCodes.usedAt), isNull(t.recoveryCodes.invalidatedAt)))
-      .returning({ id: t.recoveryCodes.id });
-    await tx.update(t.users).set({ recoveryCodesGeneratedAt: null, recoveryCodesAcknowledgedAt: null, mfaFailedCount: 0, mfaLockedUntil: null }).where(eq(t.users.id, u.id));
+    const { revoked, codes } = await wipeSecondFactor(tx, u.id);
     await endUserSessions(tx, u.id, 'Second factor reset from operator console');
     await writeAudit(tx, null, {
       action: 'SECOND_FACTOR_RESET',
@@ -101,9 +95,59 @@ export async function operatorResetSecondFactor(ctx: Ctx, username: string, op: 
       branchId: u.branchId,
       systemActor: ACTOR,
       key: 'Operator console: second factor of {username} reset ({n} passkey(s) revoked, recovery codes invalidated); new enrollment required',
-      params: { username: u.username, n: revoked.length },
-      metadata: { ...op, recoveryCodesInvalidated: codes.length },
+      params: { username: u.username, n: revoked },
+      metadata: { ...op, recoveryCodesInvalidated: codes },
     });
-    return { username: u.username, revoked: revoked.length, recoveryCodesInvalidated: codes.length };
+    return { username: u.username, revoked, recoveryCodesInvalidated: codes };
+  });
+}
+
+/** Revoke every passkey, invalidate every recovery code, clear the second-factor lock. */
+async function wipeSecondFactor(tx: Executor, userId: number) {
+  const now = new Date();
+  const revoked = await tx
+    .update(t.webauthnCredentials)
+    .set({ revokedAt: now, revokedReason: 'Second factor reset from the operator console' })
+    .where(and(eq(t.webauthnCredentials.userId, userId), isNull(t.webauthnCredentials.revokedAt)))
+    .returning({ id: t.webauthnCredentials.id });
+  const codes = await tx
+    .update(t.recoveryCodes)
+    .set({ invalidatedAt: now })
+    .where(and(eq(t.recoveryCodes.userId, userId), isNull(t.recoveryCodes.usedAt), isNull(t.recoveryCodes.invalidatedAt)))
+    .returning({ id: t.recoveryCodes.id });
+  await tx.update(t.users).set({ recoveryCodesGeneratedAt: null, recoveryCodesAcknowledgedAt: null, mfaFailedCount: 0, mfaLockedUntil: null }).where(eq(t.users.id, userId));
+  return { revoked: revoked.length, codes: codes.length };
+}
+
+/**
+ * Lift a security lock (D-2fa-13; set by "This wasn't me" on a recovery-code sign-in). The old
+ * password and the code sheet are assumed stolen, so in one transaction: revoke every passkey,
+ * invalidate every recovery code, issue a ONE-TIME password (printed to the operator only, must be
+ * changed at the next sign-in), end the sessions and lift the lock. The next sign-in then registers a
+ * new passkey and new recovery codes.
+ */
+export async function operatorUnlockSecurityLock(ctx: Ctx, username: string, op: OperatorInfo) {
+  const u = await findUser(ctx, username);
+  if (!u.securityLockedAt) throw new AppError(409, 'NOT_SECURITY_LOCKED', 'This account is not security-locked');
+  const temporaryPassword = generateTemporaryPassword();
+  const passwordHash = await hashPassword(temporaryPassword);
+  return ctx.db.transaction(async (tx) => {
+    const { revoked, codes } = await wipeSecondFactor(tx, u.id);
+    await tx
+      .update(t.users)
+      .set({ securityLockedAt: null, securityLockReason: null, passwordHash, mustChangePassword: true, passwordChangedAt: new Date(), failedLoginCount: 0, lockedUntil: null })
+      .where(eq(t.users.id, u.id));
+    await endUserSessions(tx, u.id, 'Security lock lifted from operator console');
+    await writeAudit(tx, null, {
+      action: 'SECURITY_LOCK_LIFTED',
+      entityType: 'user',
+      entityId: u.username,
+      branchId: u.branchId,
+      systemActor: ACTOR,
+      key: 'Operator console: security lock of {username} lifted; new one-time password issued, {n} passkey(s) revoked, recovery codes invalidated; new enrollment required',
+      params: { username: u.username, n: revoked },
+      metadata: { ...op, recoveryCodesInvalidated: codes, lockedAt: u.securityLockedAt?.toISOString(), lockReason: u.securityLockReason },
+    });
+    return { username: u.username, revoked, recoveryCodesInvalidated: codes, temporaryPassword };
   });
 }

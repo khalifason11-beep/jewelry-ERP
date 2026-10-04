@@ -426,6 +426,11 @@ describe('recent sign-ins and the new-device alert', () => {
     b.set('x-csrf-token', s.body.csrfToken);
     expect((await call(b, 'get', '/sales')).body.error.code).toBe('PASSWORD_CHANGE_REQUIRED');
     expect(await lastAudit('ACCOUNT_SECURED')).toBeTruthy();
+    // A reported PASSKEY sign-in never locks the account and keeps the other recovery codes (D-2fa-13).
+    expect(r.body).toMatchObject({ securityLocked: false, recoveryCodesInvalidated: 0 });
+    const [u] = await ctx.db.select().from(t.users).where(eq(t.users.username, GM.username));
+    expect(u.securityLockedAt).toBeNull();
+    expect((await ctx.db.select({ n: count() }).from(t.recoveryCodes).where(and(eq(t.recoveryCodes.userId, u.id), isNull(t.recoveryCodes.invalidatedAt), isNull(t.recoveryCodes.usedAt))))[0].n).toBeGreaterThan(0);
   });
 });
 

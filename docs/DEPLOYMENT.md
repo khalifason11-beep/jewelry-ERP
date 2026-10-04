@@ -90,9 +90,13 @@ npm run ops -w @jerp/backend -- reset-gm-password --username o.abdelrahman
 # Lost every passkey AND the recovery codes: revoke all passkeys, invalidate the recovery codes,
 # end the sessions; the next sign-in registers a new passkey (section 8.6)
 npm run ops -w @jerp/backend -- reset-second-factor --username o.abdelrahman --confirm
+
+# Account SECURITY-LOCKED after "This wasn't me" on a recovery-code sign-in (section 8.6): lifts the lock,
+# revokes passkeys and codes, prints a NEW one-time password, ends sessions; new password + new enrollment
+npm run ops -w @jerp/backend -- unlock-security-lock --username o.abdelrahman --confirm
 ```
 
-All three refuse to run unless `APP_MODE=production` and the production configuration is safe (pass
+All of them refuse to run unless `APP_MODE=production` and the production configuration is safe (pass
 `--allow-non-production` only on purpose, e.g. against a staging copy). Each action is written to the
 audit log as actor **System (operator-cli)** with the server host name and the OS user.
 
@@ -470,8 +474,12 @@ until a second device exists. A single device is a single point of failure.
 - Sensitive actions (rates, users, settings, adjustments…) ask for the password and the passkey again, then stay
   open for the re-confirmation window (Settings, default 5 minutes).
 - **New-device alert**: a sign-in from a browser or passkey not seen in 30 days shows a red banner. "It was me"
-  closes it. **"This wasn't me"** signs out every session, removes every passkey and forces a new password; the
-  GM then signs in with the password + a recovery code, sets a new password, and registers the devices again.
+  closes it. **"This wasn't me"** signs out every session, removes every passkey and forces a new password.
+  - If that sign-in used a **passkey**: the GM signs in with the password + a recovery code, sets a new password,
+    and registers the devices again.
+  - If that sign-in used a **recovery code**: the code sheet is treated as stolen. All remaining codes stop
+    working and the account is **locked**: every sign-in is refused (it looks like a wrong password) until the
+    operator lifts it (section 8.6, step 5). The confirmation window warns the GM before this happens.
 
 ### 8.6 Lost or broken device (procedure)
 
@@ -486,6 +494,18 @@ until a second device exists. A single device is a single point of failure.
    compromised, run `reset-gm-password` too. Both are recorded in the audit log as System (operator-cli).
 4. If the device was **stolen** rather than lost, also use "This wasn't me" (or the operator reset) and change the
    password: a stolen device plus a known password is a full compromise under `preferred`.
+
+5. **Account security-locked** (the GM reported a recovery-code sign-in as "not me", or cannot sign in at all and
+   the audit log shows `ACCOUNT_SECURED` with a recovery code): only the operator can restore it.
+   1. Confirm with the GM **in person or by phone** that they asked for it (the lock is the safe state; do not
+      lift it on an e-mail).
+   2. Run `npm run ops -w @jerp/backend -- unlock-security-lock --username <gm> --confirm`. It revokes every
+      passkey and recovery code, ends the sessions and prints a **new one-time password**. The old password no
+      longer works.
+   3. Give the one-time password to the GM in person. The GM signs in, sets a new password, registers the PC and a
+      second device, and prints the new recovery codes. Destroy the old sheet.
+   4. Review the audit log from the reported sign-in onwards (`ACCOUNT_SECURED`, then the actions of that session).
+   `reset-second-factor` refuses a locked account on purpose: the lock is never lifted without a new password.
 
 ### 8.7 Enforcement turned off (accepted risk)
 

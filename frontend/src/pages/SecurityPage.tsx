@@ -570,7 +570,15 @@ export function SecurityBanners() {
       >
         <div className="grid gap-2 text-[13px] text-ink-600">
           <p>{t('This signs out every session of your account (including this one), removes all your passkeys and makes you choose a new password.')}</p>
-          <p>{t('To get back in: sign in with your password and one of your recovery codes, set a new password, then register your passkeys again. If you also lost the recovery codes, ask the system operator to reset your second factor.')}</p>
+          {alert?.method === 'RECOVERY_CODE' ? (
+            <Alert tone="danger" title={t('That sign-in used a recovery code: your account will be locked')}>
+              <span data-testid="not-me-lock-warning">
+                {t('Someone may have your recovery-code sheet. All remaining recovery codes stop working and the account is locked: nobody can sign in, not even you, until the system administrator restores it from the server and gives you a new one-time password. Then you choose a new password and register your passkeys and new recovery codes again.')}
+              </span>
+            </Alert>
+          ) : (
+            <p>{t('To get back in: sign in with your password and one of your recovery codes, set a new password, then register your passkeys again. If you also lost the recovery codes, ask the system operator to reset your second factor.')}</p>
+          )}
           {error && <Alert tone="danger">{error}</Alert>}
         </div>
       </Dialog>

@@ -32,6 +32,7 @@ const BASE = process.env.BASE_URL ?? 'http://localhost:4100';
 const MODE = process.argv.includes('--mode=off') ? 'off' : 'on';
 const GM = { username: 'general.manager', password: process.env.GM_PASSWORD ?? 'demo-gm-2026' };
 const NEW_PASSWORD = 'Fresh-Strong-Pass-2026!';
+const SAFARI_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15';
 const FIREFOX_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0';
 
 let step = 0;
@@ -180,32 +181,36 @@ async function main() {
     check(await removeButtons.first().isDisabled(), 'the LAST passkey of the General Manager cannot be removed from the screen');
     void phoneCreds;
 
-    // ── new device + "This wasn't me" ──
+    // ── new device + "This wasn't me" (reported sign-in used a PASSKEY: no lock) ──
     const other = await browser.newContext({ viewport: { width: 1440, height: 900 }, userAgent: FIREFOX_UA });
     const otherPage = await other.newPage();
+    const copy = await virtualAuthenticator(otherPage);
+    for (const c of (await auth.cdp.send('WebAuthn.getCredentials', { authenticatorId: auth.id })).credentials) {
+      await copy.cdp.send('WebAuthn.addCredential', { authenticatorId: copy.id, credential: c });
+    }
     await signInPassword(otherPage);
     await otherPage.getByTestId('second-step').waitFor();
-    await otherPage.getByText(/recovery code|رمز استرداد/i).first().click();
-    await otherPage.fill('[data-testid=recovery-code]', codes2[0]);
-    await otherPage.click('button[type=submit]');
+    await otherPage.click('[data-testid=use-passkey]');
     await atHome(otherPage);
-    ok('sign-in from another browser (Firefox) with a recovery code');
+    ok('sign-in from another browser (Firefox) with the passkey');
     await page.goto(`${BASE}/overview`);
     await page.getByTestId('new-device-alert').waitFor({ timeout: 10_000 });
     ok('the General Manager sees the new-device alert');
     await page.click('[data-testid=not-me]');
+    check(!(await page.getByTestId('not-me-lock-warning').count()), 'passkey sign-in reported: no account-lock warning in the confirmation');
     await page.click('[data-testid=not-me-confirm]');
     await page.waitForURL((u) => u.pathname === '/login', { timeout: 10_000 });
     ok('"This wasn’t me" signs this browser out');
     const otherStatus = await otherPage.evaluate(async () => (await fetch('/api/auth/me')).status);
     check(otherStatus === 401, 'the other browser’s session is ended too');
+    await other.close();
     await signInPassword(page);
     await page.getByTestId('second-step').waitFor();
     check(!(await page.getByTestId('use-passkey').count()), 'passkeys are revoked: only the recovery code is offered');
     await page.fill('[data-testid=recovery-code]', codes2[1]);
     await page.click('button[type=submit]');
     await page.waitForURL((u) => u.pathname === '/change-password', { timeout: 10_000 });
-    ok('recovery code → a new password is required');
+    ok('the confirmed recovery codes still work → a new password is required');
     const pw = page.locator('input[type=password]');
     await pw.nth(0).fill(GM.password);
     await pw.nth(1).fill(NEW_PASSWORD);
@@ -213,7 +218,38 @@ async function main() {
     await page.click('button[type=submit]');
     await page.waitForURL((u) => u.pathname === '/security/setup', { timeout: 10_000 });
     ok('after the new password, the passkey setup starts again');
-    await other.close();
+
+    // ── "This wasn't me" on a RECOVERY-CODE sign-in: the account is security-locked (D-2fa-13) ──
+    await page.fill('[data-testid=passkey-nickname]', 'Shop PC (new)');
+    await page.click('[data-testid=register-passkey]');
+    // The session opened by the password change has no fresh password confirmation yet: confirm it.
+    await page.locator('#reauth-form, [data-testid=enroll-codes]').first().waitFor();
+    if (await page.locator('#reauth-form').count()) {
+      await page.fill('#reauth-form input[type=password]', NEW_PASSWORD);
+      await page.click('button[form=reauth-form]');
+    }
+    // The confirmed recovery codes survived the passkey-path report, so one passkey completes the setup.
+    await atHome(page);
+    ok('passkey registered again; the kept recovery codes complete the setup');
+    const thief = await browser.newContext({ viewport: { width: 1440, height: 900 }, userAgent: SAFARI_UA });
+    const thiefPage = await thief.newPage();
+    await signInPassword(thiefPage, NEW_PASSWORD);
+    await thiefPage.getByTestId('second-step').waitFor();
+    await thiefPage.getByText(/recovery code|رمز استرداد/i).first().click();
+    await thiefPage.fill('[data-testid=recovery-code]', codes2[2]);
+    await thiefPage.click('button[type=submit]');
+    await atHome(thiefPage);
+    await page.goto(`${BASE}/overview`);
+    await page.getByTestId('new-device-alert').waitFor({ timeout: 10_000 });
+    await page.click('[data-testid=not-me]');
+    await page.getByTestId('not-me-lock-warning').waitFor();
+    ok('recovery-code sign-in reported: the confirmation warns that the account will be locked');
+    await page.click('[data-testid=not-me-confirm]');
+    await page.waitForURL((u) => u.pathname === '/login', { timeout: 10_000 });
+    await thief.close();
+    await signInPassword(page, NEW_PASSWORD);
+    await page.getByText(/Sign-in failed\. Check your username|تعذّر تسجيل الدخول\. تحقّق/).first().waitFor({ timeout: 10_000 });
+    check(new URL(page.url()).pathname === '/login' && !(await page.getByTestId('second-step').count()), 'security-locked: the right password gets the ordinary sign-in failure, no second step');
   } finally {
     await browser.close();
   }

@@ -106,10 +106,10 @@ async function pendingFor(exec: Executor, token: string | undefined) {
 
 async function pendingUser(exec: Executor, userId: number) {
   const [u] = await exec
-    .select({ id: t.users.id, username: t.users.username, fullName: t.users.fullName, fullNameAr: t.users.fullNameAr, branchId: t.users.branchId, status: t.users.status })
+    .select({ id: t.users.id, username: t.users.username, fullName: t.users.fullName, fullNameAr: t.users.fullNameAr, branchId: t.users.branchId, status: t.users.status, locked: t.users.securityLockedAt })
     .from(t.users)
     .where(eq(t.users.id, userId));
-  return u && u.status === 'ACTIVE' ? u : null;
+  return u && u.status === 'ACTIVE' && !u.locked ? u : null;
 }
 
 /** Consume the pending sign-in exactly once (a parallel duplicate finds nothing). */
@@ -247,6 +247,9 @@ async function secondStep<T>(
     throw secondFactorFailed();
   }
   const outcome = await ctx.db.transaction(async (tx) => {
+    // Serialise with "This wasn't me" (it locks the same row): a security lock taken meanwhile wins.
+    const [lock] = await tx.select({ at: t.users.securityLockedAt }).from(t.users).where(eq(t.users.id, p.userId)).for('update');
+    if (lock?.at) return { ok: false as const, reason: 'LOCKED' as FailureReason };
     const res = await check(tx, p.userId, p.tokenHash);
     if (!res.ok) return res;
     if (!(await consumePending(tx, p.tokenHash))) return { ok: false as const, reason: 'CHALLENGE' as FailureReason };
@@ -590,33 +593,57 @@ export async function dismissSignInAlert(ctx: Ctx, actor: Actor, id: number) {
 }
 
 /**
- * "This wasn't me": end every session of the user, revoke all their passkeys and force a new password
- * at the next sign-in. The recovery codes stay valid: they are what lets the real user back in (a
- * password thief alone cannot pass the second step). If the code sheet itself may be stolen, the
- * operator console resets the second factor completely (DEPLOYMENT, lost-device procedure).
+ * "This wasn't me" (D-2fa-10, D-2fa-13). In every case: end every session of the user, revoke all
+ * their passkeys and force a new password.
+ * - Reported sign-in used a PASSKEY: the confirmed recovery codes stay valid — they are how the real
+ *   owner gets back in (a password thief alone cannot pass the second step).
+ * - Reported sign-in used a RECOVERY CODE: the code sheet is compromised. Every remaining code is
+ *   invalidated and the account is SECURITY-LOCKED: every sign-in is refused (as a wrong password)
+ *   until the operator console lifts the lock (`unlock-security-lock`).
  */
 export async function notMe(ctx: Ctx, actor: Actor, id: number) {
   return ctx.db.transaction(async (tx) => {
+    await tx.select({ id: t.users.id }).from(t.users).where(eq(t.users.id, actor.userId)).for('update');
     const [e] = await tx.select().from(t.signInEvents).where(and(eq(t.signInEvents.id, id), eq(t.signInEvents.userId, actor.userId)));
     if (!e) throw notFound('Sign-in');
     const now = new Date();
+    const codeSheetCompromised = e.method === 'RECOVERY_CODE';
     await tx.update(t.signInEvents).set({ dismissedAt: now }).where(and(eq(t.signInEvents.userId, actor.userId), isNull(t.signInEvents.dismissedAt)));
     const revoked = await tx
       .update(t.webauthnCredentials)
       .set({ revokedAt: now, revokedReason: '“This wasn’t me” reported by the user' })
       .where(and(eq(t.webauthnCredentials.userId, actor.userId), isNull(t.webauthnCredentials.revokedAt)))
       .returning({ id: t.webauthnCredentials.id });
-    await tx.update(t.users).set({ mustChangePassword: true }).where(eq(t.users.id, actor.userId));
+    let codesInvalidated = 0;
+    if (codeSheetCompromised) {
+      codesInvalidated = (
+        await tx
+          .update(t.recoveryCodes)
+          .set({ invalidatedAt: now })
+          .where(and(eq(t.recoveryCodes.userId, actor.userId), isNull(t.recoveryCodes.usedAt), isNull(t.recoveryCodes.invalidatedAt)))
+          .returning({ id: t.recoveryCodes.id })
+      ).length;
+      await tx.delete(t.loginPending).where(eq(t.loginPending.userId, actor.userId));
+    }
+    await tx
+      .update(t.users)
+      .set({
+        mustChangePassword: true,
+        ...(codeSheetCompromised ? { securityLockedAt: now, securityLockReason: 'A sign-in with a recovery code was reported as not the user (“This wasn’t me”)' } : {}),
+      })
+      .where(eq(t.users.id, actor.userId));
     await endUserSessions(tx, actor.userId, 'Reported as not the user (“This wasn’t me”)');
     await writeAudit(tx, actor, {
       action: 'ACCOUNT_SECURED',
       entityType: 'user',
       entityId: actor.username,
-      key: '{username} reported a sign-in as not theirs: all sessions ended, {n} passkey(s) revoked, new password required',
-      params: { username: actor.username, n: revoked.length },
-      metadata: { signIn: e.id, browser: e.browser, ipApprox: e.ipApprox },
+      key: codeSheetCompromised
+        ? '{username} reported a recovery-code sign-in as not theirs: account security-locked until the operator restores it, all sessions ended, {n} passkey(s) revoked, {codes} recovery code(s) invalidated'
+        : '{username} reported a sign-in as not theirs: all sessions ended, {n} passkey(s) revoked, new password required',
+      params: { username: actor.username, n: revoked.length, ...(codeSheetCompromised ? { codes: codesInvalidated } : {}) },
+      metadata: { signIn: e.id, method: e.method, browser: e.browser, ipApprox: e.ipApprox, securityLocked: codeSheetCompromised },
     });
-    return { ok: true, revoked: revoked.length };
+    return { ok: true, revoked: revoked.length, securityLocked: codeSheetCompromised, recoveryCodesInvalidated: codesInvalidated };
   });
 }
 

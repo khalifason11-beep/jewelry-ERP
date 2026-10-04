@@ -61,6 +61,12 @@ export async function login(ctx: Ctx, input: LoginInput) {
     await burnVerification(input.password);
     throw await refused(null);
   }
+  if (u.securityLockedAt) {
+    // Security lock (D-2fa-13): refused whatever the credentials, nothing evaluated or counted, and
+    // the same answer as a wrong password (no new enumeration channel). Only the operator lifts it.
+    await burnVerification(input.password);
+    throw await refused(u.branchId);
+  }
   const r = await reserveAttempt(ctx.db, u.id, security);
   if (!r.allowed) {
     // Locked: not evaluated, not extended, and indistinguishable from an unknown username.

@@ -230,7 +230,9 @@ npm run ops -w @jerp/backend -- reset-gm-password --username <gm user>
   A banner asks for a second device until one exists. Screen: user menu → **Sign-in security** (passkeys, recovery
   codes, last 10 sign-ins, phone instructions).
 - Sensitive actions ask for the password **and** the passkey (users who have one). New-device sign-ins raise an alert
-  with **"This wasn't me"** (ends every session, revokes the passkeys, forces a new password).
+  with **"This wasn't me"** (ends every session, revokes the passkeys, forces a new password; if that sign-in used a
+  recovery code, the remaining codes are cancelled and the account is locked until the operator runs
+  `unlock-security-lock`).
 - Settings → **Second factor**: who must use it (GM by default; Branch Manager optional; never cashiers) and what a
   passkey must check (`required` = fingerprint/face/PIN, or `preferred` = a touch is enough). Changes need password + passkey.
 - Lost everything: `npm run ops -w @jerp/backend -- reset-second-factor --username <u> --confirm` (shell only).

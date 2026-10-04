@@ -1563,4 +1563,11 @@ export const AR: Record<string, string> = {
   "SIGN_IN_ALERT_DISMISSED": "تأكيد دخول من جهاز جديد",
   "ACCOUNT_SECURED": "تأمين الحساب (لم أكن أنا)",
   "SECURITY_SETTING_CHANGED": "تغيير إعداد أمني",
+  "That sign-in used a recovery code: your account will be locked": "عملية الدخول هذه تمت برمز استرداد: سيُقفل حسابك",
+  "Someone may have your recovery-code sheet. All remaining recovery codes stop working and the account is locked: nobody can sign in, not even you, until the system administrator restores it from the server and gives you a new one-time password. Then you choose a new password and register your passkeys and new recovery codes again.": "ربما حصل شخص آخر على ورقة رموز الاسترداد. ستتوقف جميع رموز الاسترداد المتبقية عن العمل وسيُقفل الحساب: لن يستطيع أحد الدخول، ولا أنت، حتى يعيده مسؤول النظام من الخادم ويعطيك كلمة مرور مؤقتة لاستخدام واحد. بعدها تختار كلمة مرور جديدة وتسجّل مفاتيح المرور ورموز استرداد جديدة من جديد.",
+  "{username} reported a recovery-code sign-in as not theirs: account security-locked until the operator restores it, all sessions ended, {n} passkey(s) revoked, {codes} recovery code(s) invalidated": "{username} أبلغ أن دخولاً برمز استرداد لم يكن منه: قُفل الحساب أمنياً حتى يعيده المشغّل، وأُنهيت كل الجلسات، وأُلغي {n} مفتاح مرور، وأُبطل {codes} رمز استرداد",
+  "Operator console: security lock of {username} lifted; new one-time password issued, {n} passkey(s) revoked, recovery codes invalidated; new enrollment required": "وحدة تحكم المشغّل: رُفع القفل الأمني عن {username}؛ أُصدرت كلمة مرور مؤقتة جديدة، وأُلغي {n} مفتاح مرور، وأُبطلت رموز الاسترداد؛ يلزم تسجيل جديد",
+  "This account is security-locked: use unlock-security-lock (it also issues a new one-time password)": "هذا الحساب مقفل أمنياً: استخدم unlock-security-lock (يصدر أيضاً كلمة مرور مؤقتة جديدة)",
+  "This account is not security-locked": "هذا الحساب غير مقفل أمنياً",
+  "SECURITY_LOCK_LIFTED": "رفع القفل الأمني",
 };
