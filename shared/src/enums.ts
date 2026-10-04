@@ -89,6 +89,12 @@ export const PAYMENT_ACCOUNT: Record<PaymentMethod, LedgerAccountKind> = {
 // ── Counter scrap purchases and the broken-scrap weight pool (Phase 4, D-4-*) ──
 /** SELLABLE becomes a jewelry item (origin SCRAP); BROKEN only adds weight to the branch pool. */
 export const SCRAP_KINDS = ['SELLABLE', 'BROKEN'] as const;
+/** Phase 2c: backup and restore-drill runs. */
+export const BACKUP_RUN_KINDS = ['BACKUP', 'VERIFY'] as const;
+export type BackupRunKind = (typeof BACKUP_RUN_KINDS)[number];
+export const BACKUP_RUN_STATUSES = ['SUCCESS', 'FAILURE'] as const;
+export type BackupRunStatus = (typeof BACKUP_RUN_STATUSES)[number];
+
 export type ScrapKind = (typeof SCRAP_KINDS)[number];
 
 /** Payment to the customer for scrap: from the drawer or the bank. */

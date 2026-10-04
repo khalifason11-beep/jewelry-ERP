@@ -1394,4 +1394,15 @@ export const AR: Record<string, string> = {
   "This is more than the Hasad receivable of this branch ({balance})": "هذا أكبر من مستحقات حصاد لهذا الفرع ({balance})",
   "HASAD_RECEIVABLE_SETTLED": "تسوية مستحقات حصاد",
   "HASAD_RECEIVABLE_SETTLEMENT": "تسوية مستحقات حصاد",
+
+  // ── generated from translation sheets ──
+  "Backups": "النسخ الاحتياطية",
+  "Backups need attention": "النسخ الاحتياطية تحتاج إلى متابعة",
+  "No restore drill has succeeded yet.": "لم ينجح أي اختبار استعادة حتى الآن.",
+  "No successful backup has been recorded.": "لم تُسجَّل أي نسخة احتياطية ناجحة.",
+  "The dashboard warns the General Manager when backups or restore drills are older than this.": "تنبّه لوحة التحكم المدير العام عندما تكون النسخ الاحتياطية أو اختبارات الاستعادة أقدم من ذلك.",
+  "The last successful backup is {hours} hours old (limit: {max} hours).": "آخر نسخة احتياطية ناجحة عمرها {hours} ساعة (الحد: {max} ساعة).",
+  "The last successful restore drill is {days} days old (limit: {max} days).": "آخر اختبار استعادة ناجح عمره {days} يوم (الحد: {max} يوم).",
+  "Warn after a backup is older than (hours)": "التنبيه عندما تكون النسخة الاحتياطية أقدم من (ساعات)",
+  "Warn after a restore drill is older than (days)": "التنبيه عندما يكون اختبار الاستعادة أقدم من (أيام)",
 };

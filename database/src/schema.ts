@@ -697,6 +697,32 @@ export const ledgerEntries = pgTable(
   ],
 );
 
+/**
+ * Backups and restore drills (Phase 2c, append-only). One row per run of `npm run backup` or
+ * `npm run backup:verify`; the health check reads the latest SUCCESS of each kind.
+ */
+export const backupRuns = pgTable(
+  'backup_runs',
+  {
+    id: serial('id').primaryKey(),
+    /** BACKUP or VERIFY. */
+    kind: text('kind').notNull(),
+    /** SUCCESS or FAILURE. */
+    status: text('status').notNull(),
+    fileName: text('file_name'),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }),
+    sha256: text('sha256'),
+    encrypted: boolean('encrypted').notNull().default(false),
+    uploaded: boolean('uploaded').notNull().default(false),
+    /** Summary (row counts, checks passed, failure messages). Never secrets. */
+    detail: jsonb('detail'),
+    host: text('host'),
+    startedAt: ts('started_at').notNull(),
+    finishedAt: ts('finished_at').notNull().defaultNow(),
+  },
+  (t) => [index('backup_runs_kind_idx').on(t.kind, t.status, t.finishedAt)],
+);
+
 /** Cash counted in the drawer (append-only: a recount is a new row; the latest one counts). */
 export const cashCounts = pgTable(
   'cash_counts',

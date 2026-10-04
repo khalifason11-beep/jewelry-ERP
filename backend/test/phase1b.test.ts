@@ -360,6 +360,7 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'POST /transfers/:id/receive': () => ({ path: `/transfers/${NONE}/receive` }),
   'GET /dashboard/branch': () => ({ path: '/dashboard/branch' }),
   'GET /cash/drawer': () => ({ path: '/cash/drawer' }),
+  'GET /backups/status': () => ({ path: '/backups/status' }),
   'GET /cash/reconciliation': () => ({ path: '/cash/reconciliation' }),
   'POST /cash/counts': () => ({ path: '/cash/counts', body: {} }),
   'GET /scrap-rates': () => ({ path: '/scrap-rates' }),

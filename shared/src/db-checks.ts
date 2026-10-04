@@ -8,6 +8,8 @@
 // retired with a plain forward migration (docs/decisions.md D-2a-1).
 
 import {
+  BACKUP_RUN_KINDS,
+  BACKUP_RUN_STATUSES,
   BRANDING_ASSET_KINDS,
   EXPENSE_CATEGORIES,
   EXPENSE_PAYMENT_SOURCES,
@@ -92,6 +94,8 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   e('ledger_entries', 'event_type', LEDGER_EVENT_TYPES),
   e('ledger_entries', 'payment_method', PAYMENT_METHODS, true),
   // ── Phase 4
+  e('backup_runs', 'kind', BACKUP_RUN_KINDS),
+  e('backup_runs', 'status', BACKUP_RUN_STATUSES),
   e('scrap_purchases', 'kind', SCRAP_KINDS),
   e('scrap_purchases', 'payment_method', SCRAP_PAYMENT_METHODS),
   e('scrap_weight_entries', 'event_type', SCRAP_WEIGHT_EVENT_TYPES),
@@ -177,6 +181,9 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   { name: 'ck_purchases_making_charge_paid', table: 'purchases', expr: '(making_charge_paid IS NULL) = (making_charge_paid_from IS NULL) AND coalesce(making_charge_paid, 0) >= 0' },
   // ── Phase 4 follow-up: Hasad receivable settled by bank transfer
   { name: 'ck_hasad_receivable_settlements_amount_positive', table: 'hasad_receivable_settlements', expr: 'amount > 0' },
+  // ── Phase 2c: backups
+  { name: 'ck_backup_runs_size_nonneg', table: 'backup_runs', expr: 'size_bytes IS NULL OR size_bytes >= 0' },
+  { name: 'ck_backup_runs_finished_after_start', table: 'backup_runs', expr: 'finished_at >= started_at' },
   { name: 'ck_sales_hasad_reference', table: 'sales', expr: "payment_method <> 'HASAD' OR payment_ref_invoice IS NOT NULL" },
 ];
 

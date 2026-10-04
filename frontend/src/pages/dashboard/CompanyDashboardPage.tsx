@@ -9,6 +9,7 @@ import { branchColor } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { Card, CardHeader, ErrorState, Input, Kpi, Loading, PageHeader } from '../../components/ui';
 import { StockWeightCard, type StockWeight } from '../../components/StockWeight';
+import { BackupBanner } from '../../components/BackupBanner';
 import { CategoryBarChart, StackedMoneyBars } from '../../components/charts';
 
 interface BranchRow {
@@ -120,6 +121,8 @@ export function CompanyDashboardPage() {
           </div>
         }
       />
+
+      <BackupBanner />
 
       {q.isLoading ? (
         <Loading />

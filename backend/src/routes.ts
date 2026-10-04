@@ -34,6 +34,7 @@ import { publicBranding } from './modules/branding/service';
 import { LOGO_MAX_BYTES } from './modules/branding/image';
 import * as branches from './modules/branches/service';
 import * as ledger from './modules/ledger/service';
+import * as backups from './modules/backups/status';
 import * as scrap from './modules/scrap/service';
 import * as supplierSettlements from './modules/supplier-settlements/service';
 import { runIdempotent } from './core/idempotency';
@@ -106,7 +107,10 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   });
 
   route('GET', '/health', async (_req, res) => {
-    res.json(config.production ? { ok: true } : { ok: true, driver: ctx.handle.driver, hasad: ctx.hasad.mode, appMode: config.appMode });
+    // Backup ages and status only (D-2c-6). Always HTTP 200: a stale backup must not make the host
+    // restart a healthy service; monitoring reads `backup.status`.
+    const backup = await backups.backupHealth(ctx).catch(() => null);
+    res.json(config.production ? { ok: true, backup } : { ok: true, driver: ctx.handle.driver, hasad: ctx.hasad.mode, appMode: config.appMode, backup });
   });
 
 
@@ -568,6 +572,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   });
 
   // ─────────── Cash: expected drawer balance, daily reconciliation, counted cash (Phase 2b) ───────────
+  route('GET', '/backups/status', async (req, res) => res.json(await backups.backupStatusView(ctx, actorOf(req))));
+
   route('GET', '/cash/drawer', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId }).strict(), req.query);
     res.json(await ledger.drawer(ctx, actorOf(req), q));

@@ -130,7 +130,11 @@ describe('production mode (security item 2)', () => {
     expect(prodMeta.body.appMode).toBe('production');
     expect(prodMeta.body.demoAccounts).toEqual([]);
     expect(JSON.stringify(prodMeta.body)).not.toContain('demo-');
-    expect((await request(prodApp).get('/api/health')).body).toEqual({ ok: true });
+    // Minimal: ok + the backup status (ages and status only, D-2c-6); no driver, mode or versions.
+    const health = (await request(prodApp).get('/api/health')).body;
+    expect(Object.keys(health).sort()).toEqual(['backup', 'ok']);
+    expect(health.ok).toBe(true);
+    expect(Object.keys(health.backup).sort()).toEqual(['backupAgeHours', 'reasons', 'status', 'verifyAgeHours']);
 
     const demoMeta = await request(demoApp).get('/api/meta');
     expect(demoMeta.body.demoAccounts.length).toBeGreaterThan(0);

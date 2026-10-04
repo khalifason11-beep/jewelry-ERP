@@ -55,6 +55,7 @@ export const PERMISSIONS = {
   'scrap.buy': 'Buy scrap gold from customers at the counter (sellable pieces or broken scrap)',
   'scrap.override': 'Approve a scrap price beyond the allowed tolerance from the scrap buying rate',
   'purchases.settle': 'Record a supplier settlement paid with broken-scrap weight',
+  'backups.view': 'See the age and status of the latest backup and restore drill',
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;

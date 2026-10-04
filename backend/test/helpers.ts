@@ -9,7 +9,7 @@ export const PG_MODE = process.env.JERP_TEST_DRIVER === 'postgres';
  * A migrated, empty database for one test file: in-memory PGlite by default, or — in the
  * `postgres` project — a fresh database created from TEST_DATABASE_URL and dropped on close().
  */
-export async function openTestDatabase(): Promise<DatabaseHandle> {
+export async function openTestDatabase(): Promise<DatabaseHandle & { url?: string }> {
   if (!PG_MODE) return openDatabase({ dataDir: 'memory://' });
   const base = process.env.TEST_DATABASE_URL;
   if (!base) throw new Error('TEST_DATABASE_URL is required for the postgres test project');
@@ -24,6 +24,7 @@ export async function openTestDatabase(): Promise<DatabaseHandle> {
   const handle = await openDatabase({ url: url.toString() });
   return {
     ...handle,
+    url: url.toString(),
     close: async () => {
       await handle.close();
       const drop = new pg.Client({ connectionString: base });

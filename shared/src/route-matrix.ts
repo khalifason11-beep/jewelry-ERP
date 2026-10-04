@@ -138,6 +138,8 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/purchases/:id/settlements', 'branch', { all: ['purchases.settle'], idempotent: true, idempotencyInTx: true }),
   // ── cash (Phase 2b): expected drawer balance, daily reconciliation, counted cash
   r('GET', '/cash/drawer', 'branch', { all: ['cash.view'] }),
+  // Phase 2c: age and status of the latest backup / restore drill (no file names, no paths).
+  r('GET', '/backups/status', 'global', { all: ['backups.view'] }),
   r('GET', '/cash/reconciliation', 'branch', { all: ['cash.view'] }),
   r('POST', '/cash/counts', 'branch', { all: ['cash.count'], idempotent: true }),
   // Hasad receivable settled by a bank transfer from Hasad (Phase 4 follow-up).

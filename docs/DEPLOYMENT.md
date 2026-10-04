@@ -42,6 +42,8 @@ means updating `DATABASE_URL` and redeploying; all sessions survive because they
 
 Not used in production: `PGLITE_DIR` (embedded demo database only).
 
+Backup variables (`BACKUP_*`) are listed in section 7; they belong to the backup job, not to the web service.
+
 ## 3. First start
 
 1. Create the database and the web service with the variables above. Deploy. Migrations run
@@ -226,7 +228,182 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
 - The login page shows the company name and logo from Settings, not "Jewelry ERP".
 - No demo accounts are listed on the login page (they are listed only in demo mode).
 - The start-up log has no `integrity constraints left NOT VALID` warning (see section 5).
+- `GET /api/health` shows `"backup": {"status": "OK", …}` once backups and restore drills run (section 7).
 - Settings show **Allowed karats = 21** and a scrap buying rate for each karat the branches buy.
+
+## 7. Backups
+
+**This must be working, and the first restore drill done by a person, before any real data is entered.**
+
+### What exists
+
+| Command | What it does |
+|---|---|
+| `npm run backup` | `pg_dump` (custom format) of the application database as a **read-only backup role**, piped straight into `age` (encrypted at rest; no unencrypted file is ever written), plus a manifest (row counts, ledger and pool balances, CHECK constraints, taken in the **same snapshot** as the dump) and a `.sha256` checksum file. Then the **off-site upload command**, then the **retention** policy. Each run is recorded in the append-only `backup_runs` table. |
+| `npm run backup:verify` | **Restore drill**: checks both checksums of the latest backup (or `-- --file <path>`), decrypts it, restores it into a **throwaway database**, and runs the integrity checks: row counts of every table = source; every ledger account balance (sum of its entries) = source, entries on the right branch, reversals mirror their original; every scrap-pool balance = source and none negative; supplier gold debt − settled = owed; every append-only table still has both triggers and they really refuse `UPDATE`, `DELETE` and `TRUNCATE`; every CHECK constraint of the source and of the code is present and validated. The throwaway database is always dropped. Any failure prints `RESTORE DRILL FAILED` and exits non-zero. |
+
+Exit codes: `0` success, `1` failure, `2` refused (configuration). Use them to alert from your scheduler.
+
+The test suite runs the whole cycle (backup → off-site copy → restore drill, plus damaged-file and
+tampered-database cases) against a freshly seeded real PostgreSQL database (`backend/test/pg/backup.test.ts`).
+
+### Recovery targets (state these to the client)
+
+- **Maximum data loss (RPO) = the time between two backups.** With one backup a day, up to 24 hours of
+  entries can be lost and must be re-entered from receipts. The health check warns after **26 hours**
+  without a successful backup (setting *Backups → Warn after …*).
+- **Time to restore (RTO)**: minutes for a database of this size, plus the time to fetch the file. Measure it
+  during the first drill and write it down.
+- **To lose less**: run `npm run backup` more often (e.g. every hour: RPO 1 hour; lower *Warn after* to 2
+  hours), and/or enable the database provider's **point-in-time recovery** (continuous WAL archiving; on
+  Render a paid PostgreSQL plan, self-hosted pgBackRest or WAL-G), which brings the loss down to seconds.
+  The logical backups described here stay useful in any case: they are encrypted, off-site, and checked.
+
+### 7.1 Tools
+
+`pg_dump` and `pg_restore` of the **same major version as the server** (PostgreSQL 16 → `postgresql-client-16`)
+and [`age`](https://github.com/FiloSottile/age) (`apt install age`). Set `BACKUP_PG_BIN` if `pg_dump` is not on `PATH`.
+
+### 7.2 The read-only backup role (run once, as the owner role)
+
+It must be neither the owner nor the runtime role. The script checks this and, in production, refuses to
+run with a role that is a superuser, can create databases or roles, owns a table, can write to any table,
+or is the `DATABASE_URL` / `MIGRATION_DATABASE_URL` role.
+
+```sql
+CREATE ROLE jerp_backup LOGIN PASSWORD '<long random password>' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+GRANT CONNECT ON DATABASE <database> TO jerp_backup;
+GRANT USAGE ON SCHEMA public, drizzle TO jerp_backup;
+GRANT SELECT ON ALL TABLES    IN SCHEMA public, drizzle TO jerp_backup;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA public, drizzle TO jerp_backup;
+-- Tables created by future migrations (run as the owner role) are readable too:
+ALTER DEFAULT PRIVILEGES FOR ROLE <owner role> IN SCHEMA public  GRANT SELECT ON TABLES    TO jerp_backup;
+ALTER DEFAULT PRIVILEGES FOR ROLE <owner role> IN SCHEMA public  GRANT SELECT ON SEQUENCES TO jerp_backup;
+ALTER DEFAULT PRIVILEGES FOR ROLE <owner role> IN SCHEMA drizzle GRANT SELECT ON TABLES    TO jerp_backup;
+```
+
+(On a self-hosted server where you are superuser, `GRANT pg_read_all_data TO jerp_backup;` replaces the
+`GRANT SELECT` lines.) If a migration ever adds a schema, grant `USAGE` and `SELECT` on it too: `pg_dump`
+fails loudly on any table it cannot read, so a missed grant shows up as a failed backup, never a partial one.
+
+The restore drill needs a **different** role that may `CREATE DATABASE` on a scratch server
+(`BACKUP_VERIFY_ADMIN_URL`; by default `MIGRATION_DATABASE_URL`). Prefer a separate PostgreSQL server for
+drills, so a drill never competes with production.
+
+### 7.3 The encryption key (age)
+
+Create the key pair **on an administrator's computer, not on the server**:
+
+```bash
+age-keygen -o jerp-backup.key        # the SECRET key: password manager + a printed copy in a safe
+age-keygen -y jerp-backup.key        # prints the PUBLIC key: age1…
+```
+
+The backup job only needs the **public** key (`BACKUP_AGE_RECIPIENT`); a stolen server therefore cannot read
+old backups. Several recipients (comma-separated) let two people each hold a key. The secret key is needed
+only for the drill and for a real restore (`BACKUP_AGE_IDENTITY`, or `BACKUP_AGE_IDENTITY_FILE` pointing at a
+`0600` file). It is never written to the repository, never logged, and never passed to the upload command.
+**Losing the secret key means losing every backup**: keep two copies in two places.
+
+### 7.4 Variables
+
+| Variable | Where | Meaning |
+|---|---|---|
+| `APP_MODE` | backup job | `production` ⇒ **strict**: refuses without encryption key, without upload command, or with an unsafe role. `BACKUP_STRICT=true` gives the same anywhere. |
+| `BACKUP_DIR` | both | Local directory for backups (created `0700`, files `0600`). |
+| `BACKUP_DATABASE_URL` | backup job | The read-only backup role (7.2). |
+| `DATABASE_URL` | both | The app's runtime connection, used only to **record** runs in `backup_runs` (the backup role cannot write). |
+| `BACKUP_AGE_RECIPIENT` | backup job | age public key(s). |
+| `BACKUP_UPLOAD_COMMAND` | backup job | Shell command run after a successful encrypted dump; receives `BACKUP_FILE`, `BACKUP_CHECKSUM_FILE`, `BACKUP_MANIFEST_FILE`, `BACKUP_NAME`. A non-zero exit fails the backup. |
+| `BACKUP_KEEP_DAILY` / `_WEEKLY` / `_MONTHLY` | backup job | Local retention, default **14 / 8 / 6** (newest backup of each of the last 14 days, 8 ISO weeks, 6 months, UTC). Off-site retention is set on the storage itself (below). |
+| `BACKUP_AGE_IDENTITY` or `BACKUP_AGE_IDENTITY_FILE` | drill only | age secret key. |
+| `BACKUP_VERIFY_ADMIN_URL` | drill only | Role allowed to create the throwaway database. |
+| `BACKUP_PG_BIN`, `BACKUP_AGE_BIN` | optional | Tool locations. |
+
+### 7.5 Off-site copy (required: a backup that lives only on the server it protects does not count)
+
+Give the upload credentials **write-only** rights where possible, so that a compromised server cannot delete
+older backups; set retention on the storage side.
+
+**Example A: S3-compatible object storage** (AWS S3, Backblaze B2, Cloudflare R2, Wasabi), with the AWS CLI.
+Enable bucket versioning and object lock, and a lifecycle rule (e.g. delete after 400 days):
+
+```bash
+BACKUP_UPLOAD_COMMAND='for f in "$BACKUP_FILE" "$BACKUP_CHECKSUM_FILE" "$BACKUP_MANIFEST_FILE"; do aws s3 cp "$f" "s3://jerp-backups/prod/" --only-show-errors || exit 1; done'
+# credentials of an IAM user allowed only s3:PutObject on that prefix: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+# and for B2/R2 also AWS_ENDPOINT_URL=https://<endpoint>
+```
+
+**Example B: another machine over SSH** (an office server or a second VPS in another data centre):
+
+```bash
+BACKUP_UPLOAD_COMMAND='rsync -a -e "ssh -i /etc/jerp/backup_ed25519 -o StrictHostKeyChecking=yes" "$BACKUP_FILE" "$BACKUP_CHECKSUM_FILE" "$BACKUP_MANIFEST_FILE" backup@offsite.example.com:/srv/jerp-backups/'
+# on the receiving side, restrict that key in authorized_keys to rrsync (write into that directory only)
+```
+
+**Example C: any rclone remote** (Google Drive, OneDrive, Dropbox, SFTP…):
+`BACKUP_UPLOAD_COMMAND='rclone copy "$BACKUP_FILE" offsite:jerp && rclone copy "$BACKUP_CHECKSUM_FILE" offsite:jerp && rclone copy "$BACKUP_MANIFEST_FILE" offsite:jerp'`
+
+### 7.6 Schedule
+
+**cron** on a server that has the tools (times in the server's timezone; Sudan is UTC+2):
+
+```cron
+# daily backup at 01:30, after closing
+30 1 * * *  cd /srv/jerp && npm run backup        >> /var/log/jerp-backup.log 2>&1
+# weekly restore drill (Sunday 03:00) on the drill machine, which holds the secret key
+0 3 * * 0   cd /srv/jerp && npm run backup:verify >> /var/log/jerp-backup-verify.log 2>&1
+```
+
+**Render**: add a **Cron Job** service from the same repository, schedule `30 23 * * *` (UTC = 01:30 in
+Khartoum), build command `npm ci`, command `npm run backup`, with the variables of 7.4 (no secret key).
+Its disk is temporary, so the off-site copy is the real one. Run the weekly drill on a machine you control
+(an office computer or a small VPS with PostgreSQL 16 and age): download the latest three files from the
+off-site storage into `BACKUP_DIR`, then `npm run backup:verify` with `BACKUP_AGE_IDENTITY_FILE`,
+`BACKUP_VERIFY_ADMIN_URL` (the local scratch server) and `DATABASE_URL` (production runtime role, used only to
+record the drill so the health check sees it).
+
+### 7.7 Monitoring
+
+- `GET /api/health` always answers HTTP 200 (a stale backup must not make the host restart a healthy
+  service) and includes `"backup": {"status": "OK" | "WARNING", "backupAgeHours", "verifyAgeHours", "reasons"}`
+  — ages and status only. Point an uptime monitor at it with a keyword alert on `"WARNING"`.
+- The General Manager sees a warning banner on the Executive Overview when the last successful backup is
+  older than *Warn after … hours* (default 26) or the last successful drill older than *… days* (default 7)
+  (**Settings → Backups**). A failed upload counts as a failed backup.
+
+### 7.8 Restoring after a disaster (step by step)
+
+1. **Stop the writes**: suspend the web service (Render: *Suspend*), so nothing is entered into a database you
+   are about to replace. Tell the branches to keep paper receipts.
+2. **Fetch** the latest backup's three files from the off-site storage and check them:
+   `sha256sum -c jerp-backup-<time>.sha256`.
+3. **Prove the file is good** on the drill machine: `npm run backup:verify -- --file ./jerp-backup-<time>.dump.age`.
+4. **Create an empty database** owned by the owner role on the production server:
+   `CREATE DATABASE jerp_restored OWNER <owner role>;`
+5. **Restore** as the owner role, keeping the privileges (the runtime and backup roles must exist on the server):
+
+   ```bash
+   age -d -i jerp-backup.key jerp-backup-<time>.dump.age \
+     | pg_restore --no-owner --role=<owner role> --exit-on-error --dbname="postgresql://<owner>:<pw>@<host>/jerp_restored"
+   ```
+
+6. **Re-check the locks**: as the owner, `npm run migrate` against the restored database (a no-op that confirms
+   the schema version), then point `DATABASE_URL` / `MIGRATION_DATABASE_URL` at `jerp_restored` (or rename the
+   databases) and resume the service. The start-up check reports any runtime-role privilege problem on the
+   append-only tables (with `STRICT_DB_ROLES=true` it refuses to start).
+7. **Check** `GET /api/health`, sign in as the General Manager, compare the Cash screen and the last invoices
+   with the paper records, then **re-enter everything recorded after the backup time** (that is the data loss).
+   Reconcile Hasad withdrawals and payments with Hasad's own records.
+8. Run `npm run backup` immediately, so the restored state is itself backed up.
+
+### 7.9 Before go-live (human, not automated)
+
+- [ ] The backup role exists and `npm run backup` succeeds in production mode (strict) with a real off-site copy.
+- [ ] Someone other than the developer has done **a full restore drill by hand on a real copy** (7.8 steps 2–5
+      against a scratch server), timed it, and written down the time and the result.
+- [ ] Both copies of the secret key are stored, and a second person knows where.
+- [ ] The scheduler runs daily backups and weekly drills; the GM banner and the health check show `OK`.
 
 ## Remaining limits (known and accepted for now)
 

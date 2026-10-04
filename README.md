@@ -213,6 +213,15 @@ npm run ops -w @jerp/backend -- reset-gm-password --username <gm user>
 - **Transfers**: a branch manager ticks pieces on the Inventory screen and sends them with one *Transfer selected*
   button (one transfer); the Transfers screen keeps the full log and the receipt confirmation.
 
+### Backups (Phase 2c)
+
+- `npm run backup`: encrypted (age) `pg_dump` by a read-only role, checksummed, copied off-site by an operator
+  command, with 14 daily / 8 weekly / 6 monthly retention. `npm run backup:verify`: restore drill into a throwaway
+  database with integrity checks (ledger and pool balances, append-only triggers, CHECK constraints, row counts).
+- The health check and a GM banner warn when the last backup (26 h) or drill (7 days) is too old.
+- Setup, schedules, off-site examples and the step-by-step restore are in [docs/DEPLOYMENT.md §7](docs/DEPLOYMENT.md).
+  **The first restore drill must be done by a person before real data is entered.**
+
 ### Language
 
 The UI opens in Arabic (RTL) by default; the header switch toggles English. English source strings are the

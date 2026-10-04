@@ -96,6 +96,8 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   supplier_settlements: {
     safe: words('id number purchase_id branch_id actor_id session_id idempotency_key note at settled_karat settled_weight_mg settled_pure_mg24'),
   },
+  // Phase 2c: backup / restore-drill runs (no secrets are ever stored: file name, size, checksum, summary).
+  backup_runs: { safe: words('id kind status file_name size_bytes sha256 encrypted uploaded detail host started_at finished_at') },
   // Hasad bank transfers received (Phase 4 follow-up): a money movement between two branch accounts, like the ledger.
   hasad_receivable_settlements: { safe: words('id number branch_id amount bank_reference note actor_id session_id idempotency_key at') },
   // ── Hasad mock schema (integrations/hasad/src/mock/schema.ts, demo only)
@@ -179,6 +181,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     customerIdRef hasadReceivable posPaymentMethods brokenScrap pureMg24 brokenScrapPureMg24 itemsPureMg24 totalPureMg24 weightByKarat
     settlementCount purchaseNumber supplierName origin scrapRates byKarat balanceMg createdByName toleranceBp
     summary value itemsWeightMg brokenScrapWeightMg totalWeightMg stockWeight items settlements
+    backup backupAgeHours verifyAgeHours maxAgeHours maxVerifyAgeDays reasons
     goldOwedMgPure24 owedAfterMgPure24 goldDebtMgPure24 settledKarat settledWeightMg settledPureMg24 bankReference hasadReceivableToBank hasadReceivableBalance
     scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates
   `),

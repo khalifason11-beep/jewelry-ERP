@@ -327,6 +327,19 @@ export function SettingsPage() {
           </div>
         </Card>
 
+        {/* ── Backups (Phase 2c) ── */}
+        <Card padded={false}>
+          <CardHeader title={t('Backups')} subtitle={t('The dashboard warns the General Manager when backups or restore drills are older than this.')} actions={saveBtn(['backup.maxAgeHours', 'backup.maxVerifyAgeDays'])} />
+          <div className="grid gap-3 p-5 sm:grid-cols-2">
+            <Field label={t('Warn after a backup is older than (hours)')}>
+              {numberInput(draft.backup.maxAgeHours, (n) => set('backup', { maxAgeHours: n }), { min: 1, max: 336 })}
+            </Field>
+            <Field label={t('Warn after a restore drill is older than (days)')}>
+              {numberInput(draft.backup.maxVerifyAgeDays, (n) => set('backup', { maxVerifyAgeDays: n }), { min: 1, max: 90 })}
+            </Field>
+          </div>
+        </Card>
+
         {/* ── Security & sessions ── */}
         <Card padded={false}>
           <CardHeader

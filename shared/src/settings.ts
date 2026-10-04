@@ -96,6 +96,12 @@ export interface SystemSettings {
     /** … up to this cap. */
     lockoutMaxMinutes: number;
   };
+  backup: {
+    /** Warn when the last successful backup is older than this (hours). */
+    maxAgeHours: number;
+    /** Warn when the last successful restore drill is older than this (days). */
+    maxVerifyAgeDays: number;
+  };
   mockHasad: {
     latencyMs: number;
     simulateOutage: boolean;
@@ -156,6 +162,10 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     lockoutThreshold: 5,
     lockoutBaseMinutes: 15,
     lockoutMaxMinutes: 60,
+  },
+  backup: {
+    maxAgeHours: 26,
+    maxVerifyAgeDays: 7,
   },
   mockHasad: {
     latencyMs: 250,
@@ -234,6 +244,8 @@ export const SETTINGS_REGISTRY = {
   'security.lockoutThreshold': { schema: int(3, 20) },
   'security.lockoutBaseMinutes': { schema: int(1, 24 * 60) },
   'security.lockoutMaxMinutes': { schema: int(1, 24 * 60) },
+  'backup.maxAgeHours': { schema: int(1, 24 * 14) },
+  'backup.maxVerifyAgeDays': { schema: int(1, 90) },
   'mockHasad.latencyMs': { schema: int(0, 10_000), demoOnly: true },
   'mockHasad.simulateOutage': { schema: z.boolean(), demoOnly: true },
 } satisfies Record<string, SettingDef>;
