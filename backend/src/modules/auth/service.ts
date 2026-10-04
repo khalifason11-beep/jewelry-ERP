@@ -10,7 +10,9 @@ import { burnVerification, hashPassword, needsRehash, verifyPassword } from '../
 import { assertPasswordPolicy } from '../../auth/policy';
 import { accountLocked, clearFailures, ipReserve, ipThrottled, reserveAttempt, type Reservation } from '../../auth/lockout';
 import { publicBranding } from '../branding/service';
-import { createSession, csrfTokenFor, endSession, endUserSessions, loadActor, markReauthenticated, sessionRef } from '../sessions/service';
+import { createSession, csrfTokenFor, endSession, endUserSessions, markReauthenticated, sessionRef } from '../sessions/service';
+import { factorState } from '../../auth/second-factor';
+import { createPending, openSession, secondFactorSummary, type SessionOpened } from './passkeys';
 
 export interface LoginInput {
   username: string;
@@ -84,24 +86,26 @@ export async function login(ctx: Ctx, input: LoginInput) {
     });
     throw new AppError(403, 'ACCOUNT_DISABLED', 'This account is disabled. Contact your administrator.');
   }
-  return ctx.db.transaction(async (tx) => {
+  const [role] = await ctx.db.select({ code: t.roles.code }).from(t.roles).where(eq(t.roles.id, u.roleId));
+  return ctx.db.transaction(async (tx): Promise<LoginResult> => {
     await clearFailures(tx, u.id);
     // Upgrade legacy (scrypt) or outdated argon2 hashes while the plaintext is at hand.
     if (needsRehash(u.passwordHash)) await tx.update(t.users).set({ passwordHash: await hashPassword(input.password) }).where(eq(t.users.id, u.id));
-    const s = await createSession(tx, { userId: u.id, branchId: u.branchId, userAgent: input.userAgent, ip, absoluteHours: security.sessionAbsoluteHours });
-    await tx.update(t.users).set({ lastLoginAt: new Date() }).where(eq(t.users.id, u.id));
-    const actor = (await loadActor(tx, u.id, s.id))!;
-    actor.ip = ip;
-    await writeAudit(tx, actor, {
-      action: 'LOGIN',
-      entityType: 'session',
-      entityId: sessionRef(s.id),
-      key: '{name} ({username}) signed in',
-      params: { name: ap.text(u.fullName, u.fullNameAr), username: u.username },
-    });
-    return { ...s, actor };
+    const factor = await factorState(tx, u.id, role.code, security);
+    if (factor.secondStepAtLogin) {
+      // Enrolled: the password only opens a pending sign-in (no route access); the passkey or a
+      // recovery code completes it (D-2fa-5).
+      const p = await createPending(tx, u.id, { userAgent: input.userAgent, ip });
+      return { kind: 'PENDING', token: p.token, expiresAt: p.expiresAt };
+    }
+    // Not enrolled: a normal session. For a role that requires a second factor it is restricted to
+    // enrollment, and the password just typed counts as confirmed for registering the first passkey.
+    const s = await openSession(tx, ctx, u, { userAgent: input.userAgent, ip, method: 'PASSWORD', uv: null, reauthNow: factor.enrollmentRequired });
+    return { kind: 'SESSION', ...s };
   });
 }
+
+export type LoginResult = ({ kind: 'SESSION' } & SessionOpened) | { kind: 'PENDING'; token: string; expiresAt: Date };
 
 /** The one response for every failed sign-in (unknown user, locked account, wrong password). */
 export const invalidCredentials = () =>
@@ -247,6 +251,8 @@ export async function me(ctx: Ctx, actor: Actor) {
     allowSelfPasswordChange: settings.security.allowSelfPasswordChange,
     maxDiscountPercent: settings.sales.maxDiscountPercentByRole[actor.roleCode] ?? 0,
     hasadMode: ctx.hasad.mode,
+    // Phase 2fa: second-factor state of this account (no secrets: counts, flags, the new-device alert).
+    secondFactor: await secondFactorSummary(ctx, actor),
     // Phase 4: what the counter offers (D-4-6) and which karats are sold here (D-4-1).
     posPaymentMethods: settings.sales.posPaymentMethods,
     allowedKarats: settings.inventory.allowedKarats,

@@ -27,7 +27,7 @@ export function ChangePasswordPage() {
     try {
       await post('/auth/change-password', { currentPassword: current, newPassword: next });
       const res = (await refresh()) as { data?: typeof me };
-      navigate(homePath(res.data ?? me), { replace: true });
+      navigate(res.data?.secondFactor?.enrollmentRequired ? '/security/setup' : homePath(res.data ?? me), { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? errorText(err) : t('Action failed'));
     } finally {

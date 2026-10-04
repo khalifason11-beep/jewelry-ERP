@@ -29,6 +29,29 @@ export function productionConfigProblems(cfg: Config): string[] {
   if (!cfg.appOrigin) problems.push('APP_ORIGIN is required in production (e.g. https://erp.example.com).');
   else if (!/^https:\/\/[^/]+$/.test(cfg.appOrigin)) problems.push('APP_ORIGIN must be an https:// origin without a path.');
   if (!cfg.cookieSecure) problems.push('COOKIE_SECURE must not be false in production.');
+  problems.push(...webauthnConfigProblems(cfg));
+  return problems;
+}
+
+/**
+ * Passkey relying party (D-2fa-2): the RP ID must be APP_ORIGIN's host or a registrable suffix of it,
+ * otherwise no browser would accept the passkeys; initial setting values must be valid.
+ */
+export function webauthnConfigProblems(cfg: Config): string[] {
+  const problems: string[] = [];
+  if (cfg.webauthnUvInitial && !['required', 'preferred'].includes(cfg.webauthnUvInitial)) problems.push('WEBAUTHN_UV_INITIAL must be "required" or "preferred".');
+  if (cfg.twoFactorRolesInitial) {
+    for (const r of cfg.twoFactorRolesInitial.split(',').map((x) => x.trim()).filter(Boolean)) {
+      if (!['GENERAL_MANAGER', 'BRANCH_MANAGER'].includes(r)) problems.push(`TWO_FACTOR_REQUIRED_ROLES_INITIAL: unknown role "${r}".`);
+    }
+  }
+  if (!cfg.production) return problems;
+  if (!cfg.appOrigin || !/^https:\/\//.test(cfg.appOrigin)) return problems; // already reported above
+  const host = new URL(cfg.appOrigin).hostname.toLowerCase();
+  const rp = (cfg.webauthnRpId ?? '').toLowerCase();
+  if (!rp) problems.push('WEBAUTHN_RP_ID could not be derived from APP_ORIGIN.');
+  else if (!(host === rp || host.endsWith(`.${rp}`))) problems.push(`WEBAUTHN_RP_ID "${rp}" is not the host of APP_ORIGIN or a parent domain of it ("${host}").`);
+  else if (!rp.includes('.') && rp !== 'localhost') problems.push(`WEBAUTHN_RP_ID "${rp}" is not a registrable domain.`);
   return problems;
 }
 

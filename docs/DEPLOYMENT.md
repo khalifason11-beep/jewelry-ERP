@@ -34,6 +34,10 @@ site is needed.
 | `PORT` | **do not set** | Render provides it; the app reads it. |
 | `MIGRATION_DATABASE_URL` | optional, recommended: the owner role (section 5) | Runs the migrations; the app then connects with `DATABASE_URL` as a runtime role that owns nothing. |
 | `STRICT_DB_ROLES` | `true` once the roles are separated | Refuse to start if the runtime role could alter the audit log or the ledgers. |
+| `WEBAUTHN_RP_ID` | leave **unset** (= the host of `APP_ORIGIN`), or the parent domain, e.g. `example.com` | The domain passkeys belong to. Must be the host of `APP_ORIGIN` or a parent of it; anything else is refused at start-up. **Changing it later invalidates every passkey** (section 8.1). |
+| `WEBAUTHN_RP_NAME` | optional, e.g. the company name | Shown by Windows Hello / the phone when registering. Cosmetic. |
+| `WEBAUTHN_UV_INITIAL` | optional: `required` (default) or `preferred` | **First start only**: initial value of "what a passkey must check" (section 8.4). Ignored once the setting exists. |
+| `TWO_FACTOR_REQUIRED_ROLES_INITIAL` | optional, e.g. `GENERAL_MANAGER` (default) or empty | **First start only**: roles that must use a passkey. Empty = not enforced (accepted risk, section 8.7). Ignored once the setting exists. |
 
 Secrets: the only secret is the database password inside `DATABASE_URL`. Keep it in Render's
 environment settings (or an Environment Group), never in the repository. The app needs no signing key:
@@ -57,7 +61,8 @@ Backup variables (`BACKUP_*`) are listed in section 7; they belong to the backup
 
    It prints a one-time password that must be changed at the first sign-in, and refuses to run again once a
    General Manager exists. Further branches can be added later from **Branches → New branch** (GM only).
-3. Sign in as the GM, change the password, then open **Settings** and set the company names, currency
+3. Sign in as the GM and change the password. The GM must then register a passkey and save the recovery codes
+   before anything else opens (section 8: decide the final domain **first**). Then open **Settings** and set the company names, currency
    labels, invoice footer and logo. Enable Hasad Gold per branch only when the Hasad integration is live.
 4. Still in **Settings** (Phase 4):
    - **Business rules → Allowed karats**: set to **21 only** for this client. Only these karats can be bought from a
@@ -81,9 +86,13 @@ npm run ops -w @jerp/backend -- unlock --username o.abdelrahman
 # Reset the General Manager's password (GM accounts only); prints a one-time password,
 # ends all of that user's sessions and forces a password change at the next sign-in
 npm run ops -w @jerp/backend -- reset-gm-password --username o.abdelrahman
+
+# Lost every passkey AND the recovery codes: revoke all passkeys, invalidate the recovery codes,
+# end the sessions; the next sign-in registers a new passkey (section 8.6)
+npm run ops -w @jerp/backend -- reset-second-factor --username o.abdelrahman --confirm
 ```
 
-Both refuse to run unless `APP_MODE=production` and the production configuration is safe (pass
+All three refuse to run unless `APP_MODE=production` and the production configuration is safe (pass
 `--allow-non-production` only on purpose, e.g. against a staging copy). Each action is written to the
 audit log as actor **System (operator-cli)** with the server host name and the OS user.
 
@@ -405,10 +414,98 @@ record the drill so the health check sees it).
 - [ ] Both copies of the secret key are stored, and a second person knows where.
 - [ ] The scheduler runs daily backups and weekly drills; the GM banner and the health check show `OK`.
 
+## 8. Passkeys (second sign-in factor)
+
+The General Manager signs in with the password **and** a passkey. Decisions: `docs/decisions.md` §9 (D-2fa-*).
+
+### 8.1 The domain (read before go-live)
+
+- Passkeys are tied to a domain, the **RP ID**: by default the host of `APP_ORIGIN` (e.g. `erp.example.com`).
+  The app refuses to start in production if `APP_ORIGIN` is not `https://…` or if `WEBAUTHN_RP_ID` is not that host
+  or a parent of it. The start-up log line `server started` shows the `webauthnRpId` in use.
+- **Changing the domain or the RP ID later makes every registered passkey useless** (the browser will not offer
+  them on another domain). Choose the final domain **before** the GM registers. If it must change: before
+  switching, make sure the GM still has unused recovery codes (or plan an operator reset), switch, then every
+  user signs in with a recovery code and registers again — or run `reset-second-factor` for each user.
+- Setting `WEBAUTHN_RP_ID` to the parent domain (`example.com`) keeps passkeys valid if the app later moves to
+  another sub-domain of it. Leave it unset if unsure.
+- Passkeys need a secure connection: https in production; `http://localhost` works for the demo.
+
+### 8.2 Hardware
+
+Any one of these works; **register two** (8.3):
+
+- **Windows Hello** on the shop PC: a fingerprint reader, an IR face camera, or at least the Windows Hello PIN
+  (Settings → Accounts → Sign-in options). The PIN is local to the PC; it is not the ERP password.
+- **A USB FIDO2 security key** (e.g. YubiKey 5, Feitian, Google Titan). For `required` (8.4) choose one with a
+  PIN or fingerprint and set its PIN once (Windows: Settings → Accounts → Sign-in options → Security key).
+- **A phone** (Android 9+ with screen lock, iPhone iOS 16+). The PC uses it over Bluetooth after scanning a QR
+  code; Bluetooth must be on, on both.
+
+### 8.3 Register two devices
+
+At the first sign-in the GM registers the PC and saves the 10 recovery codes (print them; keep them away from the
+PC, e.g. in the safe). Then, from user menu → **Sign-in security** → **Add a device**: the phone (choose "iPhone,
+iPad or Android device" in the Windows window and scan the QR code) or a second USB key. A banner reminds the GM
+until a second device exists. A single device is a single point of failure.
+
+### 8.4 What a passkey must check (Settings → Second factor)
+
+- **Fingerprint, face or PIN — `required` (default, recommended).** The device itself checks who is there. A key
+  that only needs a touch is refused. Someone who steals the key and the password still cannot sign in.
+- **A touch is enough — `preferred`.** Also accepts simple USB keys with no PIN or fingerprint. Then the key **plus**
+  the password is enough, so the key must be treated like a house key. Accepted risk only on these conditions:
+  1. the key is **never left plugged into the PC**;
+  2. **two keys are bought** (one kept in the safe);
+  3. the choice is **reviewed when branches are added**.
+  While this is selected the GM sees a permanent warning banner.
+- Changing either value needs the password and a fresh passkey; it is recorded in the audit log. Switching back to
+  `required` is refused unless the passkey used to confirm it checked the GM's fingerprint/face/PIN (so the GM
+  cannot lock themselves out). Existing passkeys stay registered; a touch-only key stops working under `required`
+  (use a recovery code or another device, or the operator reset).
+
+### 8.5 Day to day
+
+- Sign-in: password → "Use my passkey" → fingerprint/face/PIN (or the key / phone).
+- Sensitive actions (rates, users, settings, adjustments…) ask for the password and the passkey again, then stay
+  open for the re-confirmation window (Settings, default 5 minutes).
+- **New-device alert**: a sign-in from a browser or passkey not seen in 30 days shows a red banner. "It was me"
+  closes it. **"This wasn't me"** signs out every session, removes every passkey and forces a new password; the
+  GM then signs in with the password + a recovery code, sets a new password, and registers the devices again.
+
+### 8.6 Lost or broken device (procedure)
+
+1. **Another registered device is available** (phone, second key): sign in with it, open Sign-in security,
+   **Remove** the lost device, then **Add a device** to replace it.
+2. **No other device, but the recovery codes are at hand**: at the passkey step choose "Lost your device? Use a
+   recovery code". Each code works once. Then remove the lost device and register a new one; if few codes remain,
+   **Make new codes** (the old ones stop working).
+3. **No device and no recovery codes**: the operator (shell access) runs
+   `npm run ops -w @jerp/backend -- reset-second-factor --username <gm> --confirm`. All passkeys and codes are
+   revoked and sessions ended; the GM signs in with the password and registers again. If the password may also be
+   compromised, run `reset-gm-password` too. Both are recorded in the audit log as System (operator-cli).
+4. If the device was **stolen** rather than lost, also use "This wasn't me" (or the operator reset) and change the
+   password: a stolen device plus a known password is a full compromise under `preferred`.
+
+### 8.7 Enforcement turned off (accepted risk)
+
+Settings → Second factor → "Who must use a passkey" can untick the General Manager (password + passkey required to
+do so; audited). Then a stolen GM password alone opens the account, and a red banner says so permanently. Only do
+this temporarily, e.g. while replacing hardware, and record why in the "Reason" field. `TWO_FACTOR_REQUIRED_ROLES_INITIAL=`
+(empty) starts a new installation this way; the demo starts this way unless `DEMO_TWO_FACTOR=true`.
+
+### 8.8 Before go-live (human)
+
+- [ ] The final domain is set in `APP_ORIGIN` (and `WEBAUTHN_RP_ID` if a parent domain is wanted); the start-up log shows it.
+- [ ] The GM registered the shop PC **and** a second device, printed the recovery codes, and signed in once with each device.
+- [ ] Someone tried one recovery code (then made new codes) and knows where the sheet is kept.
+- [ ] The operator knows the `reset-second-factor` command and has shell access.
+
 ## Remaining limits (known and accepted for now)
 
 - **One instance.** The per-IP throttle and the dummy counters for unknown usernames are in memory, so a
   second instance would double the effective allowance, and settings changes reach other instances within
   5 s. Move the counters to PostgreSQL or Redis before scaling out.
+- **Passkeys and the domain.** Moving to another domain invalidates every passkey (section 8.1).
 - **The proxy's header format.** The app relies on `X-Forwarded-For` as the proxy writes it. If a CDN is
   added in front of Render, repeat section 4: the hop count usually changes.

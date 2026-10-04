@@ -48,8 +48,16 @@ export function stripCostFields(value: unknown, depth = 0): unknown {
 // ── Test-mode check: every field name the API sends must be classified (tests fail otherwise).
 const unclassified = new Map<string, string>();
 const recordUnclassified = process.env.VITEST ? (route: string, body: unknown) => {
-  for (const f of scanResponse(body)) if (f.kind === 'UNCLASSIFIED' && !unclassified.has(f.name)) unclassified.set(f.name, `${route} ${f.path}`);
+  for (const f of scanResponse(body)) {
+    if (f.kind === 'UNCLASSIFIED' && !unclassified.has(f.name)) unclassified.set(f.name, `${route} ${f.path}`);
+    if (f.kind === 'SECRET') secretSeen.push(`${route} ${f.path}`);
+  }
 } : null;
+const secretSeen: string[] = [];
+/** SECRET field names (hashes, public keys…) seen in any response during this test run: must stay empty. */
+export function secretResponseFields(): string[] {
+  return [...secretSeen];
+}
 /** Field names seen in responses during this test run that the registry does not classify. */
 export function unclassifiedResponseFields(): FieldFinding[] {
   return [...unclassified].map(([name, where]) => ({ name, path: where, kind: 'UNCLASSIFIED' as const }));

@@ -12,6 +12,8 @@ export type FieldClass = 'COST' | 'SAFE';
 interface TableClasses {
   cost?: readonly string[];
   safe: readonly string[];
+  /** Phase 2fa: never sent to anyone, in any response (hashes, private material, public keys). */
+  secret?: readonly string[];
 }
 
 const words = (s: string) => s.trim().split(/\s+/);
@@ -72,14 +74,28 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
     cost: ['cost_total'],
     safe: words('id number branch_id cashier_id session_id customer_name customer_name_ar customer_phone subtotal discount_total total payment_method status voided_at voided_by void_reason created_at payment_ref_invoice payment_ref_transaction'),
   },
-  sessions: { safe: words('id user_id branch_id login_at last_activity_at user_agent device ip_address current_module status ended_at ended_reason absolute_expires_at reauth_at csrf_token is_simulated') },
+  sessions: {
+    safe: words('id user_id branch_id login_at last_activity_at user_agent device ip_address current_module status ended_at ended_reason absolute_expires_at reauth_at csrf_token is_simulated sign_in_method passkey_reauth_at passkey_reauth_uv'),
+  },
   settings: { safe: words('key value version updated_at updated_by') },
   settings_history: { safe: words('id key old_value new_value version actor_id actor_username reason at') },
   settlements: { safe: words('id number type redemption_id branch_id direction weight_mg rate_per_gram amount payment_method confirmed_by confirmed_at') },
   suppliers: { safe: words('id name name_ar phone') },
   transfer_items: { safe: words('transfer_id item_id') },
   transfers: { safe: words('id number from_branch_id to_branch_id status notes created_by created_at received_by received_at') },
-  users: { safe: words('id username full_name full_name_ar role_id branch_id password_hash must_change_password password_changed_at status phone last_login_at failed_login_count locked_until created_at created_by') },
+  users: {
+    safe: words('id username full_name full_name_ar role_id branch_id must_change_password password_changed_at status phone last_login_at failed_login_count locked_until created_at created_by mfa_failed_count mfa_locked_until recovery_codes_generated_at recovery_codes_acknowledged_at'),
+    secret: words('password_hash webauthn_user_handle'),
+  },
+  // ── Second factor (Phase 2fa): ids, nicknames, dates and flags are SAFE; keys, hashes and challenges are SECRET.
+  webauthn_credentials: {
+    safe: words('id user_id credential_id sign_count transports nickname device_type backed_up uv_at_registration created_at last_used_at revoked_at revoked_reason'),
+    secret: words('public_key'),
+  },
+  webauthn_challenges: { safe: words('id purpose user_id session_id pending_id rp_id origin nickname created_at expires_at consumed_at'), secret: words('challenge_hash') },
+  login_pending: { safe: words('user_id ip_address user_agent created_at expires_at consumed_at'), secret: words('token_hash') },
+  recovery_codes: { safe: words('id user_id generated_at used_at invalidated_at'), secret: words('code_hash') },
+  sign_in_events: { safe: words('id user_id session_id method credential_id credential_nickname browser ip_approx uv new_device at dismissed_at') },
   // ── Branch money ledger (Phase 2b): money flows of the branch, visible to its manager.
   ledger_accounts: { safe: words('id branch_id kind created_at') },
   ledger_entries: { safe: words('id account_id branch_id amount event_type payment_method ref_type ref_id ref_number reverses_entry_id actor_id session_id idempotency_key note at') },
@@ -181,6 +197,9 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     customerIdRef hasadReceivable posPaymentMethods brokenScrap pureMg24 brokenScrapPureMg24 itemsPureMg24 totalPureMg24 weightByKarat
     settlementCount purchaseNumber supplierName origin scrapRates byKarat balanceMg createdByName toleranceBp
     summary value itemsWeightMg brokenScrapWeightMg totalWeightMg stockWeight items settlements
+    secondFactor required enrollmentRequired passkeys recoveryCodesRemaining recoveryCodesAcknowledged userVerification
+    method requiredRoles signInMethod newDeviceAlert credentialNickname browser ipApprox uv newDevice nickname lastUsedAt
+    uvAtRegistration backedUp deviceType methods expiresAt codes generatedAt validForMinutes revoked changed
     backup backupAgeHours verifyAgeHours maxAgeHours maxVerifyAgeDays reasons
     goldOwedMgPure24 owedAfterMgPure24 goldDebtMgPure24 settledKarat settledWeightMg settledPureMg24 bankReference hasadReceivableToBank hasadReceivableBalance
     scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates
@@ -207,6 +226,24 @@ export const OPAQUE_CONTAINERS: ReadonlySet<string> = new Set([
   'completion',
   'cancellation',
   'filters',
+  // Phase 2fa: standard WebAuthn ceremony options (rp, user, challenge, allowCredentials…), sent only
+  // by the …/options routes; never secrets of the server (the challenge is hashed at rest).
+  'options',
+]);
+
+/**
+ * Phase 2fa: field names that must NEVER appear in any API response, for any role (the camelCase of
+ * every SECRET column, plus the obvious aliases). The response sweep fails on any of them.
+ */
+export const SECRET_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
+  'passwordHash',
+  'webauthnUserHandle',
+  'publicKey',
+  'credentialPublicKey',
+  'challengeHash',
+  'codeHash',
+  'pendingToken',
+  'tokenHash',
 ]);
 
 /** Keys that are data, not field names: karats ("21"), codes (KRT, CASHIER), setting keys, series ids (b3). */
@@ -224,7 +261,7 @@ export interface FieldFinding {
   /** JSON path, e.g. ".rows[3].totalCost" or ".columns[5](key=grossProfit)". */
   path: string;
   name: string;
-  kind: 'COST' | 'UNCLASSIFIED';
+  kind: 'COST' | 'UNCLASSIFIED' | 'SECRET';
 }
 
 /**
@@ -251,6 +288,7 @@ export function scanResponse(body: unknown): FieldFinding[] {
     if (!v || typeof v !== 'object') return;
     for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
       const p = `${path}.${k}`;
+      if (SECRET_RESPONSE_FIELDS.has(k)) out.push({ path: p, name: k, kind: 'SECRET' });
       const cls = classifyResponseField(k);
       // An audit parameter already replaced by the redaction marker carries no value.
       const redacted = !!x && typeof x === 'object' && (x as { hidden?: unknown }).hidden === true && Object.keys(x).length === 1;

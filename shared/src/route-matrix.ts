@@ -55,6 +55,11 @@ const r = (method: HttpMethod, path: string, scope: RouteScope, extra: Omit<Rout
 export const ROUTE_MATRIX: readonly RouteRule[] = [
   // ── public
   r('POST', '/auth/login', 'public'),
+  // Second step of sign-in (Phase 2fa): only usable with the short-lived pending-login cookie.
+  r('POST', '/auth/login/passkey/options', 'public'),
+  r('POST', '/auth/login/passkey/verify', 'public'),
+  r('POST', '/auth/login/recovery', 'public'),
+  r('POST', '/auth/login/cancel', 'public'),
   r('GET', '/meta', 'public'),
   r('GET', '/health', 'public'),
   r('GET', '/branding/logo', 'public'),
@@ -64,6 +69,20 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/auth/logout', 'self'),
   r('POST', '/auth/change-password', 'self'),
   r('POST', '/auth/reauth', 'self'),
+  // Passkeys and recovery codes (own account). Removing a passkey needs password + passkey step-up.
+  r('POST', '/auth/reauth/passkey/options', 'self'),
+  r('POST', '/auth/reauth/passkey/verify', 'self'),
+  r('GET', '/auth/passkeys', 'self'),
+  r('POST', '/auth/passkeys/register/options', 'self'),
+  r('POST', '/auth/passkeys/register/verify', 'self'),
+  r('DELETE', '/auth/passkeys/:id', 'self', { reauth: true }),
+  r('POST', '/auth/recovery-codes', 'self'),
+  r('POST', '/auth/recovery-codes/acknowledge', 'self'),
+  r('GET', '/auth/sign-ins', 'self'),
+  r('POST', '/auth/sign-ins/:id/dismiss', 'self'),
+  r('POST', '/auth/sign-ins/:id/not-me', 'self'),
+  // Second-factor policy (user verification, required roles): password + passkey step-up.
+  r('PUT', '/security/second-factor', 'global', { all: ['settings.manage'], reauth: true }),
   r('POST', '/sessions/heartbeat', 'self'),
   r('GET', '/notifications', 'self'),
 

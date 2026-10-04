@@ -8,6 +8,8 @@
 // retired with a plain forward migration (docs/decisions.md D-2a-1).
 
 import {
+  SIGN_IN_METHODS,
+  WEBAUTHN_CHALLENGE_PURPOSES,
   BACKUP_RUN_KINDS,
   BACKUP_RUN_STATUSES,
   BRANDING_ASSET_KINDS,
@@ -94,6 +96,9 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   e('ledger_entries', 'event_type', LEDGER_EVENT_TYPES),
   e('ledger_entries', 'payment_method', PAYMENT_METHODS, true),
   // ── Phase 4
+  e('sessions', 'sign_in_method', SIGN_IN_METHODS),
+  e('sign_in_events', 'method', SIGN_IN_METHODS),
+  e('webauthn_challenges', 'purpose', WEBAUTHN_CHALLENGE_PURPOSES),
   e('backup_runs', 'kind', BACKUP_RUN_KINDS),
   e('backup_runs', 'status', BACKUP_RUN_STATUSES),
   e('scrap_purchases', 'kind', SCRAP_KINDS),
@@ -181,6 +186,11 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   { name: 'ck_purchases_making_charge_paid', table: 'purchases', expr: '(making_charge_paid IS NULL) = (making_charge_paid_from IS NULL) AND coalesce(making_charge_paid, 0) >= 0' },
   // ── Phase 4 follow-up: Hasad receivable settled by bank transfer
   { name: 'ck_hasad_receivable_settlements_amount_positive', table: 'hasad_receivable_settlements', expr: 'amount > 0' },
+  // ── Phase 2fa: passkeys
+  { name: 'ck_webauthn_challenges_binding', table: 'webauthn_challenges', expr: '(session_id IS NOT NULL) <> (pending_id IS NOT NULL)' },
+  { name: 'ck_webauthn_credentials_nickname', table: 'webauthn_credentials', expr: 'length(btrim(nickname)) BETWEEN 1 AND 60' },
+  { name: 'ck_webauthn_credentials_sign_count_nonneg', table: 'webauthn_credentials', expr: 'sign_count >= 0' },
+  { name: 'ck_users_mfa_failed_count_nonneg', table: 'users', expr: 'mfa_failed_count >= 0' },
   // ── Phase 2c: backups
   { name: 'ck_backup_runs_size_nonneg', table: 'backup_runs', expr: 'size_bytes IS NULL OR size_bytes >= 0' },
   { name: 'ck_backup_runs_finished_after_start', table: 'backup_runs', expr: 'finished_at >= started_at' },

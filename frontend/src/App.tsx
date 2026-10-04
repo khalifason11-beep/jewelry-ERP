@@ -30,6 +30,7 @@ import { SessionsPage } from './pages/admin/SessionsPage';
 import { AuditPage } from './pages/admin/AuditPage';
 import { SettingsPage } from './pages/admin/SettingsPage';
 import { MyActivityPage } from './pages/MyActivityPage';
+import { EnrollPage, SecurityPage } from './pages/SecurityPage';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { me, loading } = useAuth();
@@ -37,6 +38,8 @@ function RequireAuth({ children }: { children: ReactNode }) {
   if (loading) return <Loading className="h-screen" />;
   if (!me) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   if (me.user.mustChangePassword) return <Navigate to="/change-password" replace />;
+  // A required role without a passkey and saved recovery codes can do nothing else (D-2fa-3).
+  if (me.secondFactor?.enrollmentRequired) return <Navigate to="/security/setup" replace />;
   return <>{children}</>;
 }
 
@@ -73,6 +76,7 @@ export function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/change-password" element={<ChangePasswordPage />} />
+        <Route path="/security/setup" element={<EnrollPage />} />
         <Route
           element={
             <RequireAuth>
@@ -86,6 +90,7 @@ export function App() {
           <Route path="hasad/:id" element={<Guard any={['hasad.process', 'hasad.view']}><HasadWorkspacePage /></Guard>} />
           <Route path="hasad-simulator" element={<Guard perm="hasad.simulate"><HasadSimulatorPage /></Guard>} />
           <Route path="me" element={<MyActivityPage />} />
+          <Route path="security" element={<SecurityPage />} />
           <Route path="overview" element={<Guard perm="dashboard.company"><CompanyDashboardPage /></Guard>} />
           <Route path="dashboard" element={<Guard perm="dashboard.branch"><BranchDashboardPage /></Guard>} />
           <Route path="branches" element={<Guard perm="scope.all_branches"><BranchesPage /></Guard>} />

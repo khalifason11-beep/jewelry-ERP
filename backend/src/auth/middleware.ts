@@ -5,6 +5,7 @@ import { AppError, unauthorized } from '../core/errors';
 import { resolveSession, touchSession } from '../modules/sessions/service';
 import { t } from '@jerp/database';
 import { eq } from 'drizzle-orm';
+import { factorState } from './second-factor';
 
 export function clientIp(req: Request): string {
   const ip = req.ip ?? req.socket.remoteAddress ?? '';
@@ -27,9 +28,16 @@ export function authenticate(ctx: Ctx, config: Config) {
     await touchSession(ctx, resolved.session, module, Number.isFinite(idleMs) ? idleMs : 0);
     const [u] = await ctx.db.select({ m: t.users.mustChangePassword }).from(t.users).where(eq(t.users.id, resolved.actor.userId));
     req.mustChangePassword = !!u?.m;
+    const { security } = await ctx.settings.get();
+    if ((security.twoFactorRequiredRoles as string[]).includes(resolved.actor.roleCode)) {
+      req.enrollmentRequired = (await factorState(ctx.db, resolved.actor.userId, resolved.actor.roleCode, security)).enrollmentRequired;
+    }
     next();
   };
 }
+
+export const enrollmentRequired = () =>
+  new AppError(403, 'SECOND_FACTOR_ENROLLMENT_REQUIRED', 'Register a passkey for this device and save your recovery codes before continuing');
 
 /** Require an authenticated user. Users with a forced password change may only reach /auth. */
 export function requireAuth(req: Request, _res: Response, next: NextFunction) {
@@ -37,5 +45,6 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   if (req.mustChangePassword && !req.originalUrl.startsWith('/api/auth/')) {
     return next(new AppError(403, 'PASSWORD_CHANGE_REQUIRED', 'You must set a new password before continuing'));
   }
+  if (req.enrollmentRequired && !req.originalUrl.startsWith('/api/auth/')) return next(enrollmentRequired());
   next();
 }

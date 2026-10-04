@@ -2,6 +2,7 @@
 //
 //   npm run ops -w @jerp/backend -- unlock --username <user>
 //   npm run ops -w @jerp/backend -- reset-gm-password --username <gm user>
+//   npm run ops -w @jerp/backend -- reset-second-factor --username <user> --confirm
 //
 // It targets the database configured in the environment (DATABASE_URL). It refuses to run unless
 // APP_MODE=production, so a demo database is never touched by mistake; pass --allow-non-production
@@ -12,20 +13,25 @@ import { parseArgs } from 'node:util';
 import { config } from './config';
 import { createContext, openDatabase } from './bootstrap';
 import { productionConfigProblems } from './core/startup';
-import { operatorResetGmPassword, operatorUnlock } from './modules/ops/service';
+import { operatorResetGmPassword, operatorResetSecondFactor, operatorUnlock } from './modules/ops/service';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     username: { type: 'string' },
     'allow-non-production': { type: 'boolean', default: false },
+    confirm: { type: 'boolean', default: false },
   },
   strict: true,
 });
 
 const command = positionals[0];
-if (!['unlock', 'reset-gm-password'].includes(command ?? '') || !values.username) {
-  console.error('Usage: npm run ops -w @jerp/backend -- <unlock|reset-gm-password> --username <user> [--allow-non-production]');
+if (!['unlock', 'reset-gm-password', 'reset-second-factor'].includes(command ?? '') || !values.username) {
+  console.error('Usage: npm run ops -w @jerp/backend -- <unlock|reset-gm-password|reset-second-factor> --username <user> [--confirm] [--allow-non-production]');
+  process.exit(2);
+}
+if (command === 'reset-second-factor' && !values.confirm) {
+  console.error('reset-second-factor revokes every passkey and recovery code of the user and ends their sessions. Run it again with --confirm to proceed.');
   process.exit(2);
 }
 if (config.appMode !== 'production' && !values['allow-non-production']) {
@@ -45,6 +51,10 @@ try {
   if (command === 'unlock') {
     const r = await operatorUnlock(ctx, values.username, operator);
     console.log(`Sign-in lock of "${r.username}" lifted (audited as operator-cli from ${operator.osUser}@${operator.host}).`);
+  } else if (command === 'reset-second-factor') {
+    const r = await operatorResetSecondFactor(ctx, values.username, operator);
+    console.log(`Second factor of "${r.username}" reset: ${r.revoked} passkey(s) revoked, ${r.recoveryCodesInvalidated} recovery code(s) invalidated, sessions ended (audited as operator-cli from ${operator.osUser}@${operator.host}).`);
+    console.log('At the next sign-in (password only) the user must register a new passkey and new recovery codes. If the password may be known to someone else, run reset-gm-password too.');
   } else {
     const r = await operatorResetGmPassword(ctx, values.username, operator);
     console.log(`Password of "${r.username}" reset; all sessions ended (audited as operator-cli from ${operator.osUser}@${operator.host}).`);

@@ -156,6 +156,16 @@ export type SessionStatus = (typeof SESSION_STATUSES)[number];
 /** Derived (display) session state, computed from last activity. */
 export type SessionPresence = 'ACTIVE' | 'IDLE' | 'ENDED';
 
+/** Second factor (Phase 2fa): how a sign-in was completed; which roles may be forced to use it. */
+export const SIGN_IN_METHODS = ['PASSWORD', 'PASSKEY', 'RECOVERY_CODE'] as const;
+export type SignInMethod = (typeof SIGN_IN_METHODS)[number];
+export const TWO_FACTOR_ROLES = ['GENERAL_MANAGER', 'BRANCH_MANAGER'] as const;
+export type TwoFactorRole = (typeof TWO_FACTOR_ROLES)[number];
+export const WEBAUTHN_UV_VALUES = ['required', 'preferred'] as const;
+export type WebauthnUv = (typeof WEBAUTHN_UV_VALUES)[number];
+export const WEBAUTHN_CHALLENGE_PURPOSES = ['REGISTER', 'LOGIN', 'STEPUP'] as const;
+export type WebauthnChallengePurpose = (typeof WEBAUTHN_CHALLENGE_PURPOSES)[number];
+
 export const USER_STATUSES = ['ACTIVE', 'DISABLED'] as const;
 export type UserStatus = (typeof USER_STATUSES)[number];
 
@@ -198,6 +208,19 @@ export const AUDIT_ACTIONS = [
   'ACCOUNT_LOCKED',
   'USER_UNLOCKED',
   'REAUTHENTICATED',
+  // Passkeys / second factor (Phase 2fa)
+  'PASSKEY_REGISTERED',
+  'PASSKEY_REMOVED',
+  'SECOND_FACTOR_FAILED',
+  'SECOND_FACTOR_LOCKED',
+  'SIGN_COUNT_REGRESSION',
+  'RECOVERY_CODES_GENERATED',
+  'RECOVERY_CODES_ACKNOWLEDGED',
+  'RECOVERY_CODE_USED',
+  'SECOND_FACTOR_RESET',
+  'SIGN_IN_ALERT_DISMISSED',
+  'ACCOUNT_SECURED',
+  'SECURITY_SETTING_CHANGED',
   'REAUTH_FAILED',
   'BOOTSTRAP_COMPLETED',
   'BRANDING_CHANGED',

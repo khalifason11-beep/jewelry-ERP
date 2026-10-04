@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { SettlementBasis } from './settlement';
-import { PAYMENT_METHODS, type PaymentMethod } from './enums';
+import { PAYMENT_METHODS, TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, type PaymentMethod, type TwoFactorRole, type WebauthnUv } from './enums';
 
 export type HasadRateSource =
   /** weight-averaged gold rate of the karats of the selected items */
@@ -95,6 +95,14 @@ export interface SystemSettings {
     lockoutBaseMinutes: number;
     /** … up to this cap. */
     lockoutMaxMinutes: number;
+    /**
+     * Passkeys (D-2fa-3): "required" = every registration and sign-in must prove user verification
+     * (fingerprint, face or PIN); "preferred" = asked for but not enforced (USB keys without a PIN).
+     * Changed only through the dedicated step-up flow, never through the generic settings form.
+     */
+    webauthnUserVerification: WebauthnUv;
+    /** Roles that must sign in with a second factor (passkey or recovery code). Same dedicated flow. */
+    twoFactorRequiredRoles: TwoFactorRole[];
   };
   backup: {
     /** Warn when the last successful backup is older than this (hours). */
@@ -162,6 +170,8 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     lockoutThreshold: 5,
     lockoutBaseMinutes: 15,
     lockoutMaxMinutes: 60,
+    webauthnUserVerification: 'required',
+    twoFactorRequiredRoles: ['GENERAL_MANAGER'],
   },
   backup: {
     maxAgeHours: 26,
@@ -195,6 +205,8 @@ export interface SettingDef {
   schema: z.ZodType;
   /** Only meaningful (and only editable) in APP_MODE=demo. */
   demoOnly?: boolean;
+  /** Changed only through a dedicated flow (password + passkey), refused by the generic settings form. */
+  guarded?: boolean;
 }
 
 /** Every setting, keyed by "group.field". The value schema is the only validation path. */
@@ -244,6 +256,14 @@ export const SETTINGS_REGISTRY = {
   'security.lockoutThreshold': { schema: int(3, 20) },
   'security.lockoutBaseMinutes': { schema: int(1, 24 * 60) },
   'security.lockoutMaxMinutes': { schema: int(1, 24 * 60) },
+  'security.webauthnUserVerification': { schema: z.enum(WEBAUTHN_UV_VALUES), guarded: true },
+  'security.twoFactorRequiredRoles': {
+    schema: z
+      .array(z.enum(TWO_FACTOR_ROLES))
+      .max(TWO_FACTOR_ROLES.length)
+      .refine((a) => new Set(a).size === a.length, 'Duplicate role'),
+    guarded: true,
+  },
   'backup.maxAgeHours': { schema: int(1, 24 * 14) },
   'backup.maxVerifyAgeDays': { schema: int(1, 90) },
   'mockHasad.latencyMs': { schema: int(0, 10_000), demoOnly: true },

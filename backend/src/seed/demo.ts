@@ -16,6 +16,7 @@ import {
 } from '@jerp/shared';
 import type { Actor, Ctx } from '../core/context';
 import { writeAudit } from '../core/audit';
+import { config } from '../config';
 import { nextNumber } from '../core/numbering';
 import { addDays, dayKey, dayStart } from '../core/time';
 import { hashPassword } from '../auth/password';
@@ -45,7 +46,7 @@ function mulberry32(seed: number) {
   };
 }
 
-export async function seedDemo(ctx: Ctx, now = new Date()) {
+export async function seedDemo(ctx: Ctx, now = new Date(), opts: { twoFactor?: boolean } = {}) {
   const rand = mulberry32(20260923);
   const between = (a: number, b: number) => a + rand() * (b - a);
   const int = (a: number, b: number) => Math.floor(between(a, b + 1));
@@ -95,8 +96,11 @@ export async function seedDemo(ctx: Ctx, now = new Date()) {
       'hasad.enabledPerBranch': Object.fromEntries(BRANCHES.map((b) => [b.code, true])),
       // This client sells 21K only (D-4-1). Broken scrap of any karat is still bought.
       'inventory.allowedKarats': [21],
+      // Demo: no second factor by default, so the login page and the demo script keep working
+      // (D-2fa-10). DEMO_TWO_FACTOR=true keeps it required for the General Manager (testing).
+      'security.twoFactorRequiredRoles': (opts.twoFactor ?? config.demoTwoFactor) ? ['GENERAL_MANAGER'] : [],
     },
-    { actor: { id: null, username: 'demo-seed' }, allowDemoOnly: true },
+    { actor: { id: null, username: 'demo-seed' }, allowDemoOnly: true, allowGuarded: true },
   );
 
   // ───────── branches & users ─────────

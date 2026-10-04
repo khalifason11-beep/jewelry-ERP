@@ -89,6 +89,15 @@ export const users = pgTable('users', {
   lockedUntil: ts('locked_until'),
   createdAt: createdAt(),
   createdBy: integer('created_by'),
+  // ── Second factor (Phase 2fa)
+  /** Random WebAuthn user handle (never the database id or the username). */
+  webauthnUserHandle: text('webauthn_user_handle').unique(),
+  /** Consecutive failed second-factor attempts (same reserve-then-verify lockout as passwords). */
+  mfaFailedCount: integer('mfa_failed_count').notNull().default(0),
+  mfaLockedUntil: ts('mfa_locked_until'),
+  /** When the current set of recovery codes was generated, and when the user confirmed saving it. */
+  recoveryCodesGeneratedAt: ts('recovery_codes_generated_at'),
+  recoveryCodesAcknowledgedAt: ts('recovery_codes_acknowledged_at'),
 });
 
 export const sessions = pgTable(
@@ -115,8 +124,112 @@ export const sessions = pgTable(
     csrfToken: text('csrf_token'),
     /** Demo-only presence rows created by the seed (clearly labelled in the UI). */
     isSimulated: boolean('is_simulated').notNull().default(false),
+    /** Phase 2fa: how this session's sign-in was completed (PASSWORD, PASSKEY, RECOVERY_CODE). */
+    signInMethod: text('sign_in_method').notNull().default('PASSWORD'),
+    /** Last successful passkey step-up on this session, and whether it proved user verification. */
+    passkeyReauthAt: ts('passkey_reauth_at'),
+    passkeyReauthUv: boolean('passkey_reauth_uv'),
   },
   (t) => [index('sessions_user_idx').on(t.userId), index('sessions_status_idx').on(t.status)],
+);
+
+// ───────────────────────────── Second factor: passkeys (Phase 2fa) ─────────────────────────────
+
+/** A registered passkey (WebAuthn credential). Revocation is a soft flag; rows are never deleted. */
+export const webauthnCredentials = pgTable(
+  'webauthn_credentials',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id').notNull().references(() => users.id),
+    /** base64url credential id (public, chosen by the authenticator). */
+    credentialId: text('credential_id').notNull().unique(),
+    /** COSE public key, base64url. Never leaves the server. */
+    publicKey: text('public_key').notNull(),
+    signCount: bigint('sign_count', { mode: 'number' }).notNull().default(0),
+    transports: jsonb('transports'),
+    /** User-chosen label: "Shop PC", "Phone", "USB key 1". */
+    nickname: text('nickname').notNull(),
+    /** singleDevice / multiDevice (synced passkey). */
+    deviceType: text('device_type'),
+    backedUp: boolean('backed_up').notNull().default(false),
+    /** Did the authenticator prove user verification (fingerprint, face, PIN) when registered? */
+    uvAtRegistration: boolean('uv_at_registration').notNull(),
+    createdAt: createdAt(),
+    lastUsedAt: ts('last_used_at'),
+    revokedAt: ts('revoked_at'),
+    revokedReason: text('revoked_reason'),
+  },
+  (t) => [index('webauthn_credentials_user_idx').on(t.userId)],
+);
+
+/** Single-use ceremony challenges (stored hashed), bound to a session or a pending sign-in; 5 minutes. */
+export const webauthnChallenges = pgTable(
+  'webauthn_challenges',
+  {
+    id: serial('id').primaryKey(),
+    purpose: text('purpose').notNull(),
+    userId: integer('user_id').notNull().references(() => users.id),
+    sessionId: text('session_id'),
+    pendingId: text('pending_id'),
+    challengeHash: text('challenge_hash').notNull().unique(),
+    rpId: text('rp_id').notNull(),
+    origin: text('origin').notNull(),
+    nickname: text('nickname'),
+    createdAt: createdAt(),
+    expiresAt: ts('expires_at').notNull(),
+    consumedAt: ts('consumed_at'),
+  },
+  (t) => [index('webauthn_challenges_user_idx').on(t.userId, t.purpose)],
+);
+
+/** Password accepted, second factor pending: grants access to NO route; 5 minutes, single use. */
+export const loginPending = pgTable('login_pending', {
+  /** SHA-256 of the pending token (the raw token only lives in a short-lived cookie). */
+  tokenHash: text('token_hash').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  createdAt: createdAt(),
+  expiresAt: ts('expires_at').notNull(),
+  consumedAt: ts('consumed_at'),
+});
+
+/** Single-use recovery codes, argon2id-hashed. A new set invalidates the previous one. */
+export const recoveryCodes = pgTable(
+  'recovery_codes',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id').notNull().references(() => users.id),
+    codeHash: text('code_hash').notNull(),
+    generatedAt: ts('generated_at').notNull(),
+    usedAt: ts('used_at'),
+    invalidatedAt: ts('invalidated_at'),
+  },
+  (t) => [index('recovery_codes_user_idx').on(t.userId)],
+);
+
+/** Every successful sign-in (recent sign-ins card and new-device alert). */
+export const signInEvents = pgTable(
+  'sign_in_events',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id').notNull().references(() => users.id),
+    sessionId: text('session_id'),
+    method: text('method').notNull(),
+    credentialId: integer('credential_id').references(() => webauthnCredentials.id),
+    credentialNickname: text('credential_nickname'),
+    /** e.g. "Chrome on Windows" (from the user agent). */
+    browser: text('browser'),
+    /** Approximate address: IPv4 /24, IPv6 /48. */
+    ipApprox: text('ip_approx'),
+    /** Was user verification proved (null = password-only sign-in)? */
+    uv: boolean('uv'),
+    /** Credential or browser not seen for this user in the previous 30 days. */
+    newDevice: boolean('new_device').notNull().default(false),
+    at: ts('at').notNull().defaultNow(),
+    dismissedAt: ts('dismissed_at'),
+  },
+  (t) => [index('sign_in_events_user_idx').on(t.userId, t.at)],
 );
 
 // ───────────────────────────── Catalogue & inventory ─────────────────────────────

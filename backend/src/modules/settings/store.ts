@@ -47,6 +47,8 @@ export interface ApplyOptions {
   expectedVersions?: Partial<Record<string, number>>;
   /** Demo-only keys (mock Hasad) cannot be changed outside APP_MODE=demo. */
   allowDemoOnly?: boolean;
+  /** Guarded keys (second-factor policy) are applied only by their dedicated step-up flow, the seed or the first start. */
+  allowGuarded?: boolean;
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -104,8 +106,9 @@ export class SettingsStore {
     const parsed: Partial<Record<SettingKey, unknown>> = {};
     for (const key of keys) {
       if (!isSettingKey(key)) throw badRequest('Unknown setting: {key}', { key });
-      const def = SETTINGS_REGISTRY[key] as { schema: typeof SETTINGS_REGISTRY[SettingKey]['schema']; demoOnly?: boolean };
+      const def = SETTINGS_REGISTRY[key] as { schema: typeof SETTINGS_REGISTRY[SettingKey]['schema']; demoOnly?: boolean; guarded?: boolean };
       if (def.demoOnly && !opts.allowDemoOnly) throw forbidden('This setting is only available in the demo');
+      if (def.guarded && !opts.allowGuarded) throw forbidden('This setting is changed on the Security screen (password and passkey required)');
       const r = def.schema.safeParse(changes[key]);
       if (!r.success) throw badRequest('Invalid value for {field}', { field: key }, r.error.issues.map((i) => ({ path: [key, ...i.path].join('.'), code: i.code })));
       parsed[key] = r.data;

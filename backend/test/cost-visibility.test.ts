@@ -12,7 +12,7 @@ import { and, desc, eq, getTableColumns, getTableName, is } from 'drizzle-orm';
 import { PgTable } from 'drizzle-orm/pg-core';
 import { schema, t, type DatabaseHandle } from '@jerp/database';
 import { hasadMockTables } from '@jerp/hasad';
-import { COLUMN_CLASSES, COST_RESPONSE_FIELDS, REPORT_KEYS, ROUTE_MATRIX, routeId, scanResponse } from '@jerp/shared';
+import { COLUMN_CLASSES, COST_RESPONSE_FIELDS, SECRET_RESPONSE_FIELDS, REPORT_KEYS, ROUTE_MATRIX, routeId, scanResponse } from '@jerp/shared';
 import { createApp } from '../src/app';
 import { createContext } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
@@ -63,12 +63,13 @@ describe('1. every database column is classified COST or SAFE', () => {
       }
       const cost = new Set(cls.cost ?? []);
       const safe = new Set(cls.safe);
+      const secret = new Set(cls.secret ?? []);
       const columns = Object.values(getTableColumns(table as never) as Record<string, { name: string }>).map((c) => c.name);
       for (const c of columns) {
-        if (cost.has(c) && safe.has(c)) problems.push(`${name}.${c} is both COST and SAFE`);
-        if (!cost.has(c) && !safe.has(c)) problems.push(`${name}.${c} is not classified`);
+        if ([cost, safe, secret].filter((x) => x.has(c)).length > 1) problems.push(`${name}.${c} is in more than one class`);
+        if (!cost.has(c) && !safe.has(c) && !secret.has(c)) problems.push(`${name}.${c} is not classified`);
       }
-      for (const c of [...cost, ...safe]) if (!columns.includes(c)) problems.push(`${name}.${c} is classified but does not exist`);
+      for (const c of [...cost, ...safe, ...secret]) if (!columns.includes(c)) problems.push(`${name}.${c} is classified but does not exist`);
     }
     for (const name of Object.keys(COLUMN_CLASSES)) if (!seen.has(name)) problems.push(`table ${name} is classified but does not exist`);
     expect(problems, 'fix shared/src/field-classification.ts').toEqual([]);
@@ -80,6 +81,7 @@ describe('1. every database column is classified COST or SAFE', () => {
     for (const [table, cls] of Object.entries(COLUMN_CLASSES)) {
       for (const c of cls.cost ?? []) if (!COST_RESPONSE_FIELDS.has(camel(c))) problems.push(`${table}.${c} is COST but "${camel(c)}" is not a COST response field`);
       for (const c of cls.safe) if (COST_RESPONSE_FIELDS.has(camel(c))) problems.push(`${table}.${c} is SAFE but "${camel(c)}" is a COST response field`);
+      for (const c of cls.secret ?? []) if (!SECRET_RESPONSE_FIELDS.has(camel(c))) problems.push(`${table}.${c} is SECRET but "${camel(c)}" is not a SECRET response field`);
     }
     expect(problems).toEqual([]);
   });
@@ -144,6 +146,8 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /reports/:key': reportPaths,
       'GET /audit': ['/audit', '/audit?limit=5000'],
       'GET /backups/status': ['/backups/status'],
+      'GET /auth/passkeys': ['/auth/passkeys'],
+      'GET /auth/sign-ins': ['/auth/sign-ins'],
       'GET /cash/drawer': [`/cash/drawer?branchId=${krt.id}`],
       'GET /cash/reconciliation': [`/cash/reconciliation?branchId=${krt.id}`],
       'GET /hasad/simulator/customers': ['/hasad/simulator/customers'],
@@ -169,7 +173,8 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
         if (res.status !== 200) continue; // not permitted for this role (the matrix tests cover denials)
         ok++;
         for (const f of scanResponse(res.body)) {
-          if (f.kind === 'UNCLASSIFIED') unknown.push(`${rule} ${path} ${f.path}`);
+          if (f.kind === 'SECRET') leaks.push(`SECRET ${rule} ${path} ${f.path}`);
+          else if (f.kind === 'UNCLASSIFIED') unknown.push(`${rule} ${path} ${f.path}`);
           else if (role !== 'GENERAL_MANAGER') leaks.push(`${rule} ${path} ${f.path}`);
         }
       }

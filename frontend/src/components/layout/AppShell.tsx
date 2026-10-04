@@ -2,13 +2,14 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowLeftRight, BarChart3, Bell, Building2, ChevronsLeft, ChevronsRight, ClipboardList, Coins, FlaskConical, Gem, Globe, LayoutDashboard, LogOut, MonitorSmartphone, Package, Receipt, ScrollText, Settings, ShoppingCart, Truck, UserRound, Users, Wallet, Banknote, Recycle } from 'lucide-react';
+import { ArrowLeftRight, Fingerprint, BarChart3, Bell, Building2, ChevronsLeft, ChevronsRight, ClipboardList, Coins, FlaskConical, Gem, Globe, LayoutDashboard, LogOut, MonitorSmartphone, Package, Receipt, ScrollText, Settings, ShoppingCart, Truck, UserRound, Users, Wallet, Banknote, Recycle } from 'lucide-react';
 import type { Permission } from '@jerp/shared';
 import { get, post, setCurrentModule, translateParams } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { deviceText, money, relative } from '../../lib/format';
 import { useBranding } from '../../lib/branding';
 import { useI18n } from '../../lib/i18n';
+import { SecurityBanners } from '../../pages/SecurityPage';
 
 interface NavItem {
   to: string;
@@ -187,6 +188,7 @@ export function AppShell() {
           </div>
         </header>
         <main className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+          <SecurityBanners />
           <Outlet />
         </main>
       </div>
@@ -321,6 +323,9 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
           </div>
           <button onClick={() => { setOpen(false); navigate('/me'); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-[13px] hover:bg-canvas">
             <ClipboardList className="size-4 text-ink-500" /> {t('My Activity')}
+          </button>
+          <button onClick={() => { setOpen(false); navigate('/security'); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-[13px] hover:bg-canvas" data-testid="menu-security">
+            <Fingerprint className="size-4 text-ink-500" /> {t('Sign-in security')}
           </button>
           <button onClick={onLogout} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-[13px] text-rose-700 hover:bg-rose-50">
             <LogOut className="size-4" /> {t('Sign out')}

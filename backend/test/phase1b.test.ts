@@ -305,6 +305,22 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'POST /auth/logout': () => ({ path: '/auth/logout' }),
   'POST /auth/change-password': () => ({ path: '/auth/change-password', body: {} }),
   'POST /auth/reauth': () => ({ path: '/auth/reauth', body: {} }),
+  'POST /auth/login/passkey/options': () => ({ path: '/auth/login/passkey/options', body: {} }),
+  'POST /auth/login/passkey/verify': () => ({ path: '/auth/login/passkey/verify', body: {} }),
+  'POST /auth/login/recovery': () => ({ path: '/auth/login/recovery', body: {} }),
+  'POST /auth/login/cancel': () => ({ path: '/auth/login/cancel', body: {} }),
+  'POST /auth/reauth/passkey/options': () => ({ path: '/auth/reauth/passkey/options', body: { unexpected: 1 } }),
+  'POST /auth/reauth/passkey/verify': () => ({ path: '/auth/reauth/passkey/verify', body: {} }),
+  'GET /auth/passkeys': () => ({ path: '/auth/passkeys' }),
+  'POST /auth/passkeys/register/options': () => ({ path: '/auth/passkeys/register/options', body: {} }),
+  'POST /auth/passkeys/register/verify': () => ({ path: '/auth/passkeys/register/verify', body: {} }),
+  'DELETE /auth/passkeys/:id': () => ({ path: `/auth/passkeys/${NONE}` }),
+  'POST /auth/recovery-codes': () => ({ path: '/auth/recovery-codes', body: { unexpected: 1 } }),
+  'POST /auth/recovery-codes/acknowledge': () => ({ path: '/auth/recovery-codes/acknowledge', body: {} }),
+  'GET /auth/sign-ins': () => ({ path: '/auth/sign-ins' }),
+  'POST /auth/sign-ins/:id/dismiss': () => ({ path: `/auth/sign-ins/${NONE}/dismiss` }),
+  'POST /auth/sign-ins/:id/not-me': () => ({ path: `/auth/sign-ins/${NONE}/not-me` }),
+  'PUT /security/second-factor': () => ({ path: '/security/second-factor', body: {} }),
   'POST /sessions/heartbeat': () => ({ path: '/sessions/heartbeat' }),
   'GET /notifications': () => ({ path: '/notifications' }),
   'GET /branches': () => ({ path: '/branches' }),
@@ -443,7 +459,7 @@ async function send(agent: Agent | ReturnType<typeof request>, rule: RouteRule, 
   return r.body !== undefined ? q.send(r.body as object) : q;
 }
 const deniedByGuard = (res: request.Response) =>
-  res.status === 401 || (res.status === 403 && /^(Missing permission|Requires one of)/.test(res.body?.error?.key ?? ''));
+  (res.status === 401 && (res.body?.error?.code ?? 'UNAUTHORIZED') === 'UNAUTHORIZED') || (res.status === 403 && /^(Missing permission|Requires one of)/.test(res.body?.error?.key ?? ''));
 /** Any object in the payload that belongs to another branch. */
 function leaksBranch(body: unknown, omd: number): boolean {
   if (body == null || typeof body !== 'object') return false;

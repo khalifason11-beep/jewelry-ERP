@@ -9,6 +9,7 @@ import { currencyLabel, dateTime, humanize, money } from '../../lib/format';
 import { useBranches, useGoldRates } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
+import { errorText as apiErrorText } from '../../lib/api';
 import { Alert, Button, Card, CardHeader, Dialog, Field, Input, Loading, PageHeader, Select, Textarea } from '../../components/ui';
 
 interface SettingsResponse {
@@ -377,6 +378,8 @@ export function SettingsPage() {
           </div>
         </Card>
 
+        <SecondFactorCard />
+
         {isDemo && (
           <Card padded={false}>
             <CardHeader title={t('Mock Hasad Gold service')} subtitle={t('Demo controls for the simulated integration')} actions={saveBtn(['mockHasad.latencyMs', 'mockHasad.simulateOutage'])} />
@@ -478,6 +481,98 @@ function ScrapRatesCard() {
         >
           {t('Add')}
         </Button>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * Second factor rules (D-2fa-2, D-2fa-3): guarded settings, changed only here, with the password AND
+ * a fresh passkey. Switching user verification back to "required" needs a passkey that verified you.
+ */
+function SecondFactorCard() {
+  const { t } = useI18n();
+  const toast = useToast();
+  const { me, refresh } = useAuth();
+  const sf = me?.secondFactor;
+  const [uv, setUv] = useState<'required' | 'preferred'>(sf?.userVerification ?? 'required');
+  const [roles, setRoles] = useState<string[]>(sf?.requiredRoles ?? []);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (sf) {
+      setUv(sf.userVerification);
+      setRoles(sf.requiredRoles);
+    }
+  }, [sf?.userVerification, sf?.requiredRoles.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!sf) return null;
+  const dirty = uv !== sf.userVerification || roles.slice().sort().join(',') !== sf.requiredRoles.slice().sort().join(',');
+  const toggle = (r: string, on: boolean) => setRoles((cur) => (on ? [...new Set([...cur, r])] : cur.filter((x) => x !== r)));
+
+  const saveRules = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await put('/security/second-factor', {
+        ...(uv !== sf.userVerification ? { userVerification: uv } : {}),
+        ...(roles.slice().sort().join(',') !== sf.requiredRoles.slice().sort().join(',') ? { requiredRoles: roles } : {}),
+        ...(reason.trim() ? { reason: reason.trim() } : {}),
+      });
+      toast.success(t('Second-factor rules saved'), t('Recorded as SECURITY_SETTING_CHANGED in the audit log.'));
+      setReason('');
+      await refresh();
+    } catch (err) {
+      setError(apiErrorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const option = (value: 'required' | 'preferred', title: string, body: string) => (
+    <label className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${uv === value ? 'border-gold-500 bg-gold-50/50' : 'border-line'}`}>
+      <input type="radio" name="uv" className="mt-1 accent-gold-600" checked={uv === value} onChange={() => setUv(value)} data-testid={`uv-${value}`} />
+      <span>
+        <span className="block text-[13.5px] font-medium">{title}</span>
+        <span className="block text-[12.5px] leading-relaxed text-ink-500">{body}</span>
+      </span>
+    </label>
+  );
+
+  return (
+    <Card padded={false}>
+      <CardHeader
+        title={t('Second factor (passkeys)')}
+        subtitle={t('Changes need your password and your passkey, and are recorded in the audit log.')}
+        actions={
+          <Button size="sm" variant="primary" icon={<Save className="size-4" />} disabled={!dirty} loading={busy} onClick={saveRules} data-testid="save-second-factor">
+            {t('Save')}
+          </Button>
+        }
+      />
+      <div className="grid gap-4 p-5 lg:grid-cols-2">
+        <div className="grid gap-2">
+          <div className="text-[13px] font-semibold">{t('What a passkey must check')}</div>
+          {option('required', t('Fingerprint, face or PIN (recommended)'), t('The device must check who you are: Windows Hello, a phone, or a security key with a PIN. Someone who picks up the key cannot use it alone.'))}
+          {option('preferred', t('A touch is enough'), t('Also accepts simple USB keys that only need a touch. Anyone holding the key plus the password can sign in. Accepted risk: do not leave the key plugged in, buy two keys, and review this when branches are added.'))}
+        </div>
+        <div className="grid content-start gap-2">
+          <div className="text-[13px] font-semibold">{t('Who must use a passkey')}</div>
+          <label className="flex items-center gap-2 text-[13px]">
+            <input type="checkbox" className="size-4 accent-gold-600" checked={roles.includes('GENERAL_MANAGER')} onChange={(e) => toggle('GENERAL_MANAGER', e.target.checked)} data-testid="role-GENERAL_MANAGER" />
+            {t('General Manager')}
+          </label>
+          <label className="flex items-center gap-2 text-[13px]">
+            <input type="checkbox" className="size-4 accent-gold-600" checked={roles.includes('BRANCH_MANAGER')} onChange={(e) => toggle('BRANCH_MANAGER', e.target.checked)} data-testid="role-BRANCH_MANAGER" />
+            {t('Branch Manager')}
+          </label>
+          <div className="text-[12px] text-ink-500">{t('Cashiers never need one. A role added here must register a passkey at its next sign-in.')}</div>
+          {!roles.includes('GENERAL_MANAGER') && <Alert tone="danger">{t('Without a passkey for the General Manager, a stolen password alone opens the most powerful account.')}</Alert>}
+          <Field label={t('Reason (optional)')}>
+            <Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />
+          </Field>
+        </div>
+        {error && <div className="lg:col-span-2"><Alert tone="danger">{error}</Alert></div>}
       </div>
     </Card>
   );

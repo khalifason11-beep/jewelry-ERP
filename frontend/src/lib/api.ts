@@ -101,8 +101,13 @@ if (typeof window !== 'undefined') {
   }
 }
 
-/** Asks the user to confirm their password; resolves true when re-authenticated. */
-type ReauthHandler = () => Promise<boolean>;
+/** What the server still needs: the password, a passkey (users who have one), or both. */
+export interface ReauthNeeds {
+  password: boolean;
+  passkey: boolean;
+}
+/** Asks the user to confirm their password (and passkey); resolves true when re-authenticated. */
+type ReauthHandler = (needs: ReauthNeeds) => Promise<boolean>;
 let reauthHandler: ReauthHandler | null = null;
 export function setReauthHandler(h: ReauthHandler | null) {
   reauthHandler = h;
@@ -141,6 +146,12 @@ export async function api<T = unknown>(path: string, init: ApiInit = {}, retried
   return send<T>(path, init, retried);
 }
 
+function reauthNeeds(d: unknown): ReauthNeeds {
+  const x = (d ?? {}) as Partial<ReauthNeeds>;
+  if (typeof x.password !== 'boolean' && typeof x.passkey !== 'boolean') return { password: true, passkey: false };
+  return { password: !!x.password, passkey: !!x.passkey };
+}
+
 async function send<T>(path: string, init: ApiInit, retried: boolean): Promise<T> {
   let url = `/api${path}`;
   if (init.query) {
@@ -174,7 +185,7 @@ async function send<T>(path: string, init: ApiInit, retried: boolean): Promise<T
   if (!res.ok) {
     const err = new ApiError(res.status, data?.error?.code ?? 'ERROR', data?.error?.message ?? res.statusText, data?.error?.details, data?.error?.key, data?.error?.params);
     // The retry after re-authentication reuses the same Idempotency-Key: it is the same action.
-    if (err.code === 'REAUTH_REQUIRED' && reauthHandler && !retried && (await reauthHandler())) {
+    if (err.code === 'REAUTH_REQUIRED' && reauthHandler && !retried && (await reauthHandler(reauthNeeds(err.details)))) {
       return send<T>(path, init, true);
     }
     if (res.status === 401 || err.code === 'PASSWORD_CHANGE_REQUIRED') authListeners.forEach((l) => l(err));

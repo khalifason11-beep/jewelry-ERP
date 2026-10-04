@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, KeyRound, LogIn, ShieldCheck } from 'lucide-react';
-import { ApiError, errorText } from '../lib/api';
+import { Eye, EyeOff, Fingerprint, KeyRound, LogIn, ShieldCheck } from 'lucide-react';
+import { ApiError, errorText, post } from '../lib/api';
+import { getPasskey, PasskeyError, type PublicKeyCredentialRequestOptionsJSON } from '../lib/webauthn';
 import { useMeta } from '../lib/branding';
-import { homePath, useAuth } from '../lib/auth';
+import { homePath, useAuth, type Me, type PendingSignIn } from '../lib/auth';
 import { humanize } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { Alert, Button, Field, Input } from '../components/ui';
@@ -21,6 +22,7 @@ export function LoginPage() {
   const [show, setShow] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<PendingSignIn | null>(null);
   // Demo credentials come from the server and only in demo mode (never in production bundles).
   const meta = useMeta();
   const demoAccounts = meta.data?.demoAccounts ?? [];
@@ -33,6 +35,11 @@ export function LoginPage() {
     setError(null);
     try {
       const res = await login(username, password);
+      if ('status' in res) {
+        setPassword('');
+        setPending(res);
+        return;
+      }
       navigate(res.user.mustChangePassword ? '/change-password' : homePath(res), { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? errorText(err) : t('Sign-in failed'));
@@ -86,6 +93,10 @@ export function LoginPage() {
           <div className="lg:hidden mb-8 rounded-lg bg-ink-900 p-4">
             <Logo />
           </div>
+          {pending ? (
+            <SecondStep pending={pending} onBack={() => { setPending(null); setError(null); }} />
+          ) : (
+          <>
           <h2 className="text-2xl font-semibold tracking-tight text-ink-950">{t('Sign in')}</h2>
           <p className="mt-1 text-sm text-ink-500">{t('Use the account assigned to you by the General Manager.')}</p>
 
@@ -132,10 +143,106 @@ export function LoginPage() {
             </div>
           </div>
           )}
+          </>
+          )}
           <p className="mt-4 flex items-center gap-1.5 text-[11.5px] text-ink-400">
             <ShieldCheck className="size-3.5" /> {t('Passwords are stored as Argon2id hashes. Sign-ins are recorded in the audit log.')}
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Second step of the sign-in (Phase 2fa): the password was right; now the passkey (Windows Hello,
+ * a security key or the phone) or, if the device is lost, one recovery code.
+ */
+function SecondStep({ pending, onBack }: { pending: PendingSignIn; onBack: () => void }) {
+  const { t } = useI18n();
+  const { signedIn } = useAuth();
+  const navigate = useNavigate();
+  const [mode, setMode] = useState<'PASSKEY' | 'RECOVERY_CODE'>(pending.methods.includes('PASSKEY') ? 'PASSKEY' : 'RECOVERY_CODE');
+  const [code, setCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const done = (me: Me) => {
+    signedIn(me);
+    navigate(me.user.mustChangePassword ? '/change-password' : homePath(me), { replace: true });
+  };
+  const fail = (err: unknown) => {
+    if (err instanceof ApiError && err.code === 'LOGIN_PENDING_EXPIRED') {
+      onBack();
+      return;
+    }
+    setError(err instanceof ApiError || err instanceof PasskeyError ? errorText(err) : t('Sign-in failed'));
+  };
+
+  const withPasskey = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { options } = await post<{ options: PublicKeyCredentialRequestOptionsJSON }>('/auth/login/passkey/options');
+      const response = await getPasskey(options);
+      done(await post<Me>('/auth/login/passkey/verify', { response }));
+    } catch (err) {
+      fail(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const withCode = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      done(await post<Me>('/auth/login/recovery', { code }));
+    } catch (err) {
+      fail(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const cancel = async () => {
+    await post('/auth/login/cancel').catch(() => undefined);
+    onBack();
+  };
+
+  return (
+    <div data-testid="second-step">
+      <h2 className="text-2xl font-semibold tracking-tight text-ink-950">{t('Confirm it is you')}</h2>
+      <p className="mt-1 text-sm text-ink-500">{t('Your password is correct. Now confirm with your passkey: the fingerprint, face or PIN of this computer (Windows Hello), your security key, or your phone.')}</p>
+      {mode === 'PASSKEY' ? (
+        <div className="mt-7 space-y-4">
+          <Button variant="primary" size="lg" className="w-full" loading={busy} onClick={withPasskey} icon={<Fingerprint className="size-4" />} data-testid="use-passkey">
+            {t('Use my passkey')}
+          </Button>
+          {error && <Alert tone="danger">{error}</Alert>}
+          <button type="button" className="text-[13px] text-ink-600 underline-offset-2 hover:underline" onClick={() => { setMode('RECOVERY_CODE'); setError(null); }}>
+            {t('Lost your device? Use a recovery code')}
+          </button>
+        </div>
+      ) : (
+        <form onSubmit={withCode} className="mt-7 space-y-4">
+          <Field label={t('Recovery code')} hint={t('One of the 10 codes you saved when you set up your passkey. Each code works once.')}>
+            <Input autoFocus autoComplete="one-time-code" dir="ltr" className="font-mono tracking-wider" value={code} onChange={(e) => setCode(e.target.value)} placeholder="XXXXX-XXXXX" required data-testid="recovery-code" />
+          </Field>
+          {error && <Alert tone="danger">{error}</Alert>}
+          <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy} icon={<KeyRound className="size-4" />}>
+            {t('Sign in with the code')}
+          </Button>
+          {pending.methods.includes('PASSKEY') && (
+            <button type="button" className="text-[13px] text-ink-600 underline-offset-2 hover:underline" onClick={() => { setMode('PASSKEY'); setError(null); }}>
+              {t('Use my passkey instead')}
+            </button>
+          )}
+        </form>
+      )}
+      <div className="mt-6 border-t border-line pt-4">
+        <button type="button" className="text-[13px] text-ink-500 hover:text-ink-800" onClick={cancel}>
+          {t('Back to the password')}
+        </button>
       </div>
     </div>
   );

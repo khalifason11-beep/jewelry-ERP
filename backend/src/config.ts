@@ -18,9 +18,19 @@ function trustProxy(v: string | undefined): boolean | number | string {
   return v; // e.g. "loopback" or a CIDR list
 }
 
+const hostOf = (origin: string | undefined) => {
+  if (!origin) return undefined;
+  try {
+    return new URL(origin).hostname;
+  } catch {
+    return undefined;
+  }
+};
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const mode = appMode(env.APP_MODE);
   const production = mode === 'production';
+  const appOrigin = env.APP_ORIGIN || undefined;
   return {
     appMode: mode,
     production,
@@ -37,7 +47,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     dataDir: env.PGLITE_DIR ?? path.join(root, '.data', 'pglite'),
     frontendDist: path.join(root, 'frontend', 'dist'),
     /** Public origin of the SPA, e.g. https://erp.example.com (required in production). */
-    appOrigin: env.APP_ORIGIN || undefined,
+    appOrigin,
+    // ── Passkeys (Phase 2fa, D-2fa-2). Changing the RP ID (or the domain) invalidates every passkey.
+    /** WebAuthn relying-party id: a registrable suffix of APP_ORIGIN's host (default: that host). */
+    webauthnRpId: env.WEBAUTHN_RP_ID || hostOf(appOrigin),
+    /** Name shown by Windows Hello / the phone when registering. */
+    webauthnRpName: env.WEBAUTHN_RP_NAME || hostOf(appOrigin) || 'Jewelry ERP',
+    /** First-start-only initial values of the guarded second-factor settings (never read afterwards). */
+    webauthnUvInitial: env.WEBAUTHN_UV_INITIAL || undefined,
+    twoFactorRolesInitial: env.TWO_FACTOR_REQUIRED_ROLES_INITIAL,
+    /** Demo only: keep the second factor required for the General Manager (testing the passkey flow). */
+    demoTwoFactor: env.DEMO_TWO_FACTOR === 'true',
     /** `__Host-` prefix pins the cookie to this host over HTTPS (production only). */
     cookieName: production ? '__Host-jerp_session' : 'jerp_session',
     cookieSecure: production ? env.COOKIE_SECURE !== 'false' : env.COOKIE_SECURE === 'true',

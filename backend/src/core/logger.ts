@@ -6,7 +6,7 @@ import { config } from '../config';
 const LEVELS = { debug: 10, info: 20, warn: 30, error: 40, silent: 99 } as const;
 type Level = Exclude<keyof typeof LEVELS, 'silent'>;
 
-const SECRET_KEY = /pass(word)?|secret|token|cookie|authorization|pickup_?code|csrf|otp|totp|recovery/i;
+const SECRET_KEY = /pass(word)?|secret|token|cookie|authorization|pickup_?code|csrf|otp|totp|recovery|challenge|public_?key|code_?hash|user_?handle|attestation|signature|client_?data/i;
 
 /** Deep copy with secret-looking keys replaced by "[REDACTED]". */
 export function redact(value: unknown, depth = 0): unknown {

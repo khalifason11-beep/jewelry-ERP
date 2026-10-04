@@ -10,6 +10,8 @@ declare module 'express-serve-static-core' {
     actor?: Actor;
     sessionId?: string;
     mustChangePassword?: boolean;
+    /** Phase 2fa: required role without a passkey / confirmed recovery codes: only /auth/* is open. */
+    enrollmentRequired?: boolean;
   }
 }
 

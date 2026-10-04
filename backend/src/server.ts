@@ -8,6 +8,7 @@ import { demoCredentialsInUse, productionConfigProblems, runtimeRoleProblems, un
 import { releaseStaleReservations } from './modules/hasad/service';
 import { seedDemo } from './seed/demo';
 import { backfillDemoLedger } from './seed/ledger-backfill';
+import { applyInitialSecuritySettings, purgeExpiredSecondFactorState } from './modules/auth/passkeys';
 
 // ── Refuse unsafe production configurations before touching the database (security item 2).
 const problems = productionConfigProblems(config);
@@ -63,14 +64,21 @@ if (config.appMode === 'demo') {
   if (await isEmpty(ctx)) log.warn('no users yet: run `npm run bootstrap -w @jerp/backend` to create the first General Manager');
 }
 
+// Second-factor policy: the operator's initial values apply on the very first start only (D-2fa-4).
+const initial = await applyInitialSecuritySettings(ctx, { uv: config.webauthnUvInitial, roles: config.twoFactorRolesInitial });
+if (initial.length) log.info('second-factor settings initialised from the environment (first start)', { keys: initial.map((c) => c.key) });
+const { security: sec } = await ctx.settings.get();
+log.info('second factor', { rpId: config.webauthnRpId ?? '(demo: from each request)', userVerification: sec.webauthnUserVerification, requiredRoles: sec.twoFactorRequiredRoles });
+
 const app = createApp(ctx, config);
 app.listen(config.port, () => {
-  log.info('server started', { port: config.port, appMode: config.appMode, db: handle.driver, hasad: ctx.hasad.mode });
+  log.info('server started', { port: config.port, appMode: config.appMode, db: handle.driver, hasad: ctx.hasad.mode, webauthnRpId: config.webauthnRpId ?? '(from each request: demo without APP_ORIGIN)' });
 });
 
 // Background housekeeping.
 setInterval(() => {
   releaseStaleReservations(ctx).catch((e) => log.error('reservation sweep failed', { err: e }));
+  purgeExpiredSecondFactorState(ctx.db).catch((e) => log.error('second-factor sweep failed', { err: e }));
   if (config.appMode !== 'demo') return;
   // Demo presence: keep the clearly-labelled simulated sessions "alive" (except the idle example).
   ctx.db

@@ -27,6 +27,38 @@ export interface Me {
   posPaymentMethods: import('@jerp/shared').PaymentMethod[];
   /** Karats this deployment sells (setting inventory.allowedKarats). */
   allowedKarats: number[];
+  /** Second factor (passkeys) for this account (Phase 2fa). */
+  secondFactor: SecondFactor;
+}
+
+export interface SignInAlert {
+  id: number;
+  at: string;
+  browser: string | null;
+  credentialNickname: string | null;
+  ipApprox: string | null;
+  method: 'PASSWORD' | 'PASSKEY' | 'RECOVERY_CODE';
+}
+
+export interface SecondFactor {
+  /** The role must use a second factor (security.twoFactorRequiredRoles). */
+  required: boolean;
+  /** Nothing else is allowed until a passkey is registered and recovery codes are saved. */
+  enrollmentRequired: boolean;
+  passkeys: number;
+  recoveryCodesRemaining: number;
+  recoveryCodesAcknowledged: boolean;
+  userVerification: 'required' | 'preferred';
+  requiredRoles: string[];
+  signInMethod: 'PASSWORD' | 'PASSKEY' | 'RECOVERY_CODE';
+  newDeviceAlert: SignInAlert | null;
+}
+
+/** Password accepted; a passkey or a recovery code must follow within a few minutes. */
+export interface PendingSignIn {
+  status: 'SECOND_FACTOR_REQUIRED';
+  methods: ('PASSKEY' | 'RECOVERY_CODE')[];
+  expiresAt: string;
 }
 
 interface AuthCtx {
@@ -34,7 +66,9 @@ interface AuthCtx {
   loading: boolean;
   can: (p: Permission) => boolean;
   isGlobal: boolean;
-  login: (username: string, password: string) => Promise<Me>;
+  login: (username: string, password: string) => Promise<Me | PendingSignIn>;
+  /** Install the session returned by the second step of the sign-in. */
+  signedIn: (me: Me) => void;
   logout: () => Promise<void>;
   refresh: () => Promise<unknown>;
 }
@@ -74,6 +108,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [qc],
   );
 
+  const install = (res: Me) => {
+    setCsrfToken(res.csrfToken);
+    // Drop the previous user's cached data but keep the live `me` query observed by this provider.
+    qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
+    qc.setQueryData(['me'], res);
+  };
   const me = q.data ?? null;
   const perms = new Set(me?.user.permissions ?? []);
   const value: AuthCtx = {
@@ -82,13 +122,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     can: (p) => perms.has(p),
     isGlobal: perms.has('scope.all_branches'),
     login: async (username, password) => {
-      const res = await post<Me>('/auth/login', { username, password });
-      setCsrfToken(res.csrfToken);
-      // Drop the previous user's cached data but keep the live `me` query observed by this provider.
-      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
-      qc.setQueryData(['me'], res);
+      const res = await post<Me | PendingSignIn>('/auth/login', { username, password });
+      if ('status' in res) return res;
+      install(res);
       return res;
     },
+    signedIn: (res) => install(res),
     logout: async () => {
       try {
         await post('/auth/logout');

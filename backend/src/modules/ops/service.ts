@@ -3,7 +3,7 @@
 // a locked-out or forgotten GM would otherwise have nobody to help. Every action is audited with
 // the operator's host and OS user.
 
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import type { Ctx } from '../../core/context';
 import { writeAudit } from '../../core/audit';
@@ -70,4 +70,40 @@ export async function operatorResetGmPassword(ctx: Ctx, username: string, op: Op
     });
   });
   return { username: u.username, temporaryPassword };
+}
+
+/**
+ * Lost or stolen device (D-2fa-9): revoke every passkey of the user, invalidate the recovery codes,
+ * end all sessions and lift a second-factor lock. At the next sign-in the user must register a new
+ * passkey and new recovery codes. That sign-in is password-only, so reset the password as well when
+ * it may be known to someone else (reset-gm-password).
+ */
+export async function operatorResetSecondFactor(ctx: Ctx, username: string, op: OperatorInfo) {
+  const u = await findUser(ctx, username);
+  return ctx.db.transaction(async (tx) => {
+    const now = new Date();
+    const revoked = await tx
+      .update(t.webauthnCredentials)
+      .set({ revokedAt: now, revokedReason: 'Second factor reset from the operator console' })
+      .where(and(eq(t.webauthnCredentials.userId, u.id), isNull(t.webauthnCredentials.revokedAt)))
+      .returning({ id: t.webauthnCredentials.id });
+    const codes = await tx
+      .update(t.recoveryCodes)
+      .set({ invalidatedAt: now })
+      .where(and(eq(t.recoveryCodes.userId, u.id), isNull(t.recoveryCodes.usedAt), isNull(t.recoveryCodes.invalidatedAt)))
+      .returning({ id: t.recoveryCodes.id });
+    await tx.update(t.users).set({ recoveryCodesGeneratedAt: null, recoveryCodesAcknowledgedAt: null, mfaFailedCount: 0, mfaLockedUntil: null }).where(eq(t.users.id, u.id));
+    await endUserSessions(tx, u.id, 'Second factor reset from operator console');
+    await writeAudit(tx, null, {
+      action: 'SECOND_FACTOR_RESET',
+      entityType: 'user',
+      entityId: u.username,
+      branchId: u.branchId,
+      systemActor: ACTOR,
+      key: 'Operator console: second factor of {username} reset ({n} passkey(s) revoked, recovery codes invalidated); new enrollment required',
+      params: { username: u.username, n: revoked.length },
+      metadata: { ...op, recoveryCodesInvalidated: codes.length },
+    });
+    return { username: u.username, revoked: revoked.length, recoveryCodesInvalidated: codes.length };
+  });
 }

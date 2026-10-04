@@ -9,7 +9,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { EXPENSE_CATEGORIES, EXPENSE_PAYMENT_SOURCES, ITEM_ORIGINS, KARATS, PAYMENT_METHODS, SCRAP_KINDS, SCRAP_PAYMENT_METHODS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
+import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, EXPENSE_CATEGORIES, EXPENSE_PAYMENT_SOURCES, ITEM_ORIGINS, KARATS, PAYMENT_METHODS, SCRAP_KINDS, SCRAP_PAYMENT_METHODS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
@@ -34,6 +34,8 @@ import { publicBranding } from './modules/branding/service';
 import { LOGO_MAX_BYTES } from './modules/branding/image';
 import * as branches from './modules/branches/service';
 import * as ledger from './modules/ledger/service';
+import * as passkeys from './modules/auth/passkeys';
+import { relyingParty } from './auth/webauthn';
 import * as backups from './modules/backups/status';
 import * as scrap from './modules/scrap/service';
 import * as supplierSettlements from './modules/supplier-settlements/service';
@@ -83,11 +85,49 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   };
 
   // ─────────── public ───────────
+  // Pending sign-in (password accepted, second factor still to come): its own short-lived cookie,
+  // read ONLY by the /auth/login/* second-step routes; it opens no other route (D-2fa-5).
+  const pendingCookie = config.production ? '__Host-jerp_pending' : 'jerp_pending';
+  const setPendingCookie = (res: Response, token: string) =>
+    res.cookie(pendingCookie, token, { httpOnly: true, sameSite: 'strict', secure: config.cookieSecure, path: '/', maxAge: passkeys.PENDING_TTL_MS });
+  const clearPendingCookie = (res: Response) => res.clearCookie(pendingCookie, { httpOnly: true, sameSite: 'strict', secure: config.cookieSecure, path: '/' });
+  const pendingToken = (req: Request): string | undefined => req.cookies?.[pendingCookie];
+  const zWebauthnResponse = z.object({ id: z.string().min(1).max(1400), rawId: z.string().max(1400), type: z.literal('public-key') }).passthrough();
+
   route('POST', '/auth/login', async (req, res) => {
     const body = parse(z.object({ username: zText(64).min(1), password: z.string().min(1).max(128) }).strict(), req.body);
-    const s = await auth.login(ctx, { ...body, userAgent: req.header('user-agent'), ip: clientIp(req) });
+    const r = await auth.login(ctx, { ...body, userAgent: req.header('user-agent'), ip: clientIp(req) });
+    if (r.kind === 'PENDING') {
+      setPendingCookie(res, r.token);
+      res.json({ status: 'SECOND_FACTOR_REQUIRED', ...(await passkeys.pendingMethods(ctx, r.token)) });
+      return;
+    }
+    clearPendingCookie(res);
+    await setSessionCookie(res, r.token);
+    res.json(await auth.me(ctx, r.actor));
+  });
+  route('POST', '/auth/login/passkey/options', async (req, res) => {
+    parse(z.object({}).strict(), req.body ?? {});
+    res.json({ options: await passkeys.loginPasskeyOptions(ctx, pendingToken(req), relyingParty(config, req)) });
+  });
+  route('POST', '/auth/login/passkey/verify', async (req, res) => {
+    const body = parse(z.object({ response: zWebauthnResponse }).strict(), req.body);
+    const s = await passkeys.loginPasskeyVerify(ctx, pendingToken(req), body.response as never, { userAgent: req.header('user-agent'), ip: clientIp(req) });
+    clearPendingCookie(res);
     await setSessionCookie(res, s.token);
     res.json(await auth.me(ctx, s.actor));
+  });
+  route('POST', '/auth/login/recovery', async (req, res) => {
+    const body = parse(z.object({ code: z.string().min(1).max(40) }).strict(), req.body);
+    const s = await passkeys.loginRecoveryCode(ctx, pendingToken(req), body.code, { userAgent: req.header('user-agent'), ip: clientIp(req) });
+    clearPendingCookie(res);
+    await setSessionCookie(res, s.token);
+    res.json(await auth.me(ctx, s.actor));
+  });
+  route('POST', '/auth/login/cancel', async (req, res) => {
+    await passkeys.cancelPending(ctx, pendingToken(req));
+    clearPendingCookie(res);
+    res.json({ ok: true });
   });
 
   /** Public, non-sensitive app metadata for the login screen. Demo credentials only in demo mode. */
@@ -131,6 +171,45 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('POST', '/auth/reauth', async (req, res) => {
     const body = parse(z.object({ password: z.string().min(1).max(128) }).strict(), req.body);
     res.json(await auth.reauthenticate(ctx, actorOf(req), body.password));
+  });
+
+  // ─────────── passkeys, recovery codes, recent sign-ins (own account, Phase 2fa) ───────────
+  route('POST', '/auth/reauth/passkey/options', async (req, res) => {
+    parse(z.object({}).strict(), req.body ?? {});
+    res.json({ options: await passkeys.stepUpOptions(ctx, actorOf(req), relyingParty(config, req)) });
+  });
+  route('POST', '/auth/reauth/passkey/verify', async (req, res) => {
+    const body = parse(z.object({ response: zWebauthnResponse }).strict(), req.body);
+    res.json(await passkeys.stepUpVerify(ctx, actorOf(req), body.response as never));
+  });
+  route('GET', '/auth/passkeys', async (req, res) => res.json(await passkeys.listPasskeys(ctx, actorOf(req))));
+  route('POST', '/auth/passkeys/register/options', async (req, res) => {
+    const body = parse(z.object({ nickname: zText(60).min(1) }).strict(), req.body);
+    res.json({ options: await passkeys.registrationOptions(ctx, actorOf(req), body.nickname, relyingParty(config, req)) });
+  });
+  route('POST', '/auth/passkeys/register/verify', async (req, res) => {
+    const body = parse(z.object({ response: zWebauthnResponse }).strict(), req.body);
+    res.json(await passkeys.registrationVerify(ctx, actorOf(req), body.response as never));
+  });
+  route('DELETE', '/auth/passkeys/:id', async (req, res) => res.json(await passkeys.removePasskey(ctx, actorOf(req), parse(zId, req.params.id))));
+  route('POST', '/auth/recovery-codes', async (req, res) => {
+    parse(z.object({}).strict(), req.body ?? {});
+    res.json(await passkeys.generateRecoveryCodes(ctx, actorOf(req)));
+  });
+  route('POST', '/auth/recovery-codes/acknowledge', async (req, res) => res.json(await passkeys.acknowledgeRecoveryCodes(ctx, actorOf(req))));
+  route('GET', '/auth/sign-ins', async (req, res) => res.json(await passkeys.recentSignIns(ctx, actorOf(req))));
+  route('POST', '/auth/sign-ins/:id/dismiss', async (req, res) => res.json(await passkeys.dismissSignInAlert(ctx, actorOf(req), parse(zId, req.params.id))));
+  route('POST', '/auth/sign-ins/:id/not-me', async (req, res) => {
+    const r = await passkeys.notMe(ctx, actorOf(req), parse(zId, req.params.id));
+    res.clearCookie(config.cookieName, { path: '/', secure: config.cookieSecure, sameSite: 'lax', httpOnly: true });
+    res.json(r);
+  });
+  route('PUT', '/security/second-factor', async (req, res) => {
+    const body = parse(
+      z.object({ userVerification: z.enum(WEBAUTHN_UV_VALUES).optional(), requiredRoles: z.array(z.enum(TWO_FACTOR_ROLES)).max(TWO_FACTOR_ROLES.length).optional(), reason: zText(500).optional() }).strict(),
+      req.body,
+    );
+    res.json(await passkeys.updateSecondFactorPolicy(ctx, actorOf(req), body));
   });
 
   // ─────────── reference data ───────────

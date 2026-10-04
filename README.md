@@ -222,6 +222,22 @@ npm run ops -w @jerp/backend -- reset-gm-password --username <gm user>
 - Setup, schedules, off-site examples and the step-by-step restore are in [docs/DEPLOYMENT.md §7](docs/DEPLOYMENT.md).
   **The first restore drill must be done by a person before real data is entered.**
 
+### Passkeys: second sign-in factor (Phase 2fa)
+
+- The General Manager signs in with the **password, then a passkey**: Windows Hello (fingerprint, face or PIN) on
+  the shop PC, a USB FIDO2 security key, or a phone. Built on `@simplewebauthn/server` and `@simplewebauthn/browser`.
+- First sign-in: register a device and save **10 single-use recovery codes**; nothing else opens until both are done.
+  A banner asks for a second device until one exists. Screen: user menu → **Sign-in security** (passkeys, recovery
+  codes, last 10 sign-ins, phone instructions).
+- Sensitive actions ask for the password **and** the passkey (users who have one). New-device sign-ins raise an alert
+  with **"This wasn't me"** (ends every session, revokes the passkeys, forces a new password).
+- Settings → **Second factor**: who must use it (GM by default; Branch Manager optional; never cashiers) and what a
+  passkey must check (`required` = fingerprint/face/PIN, or `preferred` = a touch is enough). Changes need password + passkey.
+- Lost everything: `npm run ops -w @jerp/backend -- reset-second-factor --username <u> --confirm` (shell only).
+- **Demo:** no second factor by default. Start with `DEMO_TWO_FACTOR=true` to try it (works on `http://localhost`).
+  Browser check with a virtual authenticator: `scripts/e2e-passkeys.mjs`.
+- Setup, domain warning, hardware and the lost-device procedure: [docs/DEPLOYMENT.md §8](docs/DEPLOYMENT.md).
+
 ### Language
 
 The UI opens in Arabic (RTL) by default; the header switch toggles English. English source strings are the

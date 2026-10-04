@@ -7,6 +7,7 @@ import { findRouteRule, permitsRule, routeId, type HttpMethod, type RouteRule } 
 import type { Ctx } from './context';
 import { AppError, forbidden, unauthorized } from './errors';
 import { requireRecentReauth } from '../auth/reauth';
+import { enrollmentRequired } from '../auth/middleware';
 import { idempotency, idempotencyInTx } from './idempotency';
 
 export interface RouteRegistry {
@@ -23,6 +24,9 @@ export async function enforceRule(ctx: Ctx, rule: RouteRule, req: Request): Prom
   if (req.mustChangePassword && !req.path.startsWith('/auth/')) {
     throw new AppError(403, 'PASSWORD_CHANGE_REQUIRED', 'You must set a new password before continuing');
   }
+  // Phase 2fa: a required-role user without a passkey (or unconfirmed recovery codes) can only
+  // reach their own account routes until enrollment is complete (D-2fa-5).
+  if (req.enrollmentRequired && !req.path.startsWith('/auth/') && req.path !== '/sessions/heartbeat') throw enrollmentRequired();
   const has = (p: Parameters<typeof actor.permissions.has>[0]) => actor.permissions.has(p);
   if (!permitsRule(rule, has)) {
     const missing = rule.all?.find((p) => !has(p)) ?? (rule.scope === 'global' && !has('scope.all_branches') ? 'scope.all_branches' : undefined);
