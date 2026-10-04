@@ -7,7 +7,7 @@ import type { Permission } from '@jerp/shared';
 import { get, post, setCurrentModule, translateParams } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { deviceText, money, relative } from '../../lib/format';
-import { useBranding } from '../../lib/branding';
+import { useBranding, useMeta } from '../../lib/branding';
 import { useI18n } from '../../lib/i18n';
 import { SecurityBanners } from '../../pages/SecurityPage';
 
@@ -21,6 +21,7 @@ interface NavItem {
 
 export function Logo({ compact = false }: { compact?: boolean }) {
   const branding = useBranding();
+  const meta = useMeta();
   const { t, L } = useI18n();
   return (
     <div className="flex items-center gap-2.5">
@@ -34,7 +35,8 @@ export function Logo({ compact = false }: { compact?: boolean }) {
       {!compact && (
         <div className="min-w-0 leading-tight">
           <div className="truncate text-[14px] font-semibold text-white">{L(branding.company.nameEn, branding.company.nameAr)}</div>
-          <div className="text-[11px] tracking-wide text-gold-400/90">{t('ERP · Prototype')}</div>
+          {/* The "prototype" label is a demo marker only: never shown in production (D-print-9). */}
+          {meta.data?.appMode === 'demo' && <div className="text-[11px] tracking-wide text-gold-400/90">{t('ERP · Prototype')}</div>}
         </div>
       )}
     </div>

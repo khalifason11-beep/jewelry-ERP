@@ -82,6 +82,60 @@ async function exportPdf(page, file) {
   return { pdf, visible };
 }
 const printRootText = (page) => page.evaluate(() => document.getElementById('print-root')?.textContent ?? '');
+const FORBIDDEN = /making|prototype|tax invoice|المصنعية|نموذج أولي|ضريبية|cost|profit|تكلفة|ربح/i;
+const LONG_40 = 'طقم ذهب عيار 21 مشغول يدوياً بنقشة سودانية'.slice(0, 40);
+
+/** Replace product names in the NEXT print response (layout fixtures; the server data is otherwise untouched). */
+async function withNames(page, names) {
+  await page.route('**/api/sales/*/print', async (route) => {
+    const res = await route.fetch();
+    const body = await res.json();
+    names.forEach((n, i) => {
+      if (n && body.document.lines[i]) body.document.lines[i] = { ...body.document.lines[i], name: n, nameAr: n };
+    });
+    await route.fulfill({ response: res, json: body });
+    await page.unroute('**/api/sales/*/print');
+  });
+}
+
+/**
+ * Orphans in the print container (print media): a line of a multi-line text block that holds only one
+ * or two characters (e.g. "م" or "04" alone). Returns the offending tokens.
+ */
+async function orphans(page) {
+  await page.emulateMedia({ media: 'print' });
+  const found = await page.evaluate(() => {
+    const root = document.getElementById('print-root');
+    const out = [];
+    const blocks = new Map();
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (n.parentElement.closest('svg, style, [data-testid=print-ruler]')) continue;
+      let block = n.parentElement;
+      while (block !== root && getComputedStyle(block).display.startsWith('inline')) block = block.parentElement;
+      const lines = blocks.get(block) ?? new Map();
+      for (const m of n.data.matchAll(/\S+/g)) {
+        const r = document.createRange();
+        r.setStart(n, m.index);
+        r.setEnd(n, m.index + m[0].length);
+        for (const rect of r.getClientRects()) {
+          const top = Math.round(rect.top);
+          const key = [...lines.keys()].find((k) => Math.abs(k - top) <= 3) ?? top;
+          lines.set(key, (lines.get(key) ?? '') + m[0]);
+          break;
+        }
+      }
+      blocks.set(block, lines);
+    }
+    for (const [, lines] of blocks) {
+      if (lines.size < 2) continue;
+      for (const [, text] of lines) if (text.length <= 2) out.push(text);
+    }
+    return out;
+  });
+  // Stay in print media: switching back fires "afterprint", which empties the print container.
+  return found;
+}
 
 async function main() {
   const browser = await chromium.launch();
@@ -97,6 +151,7 @@ async function main() {
     await cashier.click('[data-testid=pos-print]');
     await cashier.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
     const text = await printRootText(cashier);
+    const footerShown = ((await cashier.locator('#print-root [data-testid=print-footer]').textContent()) ?? '').trim();
     check(/فاتورة/.test(text) && !/نسخة/.test(text), 'original invoice rendered in the print container (Arabic, no COPY mark)');
     check(!/cost|profit|تكلفة|ربح/i.test(text), 'no cost or profit on the printed invoice');
     check(await cashier.locator('#print-root svg[data-barcode] rect').count() > 10, 'Code128 barcode of the invoice number rendered as inline SVG');
@@ -106,6 +161,61 @@ async function main() {
     check(p1.length >= 1 && Math.abs(p1[0].w - 210) < 1 && Math.abs(p1[0].h - 297) < 1, `A4 page: ${p1[0].w.toFixed(1)} × ${p1[0].h.toFixed(1)} mm`);
     check(await cashier.getByTestId('pos-print').isDisabled(), 'the cashier cannot print it a second time (button disabled)');
     const saleNo = (text.match(/[A-Z]{3}-[A-Z0-9-]+/) ?? [''])[0];
+    const footer = (await api(cashier, 'GET', '/meta')).body.branding.invoiceFooterAr;
+    check(footer === 'شكراً لتسوقكم معنا', 'configured footer is the thank-you message');
+    check(footerShown === footer, 'footer area contains exactly the configured footer, nothing else');
+    check(!FORBIDDEN.test(text), 'no "making charges", "prototype" or "tax invoice" text anywhere on the invoice');
+
+    // ── A4: 5 lines, one discounted, one long description → header and cells share their alignment ──
+    const me = (await api(cashier, 'GET', '/auth/me')).body;
+    const stock = (await api(cashier, 'GET', `/inventory/items?branchId=${me.user.branch.id}&status=AVAILABLE&limit=20`)).body.items;
+    const five = stock.slice(0, 5);
+    const disc = Math.floor((five[2].sellingPrice * Math.max(1, me.maxDiscountPercent)) / 100 / 1000) * 1000 || 1000;
+    const sale5 = await api(cashier, 'POST', '/sales', { items: five.map((it, i) => ({ itemId: it.id, discount: i === 2 ? disc : 0 })), paymentMethod: 'CASH', customerName: 'عميل اختبار الطباعة' });
+    check(sale5.status === 200 && sale5.body.items.length === 5 && sale5.body.discountTotal > 0, `5-line sale ${sale5.body.number} with a discounted line`);
+    await withNames(cashier, [null, 'سوار ذهب عيار 21 مشغول يدوياً بنقشة سودانية تقليدية مع فصوص زركون وحجر كريم في الوسط — وصف طويل يجب أن يلتف داخل خانته']);
+    await cashier.goto(`${BASE}/sales/${sale5.body.id}`);
+    await cashier.getByTestId('sale-print').click();
+    await cashier.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
+    await cashier.emulateMedia({ media: 'print' });
+    const align = await cashier.evaluate(() => {
+      const table = document.querySelector('#print-root table');
+      const edge = (el) => {
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        const b = r.getBoundingClientRect();
+        return { left: b.left, right: b.right };
+      };
+      const heads = [...table.querySelectorAll('thead th')];
+      const rows = [...table.querySelectorAll('tbody tr')];
+      return heads.map((th, c) => ({
+        header: th.textContent,
+        align: getComputedStyle(th).textAlign,
+        cellAlign: rows.map((tr) => getComputedStyle(tr.children[c]).textAlign),
+        head: edge(th),
+        cells: rows.map((tr) => edge(tr.children[c])),
+        cellBox: rows.map((tr) => tr.children[c].getBoundingClientRect()),
+      }));
+    });
+    const numeric = align.slice(3); // net weight, price, discount, total (RTL: end = left edge)
+    const textual = align.slice(0, 3); // code, description, karat (RTL: start = right edge)
+    check(align.every((col) => col.cellAlign.every((a) => a === col.align)), 'every column: header and cells use the same text-align');
+    check(numeric.every((col) => col.cells.every((c) => Math.abs(c.left - col.head.left) < 1.5)), 'numeric columns (weight, price, discount, total): header and every value end on the same edge');
+    check(textual.every((col) => col.cells.every((c) => Math.abs(c.right - col.head.right) < 1.5)), 'text columns (code, description, karat): header and every value start on the same edge');
+    const wrap = await cashier.evaluate(() => {
+      const td = document.querySelectorAll('#print-root tbody tr td:nth-child(2)')[1];
+      const r = document.createRange();
+      r.selectNodeContents(td);
+      const tops = new Set([...r.getClientRects()].map((x) => Math.round(x.top)));
+      const box = td.getBoundingClientRect();
+      const text = r.getBoundingClientRect();
+      return { lines: tops.size, inside: text.left >= box.left - 1 && text.right <= box.right + 1 };
+    });
+    check(wrap.lines >= 2 && wrap.inside, `the long description wraps inside its own cell (${wrap.lines} lines)`);
+    const o0 = await orphans(cashier);
+    check(o0.length === 0, `A4 invoice: no code, karat, date or digit broken onto its own line${o0.length ? ` (found: ${o0.join(' | ')})` : ''}`);
+    const five4 = await exportPdf(cashier, 'invoice-A4-5-lines.pdf');
+    check(Math.abs(pages(five4.pdf)[0].w - 210) < 1, 'A4 PDF of the 5-line invoice exported');
 
     // ── GM: switch to a 72 mm receipt, reprint the same sale → COPY 1 ──
     const gm = await newPage(browser);
@@ -121,10 +231,16 @@ async function main() {
     const list = Array.isArray(sales) ? sales : sales.rows ?? sales.sales ?? [];
     const sale = list.find((s) => s.number === saleNo) ?? list[0];
     await gm.goto(`${BASE}/sales/${sale.id}`);
+    check(LONG_40.length === 40, 'fixture: a 40-character product name');
+    await withNames(gm, [LONG_40]);
     await gm.getByTestId('sale-print').click();
     await gm.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
     const rtext = await printRootText(gm);
-    check(/نسخة \/ COPY 1/.test(rtext) && /أُعيدت طباعتها/.test(rtext), 'reprint shows "نسخة / COPY 1" and the reprint date');
+    check(/نسخة \/ COPY 1/.test(rtext) && /أُعيدت طباعتها في \d{4}\/\d{2}\/\d{2} \d{2}:\d{2}/.test(rtext), 'reprint shows "نسخة / COPY 1" and the reprint date in the short numeric form');
+    check(/\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}/.test(rtext) && !/أكتوبر|يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|نوفمبر|ديسمبر/.test(rtext), 'receipt dates are numeric (no month names)');
+    check(rtext.includes(LONG_40), 'the 40-character product name is on the receipt');
+    const o1 = await orphans(gm);
+    check(o1.length === 0, `72 mm receipt: no orphaned token on its own line${o1.length ? ` (found: ${o1.join(' | ')})` : ''}`);
     check(!/cost|profit|تكلفة|ربح/i.test(rtext), 'no cost or profit on the GM’s reprint either');
     const css = await gm.evaluate(() => document.querySelector('#print-root style')?.textContent ?? '');
     check(/size: 72mm \d+mm; margin: 0;/.test(css), `receipt @page rule: ${css.trim()}`);
@@ -148,6 +264,8 @@ async function main() {
       return { left: r.left - p.left, right: p.right - r.right };
     });
     check(Math.abs(ruler.left) < 1 && Math.abs(ruler.right) < 1, 'the ruler spans exactly the printable width (edge to edge)');
+    const o2 = await orphans(gm);
+    check(o2.length === 0, `72 mm calibration page: no orphaned token${o2.length ? ` (found: ${o2.join(' | ')})` : ''}`);
     const cal = await exportPdf(gm, 'calibration-72mm.pdf');
     const p3 = pages(cal.pdf);
     check(p3.length === 1 && Math.abs(p3[0].w - 72) < 0.6, `calibration PDF: ${p3[0].w.toFixed(1)} × ${p3[0].h.toFixed(1)} mm`);

@@ -382,7 +382,6 @@ export const AR: Record<string, string> = {
   "No customers waiting for a Hasad withdrawal at this branch.": "لا يوجد عملاء بانتظار سحب حصاد في هذا الفرع.",
   "AT COUNTER": "في الكاونتر",
   "Entitlement · {karat}": "الاستحقاق · {karat}",
-  "Thank you for your purchase · Prices include making charges · Prototype document, not a tax invoice": "شكراً لتسوقكم معنا · الأسعار شاملة المصنعية · مستند نموذج أولي وليس فاتورة ضريبية",
   "Cancelled: {reason}": "ملغاة: {reason}",
   "Customer left — release": "العميل غادر: تحرير القطع",
   "Cancel request": "إلغاء الطلب",
@@ -1591,7 +1590,7 @@ export const AR: Record<string, string> = {
   "Reprint": "إعادة الطباعة",
   "Printed copies so far: {n}": "عدد النسخ المطبوعة حتى الآن: {n}",
   "COPY {n}": "نسخة / COPY {n}",
-  "Reprinted {date}": "أُعيدت طباعتها في {date}",
+  "Reprinted on": "أُعيدت طباعتها في",
   "Hasad transaction reference": "مرجع عملية حصاد",
   "Account": "الحساب",
   "Each code works once. Keep this sheet somewhere safe, away from the computer.": "كل رمز يعمل مرة واحدة. احفظ هذه الورقة في مكان آمن بعيداً عن الكمبيوتر.",
@@ -1609,4 +1608,5 @@ export const AR: Record<string, string> = {
   "{username} reprinted invoice {number} (copy {n})": "{username} أعاد طباعة الفاتورة {number} (نسخة {n})",
   "INVOICE_REPRINTED": "إعادة طباعة فاتورة",
   "Reprint an invoice (marked COPY n and audited)": "إعادة طباعة فاتورة (تُعلَّم «نسخة n» وتُسجَّل في سجل التدقيق)",
+  "Unedited default invoice footer updated to the new default": "حُدِّث تذييل الفاتورة الافتراضي غير المعدَّل إلى النص الافتراضي الجديد",
 };

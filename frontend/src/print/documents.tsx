@@ -6,7 +6,7 @@ import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import JsBarcode from 'jsbarcode';
 import { contentWidthMm, type InvoicePrintData, type PrintLayout } from '@jerp/shared';
 import { useBranding } from '../lib/branding';
-import { dateTime, grams, karatLabel, money } from '../lib/format';
+import { dateTime, grams, karatLabel, money, numericDateTime } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 
 /** Code128 barcode as inline SVG (no script, no network: CSP-safe). */
@@ -63,23 +63,39 @@ export function PrintFooter() {
   return text ? (
     <>
       <div className="pd-rule" />
-      <div className="pd-center pd-muted">{text}</div>
+      <div className="pd-center pd-muted" data-testid="print-footer">
+        {text}
+      </div>
     </>
   ) : null;
 }
 
 function Row({ label, value, strong }: { label: ReactNode; value: ReactNode; strong?: boolean }) {
+  // Plain strings are amounts/weights (one unbreakable LTR run); elements carry their own direction.
   return (
     <div className={`pd-row${strong ? ' pd-big' : ''}`}>
       <span>{label}</span>
-      <span className="pd-num">{value}</span>
+      <span className={typeof value === 'string' ? 'pd-num' : 'pd-val'}>{value}</span>
     </div>
+  );
+}
+
+/**
+ * A date that never breaks across lines. Narrow paper (receipt): "2026/10/04 16:42", numeric, 24 h.
+ * A4 / A5: the long form with the month name.
+ */
+export function When({ at, layout }: { at: string | Date; layout: PrintLayout }) {
+  const { lang } = useI18n();
+  return layout.format === 'RECEIPT' ? (
+    <span className="pd-date" dir="ltr">{numericDateTime(at)}</span>
+  ) : (
+    <span className="pd-date">{dateTime(at, lang)}</span>
   );
 }
 
 /** Customer invoice: never any cost, profit or gold-debt field (the data cannot carry them). */
 export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: PrintLayout }) {
-  const { t, L, lang } = useI18n();
+  const { t, L } = useI18n();
   const receipt = layout.format === 'RECEIPT';
   return (
     <Doc layout={layout}>
@@ -89,11 +105,13 @@ export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: P
         <span className="pd-strong">{t('Invoice')}</span>
         <span className="pd-mono pd-strong">{doc.number}</span>
       </div>
-      <Row label={t('Date')} value={dateTime(doc.issuedAt, lang)} />
+      <Row label={t('Date')} value={<When at={doc.issuedAt} layout={layout} />} />
       {doc.copy && (
         <div className="pd-mark" data-testid="print-copy-mark">
           {t('COPY {n}', { n: doc.copy.n })}
-          <div className="pd-muted">{t('Reprinted {date}', { date: dateTime(doc.copy.printedAt, lang) })}</div>
+          <div className="pd-muted">
+            {t('Reprinted on')} <When at={doc.copy.printedAt} layout={layout} />
+          </div>
         </div>
       )}
       {doc.status === 'VOIDED' && <div className="pd-mark">{t('Cancelled: {reason}', { reason: doc.voidReason ?? '' })}</div>}
@@ -109,7 +127,7 @@ export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: P
               <div className="pd-strong">{L(l.name, l.nameAr)}</div>
               <div className="pd-row pd-muted">
                 <span>
-                  <span className="pd-mono">{l.code}</span> · {karatLabel(l.karat)} · <span className="pd-num">{grams(l.netWeightMg)}</span>
+                    <span className="pd-mono">{l.code}</span> · <span className="pd-nowrap">{karatLabel(l.karat)}</span> · <span className="pd-num">{grams(l.netWeightMg)}</span>
                 </span>
                 <span className="pd-num">{money(l.listPrice, false)}</span>
               </div>
@@ -134,13 +152,23 @@ export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: P
           <tbody>
             {doc.lines.map((l, i) => (
               <tr key={i}>
-                <td className="pd-mono">{l.code}</td>
+                <td>
+                  <span className="pd-mono">{l.code}</span>
+                </td>
                 <td>{L(l.name, l.nameAr)}</td>
-                <td>{karatLabel(l.karat)}</td>
-                <td className="pd-end pd-num">{grams(l.netWeightMg)}</td>
-                <td className="pd-end pd-num">{money(l.listPrice, false)}</td>
-                <td className="pd-end pd-num">{l.discount ? `−${money(l.discount, false)}` : '—'}</td>
-                <td className="pd-end pd-num">{money(l.finalPrice, false)}</td>
+                <td className="pd-nowrap">{karatLabel(l.karat)}</td>
+                <td className="pd-end">
+                  <span className="pd-num">{grams(l.netWeightMg)}</span>
+                </td>
+                <td className="pd-end">
+                  <span className="pd-num">{money(l.listPrice, false)}</span>
+                </td>
+                <td className="pd-end">
+                  <span className="pd-num">{l.discount ? `−${money(l.discount, false)}` : '—'}</span>
+                </td>
+                <td className="pd-end">
+                  <span className="pd-num">{money(l.finalPrice, false)}</span>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -169,14 +197,14 @@ export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: P
 
 /** Recovery codes of the signed-in user (always A4; never sent anywhere). */
 export function RecoveryCodesPrint({ codes, username }: { codes: string[]; username: string }) {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   return (
     <Doc layout={{ format: 'A4', receiptWidthMm: 72 }}>
       <PrintHeader />
       <div className="pd-rule-solid" />
       <div className="pd-big">{t('Recovery codes')}</div>
       <div>
-        {t('Account')}: <span className="pd-mono">{username}</span> · {dateTime(new Date(), lang)}
+        {t('Account')}: <span className="pd-mono">{username}</span> · <When at={new Date()} layout={{ format: 'A4', receiptWidthMm: 72 }} />
       </div>
       <div className="pd-muted">{t('Each code works once. Keep this sheet somewhere safe, away from the computer.')}</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3mm', margin: '6mm 0' }}>
@@ -192,7 +220,7 @@ export function RecoveryCodesPrint({ codes, username }: { codes: string[]; usern
 
 /** Calibration page (Settings › Printing › Test print): ruler, Arabic, digits, wrapping, logo, barcode. */
 export function CalibrationPrint({ layout }: { layout: PrintLayout }) {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const width = contentWidthMm(layout);
   const ticks = Array.from({ length: Math.floor(width) + 1 }, (_, i) => i);
   return (
@@ -201,7 +229,7 @@ export function CalibrationPrint({ layout }: { layout: PrintLayout }) {
       <div className="pd-rule-solid" />
       <div className="pd-strong pd-center">{t('Printer test page')}</div>
       <div className="pd-center pd-muted">
-        {layout.format === 'RECEIPT' ? t('Receipt, printable width {mm} mm', { mm: layout.receiptWidthMm }) : layout.format} · {dateTime(new Date(), lang)}
+        {layout.format === 'RECEIPT' ? t('Receipt, printable width {mm} mm', { mm: layout.receiptWidthMm }) : layout.format} · <When at={new Date()} layout={layout} />
       </div>
       <div className="pd-muted" style={{ marginTop: '2mm' }}>
         {t('The ruler must end exactly at the right and left edges of the paper. If the last numbers are cut off, the width is too large; if there is a blank strip, it is too small.')}
@@ -256,7 +284,7 @@ export interface HasadReceiptData {
 
 /** Hasad Gold delivery receipt (signed by the customer). Built from a whitelist: no cost field. */
 export function HasadReceiptPrint({ data, layout }: { data: HasadReceiptData; layout: PrintLayout }) {
-  const { t, L, lang } = useI18n();
+  const { t, L } = useI18n();
   const signed = (mg: number) => `${mg > 0 ? '+' : mg < 0 ? '−' : ''}${grams(Math.abs(mg))}`;
   return (
     <Doc layout={layout}>
@@ -266,7 +294,7 @@ export function HasadReceiptPrint({ data, layout }: { data: HasadReceiptData; la
         <span className="pd-strong">{t('Hasad Gold delivery')}</span>
         <span className="pd-mono pd-strong">{data.number}</span>
       </div>
-      <Row label={t('Date')} value={dateTime(data.completedAt, lang)} />
+      <Row label={t('Date')} value={<When at={data.completedAt} layout={layout} />} />
       <Row label={t('Customer')} value={<span>{L(data.customer.name, data.customer.nameAr)}</span>} />
       <Row label={t('Hasad request')} value={<span className="pd-mono">{data.customer.externalId}</span>} />
       <Row label={t('Cashier')} value={<span>{data.cashierName}</span>} />

@@ -4,8 +4,8 @@
 export const COMPANY = {
   name: 'Loai Tabeede',
   nameAr: 'لؤي تبيدي',
-  invoiceFooter: 'Thank you for your purchase · Prices include making charges · Prototype document, not a tax invoice',
-  invoiceFooterAr: 'شكراً لتسوقكم معنا · الأسعار شاملة المصنعية · مستند نموذج أولي وليس فاتورة ضريبية',
+  invoiceFooter: 'Thank you for shopping with us',
+  invoiceFooterAr: 'شكراً لتسوقكم معنا',
 };
 
 export const BRANCHES = [

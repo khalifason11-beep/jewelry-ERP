@@ -124,3 +124,9 @@
 .pd .pd-tick { position: absolute; top: 0; font-size: 6pt; }
 .pd .pd-tick[data-mid] { transform: translateX(-50%); }
 .pd-receipt .pd-ruler-bleed { margin-left: -1.5mm; margin-right: -1.5mm; }
+/* Values that are not plain numbers (names, dates): isolated so they keep their own direction. */
+.pd .pd-val { unicode-bidi: isolate; text-align: end; }
+/* A date is one unbreakable unit: no digit or "م" is ever left alone on a line. */
+.pd .pd-date { white-space: nowrap; unicode-bidi: isolate; }
+/* Codes and karats are single units: never broken (the description column takes the remaining width). */
+.pd .pd-mono, .pd .pd-nowrap { white-space: nowrap; overflow-wrap: normal; word-break: normal; }

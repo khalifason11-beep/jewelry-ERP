@@ -135,8 +135,8 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   },
   branding: {
     logoAssetId: null,
-    invoiceFooterEn: 'Thank you for your purchase · Prices include making charges',
-    invoiceFooterAr: 'شكراً لتسوقكم معنا · الأسعار شاملة المصنعية',
+    invoiceFooterEn: 'Thank you for shopping with us',
+    invoiceFooterAr: 'شكراً لتسوقكم معنا',
   },
   sales: {
     maxDiscountPercentByRole: { CASHIER: 3, BRANCH_MANAGER: 10, GENERAL_MANAGER: 20 },
@@ -325,3 +325,13 @@ export function crossFieldProblem(s: SystemSettings): { key: SettingKey; message
   }
   return null;
 }
+
+/**
+ * Earlier default invoice footers (the code default and the demo seed). A stored footer that is still
+ * EXACTLY one of these was never edited by the General Manager; start-up replaces it with the current
+ * default (owner decision: the footer is only a thank-you message, D-print-9). Anything else is kept.
+ */
+export const LEGACY_INVOICE_FOOTERS: { en: readonly string[]; ar: readonly string[] } = {
+  en: ['Thank you for your purchase · Prices include making charges', 'Thank you for your purchase · Prices include making charges · Prototype document, not a tax invoice'],
+  ar: ['شكراً لتسوقكم معنا · الأسعار شاملة المصنعية', 'شكراً لتسوقكم معنا · الأسعار شاملة المصنعية · مستند نموذج أولي وليس فاتورة ضريبية'],
+};

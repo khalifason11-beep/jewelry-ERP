@@ -9,6 +9,7 @@ import { releaseStaleReservations } from './modules/hasad/service';
 import { seedDemo } from './seed/demo';
 import { backfillDemoLedger } from './seed/ledger-backfill';
 import { applyInitialSecuritySettings, purgeExpiredSecondFactorState } from './modules/auth/passkeys';
+import { replaceLegacyInvoiceFooters } from './modules/settings/legacy-footer';
 
 // ── Refuse unsafe production configurations before touching the database (security item 2).
 const problems = productionConfigProblems(config);
@@ -65,6 +66,8 @@ if (config.appMode === 'demo') {
 }
 
 // Second-factor policy: the operator's initial values apply on the very first start only (D-2fa-4).
+const footers = await replaceLegacyInvoiceFooters(ctx);
+if (footers.length) log.info('unedited default invoice footer replaced by the new default', { keys: footers });
 const initial = await applyInitialSecuritySettings(ctx, { uv: config.webauthnUvInitial, roles: config.twoFactorRolesInitial });
 if (initial.length) log.info('second-factor settings initialised from the environment (first start)', { keys: initial.map((c) => c.key) });
 const { security: sec } = await ctx.settings.get();

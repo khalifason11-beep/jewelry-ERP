@@ -48,6 +48,17 @@ function locale(lang: string) {
 export const dateTime = (d: string | Date | null | undefined, lang: string = getLang()) =>
   d ? new Date(d).toLocaleString(locale(lang), { timeZone: TZ, day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 
+/** Short numeric date-time for narrow print formats: "2026/10/04 16:42" (Western digits, 24 h, app time zone). */
+export const numericDateTime = (d: string | Date | null | undefined) => {
+  if (!d) return '—';
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+      .formatToParts(new Date(d))
+      .map((p) => [p.type, p.value]),
+  );
+  return `${parts.year}/${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`;
+};
+
 export const date = (d: string | Date | null | undefined, lang: string = getLang()) =>
   d ? new Date(typeof d === 'string' && d.length === 10 ? `${d}T12:00:00Z` : d).toLocaleDateString(locale(lang), { timeZone: TZ, day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
