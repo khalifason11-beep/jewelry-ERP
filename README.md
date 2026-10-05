@@ -56,6 +56,23 @@ TEST_DATABASE_URL=postgres://jerp_test:secret@localhost:5432/postgres npm test
 npm run test:pg -w @jerp/backend
 ```
 
+### Windows install
+
+- Use **Node.js 22 LTS** (the version the project is tested on; 20 is the minimum).
+- PowerShell sets environment variables with `$env:NAME="value"` (not `NAME=value` as in the Linux examples), e.g.
+
+  ```powershell
+  $env:DEMO_TWO_FACTOR="true"; $env:PORT="4000"; npm start
+  ```
+
+- If the backend stops at start with **"Cannot find native binding"** (from `@node-rs/argon2`), npm skipped a native
+  binary (npm bug #4828; typically a `node_modules` folder copied from another computer or left over from an older
+  install). Fix: delete the `node_modules` folder **and** `package-lock.json`, then run `npm install` again
+  (in PowerShell: `Remove-Item -Recurse -Force node_modules, package-lock.json; npm install`). Do not commit the
+  regenerated lockfile unless `npm run check:lockfile` still passes.
+- `npm run check:lockfile` (also part of `npm run typecheck`) fails if `package-lock.json` lacks the Windows, Linux or
+  macOS binary of any native package.
+
 ## Demo accounts (fictitious credentials)
 
 | Username | Password | Role | Branch |
