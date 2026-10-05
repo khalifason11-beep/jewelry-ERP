@@ -105,9 +105,9 @@ export type ScrapPaymentMethod = (typeof SCRAP_PAYMENT_METHODS)[number];
 export const SCRAP_WEIGHT_EVENT_TYPES = ['SCRAP_PURCHASE', 'SUPPLIER_SETTLEMENT', 'REVERSAL'] as const;
 export type ScrapWeightEventType = (typeof SCRAP_WEIGHT_EVENT_TYPES)[number];
 
-/** Q7: an expense is paid from the drawer or the bank, chosen per expense. */
-export const EXPENSE_PAYMENT_SOURCES = ['CASH', 'BANK'] as const;
-export type ExpensePaymentSource = (typeof EXPENSE_PAYMENT_SOURCES)[number];
+/** Money paid out from the drawer (CASH) or the bank account (BANK): the supplier making charge, and (historically) expenses. */
+export const CASH_OR_BANK = ['CASH', 'BANK'] as const;
+export type CashOrBank = (typeof CASH_OR_BANK)[number];
 export type SaleStatus = (typeof SALE_STATUSES)[number];
 
 export const EXPENSE_CATEGORIES = [

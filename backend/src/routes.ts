@@ -9,7 +9,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, EXPENSE_CATEGORIES, EXPENSE_PAYMENT_SOURCES, ITEM_ORIGINS, KARATS, PAYMENT_METHODS, SCRAP_KINDS, SCRAP_PAYMENT_METHODS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
+import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, EXPENSE_CATEGORIES, CASH_OR_BANK, ITEM_ORIGINS, KARATS, PAYMENT_METHODS, SCRAP_KINDS, SCRAP_PAYMENT_METHODS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
@@ -560,7 +560,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           supplierId: zIdBody.optional(),
           supplierInvoiceNo: zText(60).optional(),
           notes: zText(1000).optional(),
-          makingChargePaidFrom: z.enum(EXPENSE_PAYMENT_SOURCES).optional(),
+          makingChargePaidFrom: z.enum(CASH_OR_BANK).optional(),
           lines: z.array(line).min(1).max(200),
         })
         .strict(),
@@ -642,7 +642,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           amount: zPositiveMoney,
           expenseDate: zDay.optional(),
           description: zText(500).min(2),
-          paidFrom: z.enum(EXPENSE_PAYMENT_SOURCES).optional(),
+          paidFrom: z.enum(CASH_OR_BANK).optional(),
         })
         .strict(),
       req.body,
@@ -650,7 +650,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     res.json(await runIdempotent(ctx, req, res, (idem) => expenses.createExpense(ctx, actorOf(req), body, { idem })));
   });
   route('POST', '/expenses/:id/review', async (req, res) => {
-    const body = parse(z.object({ decision: z.enum(['APPROVED', 'REJECTED']), note: zText(500).optional(), paidFrom: z.enum(EXPENSE_PAYMENT_SOURCES).optional() }).strict(), req.body);
+    const body = parse(z.object({ decision: z.enum(['APPROVED', 'REJECTED']), note: zText(500).optional(), paidFrom: z.enum(CASH_OR_BANK).optional() }).strict(), req.body);
     const id = parse(zId, req.params.id);
     res.json(await runIdempotent(ctx, req, res, (idem) => expenses.reviewExpense(ctx, actorOf(req), id, body.decision, body.note, { idem, paidFrom: body.paidFrom })));
   });

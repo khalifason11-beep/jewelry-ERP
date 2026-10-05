@@ -1,4 +1,4 @@
-import { ap, pureGoldMg, sumInt, type ExpensePaymentSource } from '@jerp/shared';
+import { ap, pureGoldMg, sumInt, type CashOrBank } from '@jerp/shared';
 import { and, desc, eq, gte, ilike, inArray, lt, or, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import type { Actor, Ctx } from '../../core/context';
@@ -29,7 +29,7 @@ export interface CreatePurchaseInput {
   supplierInvoiceNo?: string;
   notes?: string;
   /** Where the making charge is paid from, immediately (D-4-4). Default CASH. */
-  makingChargePaidFrom?: ExpensePaymentSource;
+  makingChargePaidFrom?: CashOrBank;
   lines: PurchaseLine[];
 }
 
@@ -54,7 +54,7 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
   }
   const settings = await ctx.settings.get();
   if (!settings.purchases.supplierCreditEnabled) throw badRequest('Supplier purchases on gold credit are turned off in the settings');
-  const paidFrom: ExpensePaymentSource = input.makingChargePaidFrom ?? 'CASH';
+  const paidFrom: CashOrBank = input.makingChargePaidFrom ?? 'CASH';
   const at = opts.at ?? new Date();
 
   return ctx.db.transaction(async (tx) => {

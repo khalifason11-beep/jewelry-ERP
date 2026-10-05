@@ -6,7 +6,7 @@
 
 import { asc, count, eq, isNotNull, sql } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import type { ExpensePaymentSource, PaymentMethod } from '@jerp/shared';
+import type { CashOrBank, PaymentMethod } from '@jerp/shared';
 import { config } from '../config';
 import type { Ctx } from '../core/context';
 import { accountKindFor, post, reverseRef } from '../modules/ledger/service';
@@ -26,7 +26,7 @@ export async function backfillDemoLedger(ctx: Ctx): Promise<{ entries: number }>
       if (s.status === 'VOIDED') await reverseRef(tx, ref, 'SALE', 'SALE_VOID', by, { note: NOTE, at: s.voidedAt ?? s.createdAt });
     }
     for (const e of await tx.select().from(t.expenses).where(eq(t.expenses.status, 'APPROVED')).orderBy(asc(t.expenses.id))) {
-      const source = (e.paidFrom ?? 'CASH') as ExpensePaymentSource;
+      const source = (e.paidFrom ?? 'CASH') as CashOrBank;
       await post(
         tx,
         [{ branchId: e.branchId, kind: source, amount: -e.amount, eventType: 'EXPENSE', paymentMethod: source === 'CASH' ? 'CASH' : 'BANK_TRANSFER', ref: { refType: 'expense', refId: e.id, refNumber: e.number }, note: NOTE, at: e.reviewedAt ?? e.createdAt }],

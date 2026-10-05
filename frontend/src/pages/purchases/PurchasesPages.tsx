@@ -1,4 +1,4 @@
-import { gramsToMg, pureGoldMg, type ExpensePaymentSource } from '@jerp/shared';
+import { gramsToMg, pureGoldMg, type CashOrBank } from '@jerp/shared';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -120,7 +120,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
   const [branchId, setBranchId] = useState<number | ''>(me?.user.branch?.id ?? '');
   const [supplierId, setSupplierId] = useState<number | ''>('');
   const [invoiceNo, setInvoiceNo] = useState('');
-  const [paidFrom, setPaidFrom] = useState<ExpensePaymentSource>('CASH');
+  const [paidFrom, setPaidFrom] = useState<CashOrBank>('CASH');
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
   // Only karats this deployment sells can be bought from a supplier (D-4-1).
   const sellable = products.data?.filter((p) => me?.allowedKarats.includes(p.karat));
@@ -206,7 +206,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
           <Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} />
         </Field>
         <Field label={t('Making charge paid from')}>
-          <Select value={paidFrom} onChange={(e) => setPaidFrom(e.target.value as ExpensePaymentSource)}>
+          <Select value={paidFrom} onChange={(e) => setPaidFrom(e.target.value as CashOrBank)}>
             <option value="CASH">{t('Cash drawer')}</option>
             <option value="BANK">{t('Bank')}</option>
           </Select>

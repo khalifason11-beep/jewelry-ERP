@@ -1,7 +1,7 @@
 import { ap, roundMoney } from '@jerp/shared';
 import { and, desc, eq, gte, ilike, lte, or, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import type { ExpenseCategory, ExpensePaymentSource } from '@jerp/shared';
+import type { ExpenseCategory, CashOrBank } from '@jerp/shared';
 import type { Executor } from '@jerp/database';
 import type { TxIdempotency } from '../../core/idempotency';
 import { post } from '../ledger/service';
@@ -19,7 +19,7 @@ export interface CreateExpenseInput {
   expenseDate?: string;
   description: string;
   /** Q7: paid from the drawer or the bank (default CASH). */
-  paidFrom?: ExpensePaymentSource;
+  paidFrom?: CashOrBank;
 }
 
 /** Q7: an approved expense takes the money out of CASH or BANK — only then, never while PENDING. */
@@ -30,7 +30,7 @@ async function postExpense(
   idem: TxIdempotency | undefined,
   at: Date,
 ) {
-  const source = (e.paidFrom ?? 'CASH') as ExpensePaymentSource;
+  const source = (e.paidFrom ?? 'CASH') as CashOrBank;
   await post(
     tx,
     [{ branchId: e.branchId, kind: source, amount: -e.amount, eventType: 'EXPENSE', paymentMethod: source === 'CASH' ? 'CASH' : 'BANK_TRANSFER', ref: { refType: 'expense', refId: e.id, refNumber: e.number }, at }],
@@ -87,7 +87,7 @@ export async function reviewExpense(
   id: number,
   decision: 'APPROVED' | 'REJECTED',
   note?: string,
-  opts: { idem?: TxIdempotency; paidFrom?: ExpensePaymentSource } = {},
+  opts: { idem?: TxIdempotency; paidFrom?: CashOrBank } = {},
 ) {
   requirePerm(actor, 'expenses.approve');
   return ctx.db.transaction(async (tx) => {
