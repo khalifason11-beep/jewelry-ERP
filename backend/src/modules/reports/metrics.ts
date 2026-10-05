@@ -24,9 +24,6 @@ export interface BranchMetrics {
   purchasesCount: number;
   purchasedItems: number;
   purchasesCost: number;
-  expenses: number;
-  pendingExpenses: number;
-  contribution: number;
   hasadCompleted: number;
   hasadWeightMg: number;
   hasadItemsCost: number;
@@ -48,7 +45,7 @@ const iso = (d: Date) => d.toISOString();
 export async function branchMetrics(exec: Executor, p: Period, branchId: number | null): Promise<Map<number, BranchMetrics>> {
   const bFilter = (col: string) => (branchId != null ? sql.raw(`AND ${col} = ${Number(branchId)}`) : sql``);
 
-  const [branchesR, salesR, purchR, expR, hasadR, hasadReqR, invR] = await Promise.all([
+  const [branchesR, salesR, purchR, hasadR, hasadReqR, invR] = await Promise.all([
     exec.execute(sql`SELECT id FROM branches WHERE is_active ${bFilter('id')} ORDER BY id`),
     exec.execute(sql`
       SELECT s.branch_id,
@@ -65,13 +62,6 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
       SELECT branch_id, count(*) AS cnt, coalesce(sum(item_count),0) AS items, coalesce(sum(total_cost),0) AS cost
       FROM purchases
       WHERE created_at >= ${iso(p.start)} AND created_at < ${iso(p.end)} ${bFilter('branch_id')}
-      GROUP BY branch_id`),
-    exec.execute(sql`
-      SELECT branch_id,
-             coalesce(sum(amount) FILTER (WHERE status = 'APPROVED'),0) AS approved,
-             coalesce(sum(amount) FILTER (WHERE status = 'PENDING'),0) AS pending
-      FROM expenses
-      WHERE expense_date >= ${p.fromKey} AND expense_date <= ${p.toKey} ${bFilter('branch_id')}
       GROUP BY branch_id`),
     exec.execute(sql`
       SELECT r.branch_id,
@@ -109,7 +99,7 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
     out.set(Number(b.id), {
       branchId: Number(b.id),
       salesCount: 0, itemsSold: 0, weightSoldMg: 0, revenue: 0, discounts: 0, costOfSales: 0, grossProfit: 0,
-      purchasesCount: 0, purchasedItems: 0, purchasesCost: 0, expenses: 0, pendingExpenses: 0, contribution: 0,
+      purchasesCount: 0, purchasedItems: 0, purchasesCost: 0,
       hasadCompleted: 0, hasadWeightMg: 0, hasadItemsCost: 0, hasadPaidToCustomers: 0, hasadCollectedFromCustomers: 0,
       hasadReceived: 0, hasadCancelled: 0, hasadOpen: 0, hasadInProgress: 0,
       availableItems: 0, availableWeightMg: 0, reservedItems: 0, inventoryCost: 0, inventoryRetail: 0,
@@ -124,10 +114,6 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
   for (const r of rows<Record<string, unknown>>(purchR)) {
     const m = get(r.branch_id); if (!m) continue;
     m.purchasesCount = num(r.cnt); m.purchasedItems = num(r.items); m.purchasesCost = num(r.cost);
-  }
-  for (const r of rows<Record<string, unknown>>(expR)) {
-    const m = get(r.branch_id); if (!m) continue;
-    m.expenses = num(r.approved); m.pendingExpenses = num(r.pending);
   }
   for (const r of rows<Record<string, unknown>>(hasadR)) {
     const m = get(r.branch_id); if (!m) continue;
@@ -145,7 +131,6 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
   }
   for (const m of out.values()) {
     m.grossProfit = m.revenue - m.costOfSales;
-    m.contribution = m.grossProfit - m.expenses;
   }
   return out;
 }

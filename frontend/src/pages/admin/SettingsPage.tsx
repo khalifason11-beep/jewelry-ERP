@@ -304,9 +304,9 @@ export function SettingsPage() {
           </div>
         </Card>
 
-        {/* ── Sales & expenses ── */}
+        {/* ── Sales ── */}
         <Card padded={false}>
-          <CardHeader title={t('Sales & expenses')} actions={saveBtn(['sales.maxDiscountPercentByRole', 'sales.posPaymentMethods', 'expenses.approvalThreshold'])} />
+          <CardHeader title={t('Sales')} actions={saveBtn(['sales.maxDiscountPercentByRole', 'sales.posPaymentMethods'])} />
           <div className="grid gap-3 p-5 sm:grid-cols-3">
             <Field label={t('Payment methods at the counter')} className="sm:col-span-3" hint={t('What the cashier can choose at the POS. Hasad asks for the Hasad invoice number.')}>
               <div className="flex flex-wrap gap-4 pt-1">
@@ -324,9 +324,6 @@ export function SettingsPage() {
                 {numberInput(v, (n) => set('sales', { maxDiscountPercentByRole: { ...draft.sales.maxDiscountPercentByRole, [role]: n } }), { min: 0, max: 100 })}
               </Field>
             ))}
-            <Field label={t('Expense approval threshold ({currency})', { currency: currencyLabel() })} className="sm:col-span-3" hint={t('Expenses above this amount created by branch managers need General Manager approval')}>
-              {numberInput(draft.expenses.approvalThreshold, (n) => set('expenses', { approvalThreshold: n }), { min: 0 })}
-            </Field>
           </div>
         </Card>
 

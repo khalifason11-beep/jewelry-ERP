@@ -9,7 +9,6 @@ import { branchScope, can, requirePerm } from '../../authz';
 import { badRequest } from '../../core/errors';
 import { rows, num } from '../../core/sql';
 import { periodFor } from '../dashboard/service';
-import { listExpenses } from '../expenses/service';
 import { searchItems } from '../inventory/service';
 import { listPurchases } from '../purchases/service';
 import { listSales } from '../sales/service';
@@ -126,29 +125,6 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
         rows: rowsAll,
         totals: totalsOf(rowsAll, ['itemCount', 'totalNetWeightMg', 'totalCost']),
         filters: { dateRange: true, branch: true, user: false },
-      };
-    }
-    case 'expenses': {
-      requirePerm(actor, 'expenses.view');
-      const data = await listExpenses(ctx, actor, { branchId: branchFilter, from: period.fromKey, to: period.toKey, q: q.q, status: q.status });
-      return {
-        key: 'expenses',
-        title: 'Expenses Report',
-        description: 'Branch operating expenses. Only approved expenses reduce branch contribution.',
-        columns: [
-          c('number', 'Expense', 'code'),
-          c('expenseDate', 'Date', 'date'),
-          c('branchName', 'Branch'),
-          c('category', 'Category', 'status'),
-          c('description', 'Description'),
-          c('amount', 'Amount', 'money'),
-          c('createdByName', 'Created by'),
-          c('status', 'Status', 'status'),
-        ],
-        rows: data,
-        totals: totalsOf(data.filter((e) => e.status === 'APPROVED'), ['amount']),
-        notes: ['Total includes approved expenses only.'],
-        filters: { dateRange: true, branch: true, user: false, status: ['APPROVED', 'PENDING', 'REJECTED'] },
       };
     }
     case 'inventory': {
@@ -317,8 +293,6 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           costOfSales: m.costOfSales,
           grossProfit: m.grossProfit,
           margin: m.revenue ? (m.grossProfit / m.revenue) * 100 : 0,
-          expenses: m.expenses,
-          contribution: m.contribution,
         }));
       } else {
         const dim =
@@ -338,12 +312,12 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           return { label: String(x.label), salesCount: num(x.sales_count), revenue, discounts: num(x.discounts), costOfSales: cost, grossProfit: revenue - cost, margin: revenue ? ((revenue - cost) / revenue) * 100 : 0 };
         });
       }
-      const totals = totalsOf(rowsAll, ['salesCount', 'revenue', 'discounts', 'costOfSales', 'grossProfit', 'expenses', 'contribution']);
+      const totals = totalsOf(rowsAll, ['salesCount', 'revenue', 'discounts', 'costOfSales', 'grossProfit']);
       totals.margin = totals.revenue ? (totals.grossProfit / totals.revenue) * 100 : 0;
       return {
         key: 'profit',
         title: 'Profit Report',
-        description: 'Gross profit = selling price (after discount) − item total cost. Contribution = gross profit − approved branch expenses.',
+        description: 'Gross profit = selling price (after discount) − item total cost.',
         columns: [
           c('label', group === 'branch' ? 'Branch' : group[0].toUpperCase() + group.slice(1), 'text', group === 'branch' ? '/branches/:branchId' : undefined),
           c('salesCount', 'Sales', 'number'),
@@ -352,7 +326,6 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('costOfSales', 'Cost of sales', 'money'),
           c('grossProfit', 'Gross profit', 'money'),
           c('margin', 'Margin', 'percent'),
-          ...(group === 'branch' ? [c('expenses', 'Expenses', 'money'), c('contribution', 'Contribution', 'money')] : []),
         ],
         rows: rowsAll,
         totals,
@@ -441,14 +414,13 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('salesCount', 'Sales #', 'number'),
           c('revenue', 'Sales', 'money'),
           c('purchasesCost', 'Purchases', 'money'),
-          c('expenses', 'Expenses', 'money'),
-          ...(profit ? [c('grossProfit', 'Gross profit', 'money'), c('contribution', 'Contribution', 'money'), c('inventoryCost', 'Inventory value', 'money')] : []),
+          ...(profit ? [c('grossProfit', 'Gross profit', 'money'), c('inventoryCost', 'Inventory value', 'money')] : []),
           c('availableItems', 'Available items', 'number'),
           c('hasadCompleted', 'Hasad redemptions', 'number'),
           c('hasadWeightMg', 'Hasad weight', 'weight'),
         ],
         rows: rowsAll,
-        totals: totalsOf(rowsAll, ['salesCount', 'revenue', 'purchasesCost', 'expenses', 'grossProfit', 'contribution', 'inventoryCost', 'availableItems', 'hasadCompleted', 'hasadWeightMg']),
+        totals: totalsOf(rowsAll, ['salesCount', 'revenue', 'purchasesCost', 'grossProfit', 'inventoryCost', 'availableItems', 'hasadCompleted', 'hasadWeightMg']),
         filters: { dateRange: true, branch: true, user: false },
       };
     }

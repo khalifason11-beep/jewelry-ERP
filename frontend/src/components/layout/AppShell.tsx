@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowLeftRight, Fingerprint, BarChart3, Bell, Building2, ChevronsLeft, ChevronsRight, ClipboardList, Coins, FlaskConical, Gem, Globe, LayoutDashboard, LogOut, MonitorSmartphone, Package, Receipt, ScrollText, Settings, ShoppingCart, Truck, UserRound, Users, Wallet, Banknote, Recycle } from 'lucide-react';
+import { ArrowLeftRight, Fingerprint, BarChart3, Bell, Building2, ChevronsLeft, ChevronsRight, ClipboardList, Coins, FlaskConical, Gem, Globe, LayoutDashboard, LogOut, MonitorSmartphone, Package, Receipt, ScrollText, Settings, ShoppingCart, Truck, UserRound, Users, Banknote, Recycle } from 'lucide-react';
 import type { Permission } from '@jerp/shared';
 import { get, post, setCurrentModule, translateParams } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -97,7 +97,6 @@ export function AppShell() {
         { to: '/inventory', label: t('Inventory'), icon: <Package />, show: (c) => c('inventory.view') },
         { to: '/purchases', label: t('Purchases'), icon: <Truck />, show: (c) => c('purchases.view') },
         { to: '/scrap', label: t('Scrap gold'), icon: <Recycle />, show: (c) => c('scrap.buy') },
-        { to: '/expenses', label: t('Expenses'), icon: <Wallet />, show: (c) => c('expenses.view') },
         { to: '/transfers', label: t('Transfers'), icon: <ArrowLeftRight />, show: (c) => c('inventory.transfer') && c('inventory.view') },
         { to: '/cash', label: t('Cash'), icon: <Banknote />, show: (c) => c('cash.view') },
         { to: '/reports', label: t('Reports'), icon: <BarChart3 />, show: (c) => c('reports.view') },

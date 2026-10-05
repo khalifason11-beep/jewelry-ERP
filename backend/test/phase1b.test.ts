@@ -111,14 +111,14 @@ describe('typed settings: one row per key, history, versions', () => {
     const gm = await gmAgent();
     const versions = (await gm.get('/api/settings')).body.versions;
     await gm.put('/api/settings').send({ changes: { 'rates.rateChangeMaxPct': 7 } });
-    const before = (await gm.get('/api/settings')).body.settings.expenses.approvalThreshold;
+    const before = (await gm.get('/api/settings')).body.settings.transfers.pendingClaimStaleHours;
     const stale = await gm.put('/api/settings').send({
-      changes: { 'expenses.approvalThreshold': before + 1, 'rates.rateChangeMaxPct': 9 },
-      expectedVersions: { 'expenses.approvalThreshold': versions['expenses.approvalThreshold'], 'rates.rateChangeMaxPct': versions['rates.rateChangeMaxPct'] },
+      changes: { 'transfers.pendingClaimStaleHours': before + 1, 'rates.rateChangeMaxPct': 9 },
+      expectedVersions: { 'transfers.pendingClaimStaleHours': versions['transfers.pendingClaimStaleHours'], 'rates.rateChangeMaxPct': versions['rates.rateChangeMaxPct'] },
     });
     expect(stale.status).toBe(409);
     const after = (await gm.get('/api/settings')).body.settings;
-    expect(after.expenses.approvalThreshold).toBe(before); // first key rolled back too
+    expect(after.transfers.pendingClaimStaleHours).toBe(before); // first key rolled back too
     expect(after.rates.rateChangeMaxPct).toBe(7);
   });
 
@@ -290,7 +290,7 @@ describe('operator console (break-glass)', () => {
 // ───────────────────────── route permission matrix (generated) ─────────────────────────
 type Req = { method?: string; path: string; query?: Record<string, string | number>; body?: unknown; contentType?: string };
 interface Fixtures {
-  krt: number; omd: number; krtItem: number; omdItem: number; krtSale: number; omdSale: number; krtPurchase: number; omdPurchase: number; omdExpense: number;
+  krt: number; omd: number; krtItem: number; omdItem: number; krtSale: number; omdSale: number; krtPurchase: number; omdPurchase: number;
   omdWithdrawal: number; omdTransferTo: number; omdUser: number; omdSessionKey: string;
 }
 const NONE = 999_999;
@@ -369,9 +369,6 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'GET /purchases': () => ({ path: '/purchases' }),
   'GET /purchases/:id': () => ({ path: `/purchases/${NONE}` }),
   'POST /purchases': () => ({ path: '/purchases', body: {} }),
-  'GET /expenses': () => ({ path: '/expenses' }),
-  'POST /expenses': () => ({ path: '/expenses', body: {} }),
-  'POST /expenses/:id/review': () => ({ path: `/expenses/${NONE}/review`, body: {} }),
   'GET /transfers': () => ({ path: '/transfers' }),
   'POST /transfers': () => ({ path: '/transfers', body: {} }),
   'POST /transfers/:id/receive': () => ({ path: `/transfers/${NONE}/receive` }),
@@ -430,9 +427,6 @@ const CROSS: Record<string, (f: Fixtures) => Req> = {
   'GET /purchases': (f) => ({ path: '/purchases', query: { branchId: f.omd } }),
   'GET /purchases/:id': (f) => ({ path: `/purchases/${f.omdPurchase}` }),
   'POST /purchases': (f) => ({ path: '/purchases', body: { branchId: f.omd, lines: [{ productId: 1, grossWeightMg: 5000, netWeightMg: 4800, purchaseCost: 100, makingCost: 0, otherCost: 0, sellingPrice: 200 }] } }),
-  'GET /expenses': (f) => ({ path: '/expenses', query: { branchId: f.omd } }),
-  'POST /expenses': (f) => ({ path: '/expenses', body: { branchId: f.omd, category: 'OTHER', amount: 1000, description: 'cross-branch' } }),
-  'POST /expenses/:id/review': (f) => ({ path: `/expenses/${f.omdExpense}/review`, body: { decision: 'APPROVED' } }),
   'GET /transfers': (f) => ({ path: '/transfers', query: { branchId: f.omd } }),
   'POST /transfers': (f) => ({ path: '/transfers', body: { fromBranchId: f.omd, toBranchId: f.krt, itemIds: [f.omdItem] } }),
   'POST /transfers/:id/receive': (f) => ({ path: `/transfers/${f.omdTransferTo}/receive` }),
@@ -486,7 +480,6 @@ describe('route permission matrix (generated from shared/src/route-matrix.ts)', 
       omdSale: await id(ctx.db.select({ id: t.sales.id }).from(t.sales).where(and(eq(t.sales.branchId, omd), eq(t.sales.status, 'COMPLETED'))).limit(1)),
       krtPurchase: await id(ctx.db.select({ id: t.purchases.id }).from(t.purchases).where(eq(t.purchases.branchId, krt)).limit(1)),
       omdPurchase: await id(ctx.db.select({ id: t.purchases.id }).from(t.purchases).where(eq(t.purchases.branchId, omd)).limit(1)),
-      omdExpense: await id(ctx.db.select({ id: t.expenses.id }).from(t.expenses).where(eq(t.expenses.branchId, omd)).limit(1)),
       omdWithdrawal: await id(ctx.db.select({ id: t.hasadWithdrawals.id }).from(t.hasadWithdrawals).where(and(eq(t.hasadWithdrawals.branchId, omd), eq(t.hasadWithdrawals.status, 'READY_FOR_PICKUP'))).limit(1)),
       omdTransferTo: await id(ctx.db.select({ id: t.transfers.id }).from(t.transfers).where(ne(t.transfers.toBranchId, krt)).limit(1)),
       omdUser: await id(ctx.db.select({ id: t.users.id }).from(t.users).where(eq(t.users.branchId, omd)).limit(1)),
@@ -613,11 +606,9 @@ describe('cost, acquisition cost and profit are GM-only (Q15)', () => {
       '/reports/inventory-movement',
       '/reports/inventory-ledger',
       '/reports/hasad',
-      '/reports/expenses',
       `/hasad/withdrawals/${w.id}`,
       '/hasad/withdrawals',
       '/transfers',
-      '/expenses',
       '/notifications',
     ];
   };

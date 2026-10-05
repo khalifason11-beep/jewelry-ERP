@@ -154,7 +154,7 @@ export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
 export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
   words(`
     abortReason abortedAt absDifferenceMg action actions active activeSessions actual address addedAt allowSelfPasswordChange
-    allowedKarats alreadyOpen amount appMode approvalThreshold ar asOf at attention availableItems availableWeightMg
+    allowedKarats alreadyOpen amount appMode ar asOf at attention availableItems availableWeightMg
     balanceGrams barcode basis branch branchAddress branchCode branchId branchName branchNameAr branchPhone branches branding
     byCategory cancelReason cancelled cancelledAt cancelledBy cashierId cashierName cashierNameAr cashierUsername cashiers
     category categoryCode categoryId categoryName categoryNameAr city closing closingItems closingWeightMg code codes
@@ -164,7 +164,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     customerPhone customerVerified damaged date dateRange day delivered deliveredWeightMg demoAccounts description
     descriptionKey descriptionParams device differenceMg direction discount discountTotal discounts draft driver durationMs
     effectiveAt en enabledPerBranch endedAt endedReason entitled entitledWeightMg entitlementKarat entityId entityType enum
-    error expenseDate expenses externalId externalStatus failedLoginCount failedLogins filters finalPrice firstLogin from
+    error externalId externalStatus failedLoginCount failedLogins filters finalPrice firstLogin from
     fromBranchId fromBranchName fromStatus fullName fullNameAr goldRateScope grossWeightMg hasPickupCode hasad
     hasadBranchCode hasadCancelled hasadCollectedFromCustomers hasadCompleted hasadCount hasadCustomerId hasadInProgress
     hasadMode hasadOpen hasadPaidToCustomers hasadReceived hasadWeightMg history hour hourly id idleMinutes inProgress
@@ -175,7 +175,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     minPasswordLength minimumWithdrawalGrams mockHasad mode money movement movements mtd mustChangePassword n name nameAr
     nameEn nationalIdMasked netWeightMg newRequests note notes number ok openedAt openedBy openedByName opening openingItems
     openingWeightMg operation paidToCustomers params password passwordChangedAt payment paymentMethod pendingClaimStaleHours
-    pendingExpenses pendingExpensesAmount period permissions phone pickupCode presence pricePerGram productId productName
+    period permissions phone pickupCode presence pricePerGram productId productName
     productNameAr purchaseId purchasedItems purchases purchasesCount queue rank rate rateChangeMaxPct rateKarats ratePerGram
     rateSource rates reason reauthWindowMinutes receivedAt receivedBy receivedByName recent redemptionId redemptionNumber
     ref refId refNumber refType request requestedAt requireGmApprovalForScrapOverride reservationRef
@@ -191,7 +191,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     temporaryPassword itemsReleased expectedDirection expectedAmount changed redemptionItemId version actorId actorUsername
     assetId origin supplierInvoiceRef pricingMode priceGoldValue priceMakingCharge priceRatePerGram paidFrom
     accountId eventType reversesEntryId idempotencyKey expectedCash bank fundsInTransit openingCash salesByMethod
-    voidsByMethod voidsTotal expensesCash expensesBank settlementsCash settlementsBank cashMovement counted difference
+    voidsByMethod voidsTotal settlementsCash settlementsBank cashMovement counted difference
     countedAmount expectedAmount countedBy countedByName businessDay
     makingChargePaidFrom paymentRefInvoice paymentRefTransaction scrapRatePerGram agreedRatePerGram deviationBp overrideApproved
     customerIdRef hasadReceivable posPaymentMethods brokenScrap pureMg24 brokenScrapPureMg24 itemsPureMg24 totalPureMg24 weightByKarat
@@ -203,6 +203,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     print document layout format invoiceFormat receiptWidthMm autoPrintAfterSale originalPrintedAt reprintCount issuedAt lines copy printedAt invoiceRef transactionRef hasad cashier customer
     backup backupAgeHours verifyAgeHours maxAgeHours maxVerifyAgeDays reasons
     goldOwedMgPure24 owedAfterMgPure24 goldDebtMgPure24 settledKarat settledWeightMg settledPureMg24 bankReference hasadReceivableToBank hasadReceivableBalance
+    cashLines bankLines bankMovement line
     scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates
   `),
 );

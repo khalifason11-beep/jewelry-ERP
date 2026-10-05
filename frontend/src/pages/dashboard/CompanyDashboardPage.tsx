@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowLeftRight, ChevronRight, Coins, Gem, MonitorSmartphone, Receipt, TrendingUp, Wallet } from 'lucide-react';
+import { ArrowLeftRight, ChevronRight, Coins, Gem, MonitorSmartphone, Receipt, TrendingUp } from 'lucide-react';
 import { get } from '../../lib/api';
 import { addDaysKey, date as formatDate, grams, karatLabel, money, num, pct, todayKey, currencyLabel } from '../../lib/format';
 import { branchColor } from '../../lib/hooks';
@@ -23,8 +23,6 @@ interface BranchRow {
   costOfSales: number;
   grossProfit: number;
   purchasesCost: number;
-  expenses: number;
-  contribution: number;
   inventoryCost: number;
   availableItems: number;
   availableWeightMg: number;
@@ -40,8 +38,6 @@ interface CompanyDash {
     revenue: number;
     costOfSales: number;
     grossProfit: number;
-    expenses: number;
-    contribution: number;
     inventoryCost: number;
     inventoryRetail: number;
     availableItems: number;
@@ -60,7 +56,7 @@ interface CompanyDash {
   inventoryByKarat: { karat: number; items: number; weightMg: number; cost: number }[];
   stockWeight: StockWeight;
   salesByCategory: { category: string; items: number; revenue: number; profit: number }[];
-  attention: { pendingExpenses: number; pendingExpensesAmount: number; transfersInTransit: number; activeSessions: number };
+  attention: { transfersInTransit: number; activeSessions: number };
 }
 
 type Preset = 'today' | '7d' | 'mtd' | '30d' | 'custom';
@@ -144,12 +140,10 @@ function Body({ d, onBranch, L }: { d: CompanyDash; onBranch: (id: number) => vo
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Kpi tone="dark" label={t('Total Sales')} value={money(T.revenue, false)} sub={t('{n} invoices · {currency}', { n: num(T.salesCount), currency: currencyLabel() })} icon={<Receipt className="size-4" />} />
         <Kpi label={t('Cost of Sales')} value={money(T.costOfSales, false)} sub={t('Item total cost · {currency}', { currency: currencyLabel() })} />
         <Kpi tone="gold" label={t('Gross Profit')} value={money(T.grossProfit, false)} sub={t('Margin {pct}', { pct: pct(margin) })} icon={<TrendingUp className="size-4" />} />
-        <Kpi label={t('Total Expenses')} value={money(T.expenses, false)} sub={t('Approved · {currency}', { currency: currencyLabel() })} icon={<Wallet className="size-4" />} />
-        <Kpi label={t('Net Contribution')} value={money(T.contribution, false)} sub={t('Gross profit − expenses')} />
         <Kpi label={t('Inventory Value')} value={money(T.inventoryCost, false)} sub={t('{n} pcs · {weight} · at cost', { n: num(T.availableItems), weight: grams(T.availableWeightMg) })} icon={<Gem className="size-4" />} />
       </div>
 
@@ -166,9 +160,7 @@ function Body({ d, onBranch, L }: { d: CompanyDash; onBranch: (id: number) => vo
                 <th className="px-5 py-2.5 text-start font-medium">{t('Branch')}</th>
                 <th className="px-3 py-2.5 text-end font-medium">{t('Sales')}</th>
                 <th className="px-3 py-2.5 text-end font-medium">{t('Purchases')}</th>
-                <th className="px-3 py-2.5 text-end font-medium">{t('Expenses')}</th>
                 <th className="px-3 py-2.5 text-end font-medium">{t('Gross Profit')}</th>
-                <th className="px-3 py-2.5 text-end font-medium">{t('Contribution')}</th>
                 <th className="px-3 py-2.5 text-end font-medium">{t('Inventory Value')}</th>
                 <th className="px-3 py-2.5 text-end font-medium">{t('Hasad Redemptions')}</th>
                 <th className="w-8" />
@@ -188,9 +180,7 @@ function Body({ d, onBranch, L }: { d: CompanyDash; onBranch: (id: number) => vo
                   </td>
                   <td className="px-3 py-3 text-end font-semibold num">{money(b.revenue, false)}</td>
                   <td className="px-3 py-3 text-end num">{money(b.purchasesCost, false)}</td>
-                  <td className="px-3 py-3 text-end num">{money(b.expenses, false)}</td>
                   <td className="px-3 py-3 text-end num">{money(b.grossProfit, false)}</td>
-                  <td className={clsx('px-3 py-3 text-end font-medium num', b.contribution < 0 ? 'text-rose-700' : 'text-emerald-700')}>{money(b.contribution, false)}</td>
                   <td className="px-3 py-3 text-end num">{money(b.inventoryCost, false)}</td>
                   <td className="px-3 py-3 text-end num">
                     {b.hasadCompleted} <span className="text-[11.5px] text-ink-500">· {grams(b.hasadWeightMg)}</span>
@@ -206,9 +196,7 @@ function Body({ d, onBranch, L }: { d: CompanyDash; onBranch: (id: number) => vo
                 <td className="px-5 py-2.5">{t('Total')}</td>
                 <td className="px-3 py-2.5 text-end num">{money(T.revenue, false)}</td>
                 <td className="px-3 py-2.5 text-end num">{money(T.purchasesCost, false)}</td>
-                <td className="px-3 py-2.5 text-end num">{money(T.expenses, false)}</td>
                 <td className="px-3 py-2.5 text-end num">{money(T.grossProfit, false)}</td>
-                <td className="px-3 py-2.5 text-end num">{money(T.contribution, false)}</td>
                 <td className="px-3 py-2.5 text-end num">{money(T.inventoryCost, false)}</td>
                 <td className="px-3 py-2.5 text-end num">{T.hasadCompleted}</td>
                 <td />
@@ -216,7 +204,7 @@ function Body({ d, onBranch, L }: { d: CompanyDash; onBranch: (id: number) => vo
             </tfoot>
           </table>
         </div>
-        <div className="border-t border-line px-5 py-2 text-[11.5px] text-ink-500">{t('Amounts in {currency}. Gross profit = selling price after discount − item total cost. Contribution = gross profit − approved branch expenses.', { currency: currencyLabel() })}</div>
+        <div className="border-t border-line px-5 py-2 text-[11.5px] text-ink-500">{t('Amounts in {currency}. Gross profit = selling price after discount − item total cost.', { currency: currencyLabel() })}</div>
       </Card>
 
       <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
@@ -230,7 +218,6 @@ function Body({ d, onBranch, L }: { d: CompanyDash; onBranch: (id: number) => vo
           <CardHeader title={t('Needs attention')} />
           <ul className="divide-y divide-line text-[13px]">
             <Attn to="/hasad" icon={<Coins className="size-4 text-gold-600" />} label={t('Hasad requests awaiting customers')} value={num(T.hasadOpen)} />
-            <Attn to="/expenses?status=PENDING" icon={<Wallet className="size-4 text-amber-600" />} label={t('Expenses pending your approval')} value={`${d.attention.pendingExpenses} · ${money(d.attention.pendingExpensesAmount)}`} warn={d.attention.pendingExpenses > 0} />
             <Attn to="/transfers" icon={<ArrowLeftRight className="size-4 text-sky-600" />} label={t('Transfers in transit')} value={num(d.attention.transfersInTransit)} />
             <Attn to="/sessions" icon={<MonitorSmartphone className="size-4 text-emerald-600" />} label={t('Users signed in now')} value={num(d.attention.activeSessions)} />
           </ul>

@@ -139,7 +139,6 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /cash/hasad-settlements': ['/cash/hasad-settlements', `/cash/hasad-settlements?branchId=${krt.id}`],
       'GET /scrap-purchases': ['/scrap-purchases', '/scrap-purchases?kind=SELLABLE'],
       'GET /scrap-pool': ['/scrap-pool', `/scrap-pool?branchId=${krt.id}`],
-      'GET /expenses': ['/expenses'],
       'GET /transfers': ['/transfers'],
       'GET /dashboard/branch': [`/dashboard/branch?branchId=${krt.id}`],
       'GET /dashboard/company': ['/dashboard/company'],

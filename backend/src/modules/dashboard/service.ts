@@ -36,7 +36,7 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
   const iso = (d: Date) => d.toISOString();
   const trendFrom = addDays(period.toKey, -13);
   const trendRange = dayRange(trendFrom, period.toKey, tz);
-  const [trendR, hourlyR, cashiersR, expensesR, hasadR] = await Promise.all([
+  const [trendR, hourlyR, cashiersR, hasadR] = await Promise.all([
     ctx.db.execute(sql`
       SELECT to_char(created_at AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS day, count(*) AS n, coalesce(sum(total),0) AS revenue, coalesce(sum(total - cost_total),0) AS profit
       FROM sales WHERE status='COMPLETED' AND branch_id = ${branchId} AND created_at >= ${iso(trendRange.start)} AND created_at < ${iso(trendRange.end)}
@@ -58,21 +58,12 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
       WHERE u.branch_id = ${branchId} AND u.status = 'ACTIVE'
       ORDER BY r.rank, u.full_name`),
     ctx.db.execute(sql`
-      SELECT e.id, e.number, e.category, e.amount, e.expense_date, e.description, e.status, u.full_name AS created_by
-      FROM expenses e JOIN users u ON u.id = e.created_by
-      WHERE e.branch_id = ${branchId} AND e.expense_date >= ${mtdFrom} AND e.expense_date <= ${period.toKey}
-      ORDER BY e.expense_date DESC, e.id DESC LIMIT 12`),
-    ctx.db.execute(sql`
       SELECT id, external_id, customer_name, customer_name_ar, entitled_weight_mg, status, requested_at
       FROM hasad_withdrawals WHERE branch_id = ${branchId} AND status IN ('READY_FOR_PICKUP','IN_PROGRESS')
       ORDER BY requested_at ASC LIMIT 10`),
   ]);
 
   const trendMap = new Map(rows<Record<string, unknown>>(trendR).map((r) => [String(r.day), r]));
-  const expensesByCat = await ctx.db.execute(sql`
-      SELECT category, coalesce(sum(amount),0) AS amount FROM expenses
-      WHERE branch_id = ${branchId} AND status='APPROVED' AND expense_date >= ${mtdFrom} AND expense_date <= ${period.toKey}
-      GROUP BY category ORDER BY 2 DESC`);
 
   const showProfit = can(actor, 'profit.view');
   // Gold held now (D-4-3): pieces + the broken-scrap pool, raw by karat and as 24K.
@@ -87,10 +78,7 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
       itemsSold: m.itemsSold,
       purchasesCost: m.purchasesCost,
       purchasesCount: m.purchasesCount,
-      expenses: m.expenses,
-      pendingExpenses: m.pendingExpenses,
       grossProfit: showProfit ? m.grossProfit : null,
-      contribution: showProfit ? m.contribution : null,
       availableItems: m.availableItems,
       availableWeightMg: m.availableWeightMg,
       reservedItems: m.reservedItems,
@@ -101,8 +89,6 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
     mtd: {
       revenue: mtd.revenue,
       grossProfit: showProfit ? mtd.grossProfit : null,
-      expenses: mtd.expenses,
-      contribution: showProfit ? mtd.contribution : null,
       salesCount: mtd.salesCount,
       hasadCompleted: mtd.hasadCompleted,
     },
@@ -131,13 +117,6 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
       return { day: d, sales: num(r?.n), revenue: num(r?.revenue), profit: showProfit ? num(r?.profit) : null };
     }),
     hourly: rows<Record<string, unknown>>(hourlyR).map((r) => ({ hour: num(r.h), sales: num(r.n), revenue: num(r.revenue) })),
-    expenses: {
-      recent: rows<Record<string, unknown>>(expensesR).map((r) => ({
-        id: num(r.id), number: String(r.number), category: String(r.category), amount: num(r.amount),
-        expenseDate: String(r.expense_date), description: String(r.description), status: String(r.status), createdBy: String(r.created_by),
-      })),
-      byCategory: rows<Record<string, unknown>>(expensesByCat).map((r) => ({ category: String(r.category), amount: num(r.amount) })),
-    },
     cashiers: rows<Record<string, unknown>>(cashiersR).map((r) => ({
       userId: num(r.id), fullName: String(r.full_name), username: String(r.username), role: String(r.role),
       salesCount: num(r.sales_count), salesTotal: num(r.sales_total), hasadCount: num(r.hasad_count), voided: num(r.voided),
@@ -185,7 +164,6 @@ export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: strin
     JOIN products p ON p.id = i.product_id JOIN categories c ON c.id = p.category_id
     WHERE s.status='COMPLETED' AND s.created_at >= ${iso(period.start)} AND s.created_at < ${iso(period.end)}
     GROUP BY c.name ORDER BY 3 DESC`);
-  const pendingR = await ctx.db.execute(sql`SELECT count(*) AS n, coalesce(sum(amount),0) AS amount FROM expenses WHERE status='PENDING'`);
   const transitR = await ctx.db.execute(sql`SELECT count(*) AS n FROM transfers WHERE status='IN_TRANSIT'`);
   const sessionsR = await ctx.db.execute(sql`SELECT count(*) AS n FROM sessions WHERE status='ACTIVE'`);
 
@@ -196,8 +174,6 @@ export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: strin
       revenue: totals.revenue,
       costOfSales: totals.costOfSales,
       grossProfit: totals.grossProfit,
-      expenses: totals.expenses,
-      contribution: totals.contribution,
       inventoryCost: totals.inventoryCost,
       inventoryRetail: totals.inventoryRetail,
       availableItems: totals.availableItems,
@@ -216,8 +192,6 @@ export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: strin
     inventoryByKarat: rows<Record<string, unknown>>(invR).map((r) => ({ karat: num(r.karat), items: num(r.items), weightMg: num(r.weight), cost: num(r.cost) })),
     salesByCategory: rows<Record<string, unknown>>(catR).map((r) => ({ category: String(r.category), items: num(r.items), revenue: num(r.revenue), profit: num(r.profit) })),
     attention: {
-      pendingExpenses: num(rows<Record<string, unknown>>(pendingR)[0]?.n),
-      pendingExpensesAmount: num(rows<Record<string, unknown>>(pendingR)[0]?.amount),
       transfersInTransit: num(rows<Record<string, unknown>>(transitR)[0]?.n),
       activeSessions: num(rows<Record<string, unknown>>(sessionsR)[0]?.n),
     },

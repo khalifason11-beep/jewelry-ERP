@@ -7,7 +7,7 @@ import { can, isGlobal } from '../../authz';
 /** `title` / `body` are translation keys; the UI fills them with `params`. */
 export interface Notification {
   id: string;
-  kind: 'HASAD' | 'TRANSFER' | 'EXPENSE' | 'SECURITY';
+  kind: 'HASAD' | 'TRANSFER' | 'SECURITY';
   title: string;
   body: string;
   params: Record<string, string | number>;
@@ -52,17 +52,6 @@ export async function notificationsFor(ctx: Ctx, actor: Actor): Promise<Notifica
       .limit(5);
     for (const tr of trs) {
       out.push({ id: `trf-${tr.id}`, kind: 'TRANSFER', title: 'Transfer {number} in transit', body: 'From {branch}. Confirm receipt when it arrives', params: { number: tr.number, branch: tr.from }, link: '/transfers', at: tr.createdAt, severity: 'info' });
-    }
-  }
-  if (can(actor, 'expenses.approve')) {
-    const ex = await ctx.db
-      .select({ id: t.expenses.id, number: t.expenses.number, amount: t.expenses.amount, createdAt: t.expenses.createdAt, branch: t.branches.name })
-      .from(t.expenses)
-      .innerJoin(t.branches, eq(t.branches.id, t.expenses.branchId))
-      .where(eq(t.expenses.status, 'PENDING'))
-      .limit(5);
-    for (const e of ex) {
-      out.push({ id: `exp-${e.id}`, kind: 'EXPENSE', title: 'Expense {number} awaiting approval', body: '{branch} · {amount} SDG', params: { number: e.number, branch: e.branch, amount: e.amount.toLocaleString('en-US') }, link: '/expenses', at: e.createdAt, severity: 'warning' });
     }
   }
   if (can(actor, 'audit.view')) {

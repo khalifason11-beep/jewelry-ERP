@@ -120,7 +120,7 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
 - **[BUILT]** One append-only ledger per branch with CASH, BANK, FUNDS_IN_TRANSIT and HASAD_RECEIVABLE accounts. Balance = sum of entries. Every money event is written in the same transaction as the business change.
 - **[BUILT]** Expected cash in the drawer, a daily reconciliation per branch, and a **manual cash count**. A count difference is **only a note for the GM**; it is not posted to the ledger. **[CLIENT]**
 - **[CLIENT]** Books start at **zero cash** on handover day; only items are entered.
-- **[REMOVED] Expenses.** The client gives employees a fixed operating amount, so there is no expenses screen, approval flow or expense reports. See BACKLOG REM-1.
+- **[REMOVED] Expenses.** The client gives employees a fixed operating amount, so there is no expenses screen, approval flow or expense reports. Removed by BACKLOG REM-1; the old table stays (no new rows) until REM-5.
 - **[OPEN]** Where the operating amount comes from. If it leaves the shop drawer, the daily count will show a shortage unless it is recorded. Recommended: a minimal **cash-out entry** (amount, reason, actor, audited), not an expenses module.
 
 ## 10. Hasad
@@ -190,6 +190,7 @@ Requirements: GM-only, once per branch, then **sealed** (changes only through au
 7. Tests run on both PGlite and real PostgreSQL. Phase gate: typecheck, tests, build, `npm run i18n:check`, migration applied to a copy of an existing database, docs and `docs/decisions.md` updated, push.
 8. **Acceptance of any phase that changes a user flow includes the empty-database rehearsal** (BACKLOG REH-1), not only automated tests.
 9. Decisions made under ambiguity are recorded in `docs/decisions.md` with the option chosen and how to change it.
+10. **The daily cash reconciliation adds up.** Its lines sum exactly to each account's movement of the day in the ledger (for CASH: opening cash + lines = expected cash). A ledger event type without a dedicated line appears in an "Other" line; nothing may silently disappear. Tested.
 
 ## 19. Glossary
 

@@ -42,7 +42,7 @@ hasad_mock.* (customers, withdrawals, api_calls). Belongs to the mock only.
 | `inventory_movements` | Ledger: type, direction (±1), branch, from/to branch, reference, user, weight, cost value |
 | `purchases`, `purchase_items` | Stock receipts; each line creates one item |
 | `sales`, `sale_items` | Invoice header and lines with **price, discount and cost snapshots** (historical profit never changes) |
-| `expenses` | Category, amount, date, status (APPROVED / PENDING / REJECTED), reviewer |
+| `expenses` | **DEPRECATED (REM-1)**: no new rows (trigger, migration 0013); kept for history until REM-5. Category, amount, date, status, reviewer |
 | `transfers`, `transfer_items` | Two-step transfers (IN_TRANSIT → RECEIVED) |
 | `hasad_withdrawals` | ERP mirror of Hasad requests; **never linked to an item** |
 | `hasad_redemptions` | A counter visit: DRAFT → COMPLETED / ABORTED, weights, difference, settlement |

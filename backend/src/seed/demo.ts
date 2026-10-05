@@ -23,7 +23,6 @@ import { hashPassword } from '../auth/password';
 import { createSession, hashToken, loadActor } from '../modules/sessions/service';
 import { createPurchase, type PurchaseLine } from '../modules/purchases/service';
 import { createSale, voidSale } from '../modules/sales/service';
-import { createExpense } from '../modules/expenses/service';
 import { post as postLedger, settleHasadReceivable, balances as ledgerBalances } from '../modules/ledger/service';
 import { createTransfer, receiveTransfer } from '../modules/transfers/service';
 import { adjustItem } from '../modules/inventory/service';
@@ -324,35 +323,6 @@ export async function seedDemo(ctx: Ctx, now = new Date(), opts: { twoFactor?: b
     if (s) await voidSale(ctx, bm[code], s.id, reason, { at: at(s.offset, 20, 30) });
   }
 
-  // ───────── expenses ─────────
-  const monthStart = today.slice(0, 8) + '01';
-  const prevMonthStart = addDays(monthStart, -1).slice(0, 8) + '01';
-  const offsetOf = (key: string) => Math.round((dayStart(key, tz).getTime() - todayStart) / 86400_000);
-  const rent: Record<string, number> = { KRT: 3_500_000, OMD: 2_400_000, BHR: 2_000_000, PZU: 2_800_000 };
-  const salaries: Record<string, number> = { KRT: 4_200_000, OMD: 3_100_000, BHR: 2_600_000, PZU: 2_900_000 };
-  const addExpense = async (actor: Actor, code: string, key: string, category: string, amount: number, description: string) => {
-    const off = offsetOf(key);
-    if (off > 0 || off < -45) return;
-    const when = off === 0 ? (timeOn(0) ?? new Date(now.getTime() - 60_000)) : at(off, 12, int(0, 59));
-    await createExpense(ctx, actor, { branchId: branch[code].id, category: category as never, amount, expenseDate: key, description }, { at: when });
-  };
-  for (const code of ['KRT', 'OMD', 'BHR', 'PZU']) {
-    for (const ms of [prevMonthStart, monthStart]) {
-      await addExpense(gm, code, ms, 'RENT', rent[code], `إيجار المحل: ${ms.slice(0, 7)}`);
-      await addExpense(bm[code], code, ms.slice(0, 8) + '10', 'ELECTRICITY', int(28, 45) * 10_000, 'فاتورة الكهرباء (رصيد مسبق الدفع)');
-      await addExpense(bm[code], code, ms.slice(0, 8) + '15', 'SECURITY', 350_000, 'خدمة الحراسة الليلية');
-    }
-    await addExpense(gm, code, prevMonthStart.slice(0, 8) + '25', 'SALARIES', salaries[code], 'مرتبات الموظفين');
-    for (let off = -40; off <= -1; off += int(4, 7)) {
-      await addExpense(bm[code], code, addDays(today, off), 'TRANSPORTATION', int(4, 12) * 10_000, pick(['وقود عربة التوصيل', 'مندوب إلى الرئاسة', 'ركشة: إيداعات البنك', 'ترحيل بضاعة إلى الورشة']));
-    }
-    await addExpense(bm[code], code, addDays(today, -int(3, 20)), 'MAINTENANCE', int(15, 60) * 10_000, pick(['صيانة إضاءة فترينة العرض', 'صيانة قفل الخزنة', 'معايرة الميزان', 'صيانة المولد']));
-  }
-  await addExpense(bm.KRT, 'KRT', today, 'OTHER', 35_000, 'شاي ومياه للموظفين');
-  await addExpense(bm.KRT, 'KRT', today, 'TRANSPORTATION', 60_000, 'مندوب إلى فرع أم درمان');
-  await addExpense(bm.OMD, 'OMD', today, 'OTHER', 20_000, 'مستلزمات نظافة');
-  await addExpense(bm.BHR, 'BHR', addDays(today, -1), 'MAINTENANCE', 2_350_000, 'استبدال مكيف منطقة العرض'); // above threshold → PENDING
-
   // ───────── scrap gold and supplier settlements (Phase 4) ─────────
   // Scrap BUYING rates (any karat, set by the GM) a little under the selling rate; broken scrap
   // bought at the counter goes to the branch pool; supplier representatives are paid in that scrap.
@@ -614,7 +584,7 @@ export async function seedDemo(ctx: Ctx, now = new Date(), opts: { twoFactor?: b
     { user: 'cashier.omd.01', ua: uaTablet, ip: '10.20.2.21', module: 'pos', minutesAgoLogin: 140, minutesIdle: 1 },
     { user: 'branch.manager.omd', ua: uaEdge, ip: '10.20.2.14', module: 'dashboard', minutesAgoLogin: 190, minutesIdle: 26 },
     { user: 'cashier.bhr.01', ua: uaDesktop, ip: '10.20.3.17', module: 'hasad', minutesAgoLogin: 95, minutesIdle: 2 },
-    { user: 'branch.manager.bhr', ua: uaEdge, ip: '10.20.3.16', module: 'expenses', minutesAgoLogin: 120, minutesIdle: 4 },
+    { user: 'branch.manager.bhr', ua: uaEdge, ip: '10.20.3.16', module: 'cash', minutesAgoLogin: 120, minutesIdle: 4 },
     { user: 'cashier.pzu.01', ua: uaDesktop, ip: '10.20.4.19', module: 'pos', minutesAgoLogin: 180, minutesIdle: 3 },
     // Same account signed in on a second device elsewhere → flagged as concurrent.
     { user: 'cashier.pzu.01', ua: uaTablet, ip: '10.20.9.77', module: 'pos', minutesAgoLogin: 22, minutesIdle: 1 },

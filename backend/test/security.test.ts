@@ -542,9 +542,9 @@ describe('CSRF, headers, proxy trust and validation', () => {
     expect((await gm.put('/api/settings').send({ changes: { 'security.unknownKey': 1 } })).status).toBe(400);
     expect((await gm.put('/api/settings').set('Content-Type', 'application/json').send('{"changes":{"__proto__":{"polluted":true}}}')).status).toBe(400);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
-    const ok = await gm.put('/api/settings').send({ changes: { 'expenses.approvalThreshold': 1_600_000 } });
+    const ok = await gm.put('/api/settings').send({ changes: { 'transfers.pendingClaimStaleHours': 36 } });
     expect(ok.status).toBe(200);
-    expect(ok.body.settings.expenses.approvalThreshold).toBe(1_600_000);
+    expect(ok.body.settings.transfers.pendingClaimStaleHours).toBe(36);
 
     const huge = await cashier.post('/api/sales').send({ items: [{ itemId: 1 }], paymentMethod: 'CASH', customerName: 'x'.repeat(150_000) });
     expect(huge.status).toBe(413);

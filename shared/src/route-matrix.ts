@@ -143,13 +143,10 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/hasad/withdrawals/:id/abort', 'branch', { all: ['hasad.process'] }),
   r('POST', '/hasad/withdrawals/:id/cancel', 'branch', { all: ['hasad.cancel'] }),
 
-  // ── purchases, expenses, transfers
+  // ── purchases, transfers
   r('GET', '/purchases', 'branch', { all: ['purchases.view'] }),
   r('GET', '/purchases/:id', 'branch', { all: ['purchases.view'] }),
   r('POST', '/purchases', 'branch', { all: ['purchases.create'], idempotent: true, idempotencyInTx: true }),
-  r('GET', '/expenses', 'branch', { all: ['expenses.view'] }),
-  r('POST', '/expenses', 'branch', { all: ['expenses.create'], idempotent: true, idempotencyInTx: true }),
-  r('POST', '/expenses/:id/review', 'branch', { all: ['expenses.approve'], idempotent: true, idempotencyInTx: true }),
   // ── scrap gold and supplier settlement (Phase 4)
   r('GET', '/scrap-rates', 'none', { any: ['scrap.buy', 'settings.manage'] }),
   r('POST', '/scrap-rates', 'global', { all: ['settings.manage'], reauth: true }),

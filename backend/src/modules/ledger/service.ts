@@ -165,8 +165,41 @@ export async function drawer(ctx: Ctx, actor: Actor, q: { branchId?: number }) {
 }
 
 /**
- * Daily reconciliation of one branch: opening cash, sales by payment method, voids, expenses,
- * Hasad settlements, expected cash at the end of the day, the latest counted cash and the difference.
+ * Lines of the daily reconciliation, per account (SPEC §18.10, D-rem1-5). Every ledger entry of the
+ * day on that account falls into exactly one line; an event type without a line of its own for the
+ * account (including retired ones such as a historical EXPENSE) lands in OTHER, so the lines always
+ * add up to the account's movement in the ledger. Nothing silently disappears.
+ */
+export const RECONCILIATION_LINES = {
+  CASH: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'MAKING_CHARGES', 'HASAD_SETTLEMENTS', 'OTHER'],
+  BANK: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'MAKING_CHARGES', 'HASAD_SETTLEMENTS', 'HASAD_RECEIVABLE_SETTLEMENTS', 'OTHER'],
+} as const;
+export type ReconciliationLine = (typeof RECONCILIATION_LINES)['BANK'][number];
+const LINE_OF_EVENT: Partial<Record<LedgerEventType, ReconciliationLine>> = {
+  SALE: 'SALES',
+  SALE_VOID: 'VOIDS',
+  SCRAP_PURCHASE: 'SCRAP_PURCHASES',
+  SUPPLIER_MAKING_CHARGE: 'MAKING_CHARGES',
+  HASAD_SETTLEMENT: 'HASAD_SETTLEMENTS',
+  HASAD_RECEIVABLE_SETTLEMENT: 'HASAD_RECEIVABLE_SETTLEMENTS',
+};
+
+/** Group one account's entries into its reconciliation lines; their sum always equals the account's movement. */
+export function reconciliationLines(kind: keyof typeof RECONCILIATION_LINES, entries: { kind: string; eventType: string; amount: number }[]) {
+  const lines: readonly ReconciliationLine[] = RECONCILIATION_LINES[kind];
+  const totals = new Map<ReconciliationLine, number[]>(lines.map((l) => [l, []]));
+  for (const e of entries) {
+    if (e.kind !== kind) continue;
+    const own = LINE_OF_EVENT[e.eventType as LedgerEventType];
+    totals.get(own && lines.includes(own) ? own : 'OTHER')!.push(e.amount);
+  }
+  return lines.map((line) => ({ line, amount: sumInt(totals.get(line)!) }));
+}
+
+/**
+ * Daily reconciliation of one branch: opening cash, sales by payment method, voids, the day's drawer
+ * and bank movements line by line (they add up to the ledger, SPEC §18.10), expected cash at the end
+ * of the day, the latest counted cash and the difference.
  */
 export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: number; day?: string }) {
   requirePerm(actor, 'cash.view');
@@ -201,8 +234,6 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
     salesTotal: sum((e) => e.eventType === 'SALE'),
     voidsByMethod: methods.map((m) => ({ paymentMethod: m, amount: sum((e) => e.eventType === 'SALE_VOID' && e.paymentMethod === m) })),
     voidsTotal: sum((e) => e.eventType === 'SALE_VOID'),
-    expensesCash: sum((e) => e.eventType === 'EXPENSE' && e.kind === 'CASH'),
-    expensesBank: sum((e) => e.eventType === 'EXPENSE' && e.kind === 'BANK'),
     settlementsCash: sum((e) => e.eventType === 'HASAD_SETTLEMENT' && e.kind === 'CASH'),
     settlementsBank: sum((e) => e.eventType === 'HASAD_SETTLEMENT' && e.kind === 'BANK'),
     // Hasad's bank transfers received this day (receivable → bank; never the drawer).
@@ -212,7 +243,10 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
     scrapPurchasesBank: sum((e) => e.eventType === 'SCRAP_PURCHASE' && e.kind === 'BANK'),
     makingChargesCash: sum((e) => e.eventType === 'SUPPLIER_MAKING_CHARGE' && e.kind === 'CASH'),
     makingChargesBank: sum((e) => e.eventType === 'SUPPLIER_MAKING_CHARGE' && e.kind === 'BANK'),
+    cashLines: reconciliationLines('CASH', entries),
+    bankLines: reconciliationLines('BANK', entries),
     cashMovement: cashIn,
+    bankMovement: sum((e) => e.kind === 'BANK'),
     expectedCash,
     counted: count ? { amount: count.countedAmount, at: count.at, countedByName: countedBy, note: count.note } : null,
     difference: count ? count.countedAmount - expectedCash : null,

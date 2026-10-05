@@ -1,12 +1,12 @@
 // DEMO ONLY: give a demo database created before Phase 2b the ledger entries its history implies
-// (sales, voids, approved expenses, Hasad settlements), so the drawer and the reconciliation match
+// (sales, voids, Hasad settlements), so the drawer and the reconciliation match
 // the demo data. Production and real data are NEVER backfilled with invented entries: the books of a
 // real company start at the opening balance (Phase 3). Guarded at three levels: the caller only runs
 // in demo mode, this function refuses outside APP_MODE=demo, and it does nothing if any entry exists.
 
-import { asc, count, eq, isNotNull, sql } from 'drizzle-orm';
+import { asc, count, isNotNull, sql } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import type { CashOrBank, PaymentMethod } from '@jerp/shared';
+import type { PaymentMethod } from '@jerp/shared';
 import { config } from '../config';
 import type { Ctx } from '../core/context';
 import { accountKindFor, post, reverseRef } from '../modules/ledger/service';
@@ -24,14 +24,6 @@ export async function backfillDemoLedger(ctx: Ctx): Promise<{ entries: number }>
       const ref = { refType: 'sale', refId: s.id, refNumber: s.number };
       await post(tx, [{ branchId: s.branchId, kind: accountKindFor(method), amount: s.total, eventType: 'SALE', paymentMethod: method, ref, note: NOTE, at: s.createdAt }], by);
       if (s.status === 'VOIDED') await reverseRef(tx, ref, 'SALE', 'SALE_VOID', by, { note: NOTE, at: s.voidedAt ?? s.createdAt });
-    }
-    for (const e of await tx.select().from(t.expenses).where(eq(t.expenses.status, 'APPROVED')).orderBy(asc(t.expenses.id))) {
-      const source = (e.paidFrom ?? 'CASH') as CashOrBank;
-      await post(
-        tx,
-        [{ branchId: e.branchId, kind: source, amount: -e.amount, eventType: 'EXPENSE', paymentMethod: source === 'CASH' ? 'CASH' : 'BANK_TRANSFER', ref: { refType: 'expense', refId: e.id, refNumber: e.number }, note: NOTE, at: e.reviewedAt ?? e.createdAt }],
-        by,
-      );
     }
     for (const st of await tx.select().from(t.settlements).where(isNotNull(t.settlements.redemptionId)).orderBy(asc(t.settlements.id))) {
       const method = st.paymentMethod as PaymentMethod;

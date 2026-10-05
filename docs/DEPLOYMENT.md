@@ -70,7 +70,7 @@ Backup variables (`BACKUP_*`) are listed in section 7; they belong to the backup
      bought. (The code default lists 18/21/22/24; nothing in the code assumes 21.)
    - **Scrap buying rates (per gram)**: enter today's rate for every karat the branches buy as scrap (any karat 1–24
      can be added). Without a rate for a karat, scrap of that karat cannot be bought.
-   - **Sales & expenses → Payment methods at the counter**: Cash, Bank transfer and Hasad by default. Card and mobile
+   - **Sales → Payment methods at the counter**: Cash, Bank transfer and Hasad by default. Card and mobile
      wallet stay off unless the client asks for them.
    - **Business rules → Scrap price tolerance** and **GM approval beyond tolerance**: check the values with the client.
 
@@ -208,18 +208,25 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   then run `ALTER TABLE <table> VALIDATE CONSTRAINT <name>;`. On a fresh database this never appears.
 - **API clients other than the web app** must send an `Idempotency-Key` header (16–128 characters of `A–Z a–z 0–9 _ -`,
   one new key per business action, reused only for retries of that action) on: create sale, void sale, create
-  purchase, create expense, review expense, create transfer, receive transfer and complete Hasad withdrawal.
+  purchase, create transfer, receive transfer, record a cash count and complete Hasad withdrawal.
   Without it the server answers `428`.
 
 ### Money ledger (Phase 2b)
 
 - Upgrading an existing database creates the branch accounts (CASH, BANK, FUNDS_IN_TRANSIT) and backfills the
-  item cost model, but **never creates ledger entries** for past sales, expenses or settlements. A real company's
+  item cost model, but **never creates ledger entries** for past sales or settlements. A real company's
   books start at the opening balance (Phase 3); until then the Cash screen only reflects events recorded after the
   upgrade. (Demo databases are the one exception: in `APP_MODE=demo` their history is re-posted at start-up.)
-- API clients: create sale, void sale, create expense, review expense and complete Hasad withdrawal store their
+- API clients: create sale, void sale and complete Hasad withdrawal store their
   idempotency record in the same transaction as the money movement; a retry with the same key returns the first
   result, and nothing is ever posted twice.
+
+### Expenses removed (REM-1, migration 0013)
+
+- Expenses are no longer part of the product (no screen, route, permission, setting or report). Migration 0013 deletes
+  the `expenses.*` permissions and their role grants, and adds triggers that refuse new rows in `expenses` and new
+  `EXPENSE` entries in `ledger_entries`. Existing rows stay untouched (history); a historical `EXPENSE` entry appears
+  on the Cash screen under "Other movements", so the daily lines still add up to the ledger. REM-5 drops the table.
 
 ### Purchases, scrap and supplier settlement (Phase 4)
 

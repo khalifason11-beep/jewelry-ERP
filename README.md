@@ -188,7 +188,7 @@ npm run ops -w @jerp/backend -- reset-gm-password --username <gm user>
   the database and the list ever differ.
 - **Append-only ledgers**: the audit log, inventory movements, item history, gold rates and settings history cannot be
   edited, deleted or emptied — refused by database triggers and, on PostgreSQL, by the app role's missing privileges.
-- **No duplicates from double clicks or retries**: sales, voids, purchases, expenses, expense reviews, transfers,
+- **No duplicates from double clicks or retries**: sales, voids, purchases, transfers,
   transfer receipts and Hasad completions require an `Idempotency-Key` header; a repeated request returns the first
   result instead of creating a second record.
 - **Exact arithmetic**: money and weights are integers; rounding is exact and symmetric (`shared/src/money.ts`).
@@ -202,12 +202,13 @@ npm run ops -w @jerp/backend -- reset-gm-password --username <gm user>
   pieces including the making charge, also kept apart) and whether that cost is an estimate. **Sale lines** store the
   acquisition-cost snapshot and the profit. Cost and profit are General-Manager-only.
 - **Every branch has a money ledger** (CASH drawer, BANK, funds in transit). Sales, cancellations (through the
-  original payment method), approved expenses (from the drawer or the bank) and Hasad settlements post their entries
+  original payment method), scrap purchases, supplier making charges and Hasad settlements post their entries
   in the same database transaction as the business change. Entries can never be edited or deleted; a balance is
   always the sum of its entries; corrections are reversing entries.
 - **Cash** screen (branch managers: own branch; GM: all): expected cash in each drawer now, and the daily
-  reconciliation — opening cash, sales by payment method, cancellations, expenses, settlements, expected cash, the
-  counted cash and the difference.
+  reconciliation — opening cash, sales by payment method, the drawer and bank movements line by line (they always
+  add up to the ledger; anything without its own line shows as "Other"), expected cash, the counted cash and the
+  difference. (Expenses were removed: BACKLOG REM-1.)
 
 ### Purchases, scrap gold and supplier settlement (Phase 4)
 
@@ -278,7 +279,7 @@ Amounts and weights always use Western digits; dates use Arabic month names in A
 stable `key` + `params` so the client shows them in the active language. Audit-log entries work the same way:
 `writeAudit({ key, params })` stores `description_key` + `description_params` (money and weights stay numeric via
 `ap.money()` / `ap.mg()` and are formatted by the client); `description` keeps the English rendering as a fallback.
-Demo data is seeded in Arabic (customer names, expense descriptions, notes and reasons).
+Demo data is seeded in Arabic (customer names, notes and reasons).
 
 `npm run i18n:check` reports hardcoded English in JSX and toast/`done()` calls, keys without an Arabic
 translation (UI, API errors, audit keys, field labels), English template-literal `description:` values in the

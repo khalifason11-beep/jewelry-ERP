@@ -45,7 +45,7 @@ const FIELD_LABELS: Record<string, string> = {
   productId: 'Product', purchaseCost: 'Purchase cost', q: 'Search', rates: 'Gold rates', reason: 'Reason', roleCode: 'Role', scope: 'Scope',
   sellingPrice: 'Selling price', sort: 'Sort', status: 'Status', supplierId: 'Supplier', supplierInvoiceNo: 'Supplier invoice no.',
   targetWeightMg: 'Weight to withdraw (g)', temporaryPassword: 'Temporary password', toBranchId: 'To', username: 'Username',
-  verification: 'Verification method', weightMg: 'Weight', input: 'Input', expenseDate: 'Date',
+  verification: 'Verification method', weightMg: 'Weight', input: 'Input',
 };
 
 /** "lines.2.netWeightMg" → "Net weight" (translated); unknown fields fall back to the raw path. */

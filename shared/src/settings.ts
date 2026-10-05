@@ -41,10 +41,6 @@ export interface SystemSettings {
     /** Payment methods the cashier's checkout offers (D-4-6); the others stay valid but hidden. */
     posPaymentMethods: PaymentMethod[];
   };
-  expenses: {
-    /** Expenses above this amount created by non-GM users require GM approval. */
-    approvalThreshold: number;
-  };
   purchases: {
     /** Supplier purchases on CREDIT (creates a supplier payable). */
     supplierCreditEnabled: boolean;
@@ -142,9 +138,6 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     maxDiscountPercentByRole: { CASHIER: 3, BRANCH_MANAGER: 10, GENERAL_MANAGER: 20 },
     posPaymentMethods: ['CASH', 'BANK_TRANSFER', 'HASAD'],
   },
-  expenses: {
-    approvalThreshold: 1_500_000,
-  },
   purchases: {
     // Phase 4 (D-4-4): supplier purchases are gold-for-gold debts settled later with broken scrap.
     supplierCreditEnabled: true,
@@ -241,7 +234,6 @@ export const SETTINGS_REGISTRY = {
       .max(PAYMENT_METHODS.length)
       .refine((a) => new Set(a).size === a.length, 'Duplicate payment method'),
   },
-  'expenses.approvalThreshold': { schema: int(0, 1_000_000_000) },
   'purchases.supplierCreditEnabled': { schema: z.boolean() },
   'purchases.scrapPriceTolerancePct': { schema: z.number().min(0).max(50) },
   'purchases.requireGmApprovalForScrapOverride': { schema: z.boolean() },

@@ -110,6 +110,7 @@ export const CASH_OR_BANK = ['CASH', 'BANK'] as const;
 export type CashOrBank = (typeof CASH_OR_BANK)[number];
 export type SaleStatus = (typeof SALE_STATUSES)[number];
 
+/** DEPRECATED (REM-1): expenses were removed; kept for the CHECKs of the historical `expenses` table until REM-5. */
 export const EXPENSE_CATEGORIES = [
   'RENT',
   'ELECTRICITY',
@@ -235,7 +236,6 @@ export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 export const REPORT_KEYS = [
   'sales',
   'purchases',
-  'expenses',
   'inventory',
   'inventory-movement',
   'stock-weight',

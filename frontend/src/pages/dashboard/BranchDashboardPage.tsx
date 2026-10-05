@@ -2,12 +2,12 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { CheckCircle2, Coins, Gem, Receipt, ScaleIcon, Truck, TrendingUp, Wallet, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, Coins, Gem, Receipt, ScaleIcon, Truck, TrendingUp, AlertTriangle } from 'lucide-react';
 import { get } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { date as formatDate, dateTime, grams, humanize, money, num, relative, todayKey, currencyLabel } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
-import { Card, CardHeader, Empty, ErrorState, Input, Kpi, Loading, Mono, PageHeader, StatusBadge } from '../../components/ui';
+import { Card, CardHeader, ErrorState, Input, Kpi, Loading, Mono, PageHeader, StatusBadge } from '../../components/ui';
 import { StockWeightCard, type StockWeight } from '../../components/StockWeight';
 import { MoneyLineChart } from '../../components/charts';
 
@@ -25,10 +25,7 @@ export interface BranchDash {
     /** Omitted for users without profit.view (cost is General Manager only). */
     purchasesCost?: number;
     purchasesCount: number;
-    expenses: number;
-    pendingExpenses: number;
     grossProfit: number | null;
-    contribution: number | null;
     availableItems: number;
     availableWeightMg: number;
     reservedItems: number;
@@ -37,7 +34,7 @@ export interface BranchDash {
     hasadOpen: number;
   };
   stockWeight: StockWeight;
-  mtd: { revenue: number; grossProfit: number | null; expenses: number; contribution: number | null; salesCount: number; hasadCompleted: number };
+  mtd: { revenue: number; grossProfit: number | null; salesCount: number; hasadCompleted: number };
   movement: {
     opening: { items: number; weightMg: number; cost: number };
     lines: Record<string, MovementLine>;
@@ -56,10 +53,6 @@ export interface BranchDash {
     queue: { id: number; externalId: string; customerName: string; customerNameAr: string | null; entitledWeightMg: number; status: string; requestedAt: string }[];
   };
   trend: { day: string; sales: number; revenue: number; profit: number | null }[];
-  expenses: {
-    recent: { id: number; number: string; category: string; amount: number; expenseDate: string; description: string; status: string; createdBy: string }[];
-    byCategory: { category: string; amount: number }[];
-  };
   cashiers: {
     userId: number;
     fullName: string;
@@ -114,11 +107,10 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
     <div className="space-y-5">
       {embedded ? <div className="flex justify-end"><Input type="date" value={date} max={todayKey()} onChange={(e) => e.target.value && setDate(e.target.value)} className="w-40" aria-label={t('Business date')} /></div> : header}
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <Kpi tone="dark" label={`${dayLabel} · ${t('Sales')}`} value={money(k.salesTotal, false)} sub={t('{invoices} invoices · {pieces} pieces · {currency}', { invoices: k.salesCount, pieces: k.itemsSold, currency: currencyLabel() })} icon={<Receipt className="size-4" />} onClick={() => navigate(`/reports/sales?from=${date}&to=${date}&branchId=${d.branchId}`)} />
         <Kpi label={`${dayLabel} · ${t('Purchases')}`} value={k.purchasesCost != null ? money(k.purchasesCost, false) : String(k.purchasesCount)} sub={k.purchasesCost != null ? t('{n} receipts · {currency}', { n: k.purchasesCount, currency: currencyLabel() }) : t('Receipts')} icon={<Truck className="size-4" />} onClick={() => navigate(`/reports/purchases?from=${date}&to=${date}&branchId=${d.branchId}`)} />
-        <Kpi label={`${dayLabel} · ${t('Expenses')}`} value={money(k.expenses, false)} sub={k.pendingExpenses ? t('+ {amount} pending approval', { amount: money(k.pendingExpenses) }) : t('Approved · {currency}', { currency: currencyLabel() })} icon={<Wallet className="size-4" />} onClick={() => navigate(`/reports/expenses?from=${date}&to=${date}&branchId=${d.branchId}`)} />
-        <Kpi tone="gold" label={t('Gross Profit')} value={k.grossProfit != null ? money(k.grossProfit, false) : '—'} sub={k.contribution != null ? t('Contribution {amount}', { amount: money(k.contribution) }) : undefined} icon={<TrendingUp className="size-4" />} />
+        <Kpi tone="gold" label={t('Gross Profit')} value={k.grossProfit != null ? money(k.grossProfit, false) : '—'} icon={<TrendingUp className="size-4" />} />
         <Kpi label={t('Available Inventory')} value={t('{n} pcs', { n: num(k.availableItems) })} sub={`${grams(k.availableWeightMg)}${k.reservedItems ? ` · ${t('{n} reserved', { n: k.reservedItems })}` : ''}`} icon={<Gem className="size-4" />} onClick={() => navigate(`/inventory?branchId=${d.branchId}`)} />
         <Kpi label={t('Hasad Withdrawals')} value={t('{n} done', { n: k.hasadCompleted })} sub={t('{n} open request(s)', { n: k.hasadOpen })} icon={<Coins className="size-4" />} onClick={() => navigate('/hasad')} />
       </div>
@@ -130,11 +122,11 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
         <HasadCard d={d} />
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1.4fr_1fr]">
+      <div className="grid gap-5">
         <Card padded={false}>
           <CardHeader
             title={t('Sales: last 14 days')}
-            subtitle={`${t('Month to date: {amount} · {n} invoices', { amount: money(d.mtd.revenue), n: d.mtd.salesCount })}${d.mtd.contribution != null ? ` · ${t('contribution {amount}', { amount: money(d.mtd.contribution) })}` : ''}`}
+            subtitle={`${t('Month to date: {amount} · {n} invoices', { amount: money(d.mtd.revenue), n: d.mtd.salesCount })}$`}
           />
           <div className="px-3 pb-3 pt-2">
             <MoneyLineChart
@@ -145,31 +137,6 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
               ]}
             />
           </div>
-        </Card>
-        <Card padded={false}>
-          <CardHeader
-            title={`${t('Expenses')} · ${t('month to date')}`}
-            subtitle={t('Approved total {amount}', { amount: money(d.mtd.expenses) })}
-            actions={<Link to="/expenses" className="text-[13px] font-medium text-gold-700 hover:underline">{t('All expenses')}</Link>}
-          />
-          {d.expenses.recent.length === 0 ? (
-            <Empty title={t('No expenses this month')} />
-          ) : (
-            <ul className="divide-y divide-line">
-              {d.expenses.recent.slice(0, 7).map((e) => (
-                <li key={e.id} className="flex items-center gap-3 px-5 py-2.5 text-[13px]">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-ink-800">{e.description}</div>
-                    <div className="text-[11.5px] text-ink-500">
-                      {humanize(e.category)} · {formatDate(e.expenseDate, lang)} · {e.createdBy}
-                    </div>
-                  </div>
-                  {e.status !== 'APPROVED' && <StatusBadge status={e.status} />}
-                  <span className="font-medium num">{money(e.amount)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
         </Card>
       </div>
 

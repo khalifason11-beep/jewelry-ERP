@@ -9,7 +9,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, EXPENSE_CATEGORIES, CASH_OR_BANK, ITEM_ORIGINS, KARATS, PAYMENT_METHODS, SCRAP_KINDS, SCRAP_PAYMENT_METHODS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
+import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, KARATS, PAYMENT_METHODS, SCRAP_KINDS, SCRAP_PAYMENT_METHODS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
@@ -26,7 +26,6 @@ import * as sales from './modules/sales/service';
 import * as printing from './modules/print/service';
 import * as hasad from './modules/hasad/service';
 import * as purchases from './modules/purchases/service';
-import * as expenses from './modules/expenses/service';
 import * as transfers from './modules/transfers/service';
 import * as dashboard from './modules/dashboard/service';
 import * as reports from './modules/reports/service';
@@ -534,7 +533,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     res.json(await hasad.cancelWithdrawal(ctx, actorOf(req), parse(zId, req.params.id), body.reason));
   });
 
-  // ─────────── purchases / expenses / transfers ───────────
+  // ─────────── purchases / transfers ───────────
   route('GET', '/purchases', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId, from: zDay.optional(), to: zDay.optional(), q: zQ }).strict(), req.query);
     res.json(await purchases.listPurchases(ctx, actorOf(req), q));
@@ -615,44 +614,6 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('GET', '/scrap-pool', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId }).strict(), req.query);
     res.json(await scrap.poolView(ctx, actorOf(req), q));
-  });
-
-  route('GET', '/expenses', async (req, res) => {
-    const q = parse(
-      z
-        .object({
-          branchId: zOptId,
-          from: zDay.optional(),
-          to: zDay.optional(),
-          category: z.enum(EXPENSE_CATEGORIES).optional(),
-          status: z.enum(['APPROVED', 'PENDING', 'REJECTED']).optional(),
-          q: zQ,
-        })
-        .strict(),
-      req.query,
-    );
-    res.json(await expenses.listExpenses(ctx, actorOf(req), q));
-  });
-  route('POST', '/expenses', async (req, res) => {
-    const body = parse(
-      z
-        .object({
-          branchId: zIdBody.optional(),
-          category: z.enum(EXPENSE_CATEGORIES),
-          amount: zPositiveMoney,
-          expenseDate: zDay.optional(),
-          description: zText(500).min(2),
-          paidFrom: z.enum(CASH_OR_BANK).optional(),
-        })
-        .strict(),
-      req.body,
-    );
-    res.json(await runIdempotent(ctx, req, res, (idem) => expenses.createExpense(ctx, actorOf(req), body, { idem })));
-  });
-  route('POST', '/expenses/:id/review', async (req, res) => {
-    const body = parse(z.object({ decision: z.enum(['APPROVED', 'REJECTED']), note: zText(500).optional(), paidFrom: z.enum(CASH_OR_BANK).optional() }).strict(), req.body);
-    const id = parse(zId, req.params.id);
-    res.json(await runIdempotent(ctx, req, res, (idem) => expenses.reviewExpense(ctx, actorOf(req), id, body.decision, body.note, { idem, paidFrom: body.paidFrom })));
   });
 
   // ─────────── Cash: expected drawer balance, daily reconciliation, counted cash (Phase 2b) ───────────

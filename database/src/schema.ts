@@ -446,7 +446,9 @@ export const saleItems = pgTable('sale_items', {
   priceRatePerGram: money('price_rate_per_gram'),
 });
 
-// ───────────────────────────── Expenses ─────────────────────────────
+// ───────────────────────────── Expenses (DEPRECATED) ─────────────────────────────
+// REM-1: expenses were removed from the product. The table stays for history; migration 0013 refuses
+// new rows (trigger trg_expenses_deprecated). Dropped by REM-5 before the first production deployment.
 
 export const expenses = pgTable(
   'expenses',

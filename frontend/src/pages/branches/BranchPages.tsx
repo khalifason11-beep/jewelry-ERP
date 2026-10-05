@@ -15,14 +15,13 @@ import { Button, Card, CardHeader, Dialog, ErrorState, Field, Input, Loading, Mo
 import { DateRange, useRangeParams } from '../../components/Filters';
 import { BranchDashboard } from '../dashboard/BranchDashboardPage';
 import { SalesTable, Crumbs } from '../sales/SalesPages';
-import { ExpensesTable } from '../expenses/ExpensesPage';
 import { InventoryTable } from '../inventory/InventoryPages';
 import { PurchasesTable } from '../purchases/PurchasesPages';
 import { HasadBranchTable } from '../hasad/HasadBranchTable';
 import { SessionsTable } from '../admin/SessionsPage';
 
 interface CompanyBranches {
-  branches: { branchId: number; name: string; nameAr: string; city: string; revenue: number; grossProfit: number; expenses: number; contribution: number; availableItems: number; availableWeightMg: number; hasadCompleted: number; hasadOpen: number; salesCount: number }[];
+  branches: { branchId: number; name: string; nameAr: string; city: string; revenue: number; grossProfit: number; availableItems: number; availableWeightMg: number; hasadCompleted: number; hasadOpen: number; salesCount: number }[];
 }
 
 export function BranchesPage() {
@@ -35,7 +34,7 @@ export function BranchesPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={t('Branches')}
-        subtitle={t('Month-to-date results. Open a branch to drill into its sales, expenses, inventory, Hasad activity and staff.')}
+        subtitle={t('Month-to-date results. Open a branch to drill into its sales, inventory, Hasad activity and staff.')}
         actions={can('branches.manage') ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')} data-testid="new-branch">{t('New branch')}</Button> : undefined}
       />
       {q.isLoading ? (
@@ -65,7 +64,6 @@ export function BranchesPage() {
                 <div className="mt-4 grid grid-cols-3 gap-3 text-[13px]">
                   <div><div className="text-ink-500">{t('Sales')} · {t('MTD')}</div><div className="font-semibold num">{money(b.revenue)}</div></div>
                   <div><div className="text-ink-500">{t('Gross Profit')}</div><div className="font-semibold num">{money(b.grossProfit)}</div></div>
-                  <div><div className="text-ink-500">{t('Contribution')}</div><div className="font-semibold text-emerald-700 num">{money(b.contribution)}</div></div>
                   <div><div className="text-ink-500">{t('Available')}</div><div className="font-semibold num">{t('{n} pcs', { n: b.availableItems })} · {grams(b.availableWeightMg)}</div></div>
                   <div><div className="text-ink-500">{t('Hasad done')}</div><div className="font-semibold num">{b.hasadCompleted}</div></div>
                   <div><div className="text-ink-500">{t('Hasad open')}</div><div className="font-semibold num">{b.hasadOpen}</div></div>
@@ -181,7 +179,7 @@ function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () 
   );
 }
 
-type Tab = 'overview' | 'sales' | 'expenses' | 'inventory' | 'purchases' | 'hasad' | 'staff';
+type Tab = 'overview' | 'sales' | 'inventory' | 'purchases' | 'hasad' | 'staff';
 
 export function BranchDetailPage() {
   const id = Number(useParams().id);
@@ -228,7 +226,6 @@ export function BranchDetailPage() {
         tabs={[
           { value: 'overview', label: t('Overview') },
           { value: 'sales', label: t('Sales') },
-          { value: 'expenses', label: t('Expenses') },
           { value: 'inventory', label: t('Inventory') },
           { value: 'purchases', label: t('Purchases') },
           { value: 'hasad', label: t('Hasad Gold') },
@@ -237,7 +234,6 @@ export function BranchDetailPage() {
       />
       {tab === 'overview' && <BranchDashboard branchId={id} embedded />}
       {tab === 'sales' && <Card padded={false}><SalesTable branchId={id} from={from} to={to} toolbar={rangeBar} /></Card>}
-      {tab === 'expenses' && <Card padded={false}><ExpensesTable branchId={id} from={from} to={to} toolbar={rangeBar} /></Card>}
       {tab === 'inventory' && <Card padded={false}><InventoryTable branchId={id} /></Card>}
       {tab === 'purchases' && <Card padded={false}><PurchasesTable branchId={id} from={from} to={to} toolbar={rangeBar} /></Card>}
       {tab === 'hasad' && <Card padded={false}><HasadBranchTable branchId={id} /></Card>}

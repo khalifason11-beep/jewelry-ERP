@@ -13,7 +13,6 @@ import {
   TrendingUp,
   Truck,
   Users,
-  Wallet,
   type LucideIcon,
 } from 'lucide-react';
 import type { Permission } from '@jerp/shared';
@@ -31,11 +30,10 @@ import { Crumbs } from '../sales/SalesPages';
 const REPORTS: { key: string; title: string; desc: string; icon: LucideIcon; perm?: Permission }[] = [
   { key: 'sales', title: tk('Sales Report'), desc: tk('Invoices, discounts, cost and gross profit'), icon: Receipt },
   { key: 'purchases', title: tk('Purchases Report'), desc: tk('Stock received from suppliers'), icon: Truck, perm: 'purchases.view' },
-  { key: 'expenses', title: tk('Expenses Report'), desc: tk('Operating expenses by branch and category'), icon: Wallet, perm: 'expenses.view' },
   { key: 'inventory', title: tk('Inventory Report'), desc: tk('Every piece with weights, costs and status'), icon: Boxes, perm: 'inventory.view' },
   { key: 'stock-weight', title: tk('Stock Weight'), desc: tk('Gold held per branch: pieces plus broken scrap, by karat and as 24K'), icon: Scale, perm: 'inventory.view' },
   { key: 'inventory-movement', title: tk('Inventory Movement'), desc: tk('Opening → movements → closing, pieces & grams'), icon: ArrowLeftRight, perm: 'inventory.view' },
-  { key: 'profit', title: tk('Profit Report'), desc: tk('Gross profit and contribution by branch, category, karat'), icon: TrendingUp, perm: 'profit.view' },
+  { key: 'profit', title: tk('Profit Report'), desc: tk('Gross profit by branch, category, karat'), icon: TrendingUp, perm: 'profit.view' },
   { key: 'hasad', title: tk('Hasad Withdrawal Report'), desc: tk('Entitlement vs delivered weight and settlements'), icon: Coins, perm: 'hasad.view' },
   { key: 'branch-performance', title: tk('Branch Performance'), desc: tk('Branches side by side'), icon: Building2 },
   { key: 'user-activity', title: tk('User Activity'), desc: tk('Sign-ins, transactions and actions per user'), icon: Users, perm: 'users.view' },

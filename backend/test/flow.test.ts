@@ -303,7 +303,7 @@ describe('user administration & sessions', () => {
 
   it('every report runs for the General Manager', async () => {
     const gm = await login('general.manager');
-    for (const key of ['sales', 'purchases', 'expenses', 'inventory', 'inventory-movement', 'inventory-ledger', 'profit', 'hasad', 'branch-performance', 'user-activity', 'audit']) {
+    for (const key of ['sales', 'purchases', 'inventory', 'inventory-movement', 'inventory-ledger', 'profit', 'hasad', 'branch-performance', 'user-activity', 'audit']) {
       const res = await gm.get(`/api/reports/${key}?from=2026-01-01&to=2030-12-31`);
       expect(res.status, `${key}: ${JSON.stringify(res.body).slice(0, 200)}`).toBe(200);
       expect(Array.isArray(res.body.rows)).toBe(true);

@@ -22,12 +22,9 @@ export const PERMISSIONS = {
   'inventory.price_edit': 'Change item selling price',
   'inventory.transfer': 'Send and receive inter-branch transfers',
 
-  // Purchases & expenses
+  // Purchases
   'purchases.view': 'View purchases',
   'purchases.create': 'Record purchases (stock receipt)',
-  'expenses.view': 'View expenses',
-  'expenses.create': 'Record expenses',
-  'expenses.approve': 'Approve or reject expenses above the threshold',
 
   // Hasad
   'hasad.process': 'Process Hasad withdrawals at the counter',
@@ -88,8 +85,6 @@ const BRANCH_MANAGER: Permission[] = [
   'inventory.transfer',
   'purchases.view',
   'purchases.create',
-  'expenses.view',
-  'expenses.create',
   'hasad.view',
   // Cancelling a Hasad request is manager-only (decision Q14).
   'hasad.cancel',

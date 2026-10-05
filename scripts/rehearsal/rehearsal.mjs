@@ -168,6 +168,21 @@ const apiGet = (page, url) => page.evaluate(async (u) => {
 
 const pathIs = (page, paths) => page.waitForURL((u) => paths.includes(u.pathname), { timeout: 15_000 });
 
+const EXPENSE_WORDS = /expense|مصروف|مصاريف/i;
+/** Visit each screen in Arabic and in English; no expense wording may be visible (REM-1). */
+async function noExpenseWords(page, base, paths, who) {
+  for (const lang of ['ar', 'en']) {
+    await page.evaluate((l) => localStorage.setItem('jerp.lang', l), lang);
+    for (const p of paths) {
+      await page.goto(`${base}${p}`);
+      await page.waitForLoadState('networkidle');
+      const text = await page.locator('body').innerText();
+      check(!EXPENSE_WORDS.test(text), `${who}: ${p} (${lang}) shows no expense wording`);
+    }
+  }
+  await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
+}
+
 // ── the rehearsal ──
 async function main() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jerp-rehearsal-'));
@@ -303,12 +318,30 @@ async function main() {
     check(cashierUsers.status === 403, 'the cashier cannot open the user list (403)');
     await signOut(page);
 
+    section('REM-1: no expenses anywhere (both languages)');
+    // Re-signed in below as the GM; first check the branch manager's view (the role that used to record expenses).
+    await signIn(page, origin, BM.username, BM.password);
+    await pathIs(page, ['/dashboard']);
+    for (const p of ['/api/expenses', '/api/reports/expenses']) {
+      const r = await apiGet(page, p);
+      check(r.status === 404 || r.status === 400, `branch manager: ${p} answers ${r.status} (no such route or report)`);
+    }
+    await noExpenseWords(page, origin, ['/dashboard', '/cash', '/reports'], 'branch manager');
+    await signOut(page);
+
     section('General Manager: audit trail');
     await signIn(page, origin, GM.username, GM.password);
     await page.getByTestId('second-step').waitFor();
     await page.click('[data-testid=use-passkey]');
     await pathIs(page, ['/overview']);
     ok('the General Manager signs in again with password + passkey');
+    await noExpenseWords(page, origin, ['/overview', '/branches', '/cash', '/reports', '/settings'], 'General Manager');
+    const rec = await apiGet(page, `/api/cash/reconciliation?branchId=${branchId}`);
+    const total = (lines) => lines.reduce((sum, l) => sum + l.amount, 0);
+    check(
+      rec.status === 200 && rec.body.cashLines.some((l) => l.line === 'OTHER') && total(rec.body.cashLines) === rec.body.cashMovement && total(rec.body.bankLines) === rec.body.bankMovement,
+      'the daily reconciliation has drawer and bank lines (with "Other") that add up to the ledger',
+    );
     const audit = await apiGet(page, '/api/audit?limit=200');
     const rows = Array.isArray(audit.body) ? audit.body : (audit.body?.rows ?? audit.body?.items ?? []);
     const actions = new Set(rows.map((r) => r.action));

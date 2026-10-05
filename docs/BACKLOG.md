@@ -39,7 +39,7 @@ Details and reasons are in `docs/decisions.md` and `docs/DEPLOYMENT.md`.
 
 ## B. Remove and clean
 
-### REM-1 — Remove Expenses · TODO · M · P0
+### REM-1 — Remove Expenses · DONE · M · P0
 **Why:** the client gives staff a fixed operating amount; no expenses screen is wanted (SPEC §9).
 **Scope:** navigation entry, pages, routes and services, permissions `expenses.*` and their role grants, expense settings (approval thresholds and similar), pending-expense notifications, expense lines in the Cash screen and the daily reconciliation, expense columns in reports, i18n strings, demo/test seed rows, tests, docs.
 **Database:** forward-only and non-destructive. Keep the tables, columns and the ledger event type so history stays valid; stop all writes; mark them deprecated in `docs/DATA_MODEL.md`.
@@ -48,6 +48,9 @@ Details and reasons are in `docs/decisions.md` and `docs/DEPLOYMENT.md`.
 - Routes return 404; the permission matrix, generated tests and the field registry are updated.
 - The reconciliation equals the old result for sales, scrap purchases, making charges and settlements.
 - Depends on Q-6 only for CSH-2 (what replaces it), not for the removal.
+- The daily reconciliation keeps the SPEC §18 invariant: its lines sum exactly to each account's movement in the ledger; event types without a line of their own (e.g. a historical `EXPENSE` entry) appear under "Other".
+
+**Done:** routes, service, permissions (deleted from existing databases by migration 0013), setting, notification, dashboard and report figures (with "contribution", which equalled gross profit once expenses were gone), Cash-screen lines, i18n, seed and tests removed. The `expenses` table, its CHECKs and the `EXPENSE` ledger event type stay for history; migration 0013 adds triggers that refuse new expense rows and new `EXPENSE` ledger entries. See `docs/decisions.md` D-rem1-*.
 
 ### REM-2 — Reduce Hasad to a sales channel · TODO · L · P0
 **Why:** SPEC §10. The word Hasad stays only as a payment method.
@@ -66,11 +69,19 @@ Details and reasons are in `docs/decisions.md` and `docs/DEPLOYMENT.md`.
 - Automated tests move to their own fixture builders under the test tree; nothing in the product depends on seeded sales, items or customers.
 - Remove the demo accounts list from the login page, the fake company name, the demo reset action and any text that mentions a prototype.
 - An optional sample set may exist for development only, behind an explicit command, using client-approved names.
-**Risk to manage:** the 1,400+ existing tests depend heavily on the seed. Replace it with fixtures first, keep the suite green, then delete the seed.
+**First-run work (owner decision Q-H):** `ALLOWED_KARATS_INITIAL` (read only at the first start, while the setting row does not exist; the code default stays for other clients), a **mandatory** "allowed karats" step in the first-steps checklist, and the inventory karat filter derived from the setting instead of the hardcoded list.
+**Risk to manage:** most of the test suite depends on the seed (baseline before REM-1, 2026-10-05: **1,424 tests** = 694 on PGlite + 730 on real PostgreSQL, 35 test files; after REM-1: 1,393 = 679 + 714).
+**Never leave the system without a way to enter stock:** CAT-0 must be done before the seed is deleted. Replace it with fixtures first, keep the suite green, then delete the seed.
 **Acceptance:**
 - A fresh database, in demo and production modes, shows no items, sales, customers or suppliers.
 - The e2e scripts create their own data through the API.
 - All tests pass on both projects; README and DEPLOYMENT no longer describe demo content.
+
+### REM-5 — Drop the deprecated tables, columns and enum values · TODO · M · P0
+**Why:** REM-1 and REM-2 keep the expense and Hasad tables, columns and enum values (with triggers refusing new rows) so history stays valid. No production data exists yet, so dropping them before the first production deployment is the cheapest moment.
+**Scope:** one separate, final migration: the `expenses` table and the Hasad withdrawal/redemption/settlement tables, `branches.hasad_branch_code`, the deprecated item cost columns (section G), the `EXPENSE` / `HASAD_SETTLEMENT` ledger event types and other retired enum values, the matching CHECKs in `shared/src/db-checks.ts`, the field-classification entries, the leftover `settings` rows of removed keys, and the triggers added by REM-1/REM-2.
+**When:** after REM-3 and CAT-0 are proven (REH-1 green), before the first production deployment.
+**Acceptance:** fresh database and an upgraded copy both migrate; backup/restore drill passes; all gates pass.
 
 ### REM-4 — Remove duplicate transfer entry points · TODO · S · P1
 After FIX-1: remove the inventory multi-select transfer bar and the Transfers page's "New transfer" dialog. **Sub-question for the owner:** keep a GM emergency override (password plus reason, audited) somewhere out of the way, or drop it?
@@ -97,7 +108,8 @@ After FIX-1: remove the inventory multi-select transfer bar and the Transfers pa
 - Voids keep the reference; the cost-visibility registry is updated.
 **Acceptance:** the POS blocks completion without the number; tests cover all three methods, duplicates and voids; the reconciliation screen lists bank sales with their references.
 
-### FIX-3 — Direction of negative amounts · TODO · S · P3
+### FIX-3 — Direction of negative amounts · DONE · S · P3
+Done in commit `c056506` (an `Amount` component: the U+2212 sign and the digits are one `dir="ltr"` run in the summary, the table and the receipt; PDFs in `docs/print-check/` regenerated).
 In the invoice summary a negative discount renders as "32,000−" while the line table shows "−32,000". Wrap signed numbers consistently (`dir="ltr"` span or U+2212) in the summary, the table and the receipt, and regenerate the PDFs.
 
 ### FIX-4 — Windows native binding on the owner's laptop · BLOCKED (owner) · S · P1
@@ -106,6 +118,11 @@ In the invoice summary a negative discount renders as "32,000−" while the line
 ---
 
 ## D. Build
+
+### CAT-0 — Minimal "create product" · TODO · S/M · P0
+**Why:** today only the demo seed creates products, so an empty production database cannot receive stock (SPEC §4). REM-3 deletes the seed; this must exist first.
+**Requirements:** create a product with name, karat and type (category); General Manager and branch manager; also inline in the supplier purchase and scrap purchase forms. Audited; karat limited by `allowedKarats` for sellable pieces. No invented names are shipped.
+**Acceptance:** on an empty production database (REH-1) a branch manager creates a product inline and records a supplier order and a sellable scrap purchase. CAT-1 stays as written and still waits for Q-3.
 
 ### CAT-1 — Item types and stock entry without a product catalog · TODO · M · P0 · Q-3
 **Problem:** a production database created by bootstrap holds categories only, and no screen creates a product. **No stock can enter an empty production system** (purchases and the future opening balance both need it).
@@ -178,7 +195,7 @@ POS first (speed and clarity for the cashier, owner reviews a screenshot before 
 
 | ID | Item | Owner | Priority | Depends on |
 |---|---|---|---|---|
-| **REH-1** | **Empty-database rehearsal script** (Playwright or equivalent). Bootstraps a production-mode empty database, then runs: branch → users → item types → opening import → sale by cash, bank (with reference) and Hasad → print and reprint → void → scrap purchase (clean and broken) → supplier order and settlement → transfer from the cart and receipt → cash count → backup and verify. Runs on PGlite and real PostgreSQL. Build it incrementally and run it before accepting any phase. | Engineering | **P0** | grows with each phase |
+| **REH-1** | **Empty-database rehearsal script** (`npm run rehearsal`, Playwright). Bootstraps an empty database in **production mode on real PostgreSQL**, behind a local TLS proxy with a self-signed certificate that the script starts itself (passkey RP `localhost`; the production start-up checks are not relaxed), then runs: branch → users → item types → opening import → sale by cash, bank (with reference) and Hasad → print and reprint → void → scrap purchase (clean and broken) → supplier order and settlement → transfer from the cart and receipt → cash count → backup and verify. Build it incrementally and run it before accepting any phase. **PARTIAL:** bootstrap → GM first sign-in (password change, passkey, recovery codes) → branch → branch manager and cashier → their first sign-in → no expense wording on any screen in Arabic or English, expense routes gone, reconciliation lines add up → audit trail (39 checks). | Engineering | **P0** | grows with each phase |
 | HOST-1 | Decide hosting (Q-11): managed PostgreSQL (paid), region, domain, Shell access for operator commands; separate staging and production. The domain must be final before any passkey is registered. | Owner | **P0** | |
 | DEP-1 | Staging deployment in production mode: `STRICT_DB_ROLES=true`, `TRUST_PROXY` verified (real client IPs in the audit log), health monitor on `/api/health`. | Owner + engineering | P1 | HOST-1 |
 | BKP-1 | Backup key pair stored in two places; off-site target; daily schedule; weekly drill on a separate machine; **a restore performed by someone other than the developer**; result recorded. | Owner | **P0** | HOST-1 |
@@ -207,7 +224,8 @@ POS first (speed and clarity for the cashier, owner reviews a screenshot before 
 | Step | Items | Why this order |
 |---|---|---|
 | 0 | Commit `SPEC.md` and `BACKLOG.md`; start REH-1 with the bootstrap → branch → users part | The rehearsal grows with the system |
-| 1 | REM-1, REM-2, REM-3 (+ FIX-3) | Shrink the surface before adding to it |
+| 1 | REM-1, REM-2, CAT-0, REM-3 (FIX-3 already done) | Shrink the surface before adding to it; CAT-0 before the seed goes, so stock can always be entered |
+| 1b | REM-5 | Drop the deprecated schema once REM-3 and CAT-0 are proven, before the first production deployment |
 | 2 | FIX-1, FIX-2, REM-4 | Small, visible corrections the owner already asked for |
 | 3 | CAT-1 | An empty production system cannot receive stock without it |
 | 4 | PRC-1 | Needs Q-1, Q-2, Q-5 answered |

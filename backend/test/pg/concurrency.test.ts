@@ -11,7 +11,6 @@ import { loadConfig } from '../../src/config';
 import type { Actor, Ctx } from '../../src/core/context';
 import { loadActor } from '../../src/modules/sessions/service';
 import { createSale } from '../../src/modules/sales/service';
-import { createExpense, reviewExpense } from '../../src/modules/expenses/service';
 import { createTransfer, receiveTransfer } from '../../src/modules/transfers/service';
 import { addItem, completeWithdrawal, computeSettlement, openWithdrawal } from '../../src/modules/hasad/service';
 import { seedDemo } from '../../src/seed/demo';
@@ -123,29 +122,6 @@ describe('parallel double-receive of a transfer (M-4)', () => {
         .select({ n: count() })
         .from(t.auditLogs)
         .where(and(eq(t.auditLogs.action, 'INVENTORY_TRANSFER_RECEIVED'), eq(t.auditLogs.entityId, tr.number)));
-      expect(audits[0].n).toBe(1);
-    }
-  });
-});
-
-describe('parallel expense approve / reject (M-3)', () => {
-  it('exactly one review wins and the stored status is the winner’s decision', async () => {
-    const bm = await actorOf('branch.manager.kh');
-    const gm = await actorOf('general.manager');
-    const { expenses } = await ctx.settings.get();
-    for (let round = 0; round < ROUNDS; round++) {
-      const e = await createExpense(ctx, bm, { category: 'MAINTENANCE', amount: expenses.approvalThreshold + 1000, description: `Race ${round}` });
-      expect(e.status).toBe('PENDING');
-      const decisions = ['APPROVED', 'REJECTED', 'APPROVED', 'REJECTED'] as const;
-      const rs = await settled(decisions.map((d) => reviewExpense(ctx, gm, e.id, d).then(() => d)));
-      const won = winners(rs);
-      expect(won, `round ${round}: ${reasons(rs)}`).toHaveLength(1);
-      const [after] = await ctx.db.select().from(t.expenses).where(eq(t.expenses.id, e.id));
-      expect(after.status).toBe(won[0].value);
-      const audits = await ctx.db
-        .select({ n: count() })
-        .from(t.auditLogs)
-        .where(and(inArray(t.auditLogs.action, ['EXPENSE_APPROVED', 'EXPENSE_REJECTED']), eq(t.auditLogs.entityId, e.number)));
       expect(audits[0].n).toBe(1);
     }
   });
