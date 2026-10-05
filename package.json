@@ -23,6 +23,7 @@
     "typecheck": "npm run check:lockfile && tsc -p shared && tsc -p database && tsc -p integrations/hasad && tsc -p backend && tsc -p frontend",
     "test": "npm test -w @jerp/backend",
     "i18n:check": "node scripts/i18n-check.mjs",
+    "rehearsal": "node scripts/rehearsal/rehearsal.mjs",
     "check:lockfile": "node scripts/check-lockfile-platforms.mjs"
   },
   "devDependencies": {

@@ -36,7 +36,7 @@ export function BranchesPage() {
       <PageHeader
         title={t('Branches')}
         subtitle={t('Month-to-date results. Open a branch to drill into its sales, expenses, inventory, Hasad activity and staff.')}
-        actions={can('branches.manage') ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>{t('New branch')}</Button> : undefined}
+        actions={can('branches.manage') ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')} data-testid="new-branch">{t('New branch')}</Button> : undefined}
       />
       {q.isLoading ? (
         <Loading />
@@ -149,20 +149,20 @@ function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () 
       open
       onClose={onClose}
       title={branch ? t('Edit branch {code}', { code: branch.code }) : t('New branch')}
-      footer={<><Button onClick={onClose}>{t('Cancel')}</Button><Button variant="primary" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()}>{t('Save')}</Button></>}
+      footer={<><Button onClick={onClose}>{t('Cancel')}</Button><Button variant="primary" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()} data-testid="branch-save">{t('Save')}</Button></>}
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t('Code')} hint={branch ? t('The code cannot be changed.') : t('2–6 capital letters, e.g. KRT. It can never be changed later.')}>
-          <Input value={f.code} disabled={!!branch} maxLength={6} onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })} className="font-mono" />
+          <Input value={f.code} disabled={!!branch} maxLength={6} onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })} className="font-mono" data-testid="branch-code" />
         </Field>
         <Field label={t('City')}>
-          <Input value={f.city} maxLength={60} onChange={(e) => setF({ ...f, city: e.target.value })} />
+          <Input value={f.city} maxLength={60} onChange={(e) => setF({ ...f, city: e.target.value })} data-testid="branch-city" />
         </Field>
         <Field label={t('Name (English)')}>
-          <Input value={f.name} maxLength={80} onChange={(e) => setF({ ...f, name: e.target.value })} />
+          <Input value={f.name} maxLength={80} onChange={(e) => setF({ ...f, name: e.target.value })} data-testid="branch-name" />
         </Field>
         <Field label={t('Name (Arabic)')}>
-          <Input value={f.nameAr} maxLength={80} onChange={(e) => setF({ ...f, nameAr: e.target.value })} />
+          <Input value={f.nameAr} maxLength={80} onChange={(e) => setF({ ...f, nameAr: e.target.value })} data-testid="branch-name-ar" />
         </Field>
         <Field label={t('Address')} className="sm:col-span-2">
           <Input value={f.address} maxLength={200} onChange={(e) => setF({ ...f, address: e.target.value })} />

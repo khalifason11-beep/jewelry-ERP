@@ -346,8 +346,8 @@ export function Kpi({
 }
 
 // ───────── Misc ─────────
-export function Mono({ children, className }: { children: ReactNode; className?: string }) {
-  return <span className={clsx('font-mono text-[12.5px]', className)}>{children}</span>;
+export function Mono({ children, className, 'data-testid': testId }: { children: ReactNode; className?: string; 'data-testid'?: string }) {
+  return <span className={clsx('font-mono text-[12.5px]', className)} data-testid={testId}>{children}</span>;
 }
 
 export function KeyValue({ items, cols = 2 }: { items: { label: ReactNode; value: ReactNode }[]; cols?: number }) {
