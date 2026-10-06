@@ -168,6 +168,32 @@ const apiGet = (page, url) => page.evaluate(async (u) => {
   return { status: r.status, body: await r.json().catch(() => null) };
 }, url);
 
+/**
+ * UX baseline (scripts/capture-ui-baseline.mjs): when UI_BASELINE_DIR is set, photograph the current
+ * screen in Arabic and English at 1366x768 and 1920x1080, then put the page back as it was. Not a check.
+ */
+async function captureBaseline(page, name) {
+  const dir = process.env.UI_BASELINE_DIR;
+  if (!dir) return;
+  const back = new URL(page.url()).pathname;
+  for (const lang of ['ar', 'en']) {
+    for (const [w, h] of [[1366, 768], [1920, 1080]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.evaluate((l) => localStorage.setItem('jerp.lang', l), lang);
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await page.waitForTimeout(400);
+      const out = path.join(dir, `${lang}-${w}x${h}`);
+      fs.mkdirSync(out, { recursive: true });
+      await page.screenshot({ path: path.join(out, `${name}.jpg`), type: 'jpeg', quality: 72 });
+    }
+  }
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
+  await page.goto(new URL(back, page.url()).href);
+  await page.waitForLoadState('networkidle');
+}
+
 const pathIs = (page, paths) => page.waitForURL((u) => paths.includes(u.pathname), { timeout: 15_000 });
 
 const EXPENSE_WORDS = /expense|مصروف|مصاريف/i;
@@ -265,6 +291,7 @@ async function main() {
     await page.click('[data-testid=codes-done]');
     await pathIs(page, ['/overview']);
     ok('enrollment complete: the company overview opens');
+    await captureBaseline(page, '01-general-manager-home');
 
     section('Empty database: nothing invented');
     const branches0 = await apiGet(page, '/api/branches');
@@ -321,6 +348,7 @@ async function main() {
     await changePassword(page, temps[BM.username], BM.password);
     await pathIs(page, ['/dashboard']);
     ok('branch manager sets a personal password and lands on the branch dashboard');
+    await captureBaseline(page, '02-branch-manager-home');
     const bmSelf = await apiGet(page, '/api/auth/me');
     check(bmSelf.body.user.branch?.id === branchId, 'the branch manager is bound to the new branch');
     await signOut(page);
@@ -329,6 +357,7 @@ async function main() {
     await changePassword(page, temps[CASHIER.username], CASHIER.password);
     await pathIs(page, ['/pos']);
     ok('cashier sets a personal password and lands on the point of sale');
+    await captureBaseline(page, '03-cashier-home');
     const cashierUsers = await apiGet(page, '/api/users');
     check(cashierUsers.status === 403, 'the cashier cannot open the user list (403)');
     await signOut(page);
