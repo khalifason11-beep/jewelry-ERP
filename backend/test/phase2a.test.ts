@@ -13,8 +13,8 @@ import { loadConfig } from '../src/config';
 import type { Ctx } from '../src/core/context';
 import { canonicalJson, IDEMPOTENCY_STALE_MS, requestHash } from '../src/core/idempotency';
 import { resetThrottleMemory } from '../src/auth/lockout';
-import { seedDemo } from '../src/seed/demo';
-import { DEMO_PASSWORDS } from '../src/seed/catalog';
+import { seedWorld } from './fixtures/world';
+import { DEMO_PASSWORDS } from './fixtures/world-data';
 import { rows } from '../src/core/sql';
 import { unvalidatedConstraints } from '../src/core/startup';
 import { openTestDatabase, PG_MODE, withIdempotencyKeys } from './helpers';
@@ -53,7 +53,7 @@ const saleCount = async () => (await ctx.db.select({ n: count() }).from(t.sales)
 beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
   app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
 });
 afterAll(async () => handle.close());

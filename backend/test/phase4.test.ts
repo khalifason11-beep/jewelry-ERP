@@ -24,8 +24,8 @@ import { buyScrap, poolBalances, setScrapRates } from '../src/modules/scrap/serv
 import { settleWithScrap } from '../src/modules/supplier-settlements/service';
 import { balances, settleHasadReceivable } from '../src/modules/ledger/service';
 import { stockWeight } from '../src/modules/stock/weight';
-import { seedDemo } from '../src/seed/demo';
-import { DEMO_PASSWORDS } from '../src/seed/catalog';
+import { seedWorld } from './fixtures/world';
+import { DEMO_PASSWORDS } from './fixtures/world-data';
 import { openTestDatabase, withIdempotencyKeys } from './helpers';
 
 let handle: DatabaseHandle;
@@ -94,7 +94,7 @@ async function stockUp(code: string, karat: number, weightMg: number) {
 beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
   app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
 });
 afterAll(async () => handle.close());

@@ -15,8 +15,8 @@ import { createSale, voidSale } from '../src/modules/sales/service';
 import { balances, cashBalance, entriesFor, LINE_OF_EVENT, OTHER_EVENT_TYPES, post, reconciliation, reconciliationLines, RECONCILIATION_LINES } from '../src/modules/ledger/service';
 import { LEDGER_EVENT_TYPES } from '@jerp/shared';
 import { addDays, dayKey, dayStart } from '../src/core/time';
-import { seedDemo } from '../src/seed/demo';
-import { DEMO_PASSWORDS } from '../src/seed/catalog';
+import { seedWorld } from './fixtures/world';
+import { DEMO_PASSWORDS } from './fixtures/world-data';
 import { openTestDatabase, PG_MODE, withIdempotencyKeys } from './helpers';
 
 let handle: DatabaseHandle;
@@ -57,7 +57,7 @@ const failure = async (statement: string) => {
 beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
   app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
 });
 afterAll(async () => handle.close());

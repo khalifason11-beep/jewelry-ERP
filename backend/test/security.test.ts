@@ -20,8 +20,8 @@ import { assertPasswordPolicy } from '../src/auth/policy';
 import { lockMinutes, resetThrottleMemory, IP_MAX_FAILURES } from '../src/auth/lockout';
 import { createSession } from '../src/modules/sessions/service';
 import { assertOperatorUsername, bootstrapProduction } from '../src/modules/bootstrap/service';
-import { seedDemo } from '../src/seed/demo';
-import { DEMO_PASSWORDS } from '../src/seed/catalog';
+import { seedWorld } from './fixtures/world';
+import { DEMO_PASSWORDS } from './fixtures/world-data';
 
 const PROD_ENV = {
   APP_MODE: 'production',
@@ -78,7 +78,7 @@ async function prodSession(username: string) {
 beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
   demoApp = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
   prodApp = createApp(ctx, prodConfig);
 });

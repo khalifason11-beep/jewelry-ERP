@@ -9,10 +9,10 @@ import { t, type DatabaseHandle } from '@jerp/database';
 import { createApp } from '../src/app';
 import { createContext } from '../src/bootstrap';
 import type { Ctx } from '../src/core/context';
-import { seedDemo } from '../src/seed/demo';
+import { seedWorld } from './fixtures/world';
 import { movementSummary } from '../src/modules/reports/metrics';
 import { periodFor } from '../src/modules/dashboard/service';
-import { DEMO_PASSWORDS } from '../src/seed/catalog';
+import { DEMO_PASSWORDS } from './fixtures/world-data';
 
 let handle: DatabaseHandle;
 let ctx: Ctx;
@@ -42,7 +42,7 @@ async function itemByCode(code: string) {
 beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
   app = createApp(ctx);
 });
 

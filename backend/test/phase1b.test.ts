@@ -20,8 +20,8 @@ import { inspectLogo } from '../src/modules/branding/image';
 import { operatorResetGmPassword, operatorUnlock } from '../src/modules/ops/service';
 import { createSession } from '../src/modules/sessions/service';
 import { hashPassword } from '../src/auth/password';
-import { seedDemo } from '../src/seed/demo';
-import { DEMO_PASSWORDS } from '../src/seed/catalog';
+import { seedWorld } from './fixtures/world';
+import { DEMO_PASSWORDS } from './fixtures/world-data';
 
 let handle: DatabaseHandle;
 let ctx: Ctx;
@@ -54,7 +54,7 @@ const gmAgent = async () => {
 beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
   app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
   prodApp = createApp(ctx, prodConfig);
 });

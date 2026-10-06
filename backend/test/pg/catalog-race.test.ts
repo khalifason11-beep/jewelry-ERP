@@ -10,7 +10,7 @@ import { createContext } from '../../src/bootstrap';
 import type { Actor, Ctx } from '../../src/core/context';
 import { loadActor } from '../../src/modules/sessions/service';
 import { createCategory, createProduct, createSupplier } from '../../src/modules/catalog/service';
-import { seedDemo } from '../../src/seed/demo';
+import { seedWorld } from '../fixtures/world';
 import { openTestDatabase, PG_MODE } from '../helpers';
 
 const ROUNDS = 4;
@@ -34,7 +34,7 @@ beforeAll(async () => {
   handle = await openTestDatabase();
   expect(handle.driver).toBe('postgres');
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
 });
 afterAll(async () => handle?.close());
 

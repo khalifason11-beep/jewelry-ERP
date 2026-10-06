@@ -12,8 +12,8 @@ import type { Actor, Ctx } from '../../src/core/context';
 import { loadActor } from '../../src/modules/sessions/service';
 import { createSale } from '../../src/modules/sales/service';
 import { createTransfer, receiveTransfer } from '../../src/modules/transfers/service';
-import { seedDemo } from '../../src/seed/demo';
-import { DEMO_PASSWORDS } from '../../src/seed/catalog';
+import { seedWorld } from '../fixtures/world';
+import { DEMO_PASSWORDS } from '../fixtures/world-data';
 import { openTestDatabase, PG_MODE } from '../helpers';
 
 const ROUNDS = 5;
@@ -47,7 +47,7 @@ beforeAll(async () => {
   handle = await openTestDatabase();
   expect(handle.driver).toBe('postgres');
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
   app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
 });
 afterAll(async () => handle?.close());

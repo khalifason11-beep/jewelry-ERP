@@ -12,7 +12,7 @@ import { desc, eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import { createContext } from '../../src/bootstrap';
 import type { Ctx } from '../../src/core/context';
-import { seedDemo } from '../../src/seed/demo';
+import { seedWorld } from '../fixtures/world';
 import { childEnv, loadBackupConfig, pgEnv, withDatabase, type BackupConfig } from '../../src/backup/config';
 import { applyRetention, BackupRefused, runBackup, type Manifest } from '../../src/backup/backup';
 import { runVerify, VerifyFailed } from '../../src/backup/verify';
@@ -53,7 +53,7 @@ beforeAll(async () => {
   if (!PG_MODE) throw new Error('test/pg/** must run in the postgres project');
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
   dbUrl = handle.url!;
   adminUrl = process.env.TEST_DATABASE_URL!;
   work = mkdtempSync(path.join(os.tmpdir(), 'jerp-backup-test-'));
