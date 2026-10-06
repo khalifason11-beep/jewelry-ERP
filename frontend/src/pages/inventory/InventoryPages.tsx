@@ -135,7 +135,7 @@ interface ItemDetail {
 
 function refLink(refType: string | null, refId: number | null, refNumber: string | null) {
   if (!refNumber) return '—';
-  const to = refType === 'sale' ? `/sales/${refId}` : refType === 'purchase' ? `/purchases/${refId}` : refType === 'transfer' ? '/transfers' : refType === 'hasad_redemption' ? '/hasad' : null;
+  const to = refType === 'sale' ? `/sales/${refId}` : refType === 'purchase' ? `/purchases/${refId}` : refType === 'transfer' ? '/transfers' : null;
   return to ? (
     <Link to={to} className="font-mono text-[12px] text-gold-700 hover:underline" onClick={(e) => e.stopPropagation()}>
       {refNumber}

@@ -9,10 +9,10 @@ export const COMPANY = {
 };
 
 export const BRANCHES = [
-  { code: 'KRT', name: 'Khartoum Branch', nameAr: 'فرع الخرطوم', city: 'Khartoum', address: 'شارع القصر، سوق الذهب، الخرطوم', phone: '+249 183 000 101', hasadBranchCode: 'HG-BR-KRT' },
-  { code: 'OMD', name: 'Omdurman Branch', nameAr: 'فرع أم درمان', city: 'Omdurman', address: 'سوق أم درمان، زقاق الذهب 4', phone: '+249 187 000 202', hasadBranchCode: 'HG-BR-OMD' },
-  { code: 'BHR', name: 'Bahri Branch', nameAr: 'فرع بحري', city: 'Khartoum North', address: 'المؤسسة، الشارع الرئيسي', phone: '+249 185 000 303', hasadBranchCode: 'HG-BR-BHR' },
-  { code: 'PZU', name: 'Port Sudan Branch', nameAr: 'فرع بورتسودان', city: 'Port Sudan', address: 'السوق الكبير، مربع 2', phone: '+249 311 000 404', hasadBranchCode: 'HG-BR-PZU' },
+  { code: 'KRT', name: 'Khartoum Branch', nameAr: 'فرع الخرطوم', city: 'Khartoum', address: 'شارع القصر، سوق الذهب، الخرطوم', phone: '+249 183 000 101' },
+  { code: 'OMD', name: 'Omdurman Branch', nameAr: 'فرع أم درمان', city: 'Omdurman', address: 'سوق أم درمان، زقاق الذهب 4', phone: '+249 187 000 202' },
+  { code: 'BHR', name: 'Bahri Branch', nameAr: 'فرع بحري', city: 'Khartoum North', address: 'المؤسسة، الشارع الرئيسي', phone: '+249 185 000 303' },
+  { code: 'PZU', name: 'Port Sudan Branch', nameAr: 'فرع بورتسودان', city: 'Port Sudan', address: 'السوق الكبير، مربع 2', phone: '+249 311 000 404' },
 ] as const;
 
 export const DEMO_PASSWORDS = {
@@ -108,24 +108,3 @@ export const CUSTOMER_NAMES: { en: string; ar: string }[] = [
   { en: 'Mawada Ismail', ar: 'مودة إسماعيل' },
 ];
 
-/** Hasad Gold customers (fictional). */
-export const HASAD_CUSTOMERS = [
-  { id: 'HC-204518', fullName: 'Ahmed Mohamed', fullNameAr: 'أحمد محمد', phone: '+249 911 204 518', nid: '***-***-4471' },
-  { id: 'HC-204533', fullName: 'Fatima Hassan', fullNameAr: 'فاطمة حسن', phone: '+249 911 204 533', nid: '***-***-1908' },
-  { id: 'HC-204571', fullName: 'Omer Babiker', fullNameAr: 'عمر بابكر', phone: '+249 911 204 571', nid: '***-***-6624' },
-  { id: 'HC-204602', fullName: 'Asia Abdelgadir', fullNameAr: 'آسيا عبدالقادر', phone: '+249 911 204 602', nid: '***-***-3310' },
-  { id: 'HC-204615', fullName: 'Mohanad Elnour', fullNameAr: 'مهند النور', phone: '+249 911 204 615', nid: '***-***-7782' },
-  { id: 'HC-204640', fullName: 'Selma Kamal', fullNameAr: 'سلمى كمال', phone: '+249 911 204 640', nid: '***-***-0415' },
-  { id: 'HC-204688', fullName: 'Hamid Adam', fullNameAr: 'حامد آدم', phone: '+249 911 204 688', nid: '***-***-2297' },
-  { id: 'HC-204701', fullName: 'Eman Sharif', fullNameAr: 'إيمان شريف', phone: '+249 911 204 701', nid: '***-***-5561' },
-  { id: 'HC-204739', fullName: 'Bakri Mustafa', fullNameAr: 'بكري مصطفى', phone: '+249 911 204 739', nid: '***-***-8843' },
-  { id: 'HC-204755', fullName: 'Duaa Alhadi', fullNameAr: 'دعاء الهادي', phone: '+249 911 204 755', nid: '***-***-1126' },
-  { id: 'HC-204790', fullName: 'Nasr Eldin Adil', fullNameAr: 'نصر الدين عادل', phone: '+249 911 204 790', nid: '***-***-3390' },
-  { id: 'HC-204812', fullName: 'Lina Faisal', fullNameAr: 'لينا فيصل', phone: '+249 911 204 812', nid: '***-***-4458' },
-  { id: 'HC-204836', fullName: 'Gamal Hussein', fullNameAr: 'جمال حسين', phone: '+249 911 204 836', nid: '***-***-9087' },
-  { id: 'HC-204851', fullName: 'Rawan Elsheikh', fullNameAr: 'روان الشيخ', phone: '+249 911 204 851', nid: '***-***-6612' },
-  { id: 'HC-204877', fullName: 'Sami Awadalla', fullNameAr: 'سامي عوض الله', phone: '+249 911 204 877', nid: '***-***-2254' },
-  { id: 'HC-204893', fullName: 'Marwa Eltigani', fullNameAr: 'مروة التجاني', phone: '+249 911 204 893', nid: '***-***-7719' },
-  { id: 'HC-204910', fullName: 'Yousif Kheir', fullNameAr: 'يوسف خير', phone: '+249 911 204 910', nid: '***-***-3386' },
-  { id: 'HC-204934', fullName: 'Afaf Musa', fullNameAr: 'عفاف موسى', phone: '+249 911 204 934', nid: '***-***-5043' },
-];

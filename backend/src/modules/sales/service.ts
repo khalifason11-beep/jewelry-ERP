@@ -135,7 +135,7 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       metadata: { items: lines.map((l) => l.item.code), total: subtotal - discountTotal, discountTotal },
     });
     // The money: into the drawer (CASH), the bank (CARD, MOBILE_WALLET, BANK_TRANSFER) — Q5 — or the
-    // branch's Hasad receivable (HASAD, D-4-6), held there until a settlement flow is decided.
+    // branch's Hasad receivable (HASAD, D-4-6), until Hasad's bank transfer is recorded (D-4-14).
     await post(
       tx,
       [{ branchId, kind: accountKindFor(input.paymentMethod), amount: subtotal - discountTotal, eventType: 'SALE', paymentMethod: input.paymentMethod, ref: { refType: 'sale', refId: sale.id, refNumber: number }, at }],

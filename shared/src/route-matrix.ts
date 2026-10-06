@@ -132,16 +132,6 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/sales/:id/print', 'branch', { any: ['sales.view', 'sales.view_own'] }),
   r('POST', '/sales/:id/void', 'branch', { all: ['sales.void'], idempotent: true, idempotencyInTx: true }),
 
-  // ── Hasad Gold
-  r('GET', '/hasad/withdrawals', 'branch', { any: ['hasad.process', 'hasad.view'] }),
-  r('GET', '/hasad/withdrawals/:id', 'branch', { any: ['hasad.process', 'hasad.view'] }),
-  r('GET', '/hasad/withdrawals/:id/candidates', 'branch', { all: ['hasad.process'] }),
-  r('POST', '/hasad/withdrawals/:id/open', 'branch', { all: ['hasad.process'] }),
-  r('POST', '/hasad/withdrawals/:id/items', 'branch', { all: ['hasad.process'] }),
-  r('DELETE', '/hasad/withdrawals/:id/items/:itemId', 'branch', { all: ['hasad.process'] }),
-  r('POST', '/hasad/withdrawals/:id/complete', 'branch', { all: ['hasad.process'], idempotent: true, idempotencyInTx: true }),
-  r('POST', '/hasad/withdrawals/:id/abort', 'branch', { all: ['hasad.process'] }),
-  r('POST', '/hasad/withdrawals/:id/cancel', 'branch', { all: ['hasad.cancel'] }),
 
   // ── purchases, transfers
   r('GET', '/purchases', 'branch', { all: ['purchases.view'] }),
@@ -175,9 +165,6 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
 
   // ── demo tooling (never registered in production)
   r('POST', '/demo/reset', 'global', { all: ['settings.manage'], reauth: true, demoOnly: true, destructive: true }),
-  r('GET', '/hasad/simulator/customers', 'global', { all: ['hasad.simulate'], demoOnly: true }),
-  r('POST', '/hasad/simulator/withdrawals', 'global', { all: ['hasad.simulate'], demoOnly: true }),
-  r('GET', '/hasad/integration-log', 'global', { all: ['hasad.simulate'], demoOnly: true }),
 ];
 
 export const routeId = (method: string, path: string) => `${method.toUpperCase()} ${path}`;

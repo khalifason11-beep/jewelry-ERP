@@ -24,15 +24,6 @@ export interface BranchMetrics {
   purchasesCount: number;
   purchasedItems: number;
   purchasesCost: number;
-  hasadCompleted: number;
-  hasadWeightMg: number;
-  hasadItemsCost: number;
-  hasadPaidToCustomers: number;
-  hasadCollectedFromCustomers: number;
-  hasadReceived: number;
-  hasadCancelled: number;
-  hasadOpen: number;
-  hasadInProgress: number;
   availableItems: number;
   availableWeightMg: number;
   reservedItems: number;
@@ -45,7 +36,7 @@ const iso = (d: Date) => d.toISOString();
 export async function branchMetrics(exec: Executor, p: Period, branchId: number | null): Promise<Map<number, BranchMetrics>> {
   const bFilter = (col: string) => (branchId != null ? sql.raw(`AND ${col} = ${Number(branchId)}`) : sql``);
 
-  const [branchesR, salesR, purchR, hasadR, hasadReqR, invR] = await Promise.all([
+  const [branchesR, salesR, purchR, invR] = await Promise.all([
     exec.execute(sql`SELECT id FROM branches WHERE is_active ${bFilter('id')} ORDER BY id`),
     exec.execute(sql`
       SELECT s.branch_id,
@@ -62,25 +53,6 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
       SELECT branch_id, count(*) AS cnt, coalesce(sum(item_count),0) AS items, coalesce(sum(total_cost),0) AS cost
       FROM purchases
       WHERE created_at >= ${iso(p.start)} AND created_at < ${iso(p.end)} ${bFilter('branch_id')}
-      GROUP BY branch_id`),
-    exec.execute(sql`
-      SELECT r.branch_id,
-             count(*) AS completed,
-             coalesce(sum(r.delivered_weight_mg),0) AS weight,
-             coalesce(sum(r.items_cost),0) AS items_cost,
-             coalesce(sum(r.settlement_amount) FILTER (WHERE r.settlement_direction = 'BRANCH_PAYS_CUSTOMER'),0) AS paid,
-             coalesce(sum(r.settlement_amount) FILTER (WHERE r.settlement_direction = 'CUSTOMER_PAYS_BRANCH'),0) AS collected
-      FROM hasad_redemptions r
-      WHERE r.status = 'COMPLETED' AND r.completed_at >= ${iso(p.start)} AND r.completed_at < ${iso(p.end)} ${bFilter('r.branch_id')}
-      GROUP BY r.branch_id`),
-    exec.execute(sql`
-      SELECT branch_id,
-             count(*) FILTER (WHERE received_at >= ${iso(p.start)} AND received_at < ${iso(p.end)}) AS received,
-             count(*) FILTER (WHERE status = 'CANCELLED' AND cancelled_at >= ${iso(p.start)} AND cancelled_at < ${iso(p.end)}) AS cancelled,
-             count(*) FILTER (WHERE status = 'READY_FOR_PICKUP') AS open,
-             count(*) FILTER (WHERE status = 'IN_PROGRESS') AS in_progress
-      FROM hasad_withdrawals
-      WHERE true ${bFilter('branch_id')}
       GROUP BY branch_id`),
     exec.execute(sql`
       SELECT branch_id,
@@ -100,8 +72,6 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
       branchId: Number(b.id),
       salesCount: 0, itemsSold: 0, weightSoldMg: 0, revenue: 0, discounts: 0, costOfSales: 0, grossProfit: 0,
       purchasesCount: 0, purchasedItems: 0, purchasesCost: 0,
-      hasadCompleted: 0, hasadWeightMg: 0, hasadItemsCost: 0, hasadPaidToCustomers: 0, hasadCollectedFromCustomers: 0,
-      hasadReceived: 0, hasadCancelled: 0, hasadOpen: 0, hasadInProgress: 0,
       availableItems: 0, availableWeightMg: 0, reservedItems: 0, inventoryCost: 0, inventoryRetail: 0,
     });
   }
@@ -114,15 +84,6 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
   for (const r of rows<Record<string, unknown>>(purchR)) {
     const m = get(r.branch_id); if (!m) continue;
     m.purchasesCount = num(r.cnt); m.purchasedItems = num(r.items); m.purchasesCost = num(r.cost);
-  }
-  for (const r of rows<Record<string, unknown>>(hasadR)) {
-    const m = get(r.branch_id); if (!m) continue;
-    m.hasadCompleted = num(r.completed); m.hasadWeightMg = num(r.weight); m.hasadItemsCost = num(r.items_cost);
-    m.hasadPaidToCustomers = num(r.paid); m.hasadCollectedFromCustomers = num(r.collected);
-  }
-  for (const r of rows<Record<string, unknown>>(hasadReqR)) {
-    const m = get(r.branch_id); if (!m) continue;
-    m.hasadReceived = num(r.received); m.hasadCancelled = num(r.cancelled); m.hasadOpen = num(r.open); m.hasadInProgress = num(r.in_progress);
   }
   for (const r of rows<Record<string, unknown>>(invR)) {
     const m = get(r.branch_id); if (!m) continue;

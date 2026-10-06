@@ -1,5 +1,5 @@
 // Branch administration (General Manager). The branch code is chosen once at creation and never
-// changes (it is part of every document number and of the Hasad mapping); the database enforces
+// changes (it is part of every document number); the database enforces
 // this with a trigger as well. Every change is audited and requires a recent re-authentication
 // (route matrix).
 
@@ -18,23 +18,18 @@ export interface BranchInput {
   city: string;
   address?: string | null;
   phone?: string | null;
-  hasadBranchCode?: string | null;
 }
 
-export type BranchPatch = Partial<Omit<BranchInput, 'code' | 'hasadBranchCode'>> & { isActive?: boolean };
+export type BranchPatch = Partial<Omit<BranchInput, 'code'>> & { isActive?: boolean };
 
 export async function createBranch(ctx: Ctx, actor: Actor, input: BranchInput) {
   requirePerm(actor, 'branches.manage');
   return ctx.db.transaction(async (tx) => {
     const [dup] = await tx.select({ id: t.branches.id }).from(t.branches).where(eq(t.branches.code, input.code));
     if (dup) throw conflict('Branch code {code} is already used', { code: input.code });
-    if (input.hasadBranchCode) {
-      const [h] = await tx.select({ id: t.branches.id }).from(t.branches).where(eq(t.branches.hasadBranchCode, input.hasadBranchCode));
-      if (h) throw conflict('Hasad branch code {code} is already used', { code: input.hasadBranchCode });
-    }
     const [b] = await tx
       .insert(t.branches)
-      .values({ code: input.code, name: input.name, nameAr: input.nameAr, city: input.city, address: input.address ?? null, phone: input.phone ?? null, hasadBranchCode: input.hasadBranchCode ?? null })
+      .values({ code: input.code, name: input.name, nameAr: input.nameAr, city: input.city, address: input.address ?? null, phone: input.phone ?? null })
       .returning();
     await writeAudit(tx, actor, {
       action: 'BRANCH_CREATED',

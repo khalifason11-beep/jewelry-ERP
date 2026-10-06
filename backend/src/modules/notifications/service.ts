@@ -1,13 +1,12 @@
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, eq, gte, sql } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { formatWeight } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { can, isGlobal } from '../../authz';
 
 /** `title` / `body` are translation keys; the UI fills them with `params`. */
 export interface Notification {
   id: string;
-  kind: 'HASAD' | 'TRANSFER' | 'SECURITY';
+  kind: 'TRANSFER' | 'SECURITY';
   title: string;
   body: string;
   params: Record<string, string | number>;
@@ -22,27 +21,6 @@ export async function notificationsFor(ctx: Ctx, actor: Actor): Promise<Notifica
   const branchCond = <T extends { branchId: unknown }>(col: T['branchId']) =>
     isGlobal(actor) ? undefined : eq(col as never, actor.branchId ?? -1);
 
-  if (can(actor, 'hasad.process') || can(actor, 'hasad.view')) {
-    const ws = await ctx.db
-      .select({ id: t.hasadWithdrawals.id, externalId: t.hasadWithdrawals.externalId, customerName: t.hasadWithdrawals.customerName, weight: t.hasadWithdrawals.entitledWeightMg, receivedAt: t.hasadWithdrawals.receivedAt, branchName: t.branches.name })
-      .from(t.hasadWithdrawals)
-      .innerJoin(t.branches, eq(t.branches.id, t.hasadWithdrawals.branchId))
-      .where(and(eq(t.hasadWithdrawals.status, 'READY_FOR_PICKUP'), branchCond(t.hasadWithdrawals.branchId)))
-      .orderBy(desc(t.hasadWithdrawals.receivedAt))
-      .limit(6);
-    for (const w of ws) {
-      out.push({
-        id: `hasad-${w.id}`,
-        kind: 'HASAD',
-        title: 'Hasad withdrawal {id}',
-        body: '{customer} · {weight} g · {branch}. Ready for pickup',
-        params: { id: w.externalId, customer: w.customerName, weight: formatWeight(w.weight, false), branch: w.branchName },
-        link: `/hasad/${w.id}`,
-        at: w.receivedAt,
-        severity: 'info',
-      });
-    }
-  }
   if (can(actor, 'inventory.transfer')) {
     const trs = await ctx.db
       .select({ id: t.transfers.id, number: t.transfers.number, createdAt: t.transfers.createdAt, from: t.branches.name })

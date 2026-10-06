@@ -130,7 +130,7 @@ describe('karat restriction (sellable stock only, from the allowedKarats setting
     expect(await pool(krt, 18)).toBe(before + 3000);
   });
 
-  it('a sale, a price change, a Hasad delivery and the sell-rate entry refuse a karat that is not sold', async () => {
+  it('a sale, a price change and the sell-rate entry refuse a karat that is not sold', async () => {
     // A legacy 18K piece (e.g. opening stock or a clean scrap piece from before the restriction).
     const cashier = await actorOf('cashier.kh.01');
     const bm = await actorOf('branch.manager.kh');
@@ -142,12 +142,6 @@ describe('karat restriction (sellable stock only, from the allowedKarats setting
     expect(sale).toMatchObject({ status: 400, key: '{karat}K is not sold here: sellable pieces must be {allowed}' });
     expect(sale!.message).toBe('18K is not sold here: sellable pieces must be 21K');
     expect(await errorOf(changePrice(ctx, bm, item.id, 2_000_000, 'test'))).toMatchObject({ status: 400 });
-    const cashierHttp = await login('cashier.kh.01', 'CASHIER');
-    const [w] = await ctx.db.select().from(t.hasadWithdrawals).where(and(eq(t.hasadWithdrawals.branchId, item.branchId), eq(t.hasadWithdrawals.status, 'READY_FOR_PICKUP'))).limit(1);
-    expect((await cashierHttp.post(`/api/hasad/withdrawals/${w.id}/open`).send({ verification: 'ID_DOCUMENT' })).status).toBe(200);
-    const add = await cashierHttp.post(`/api/hasad/withdrawals/${w.id}/items`).send({ itemId: item.id });
-    expect(add.status).toBe(400);
-    expect(add.body.error.key).toBe('{karat}K is not sold here: sellable pieces must be {allowed}');
     const gm = await login('general.manager', 'GENERAL_MANAGER');
     expect((await gm.post('/api/auth/reauth').send({ password: DEMO_PASSWORDS.GENERAL_MANAGER })).status).toBe(200);
     expect((await gm.post('/api/gold-rates').send({ rates: { 18: 160_000 } })).status).toBe(400);
@@ -277,7 +271,7 @@ describe('pure-gold conversion: one helper, one rounding', () => {
     }
   });
 
-  it('a purchase owes Σ pureGoldMg(net, karat) per piece — the same helper as the Hasad settlement', async () => {
+  it('a purchase owes Σ pureGoldMg(net, karat) per piece — the single pure-gold helper', async () => {
     const { po, owed } = await newPurchase('KRT', [4_201, 7_777, 10_003]);
     expect(owed).toBe(pureGoldMg(4_201, 21) + pureGoldMg(7_777, 21) + pureGoldMg(10_003, 21));
     const row = await purchaseRow(po.id);
@@ -617,13 +611,6 @@ describe('POS payment methods', () => {
     const drawer = (await gm.get('/api/cash/drawer')).body.branches.find((x: { branchId: number }) => x.branchId === krt);
     expect(drawer.hasadReceivable).toBe(after.HASAD_RECEIVABLE);
     expect(await failure(`UPDATE sales SET payment_ref_invoice = NULL WHERE id = ${sale.id}`)).toMatch(/ck_sales_hasad_reference|violates/);
-  });
-
-  it('a Hasad delivery cannot be "paid with Hasad"', async () => {
-    const cashier = await login('cashier.kh.01', 'CASHIER');
-    const [w] = await ctx.db.select().from(t.hasadWithdrawals).where(eq(t.hasadWithdrawals.status, 'READY_FOR_PICKUP')).limit(1);
-    const res = await cashier.post(`/api/hasad/withdrawals/${w.id}/complete`).send({ paymentMethod: 'HASAD', customerAcknowledged: true, expectedDirection: 'NONE', expectedAmount: 0 });
-    expect(res.status).toBe(400);
   });
 });
 

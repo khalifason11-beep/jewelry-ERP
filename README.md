@@ -1,12 +1,11 @@
 # Jewelry Retail ERP — Client Demo Prototype
 
-A working prototype of a multi-branch jewelry retail ERP: item-level inventory, point of sale,
-**Hasad Gold** withdrawal redemption with weight-difference settlement, branch profitability,
+A multi-branch jewelry retail ERP: item-level inventory, point of sale (cash, bank transfer and Hasad as
+payment channels), purchases from suppliers and customers, a money ledger per branch, branch profitability,
 executive dashboards, user & password administration, active-session monitoring and a full audit trail.
 
-> **Prototype scope.** All data is fictional demo data. There is **no connection** to any real
-> server, database, or the real Hasad Gold system. Hasad Gold is simulated by a mock service that
-> implements the same interface the real integration will use.
+> **Demo scope.** All data in `APP_MODE=demo` is fictional demo data (removed by BACKLOG REM-3). There is
+> **no connection** to any external system: Hasad is a payment method with manually typed references.
 
 ## Quick start
 
@@ -87,13 +86,10 @@ npm run test:pg -w @jerp/backend
 Also available: `branch.manager.bhr`, `cashier.bhr.01`, `branch.manager.pzu`, `cashier.pzu.01`.
 The login page lists the main accounts; click one to fill the form.
 
-Hasad pickup codes for the demo: **HG-10025 → 482913** (Ahmed Mohamed, 4.200 g, Khartoum),
-HG-10027 → 640218, HG-10026 → 193577, HG-10028 → 775104.
-
 ## What to show the client
 
 See **[docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md)**. It is a 12-step walkthrough covering cashier, branch manager
-and general manager views, a normal sale, a Hasad withdrawal (both settlement directions),
+and general manager views, a normal sale,
 inventory movement, profit, drill-down, active sessions and the audit trail.
 
 ## Documentation
@@ -102,7 +98,6 @@ inventory movement, profit, drill-down, active sessions and the audit trail.
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Stack, layout, domain rules, configurable items, assumptions, plan |
 | [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Tables, relationships, traceability, ledger |
-| [docs/HASAD_INTEGRATION.md](docs/HASAD_INTEGRATION.md) | The `HasadService` contract and how to replace the mock |
 | [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | Step-by-step client presentation |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production behind a reverse proxy (Render): env vars, first start, operator console, verifying client IPs |
 | [docs/decisions.md](docs/decisions.md) | Every decision taken under ambiguity, with how to change it |
@@ -110,10 +105,9 @@ inventory movement, profit, drill-down, active sessions and the audit trail.
 ## Repository layout
 
 ```
-shared/               domain enums, permissions & default roles, settlement rule, settings defaults
+shared/               domain enums, permissions & default roles, route matrix, settings defaults
 database/             Drizzle schema, client factory (PostgreSQL | PGlite), SQL migrations
-integrations/hasad/   HasadService interface + MockHasadService (isolated `hasad_mock` schema)
-backend/              Express API: auth, authz, modules (sales, hasad, inventory, …), seed, tests
+backend/              Express API: auth, authz, modules (sales, inventory, purchases, ledger, …), seed, tests
 frontend/             React + Tailwind UI (POS, dashboards, reports, admin), i18n EN/AR (RTL)
 docs/                 architecture & presentation material
 scripts/i18n-check.mjs  localization scanner (`npm run i18n:check`)
@@ -122,7 +116,7 @@ scripts/i18n-check.mjs  localization scanner (`npm run i18n:check`)
 ### Production mode
 
 `APP_MODE=demo` (default) is the self-contained demo: embedded database, demo data, demo accounts on the
-login page, Hasad simulator and "Reset demo data". **`APP_MODE=production`** turns all of that off and refuses
+login page and "Reset demo data". **`APP_MODE=production`** turns all of that off and refuses
 to start unless the deployment is safe:
 
 | Variable | Required in production | Notes |
@@ -189,7 +183,7 @@ npm run ops -w @jerp/backend -- reset-gm-password --username <gm user>
 - **Append-only ledgers**: the audit log, inventory movements, item history, gold rates and settings history cannot be
   edited, deleted or emptied — refused by database triggers and, on PostgreSQL, by the app role's missing privileges.
 - **No duplicates from double clicks or retries**: sales, voids, purchases, transfers,
-  transfer receipts and Hasad completions require an `Idempotency-Key` header; a repeated request returns the first
+  transfer receipts and cash counts require an `Idempotency-Key` header; a repeated request returns the first
   result instead of creating a second record.
 - **Exact arithmetic**: money and weights are integers; rounding is exact and symmetric (`shared/src/money.ts`).
 - **Cost visibility**: every database column and every API field is classified COST or SAFE in
@@ -202,7 +196,7 @@ npm run ops -w @jerp/backend -- reset-gm-password --username <gm user>
   pieces including the making charge, also kept apart) and whether that cost is an estimate. **Sale lines** store the
   acquisition-cost snapshot and the profit. Cost and profit are General-Manager-only.
 - **Every branch has a money ledger** (CASH drawer, BANK, funds in transit). Sales, cancellations (through the
-  original payment method), scrap purchases, supplier making charges and Hasad settlements post their entries
+  original payment method), scrap purchases, supplier making charges and Hasad bank transfers post their entries
   in the same database transaction as the business change. Entries can never be edited or deleted; a balance is
   always the sum of its entries; corrections are reversing entries.
 - **Cash** screen (branch managers: own branch; GM: all): expected cash in each drawer now, and the daily
@@ -260,7 +254,7 @@ npm run ops -w @jerp/backend -- reset-gm-password --username <gm user>
 
 ### Printing invoices and receipts
 
-- One print module renders each document (invoice, Hasad delivery receipt, recovery codes, printer test page) into a
+- One print module renders each document (invoice, recovery codes, printer test page) into a
   print-only container with its own `@page` rule, then the browser prints through the Windows driver (no ESC/POS).
 - Settings → **Printing**: A4 (default), A5 or a thermal **Receipt** at the driver's printable width (72 mm on an 80 mm
   roll), auto-print after a sale (off by default) and a **Test print** calibration page.

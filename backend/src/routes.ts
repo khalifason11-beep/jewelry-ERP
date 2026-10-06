@@ -24,7 +24,6 @@ import * as users from './modules/users/service';
 import * as inventory from './modules/inventory/service';
 import * as sales from './modules/sales/service';
 import * as printing from './modules/print/service';
-import * as hasad from './modules/hasad/service';
 import * as purchases from './modules/purchases/service';
 import * as transfers from './modules/transfers/service';
 import * as dashboard from './modules/dashboard/service';
@@ -43,7 +42,6 @@ import { runIdempotent } from './core/idempotency';
 import { defineRoutes } from './core/guard';
 import { costRedaction } from './core/cost-redaction';
 import { notificationsFor } from './modules/notifications/service';
-import { syncWithdrawals } from './modules/hasad/sync';
 import { resetDemoData } from './seed/reset';
 import { DEMO_PASSWORDS, USERS } from './seed/catalog';
 
@@ -150,7 +148,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     // Backup ages and status only (D-2c-6). Always HTTP 200: a stale backup must not make the host
     // restart a healthy service; monitoring reads `backup.status`.
     const backup = await backups.backupHealth(ctx).catch(() => null);
-    res.json(config.production ? { ok: true, backup } : { ok: true, driver: ctx.handle.driver, hasad: ctx.hasad.mode, appMode: config.appMode, backup });
+    res.json(config.production ? { ok: true, backup } : { ok: true, driver: ctx.handle.driver, appMode: config.appMode, backup });
   });
 
 
@@ -341,7 +339,6 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           city: zText(60).min(2),
           address: zText(200).optional(),
           phone: zPhone.optional(),
-          hasadBranchCode: z.string().regex(/^[A-Z0-9-]{2,30}$/).optional(),
         })
         .strict(),
       req.body,
@@ -485,52 +482,6 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     const body = parse(z.object({ reason: zText(500).min(3) }).strict(), req.body);
     const id = parse(zId, req.params.id);
     res.json(await runIdempotent(ctx, req, res, (idem) => sales.voidSale(ctx, actorOf(req), id, body.reason, { idem })));
-  });
-
-  // ─────────── Hasad ───────────
-  route('GET', '/hasad/withdrawals', async (req, res) => {
-    const q = parse(z.object({ branchId: zOptId, status: zStatusList, q: zQ, from: zDay.optional(), to: zDay.optional() }).strict(), req.query);
-    res.json(await hasad.listWithdrawals(ctx, actorOf(req), { ...q, status: q.status as never }));
-  });
-  route('GET', '/hasad/withdrawals/:id', async (req, res) => res.json(await hasad.getWithdrawal(ctx, actorOf(req), parse(zId, req.params.id))));
-  route('GET', '/hasad/withdrawals/:id/candidates', async (req, res) => {
-    const q = parse(z.object({ q: zQ, karat: zKarat.optional(), category: z.string().regex(/^[A-Z_]{2,30}$/).optional() }).strict(), req.query);
-    res.json(await hasad.candidateItems(ctx, actorOf(req), parse(zId, req.params.id), q));
-  });
-  route('POST', '/hasad/withdrawals/:id/open', async (req, res) => {
-    const body = parse(z.object({ verification: z.enum(['PICKUP_CODE', 'ID_DOCUMENT']), pickupCode: z.string().regex(/^\d{4,8}$/).optional() }).strict(), req.body);
-    res.json(await hasad.openWithdrawal(ctx, actorOf(req), parse(zId, req.params.id), body));
-  });
-  route('POST', '/hasad/withdrawals/:id/items', async (req, res) => {
-    const body = parse(z.object({ itemId: zIdBody }).strict(), req.body);
-    res.json(await hasad.addItem(ctx, actorOf(req), parse(zId, req.params.id), body.itemId));
-  });
-  route('DELETE', '/hasad/withdrawals/:id/items/:itemId', async (req, res) => {
-    res.json(await hasad.removeItem(ctx, actorOf(req), parse(zId, req.params.id), parse(zId, req.params.itemId)));
-  });
-  route('POST', '/hasad/withdrawals/:id/complete', async (req, res) => {
-    const body = parse(
-      z
-        .object({
-          // A Hasad delivery's price difference is settled in money, never "paid with Hasad".
-          paymentMethod: z.enum(PAYMENT_METHODS).exclude(['HASAD']),
-          customerAcknowledged: z.boolean(),
-          expectedDirection: z.enum(['BRANCH_PAYS_CUSTOMER', 'CUSTOMER_PAYS_BRANCH', 'NONE']),
-          expectedAmount: zMoney,
-        })
-        .strict(),
-      req.body,
-    );
-    const id = parse(zId, req.params.id);
-    res.json(await runIdempotent(ctx, req, res, (idem) => hasad.completeWithdrawal(ctx, actorOf(req), id, body, { idem })));
-  });
-  route('POST', '/hasad/withdrawals/:id/abort', async (req, res) => {
-    const body = parse(z.object({ reason: zText(500).min(3).default('Customer left without completing') }).strict(), req.body);
-    res.json(await hasad.abortRedemption(ctx, actorOf(req), parse(zId, req.params.id), body.reason));
-  });
-  route('POST', '/hasad/withdrawals/:id/cancel', async (req, res) => {
-    const body = parse(z.object({ reason: zText(500).min(3) }).strict(), req.body);
-    res.json(await hasad.cancelWithdrawal(ctx, actorOf(req), parse(zId, req.params.id), body.reason));
   });
 
   // ─────────── purchases / transfers ───────────
@@ -704,30 +655,6 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
       await resetDemoData(ctx);
       res.clearCookie(config.cookieName, { path: '/' });
       res.json({ ok: true });
-    });
-
-    // Mock Hasad simulator & integration monitor.
-    const simulator = () => {
-      if (!ctx.mockHasad) throw forbidden('Simulator is only available with the mock Hasad service');
-      return ctx.mockHasad;
-    };
-    route('GET', '/hasad/simulator/customers', async (req, res) => {
-      requirePerm(actorOf(req), 'hasad.simulate');
-      res.json(await simulator().simulateCustomers());
-    });
-    route('POST', '/hasad/simulator/withdrawals', async (req, res) => {
-      const actor = actorOf(req);
-      requirePerm(actor, 'hasad.simulate');
-      const body = parse(z.object({ customerId: z.string().regex(/^[A-Z0-9-]{3,30}$/), branchId: zIdBody, weightMg: zWeightMg.optional() }).strict(), req.body);
-      const [branch] = await ctx.db.select().from(t.branches).where(eq(t.branches.id, body.branchId));
-      if (!branch?.hasadBranchCode) throw notFound('Branch');
-      const w = await simulator().simulateWithdrawalRequest({ customerId: body.customerId, branchCode: branch.hasadBranchCode, weightMg: body.weightMg });
-      await syncWithdrawals(ctx, true);
-      res.json(w);
-    });
-    route('GET', '/hasad/integration-log', async (req, res) => {
-      requirePerm(actorOf(req), 'hasad.simulate');
-      res.json(ctx.mockHasad ? await ctx.mockHasad.recentCalls(80) : []);
     });
   }
   return Object.assign(r, { registered });

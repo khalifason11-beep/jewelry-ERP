@@ -1,6 +1,7 @@
-// Tables that simulate the Hasad Gold system's own storage.
-// They live in a separate Postgres schema (`hasad_mock`) and are ONLY accessed by
-// MockHasadService. Removing the mock = dropping this schema.
+// DEPRECATED (REM-2): the mock Hasad integration was removed (it lived in integrations/hasad).
+// This file only keeps drizzle-kit's view of the historical `hasad_mock` schema in step with the
+// migrations, so that no future `drizzle-kit generate` emits a DROP by accident. Nothing reads or
+// writes these tables (migration 0014 refuses inserts); REM-5 drops the schema and this file.
 
 import { integer, jsonb, pgSchema, serial, smallint, text, timestamp } from 'drizzle-orm/pg-core';
 

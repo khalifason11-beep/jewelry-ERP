@@ -36,7 +36,7 @@ export function translateParams(params?: Params): Params | undefined {
 /** English labels (translation keys) for request fields named in validation errors. */
 const FIELD_LABELS: Record<string, string> = {
   action: 'Action', amount: 'Amount', branchId: 'Branch', category: 'Category', currentPassword: 'Current password',
-  customerAcknowledged: 'Customer confirmation', customerId: 'Hasad customer', customerName: 'Customer name', customerPhone: 'Phone',
+  customerAcknowledged: 'Customer confirmation', customerName: 'Customer name', customerPhone: 'Phone',
   decision: 'Decision', description: 'Description', discount: 'Discount', entityType: 'Entity', expectedAmount: 'Settlement amount',
   expectedDirection: 'Settlement direction', fromBranchId: 'From', fullName: 'Full name', fullNameAr: 'Full name (Arabic)',
   grossWeightMg: 'Gross weight', group: 'Group by', itemId: 'Item', itemIds: 'Pieces', items: 'Items', karat: 'Karat', limit: 'Limit',

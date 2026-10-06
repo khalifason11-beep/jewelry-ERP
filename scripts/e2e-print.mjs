@@ -8,7 +8,7 @@
 //   2. run:   BASE_URL=http://localhost:4100 OUT_DIR=docs/print-check node scripts/e2e-print.mjs
 //
 // The PDFs written to OUT_DIR are the artifacts of the check (A4 original, 72 mm receipt reprint,
-// 72 mm calibration page, A4 calibration page; the Hasad delivery receipt is not exported here).
+// 72 mm calibration page, A4 calibration page).
 
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';

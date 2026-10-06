@@ -36,7 +36,7 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
   const iso = (d: Date) => d.toISOString();
   const trendFrom = addDays(period.toKey, -13);
   const trendRange = dayRange(trendFrom, period.toKey, tz);
-  const [trendR, hourlyR, cashiersR, hasadR] = await Promise.all([
+  const [trendR, hourlyR, cashiersR] = await Promise.all([
     ctx.db.execute(sql`
       SELECT to_char(created_at AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS day, count(*) AS n, coalesce(sum(total),0) AS revenue, coalesce(sum(total - cost_total),0) AS profit
       FROM sales WHERE status='COMPLETED' AND branch_id = ${branchId} AND created_at >= ${iso(trendRange.start)} AND created_at < ${iso(trendRange.end)}
@@ -49,7 +49,6 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
       SELECT u.id, u.full_name, u.username, r.code AS role,
         (SELECT count(*) FROM sales s WHERE s.cashier_id = u.id AND s.status='COMPLETED' AND s.created_at >= ${iso(period.start)} AND s.created_at < ${iso(period.end)}) AS sales_count,
         (SELECT coalesce(sum(total),0) FROM sales s WHERE s.cashier_id = u.id AND s.status='COMPLETED' AND s.created_at >= ${iso(period.start)} AND s.created_at < ${iso(period.end)}) AS sales_total,
-        (SELECT count(*) FROM hasad_redemptions h WHERE h.cashier_id = u.id AND h.status='COMPLETED' AND h.completed_at >= ${iso(period.start)} AND h.completed_at < ${iso(period.end)}) AS hasad_count,
         (SELECT count(*) FROM sales s WHERE s.cashier_id = u.id AND s.status='VOIDED' AND s.voided_at >= ${iso(period.start)} AND s.voided_at < ${iso(period.end)}) AS voided,
         (SELECT max(last_activity_at) FROM sessions se WHERE se.user_id = u.id) AS last_activity,
         (SELECT count(*) FROM sessions se WHERE se.user_id = u.id AND se.status='ACTIVE') AS live_sessions,
@@ -57,10 +56,6 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
       FROM users u JOIN roles r ON r.id = u.role_id
       WHERE u.branch_id = ${branchId} AND u.status = 'ACTIVE'
       ORDER BY r.rank, u.full_name`),
-    ctx.db.execute(sql`
-      SELECT id, external_id, customer_name, customer_name_ar, entitled_weight_mg, status, requested_at
-      FROM hasad_withdrawals WHERE branch_id = ${branchId} AND status IN ('READY_FOR_PICKUP','IN_PROGRESS')
-      ORDER BY requested_at ASC LIMIT 10`),
   ]);
 
   const trendMap = new Map(rows<Record<string, unknown>>(trendR).map((r) => [String(r.day), r]));
@@ -83,35 +78,13 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
       availableWeightMg: m.availableWeightMg,
       reservedItems: m.reservedItems,
       inventoryCost: showProfit ? m.inventoryCost : null,
-      hasadCompleted: m.hasadCompleted,
-      hasadOpen: m.hasadOpen + m.hasadInProgress,
     },
     mtd: {
       revenue: mtd.revenue,
       grossProfit: showProfit ? mtd.grossProfit : null,
       salesCount: mtd.salesCount,
-      hasadCompleted: mtd.hasadCompleted,
     },
     movement,
-    hasad: {
-      newRequests: m.hasadReceived,
-      waiting: m.hasadOpen,
-      inProgress: m.hasadInProgress,
-      completedToday: m.hasadCompleted,
-      cancelled: m.hasadCancelled,
-      weightDeliveredMg: m.hasadWeightMg,
-      paidToCustomers: m.hasadPaidToCustomers,
-      collectedFromCustomers: m.hasadCollectedFromCustomers,
-      queue: rows<Record<string, unknown>>(hasadR).map((r) => ({
-        id: num(r.id),
-        externalId: String(r.external_id),
-        customerName: String(r.customer_name),
-        customerNameAr: r.customer_name_ar == null ? null : String(r.customer_name_ar),
-        entitledWeightMg: num(r.entitled_weight_mg),
-        status: String(r.status),
-        requestedAt: r.requested_at,
-      })),
-    },
     trend: eachDay(trendFrom, period.toKey).map((d) => {
       const r = trendMap.get(d);
       return { day: d, sales: num(r?.n), revenue: num(r?.revenue), profit: showProfit ? num(r?.profit) : null };
@@ -119,7 +92,7 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
     hourly: rows<Record<string, unknown>>(hourlyR).map((r) => ({ hour: num(r.h), sales: num(r.n), revenue: num(r.revenue) })),
     cashiers: rows<Record<string, unknown>>(cashiersR).map((r) => ({
       userId: num(r.id), fullName: String(r.full_name), username: String(r.username), role: String(r.role),
-      salesCount: num(r.sales_count), salesTotal: num(r.sales_total), hasadCount: num(r.hasad_count), voided: num(r.voided),
+      salesCount: num(r.sales_count), salesTotal: num(r.sales_total), voided: num(r.voided),
       lastActivity: r.last_activity, liveSessions: num(r.live_sessions), firstLogin: r.first_login,
     })),
   };
@@ -180,11 +153,6 @@ export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: strin
       availableWeightMg: totals.availableWeightMg,
       salesCount: totals.salesCount,
       purchasesCost: totals.purchasesCost,
-      hasadCompleted: totals.hasadCompleted,
-      hasadWeightMg: totals.hasadWeightMg,
-      hasadOpen: totals.hasadOpen + totals.hasadInProgress,
-      hasadPaidToCustomers: totals.hasadPaidToCustomers,
-      hasadCollectedFromCustomers: totals.hasadCollectedFromCustomers,
       discounts: totals.discounts,
     },
     branches: list,

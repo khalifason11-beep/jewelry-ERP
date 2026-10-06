@@ -5,7 +5,6 @@ import { createApp } from './app';
 import { createContext, isEmpty, openDatabase } from './bootstrap';
 import { log } from './core/logger';
 import { demoCredentialsInUse, productionConfigProblems, runtimeRoleProblems, unvalidatedConstraints } from './core/startup';
-import { releaseStaleReservations } from './modules/hasad/service';
 import { seedDemo } from './seed/demo';
 import { backfillDemoLedger } from './seed/ledger-backfill';
 import { applyInitialSecuritySettings, purgeExpiredSecondFactorState } from './modules/auth/passkeys';
@@ -75,12 +74,11 @@ log.info('second factor', { rpId: config.webauthnRpId ?? '(demo: from each reque
 
 const app = createApp(ctx, config);
 app.listen(config.port, () => {
-  log.info('server started', { port: config.port, appMode: config.appMode, db: handle.driver, hasad: ctx.hasad.mode, webauthnRpId: config.webauthnRpId ?? '(from each request: demo without APP_ORIGIN)' });
+  log.info('server started', { port: config.port, appMode: config.appMode, db: handle.driver, webauthnRpId: config.webauthnRpId ?? '(from each request: demo without APP_ORIGIN)' });
 });
 
 // Background housekeeping.
 setInterval(() => {
-  releaseStaleReservations(ctx).catch((e) => log.error('reservation sweep failed', { err: e }));
   purgeExpiredSecondFactorState(ctx.db).catch((e) => log.error('second-factor sweep failed', { err: e }));
   if (config.appMode !== 'demo') return;
   // Demo presence: keep the clearly-labelled simulated sessions "alive" (except the idle example).

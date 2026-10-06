@@ -3,13 +3,11 @@
 // Business transactions are created through the REAL service functions (with backdated
 // timestamps), so the ledger, item lifecycle, numbering and audit trail are exactly what the
 // application itself would have produced. Only history that no service can backdate
-// (sessions, completed Hasad redemptions) is written directly — using the same ledger helpers.
+// (sessions) is written directly.
 
 import { and, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { hasadMockTables } from '@jerp/hasad';
 import {
-  calculateSettlement,
   DEFAULT_SETTINGS,
   type PaymentMethod,
   ap,
@@ -17,22 +15,18 @@ import {
 import type { Actor, Ctx } from '../core/context';
 import { writeAudit } from '../core/audit';
 import { config } from '../config';
-import { nextNumber } from '../core/numbering';
 import { addDays, dayKey, dayStart } from '../core/time';
 import { hashPassword } from '../auth/password';
 import { createSession, hashToken, loadActor } from '../modules/sessions/service';
 import { createPurchase, type PurchaseLine } from '../modules/purchases/service';
 import { createSale, voidSale } from '../modules/sales/service';
-import { post as postLedger, settleHasadReceivable, balances as ledgerBalances } from '../modules/ledger/service';
+import { settleHasadReceivable, balances as ledgerBalances } from '../modules/ledger/service';
 import { createTransfer, receiveTransfer } from '../modules/transfers/service';
 import { adjustItem } from '../modules/inventory/service';
 import { buyScrap } from '../modules/scrap/service';
 import { settleWithScrap } from '../modules/supplier-settlements/service';
-import { changeStatus, recordMovement } from '../modules/inventory/ledger';
 import { seedRolesAndPermissions } from './reference';
-import { BRANCHES, CATEGORIES, COMPANY, CUSTOMER_NAMES, DEMO_PASSWORDS, HASAD_CUSTOMERS, PRODUCTS, SUPPLIERS, USERS } from './catalog';
-
-const { mockCustomers, mockWithdrawals } = hasadMockTables;
+import { BRANCHES, CATEGORIES, COMPANY, CUSTOMER_NAMES, DEMO_PASSWORDS, PRODUCTS, SUPPLIERS, USERS } from './catalog';
 
 // ───────── deterministic randomness ─────────
 function mulberry32(seed: number) {
@@ -92,7 +86,6 @@ export async function seedDemo(ctx: Ctx, now = new Date(), opts: { twoFactor?: b
       'company.nameAr': COMPANY.nameAr,
       'branding.invoiceFooterEn': COMPANY.invoiceFooter,
       'branding.invoiceFooterAr': COMPANY.invoiceFooterAr,
-      'hasad.enabledPerBranch': Object.fromEntries(BRANCHES.map((b) => [b.code, true])),
       // This client sells 21K only (D-4-1). Broken scrap of any karat is still bought.
       'inventory.allowedKarats': [21],
       // Demo: no second factor by default, so the login page and the demo script keep working
@@ -404,150 +397,6 @@ export async function seedDemo(ctx: Ctx, now = new Date(), opts: { twoFactor?: b
     }
   }
 
-  // ───────── Hasad Gold (mock system + ERP history) ─────────
-  await db.insert(mockCustomers).values(
-    HASAD_CUSTOMERS.map((c, i) => ({
-      id: c.id,
-      fullName: c.fullName,
-      fullNameAr: c.fullNameAr,
-      phone: c.phone,
-      nationalIdMasked: c.nid,
-      balanceMg: [4200, 7850, 3100, 10500, 5000, 2600, 6400][i] ?? int(2, 14) * 100 + int(0, 9) * 10,
-      karat: 21,
-      createdAt: at(-300 + i * 7, 12),
-    })),
-  );
-
-  let wSeq = 10012;
-  const nextW = () => `HG-${wSeq++}`;
-  const pickup = () => String(int(100000, 999999));
-
-  const historical: { day: number; code: string; cust: number; mg: number }[] = [
-    { day: -27, code: 'KRT', cust: 7, mg: 5000 },
-    { day: -24, code: 'OMD', cust: 8, mg: 3500 },
-    { day: -21, code: 'KRT', cust: 9, mg: 8200 },
-    { day: -17, code: 'BHR', cust: 10, mg: 4000 },
-    { day: -14, code: 'PZU', cust: 11, mg: 6300 },
-    { day: -11, code: 'KRT', cust: 12, mg: 2800 },
-    { day: -8, code: 'OMD', cust: 13, mg: 12000 },
-    { day: -5, code: 'KRT', cust: 14, mg: 4600 },
-    { day: -3, code: 'BHR', cust: 15, mg: 3300 },
-    { day: -1, code: 'KRT', cust: 16, mg: 5500 },
-  ];
-  const cancelled = [
-    { day: -19, code: 'KRT', cust: 17, mg: 3000, reason: 'طلب العميل الإلغاء عبر الهاتف', by: 'KRT' },
-    { day: -9, code: 'PZU', cust: 13, mg: 2000, reason: 'لم يستلم العميل خلال 14 يوماً', by: 'PZU' },
-    { day: -4, code: 'OMD', cust: 17, mg: 2500, reason: 'ألغاه العميل من تطبيق حصاد', by: null },
-  ];
-
-  const events = [
-    ...historical.map((h) => ({ ...h, kind: 'done' as const })),
-    ...cancelled.map((c) => ({ ...c, kind: 'cancel' as const })),
-  ].sort((a, b) => a.day - b.day);
-
-  for (const ev of events) {
-    const c = HASAD_CUSTOMERS[ev.cust];
-    const b = branch[ev.code];
-    const id = nextW();
-    const requestedAt = at(ev.day - int(1, 3), int(8, 20), int(0, 59));
-    const receivedAt = new Date(requestedAt.getTime() + 60_000);
-    if (ev.kind === 'cancel') {
-      const cancelledAt = at(ev.day, 14, 10);
-      await db.insert(mockWithdrawals).values({
-        id, customerId: c.id, weightMg: ev.mg, karat: 21, branchCode: b.hasadBranchCode!, status: 'CANCELLED', pickupCode: pickup(), requestedAt, updatedAt: cancelledAt,
-        cancellation: { reason: ev.reason, cancelledAt: cancelledAt.toISOString(), source: ev.by ? 'ERP' : 'HASAD' },
-      });
-      const [w] = await db.insert(t.hasadWithdrawals).values({
-        externalId: id, hasadCustomerId: c.id, customerName: c.fullName, customerNameAr: c.fullNameAr, customerPhone: c.phone, customerNationalIdMasked: c.nid,
-        entitledWeightMg: ev.mg, entitlementKarat: 21, branchId: b.id, status: 'CANCELLED', externalStatus: 'CANCELLED', requestedAt, receivedAt,
-        cancelledAt, cancelledBy: ev.by ? bm[ev.by].userId : null, cancelReason: ev.reason, lastSyncedAt: cancelledAt,
-      }).returning();
-      await writeAudit(db, null, { action: 'HASAD_WITHDRAWAL_RECEIVED', entityType: 'hasad_withdrawal', entityId: id, branchId: b.id, at: receivedAt, key: 'Withdrawal {id} received from Hasad Gold: {customer}, {weight} entitlement. No inventory reserved.', params: { id, customer: ap.text(c.fullName, c.fullNameAr), weight: ap.mg(ev.mg) } });
-      await writeAudit(db, ev.by ? bm[ev.by] : null, { action: 'HASAD_WITHDRAWAL_CANCELLED', entityType: 'hasad_withdrawal', entityId: w.externalId, branchId: b.id, at: cancelledAt, key: 'Withdrawal {id} ({customer}, {weight}) cancelled: {reason}', params: { id, customer: ap.text(c.fullName, c.fullNameAr), weight: ap.mg(ev.mg), reason: ev.reason } });
-      continue;
-    }
-
-    // Completed redemption: the customer picked the piece closest to their entitlement.
-    const cashier = pick(cashiers[ev.code]);
-    const completedAt = at(ev.day, int(10, 19), int(0, 59));
-    const openedAt = new Date(completedAt.getTime() - 12 * 60_000);
-    const reservedAt = new Date(completedAt.getTime() - 7 * 60_000);
-    const pool = (await available(ev.code)).filter((i) => i.karat === 21);
-    pool.sort((x, y) => Math.abs(x.netWeightMg - ev.mg) - Math.abs(y.netWeightMg - ev.mg));
-    const choice = pool[int(0, 2)];
-    const [item] = await db.select().from(t.jewelryItems).where(eq(t.jewelryItems.id, choice.id));
-    const s = calculateSettlement({ entitledWeightMg: ev.mg, entitlementKarat: 21, items: [item], ratePerGram: rateFor(item.karat, ev.day), basis: 'NET_WEIGHT' });
-
-    const [w] = await db.insert(t.hasadWithdrawals).values({
-      externalId: id, hasadCustomerId: c.id, customerName: c.fullName, customerNameAr: c.fullNameAr, customerPhone: c.phone, customerNationalIdMasked: c.nid,
-      entitledWeightMg: ev.mg, entitlementKarat: 21, branchId: b.id, status: 'COMPLETED', externalStatus: 'COMPLETED', pickupCode: pickup(), requestedAt, receivedAt,
-      openedAt, openedBy: cashier.userId, completedAt, completedBy: cashier.userId, lastSyncedAt: completedAt,
-    }).returning();
-    const number = await nextNumber(db, b.code, 'HR');
-    const [r] = await db.insert(t.hasadRedemptions).values({
-      number, withdrawalId: w.id, branchId: b.id, cashierId: cashier.userId, status: 'COMPLETED', entitledWeightMg: ev.mg,
-      deliveredWeightMg: s.deliveredWeightMg, differenceMg: s.differenceMg, settlementDirection: s.direction, settlementAmount: s.amount,
-      ratePerGram: s.ratePerGram, itemsCost: item.totalCost, customerVerified: true, createdAt: openedAt, completedAt,
-    }).returning();
-    await db.insert(t.hasadRedemptionItems).values({ redemptionId: r.id, itemId: item.id, netWeightMg: item.netWeightMg, karat: item.karat, unitCost: item.acquisitionCost, addedAt: reservedAt });
-    const ref = { refType: 'hasad_redemption', refId: r.id, refNumber: number };
-    const reserved = await changeStatus(db, { item, to: 'RESERVED', from: ['AVAILABLE'], userId: cashier.userId, ref, at: reservedAt, note: `Selected by Hasad customer (${id})`, reservation: { ref: `HASAD:${number}`, userId: cashier.userId } });
-    await changeStatus(db, { item: reserved, to: 'REDEEMED', from: ['RESERVED'], userId: cashier.userId, ref, at: completedAt, note: `Delivered to Hasad customer (${id})` });
-    await recordMovement(db, { item, type: 'HASAD_REDEMPTION', branchId: b.id, ref, userId: cashier.userId, at: completedAt });
-    let settlementNumber: string | null = null;
-    if (s.direction !== 'NONE') {
-      settlementNumber = await nextNumber(db, b.code, 'SET');
-      await db.insert(t.settlements).values({ number: settlementNumber, type: 'HASAD_WEIGHT_DIFFERENCE', redemptionId: r.id, branchId: b.id, direction: s.direction, weightMg: s.absDifferenceMg, ratePerGram: s.ratePerGram, amount: s.amount, paymentMethod: 'CASH', confirmedBy: cashier.userId, confirmedAt: completedAt });
-      // Demo history goes through the same ledger as live settlements (CASH, Q8).
-      await postLedger(db, [{ branchId: b.id, kind: 'CASH', amount: s.direction === 'BRANCH_PAYS_CUSTOMER' ? -s.amount : s.amount, eventType: 'HASAD_SETTLEMENT', paymentMethod: 'CASH', ref: { refType: 'hasad_redemption', refId: r.id, refNumber: settlementNumber }, at: completedAt }], { actor: cashier });
-    }
-    await db.insert(mockWithdrawals).values({
-      id, customerId: c.id, weightMg: ev.mg, karat: 21, branchCode: b.hasadBranchCode!, status: 'COMPLETED', pickupCode: w.pickupCode, requestedAt, updatedAt: completedAt,
-      completion: {
-        erpReference: number, branchCode: b.hasadBranchCode, deliveredWeightGrams: (s.deliveredWeightMg / 1000).toFixed(3),
-        items: [{ code: item.code, description: item.code, karat: item.karat, netWeightGrams: (item.netWeightMg / 1000).toFixed(3) }],
-        settlement: { direction: s.direction, weightGrams: (s.absDifferenceMg / 1000).toFixed(3), amount: s.amount, currency: 'SDG' },
-        completedBy: cashier.username, completedAt: completedAt.toISOString(),
-      },
-    });
-    await writeAudit(db, null, { action: 'HASAD_WITHDRAWAL_RECEIVED', entityType: 'hasad_withdrawal', entityId: id, branchId: b.id, at: receivedAt, key: 'Withdrawal {id} received from Hasad Gold: {customer}, {weight} entitlement. No inventory reserved.', params: { id, customer: ap.text(c.fullName, c.fullNameAr), weight: ap.mg(ev.mg) } });
-    await writeAudit(db, cashier, { action: 'HASAD_WITHDRAWAL_OPENED', entityType: 'hasad_withdrawal', entityId: id, branchId: b.id, at: openedAt, key: 'Customer {customer} at counter for {id} ({weight}). Verified by pickup code.', params: { customer: ap.text(c.fullName, c.fullNameAr), id, weight: ap.mg(ev.mg) }, metadata: { redemption: number } });
-    await writeAudit(db, cashier, { action: 'ITEM_RESERVED', entityType: 'item', entityId: item.code, branchId: b.id, at: reservedAt, key: '{code} ({weight}, {karat}) reserved for Hasad withdrawal {id}', params: { code: item.code, weight: ap.mg(item.netWeightMg), karat: ap.karat(item.karat), id }, metadata: { withdrawal: id, redemption: number } });
-    if (settlementNumber) {
-      await writeAudit(db, cashier, { action: 'HASAD_SETTLEMENT_CONFIRMED', entityType: 'settlement', entityId: settlementNumber, branchId: b.id, at: completedAt, key: s.direction === 'BRANCH_PAYS_CUSTOMER' ? 'Branch paid customer {amount} for {weight} difference @ {rate}/g ({payment})' : 'Customer paid branch {amount} for {weight} difference @ {rate}/g ({payment})', params: { amount: ap.money(s.amount), weight: ap.mg(s.absDifferenceMg), rate: ap.money(s.ratePerGram), payment: ap.enum('CASH') }, metadata: { withdrawal: id } });
-    }
-    await writeAudit(db, cashier, { action: 'HASAD_WITHDRAWAL_COMPLETED', entityType: 'hasad_withdrawal', entityId: id, branchId: b.id, at: completedAt, key: '{id} completed: entitled {entitled}, delivered {delivered} ({codes})', params: { id, entitled: ap.mg(ev.mg), delivered: ap.mg(s.deliveredWeightMg), codes: item.code }, metadata: { redemption: number, settlement: settlementNumber } });
-    await db.update(mockCustomers).set({ balanceMg: int(1, 9) * 100 }).where(eq(mockCustomers.id, c.id));
-  }
-
-  // Customers without an open request keep a withdrawable balance for the simulator (and one below minimum).
-  await db.update(mockCustomers).set({ balanceMg: 8400 }).where(eq(mockCustomers.id, 'HC-204910'));
-  await db.update(mockCustomers).set({ balanceMg: 600 }).where(eq(mockCustomers.id, 'HC-204934'));
-
-  // Requests waiting for the customer to arrive (inventory untouched!).
-  const open = [
-    { id: 'HG-10025', cust: 0, code: 'KRT', mg: 4200, pickup: '482913', minutesAgo: 95 },
-    { id: 'HG-10026', cust: 1, code: 'KRT', mg: 7850, pickup: '193577', minutesAgo: 60 * 20 },
-    { id: 'HG-10027', cust: 2, code: 'KRT', mg: 3100, pickup: '640218', minutesAgo: 40 },
-    { id: 'HG-10028', cust: 3, code: 'OMD', mg: 10500, pickup: '775104', minutesAgo: 130 },
-    { id: 'HG-10029', cust: 4, code: 'BHR', mg: 5000, pickup: '208866', minutesAgo: 60 * 26 },
-    { id: 'HG-10030', cust: 5, code: 'PZU', mg: 2600, pickup: '531190', minutesAgo: 70 },
-  ];
-  for (const o of open) {
-    const c = HASAD_CUSTOMERS[o.cust];
-    const b = branch[o.code];
-    const requestedAt = new Date(now.getTime() - o.minutesAgo * 60_000);
-    const receivedAt = new Date(requestedAt.getTime() + 45_000);
-    await db.insert(mockWithdrawals).values({ id: o.id, customerId: c.id, weightMg: o.mg, karat: 21, branchCode: b.hasadBranchCode!, status: 'READY_FOR_PICKUP', pickupCode: o.pickup, requestedAt, updatedAt: requestedAt });
-    await db.insert(t.hasadWithdrawals).values({
-      externalId: o.id, hasadCustomerId: c.id, customerName: c.fullName, customerNameAr: c.fullNameAr, customerPhone: c.phone, customerNationalIdMasked: c.nid,
-      entitledWeightMg: o.mg, entitlementKarat: 21, branchId: b.id, status: 'READY_FOR_PICKUP', externalStatus: 'READY_FOR_PICKUP', pickupCode: o.pickup, requestedAt, receivedAt, lastSyncedAt: receivedAt,
-    });
-    await writeAudit(db, null, { action: 'HASAD_WITHDRAWAL_RECEIVED', entityType: 'hasad_withdrawal', entityId: o.id, branchId: b.id, at: receivedAt, key: 'Withdrawal {id} received from Hasad Gold: {customer}, {weight} entitlement. No inventory reserved.', params: { id: o.id, customer: ap.text(c.fullName, c.fullNameAr), weight: ap.mg(o.mg) } });
-  }
-  // Still accumulating / awaiting Hasad approval — not yet sent to the ERP.
-  await db.insert(mockWithdrawals).values({ id: 'HG-10031', customerId: HASAD_CUSTOMERS[6].id, weightMg: 6000, karat: 21, branchCode: branch.KRT.hasadBranchCode!, status: 'PENDING', requestedAt: new Date(now.getTime() - 15 * 60_000) });
-
   // ───────── session history & live presence ─────────
   const subnet: Record<string, string> = { KRT: '10.20.1', OMD: '10.20.2', BHR: '10.20.3', PZU: '10.20.4' };
   const uaDesktop = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36';
@@ -583,7 +432,7 @@ export async function seedDemo(ctx: Ctx, now = new Date(), opts: { twoFactor?: b
   const live: { user: string; ua: string; ip: string; module: string; minutesAgoLogin: number; minutesIdle: number }[] = [
     { user: 'cashier.omd.01', ua: uaTablet, ip: '10.20.2.21', module: 'pos', minutesAgoLogin: 140, minutesIdle: 1 },
     { user: 'branch.manager.omd', ua: uaEdge, ip: '10.20.2.14', module: 'dashboard', minutesAgoLogin: 190, minutesIdle: 26 },
-    { user: 'cashier.bhr.01', ua: uaDesktop, ip: '10.20.3.17', module: 'hasad', minutesAgoLogin: 95, minutesIdle: 2 },
+    { user: 'cashier.bhr.01', ua: uaDesktop, ip: '10.20.3.17', module: 'pos', minutesAgoLogin: 95, minutesIdle: 2 },
     { user: 'branch.manager.bhr', ua: uaEdge, ip: '10.20.3.16', module: 'cash', minutesAgoLogin: 120, minutesIdle: 4 },
     { user: 'cashier.pzu.01', ua: uaDesktop, ip: '10.20.4.19', module: 'pos', minutesAgoLogin: 180, minutesIdle: 3 },
     // Same account signed in on a second device elsewhere → flagged as concurrent.

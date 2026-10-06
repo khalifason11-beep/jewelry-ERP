@@ -116,10 +116,6 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   backup_runs: { safe: words('id kind status file_name size_bytes sha256 encrypted uploaded detail host started_at finished_at') },
   // Hasad bank transfers received (Phase 4 follow-up): a money movement between two branch accounts, like the ledger.
   hasad_receivable_settlements: { safe: words('id number branch_id amount bank_reference note actor_id session_id idempotency_key at') },
-  // ── Hasad mock schema (integrations/hasad/src/mock/schema.ts, demo only)
-  api_calls: { safe: words('id at operation request response_status response duration_ms') },
-  customers: { safe: words('id full_name full_name_ar phone national_id_masked balance_mg karat created_at') },
-  withdrawals: { safe: words('id customer_id weight_mg karat branch_code status pickup_code requested_at updated_at completion cancellation') },
 };
 
 /** Response field names that carry cost, acquisition cost, margin or profit. */
@@ -135,7 +131,6 @@ export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
   'makingCost',
   'otherCost',
   'itemsCost',
-  'hasadItemsCost',
   'inventoryCost',
   'purchasesCost',
   'acquisitionCost',
@@ -158,40 +153,39 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     balanceGrams barcode basis branch branchAddress branchCode branchId branchName branchNameAr branchPhone branches branding
     byCategory cancelReason cancelled cancelledAt cancelledBy cashierId cashierName cashierNameAr cashierUsername cashiers
     category categoryCode categoryId categoryName categoryNameAr city closing closingItems closingWeightMg code codes
-    collectedFromCustomers columns company completed completedAt completedBy completedByName completedToday concurrentSessions
+    columns company completed completedAt completedBy completedByName concurrentSessions
     confirmedAt confirmedBy count createdAt createdBy createdByName csrfToken currency currencyCode currencyLabelAr
     currencyLabelEn current currentModule customer customerId customerName customerNameAr customerNationalIdMasked
     customerPhone customerVerified damaged date dateRange day delivered deliveredWeightMg demoAccounts description
     descriptionKey descriptionParams device differenceMg direction discount discountTotal discounts draft driver durationMs
-    effectiveAt en enabledPerBranch endedAt endedReason entitled entitledWeightMg entitlementKarat entityId entityType enum
-    error externalId externalStatus failedLoginCount failedLogins filters finalPrice firstLogin from
-    fromBranchId fromBranchName fromStatus fullName fullNameAr goldRateScope grossWeightMg hasPickupCode hasad
-    hasadBranchCode hasadCancelled hasadCollectedFromCustomers hasadCompleted hasadCount hasadCustomerId hasadInProgress
-    hasadMode hasadOpen hasadPaidToCustomers hasadReceived hasadWeightMg history hour hourly id idleMinutes inProgress
-    inventory inventoryByKarat inventoryRetail invoiceFooterAr invoiceFooterEn ip ipAddress isActive isCurrent isSimulated
+    effectiveAt en endedAt endedReason entityId entityType enum
+    error failedLoginCount failedLogins filters finalPrice firstLogin from
+    fromBranchId fromBranchName fromStatus fullName fullNameAr goldRateScope grossWeightMg hasad hasadBranchCode
+    history hour hourly id idleMinutes inProgress
+    inventory inventoryByKarat inventoryRetail invoiceFooterAr invoiceFooterEn ip ipAddress isActive isCurrent
     isSystem item itemCode itemCodes itemCount itemId items itemsSold karat key kind kpis label labelAr labelEn lastActivity
-    lastActivityAt lastLoginAt lastSyncedAt latencyMs lines link listPrice liveSessions lockedUntil lockoutBaseMinutes
+    lastActivityAt lastLoginAt lines link listPrice liveSessions lockedUntil lockoutBaseMinutes
     lockoutMaxMinutes lockoutThreshold loginAt logins logoAssetId logoUrl maxDiscountPercent maxDiscountPercentByRole mg
-    minPasswordLength minimumWithdrawalGrams mockHasad mode money movement movements mtd mustChangePassword n name nameAr
-    nameEn nationalIdMasked netWeightMg newRequests note notes number ok openedAt openedBy openedByName opening openingItems
-    openingWeightMg operation paidToCustomers params password passwordChangedAt payment paymentMethod pendingClaimStaleHours
-    period permissions phone pickupCode presence pricePerGram productId productName
+    minPasswordLength mode money movement movements mtd mustChangePassword n name nameAr
+    nameEn nationalIdMasked netWeightMg note notes number ok openedAt openedBy openedByName opening openingItems
+    openingWeightMg operation params password passwordChangedAt payment paymentMethod pendingClaimStaleHours
+    period permissions phone presence pricePerGram productId productName
     productNameAr purchaseId purchasedItems purchases purchasesCount queue rank rate rateChangeMaxPct rateKarats ratePerGram
-    rateSource rates reason reauthWindowMinutes receivedAt receivedBy receivedByName recent redemptionId redemptionNumber
+    rates reason reauthWindowMinutes receivedAt receivedBy receivedByName recent
     ref refId refNumber refType request requestedAt requireGmApprovalForScrapOverride reservationRef
-    reservationTimeoutMinutes reservedAt reservedBy reservedCount reservedItems response responseStatus returns revenue
+    reservedAt reservedBy reservedCount reservedItems response responseStatus returns revenue
     reviewNote reviewedAt reviewedBy role roleCode roleName roleRank rows saleId sales salesByCategory salesCount salesTotal
     scrapPriceTolerancePct security sellingPrice session sessionAbsoluteHours sessionId sessionIdleMinutes sessionRef setBy
-    settings settlement settlementAmount settlementBasis settlementDirection settlementNumber severity simulateOutage sku
-    staffCount status subtotal supplierCreditEnabled supplierId supplierInvoiceNo supplierName syncError syncedAt timeline
+    settings settlement settlementAmount settlementDirection settlementNumber severity sku
+    staffCount status subtotal supplierCreditEnabled supplierId supplierInvoiceNo supplierName timeline
     timezone title to toBranchId toBranchName toStatus total totalNetWeightMg totals transferId transfers transfersIn
     transfersInTransit transfersOut trend type updatedAt user userAgent userFullName userId userName username validForMinutes
-    versions voidReason voided voidedAt voidedBy voidedByName waiting weight weightDeliveredMg weightIn weightMg weightOut
-    weightSoldMg withdrawableGrams withdrawal withdrawalId withdrawals hidden list key width height size mime uploadedAt
-    temporaryPassword itemsReleased expectedDirection expectedAmount changed redemptionItemId version actorId actorUsername
+    versions voidReason voided voidedAt voidedBy voidedByName weight weightIn weightMg weightOut
+    weightSoldMg hidden list key width height size mime uploadedAt
+    temporaryPassword itemsReleased expectedDirection expectedAmount changed version actorId actorUsername
     assetId origin supplierInvoiceRef pricingMode priceGoldValue priceMakingCharge priceRatePerGram paidFrom
     accountId eventType reversesEntryId idempotencyKey expectedCash bank fundsInTransit openingCash salesByMethod
-    voidsByMethod voidsTotal settlementsCash settlementsBank cashMovement counted difference
+    voidsByMethod voidsTotal cashMovement counted difference
     countedAmount expectedAmount countedBy countedByName businessDay
     makingChargePaidFrom paymentRefInvoice paymentRefTransaction scrapRatePerGram agreedRatePerGram deviationBp overrideApproved
     customerIdRef hasadReceivable posPaymentMethods brokenScrap pureMg24 brokenScrapPureMg24 itemsPureMg24 totalPureMg24 weightByKarat
@@ -204,6 +198,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     backup backupAgeHours verifyAgeHours maxAgeHours maxVerifyAgeDays reasons
     goldOwedMgPure24 owedAfterMgPure24 goldDebtMgPure24 settledKarat settledWeightMg settledPureMg24 bankReference hasadReceivableToBank hasadReceivableBalance
     cashLines bankLines bankMovement line
+    otherOut isSimulated
     scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates
   `),
 );

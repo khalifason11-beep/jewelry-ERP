@@ -12,7 +12,6 @@ import { rows } from '../src/core/sql';
 import { resetThrottleMemory } from '../src/auth/lockout';
 import { loadActor } from '../src/modules/sessions/service';
 import { createSale, voidSale } from '../src/modules/sales/service';
-import { addItem, completeWithdrawal, computeSettlement, openWithdrawal } from '../src/modules/hasad/service';
 import { balances, cashBalance, entriesFor, post, reconciliation, reconciliationLines, RECONCILIATION_LINES } from '../src/modules/ledger/service';
 import { addDays, dayKey, dayStart } from '../src/core/time';
 import { seedDemo } from '../src/seed/demo';
@@ -137,8 +136,9 @@ describe('ledger basics', () => {
     // Expenses were removed (REM-1): the seed records none and the ledger holds no EXPENSE entry.
     expect(await ctx.db.select().from(t.expenses)).toHaveLength(0);
     expect(await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'EXPENSE'))).toHaveLength(0);
-    const settlements = await ctx.db.select().from(t.settlements);
-    expect(await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'HASAD_SETTLEMENT'))).toHaveLength(settlements.length);
+    // Hasad weight-difference settlements were removed (REM-2): none in the seed, none in the ledger.
+    expect(await ctx.db.select().from(t.settlements)).toHaveLength(0);
+    expect(await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'HASAD_SETTLEMENT'))).toHaveLength(0);
   });
 
   it('a balance is exactly the sum of its entries (no cached balance anywhere)', async () => {
@@ -259,27 +259,23 @@ describe('money events post in the same transaction as the business change', () 
     expect(await entryCount()).toBe(before + 1);
   });
 
-  it('a Hasad settlement posts to CASH by default, or to BANK when chosen, with the right sign', async () => {
-    const cashier = await actorOf('cashier.kh.01');
+  it('the Hasad workspace is gone (REM-2): the database refuses new withdrawals, sessions, weight settlements and HASAD_SETTLEMENT entries', async () => {
     const krt = await branchId('KRT');
-    const ready = await ctx.db.select().from(t.hasadWithdrawals).where(and(eq(t.hasadWithdrawals.branchId, krt), eq(t.hasadWithdrawals.status, 'READY_FOR_PICKUP')));
-    expect(ready.length).toBeGreaterThan(0);
-    const w = ready[0];
-    await openWithdrawal(ctx, cashier, w.id, { verification: 'ID_DOCUMENT' });
-    const [item] = await freshItems('KRT', 1);
-    await addItem(ctx, cashier, w.id, item.id);
-    const s = await computeSettlement(ctx, w, [{ netWeightMg: item.netWeightMg, karat: item.karat }]);
-    const res = await completeWithdrawal(ctx, cashier, w.id, { paymentMethod: 'BANK_TRANSFER', customerAcknowledged: true, expectedDirection: s.direction, expectedAmount: s.amount });
-    const [draft] = await ctx.db.select().from(t.hasadRedemptions).where(eq(t.hasadRedemptions.number, res.redemptionNumber));
-    const e = await entriesFor(ctx.db, 'hasad_redemption', [draft.id]);
-    if (s.direction === 'NONE') expect(e).toHaveLength(0);
-    else {
-      expect(e).toHaveLength(1);
-      expect(e[0].amount).toBe(s.direction === 'BRANCH_PAYS_CUSTOMER' ? -s.amount : s.amount);
-      expect(e[0].paymentMethod).toBe('BANK_TRANSFER');
-      const [acc] = await ctx.db.select().from(t.ledgerAccounts).where(eq(t.ledgerAccounts.id, e[0].accountId));
-      expect(acc.kind).toBe('BANK');
+    for (const [table, stmt] of [
+      ['hasad_withdrawals', `INSERT INTO hasad_withdrawals (external_id) VALUES ('X')`],
+      ['hasad_redemptions', `INSERT INTO hasad_redemptions (number) VALUES ('X')`],
+      ['hasad_redemption_items', `INSERT INTO hasad_redemption_items (redemption_id) VALUES (1)`],
+      ['settlements', `INSERT INTO settlements (number) VALUES ('X')`],
+      ['hasad_mock.customers', `INSERT INTO hasad_mock.customers (id) VALUES ('X')`],
+    ]) {
+      expect(await failure(stmt), table).toMatch(/was removed|were removed/);
     }
+    const before = await entryCount();
+    await expect(
+      ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'CASH', amount: 500, eventType: 'HASAD_SETTLEMENT', ref: { refType: 'hasad_redemption', refId: 1 } }], { actor: null })),
+    ).rejects.toThrow();
+    expect(await entryCount()).toBe(before);
+    expect(await ctx.db.select().from(t.permissions).where(sql`code LIKE 'hasad.%'`)).toHaveLength(0);
   });
 });
 
@@ -410,15 +406,16 @@ describe('expected cash and daily reconciliation', () => {
   });
 
   it('an event type without a line of its own is shown under "Other": nothing silently disappears', async () => {
-    // A historical EXPENSE entry (written before REM-1) and any future event type land in OTHER.
+    // Historical EXPENSE (REM-1) and HASAD_SETTLEMENT (REM-2) entries, and any future event type, land in OTHER.
     const lines = reconciliationLines('CASH', [
       { kind: 'CASH', eventType: 'SALE', amount: 50_000 },
       { kind: 'CASH', eventType: 'EXPENSE', amount: -7_000 },
+      { kind: 'CASH', eventType: 'HASAD_SETTLEMENT', amount: -100 }, // a Hasad weight-difference settlement (removed by REM-2)
       { kind: 'CASH', eventType: 'HASAD_RECEIVABLE_SETTLEMENT', amount: -1 }, // never a drawer event: not a CASH line
       { kind: 'CASH', eventType: 'SOMETHING_NEW', amount: 3 },
       { kind: 'BANK', eventType: 'SALE', amount: 999 }, // another account: ignored
     ]);
-    expect(Object.fromEntries(lines.map((l) => [l.line, l.amount]))).toEqual({ SALES: 50_000, VOIDS: 0, SCRAP_PURCHASES: 0, MAKING_CHARGES: 0, HASAD_SETTLEMENTS: 0, OTHER: -6_998 });
+    expect(Object.fromEntries(lines.map((l) => [l.line, l.amount]))).toEqual({ SALES: 50_000, VOIDS: 0, SCRAP_PURCHASES: 0, MAKING_CHARGES: 0, OTHER: -7_098 });
     // And through the API: an entry on the drawer whose event type has no drawer line appears under OTHER, and the total still matches.
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
     const krt = await branchId('KRT');

@@ -6,14 +6,7 @@
 // the API accepts changes keyed by the dotted names below (e.g. "security.idleMinutes").
 
 import { z } from 'zod';
-import type { SettlementBasis } from './settlement';
 import { INVOICE_FORMATS, PAYMENT_METHODS, TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, type InvoiceFormat, type PaymentMethod, type TwoFactorRole, type WebauthnUv } from './enums';
-
-export type HasadRateSource =
-  /** weight-averaged gold rate of the karats of the selected items */
-  | 'ITEM_KARAT'
-  /** gold rate of the karat the entitlement is denominated in */
-  | 'ENTITLEMENT_KARAT';
 
 export type GoldRateScope = 'GLOBAL' | 'BRANCH';
 
@@ -22,7 +15,7 @@ export interface SystemSettings {
     /** Company name shown in the header, login page, browser title and invoices. */
     nameEn: string;
     nameAr: string;
-    /** ISO-like code sent to external systems (e.g. Hasad). */
+    /** ISO-like currency code (e.g. SDG). */
     currencyCode: string;
     /** Label printed after amounts, per UI language. */
     currencyLabelEn: string;
@@ -62,16 +55,6 @@ export interface SystemSettings {
   inventory: {
     /** Karats accepted anywhere in the system. */
     allowedKarats: number[];
-  };
-  hasad: {
-    settlementBasis: SettlementBasis;
-    rateSource: HasadRateSource;
-    /** Karat the Hasad entitlement grams are denominated in. */
-    entitlementKarat: number;
-    /** Reservations of items for a Hasad customer are released after this many minutes. */
-    reservationTimeoutMinutes: number;
-    /** Branch code → Hasad Gold counter operations enabled. Missing branch = disabled. */
-    enabledPerBranch: Record<string, boolean>;
   };
   security: {
     /** Centralized password control: users cannot change their password except when forced. */
@@ -114,10 +97,6 @@ export interface SystemSettings {
     /** Warn when the last successful restore drill is older than this (days). */
     maxVerifyAgeDays: number;
   };
-  mockHasad: {
-    latencyMs: number;
-    simulateOutage: boolean;
-  };
 }
 
 export const DEFAULT_SETTINGS: SystemSettings = {
@@ -154,13 +133,6 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   inventory: {
     allowedKarats: [18, 21, 22, 24],
   },
-  hasad: {
-    settlementBasis: 'NET_WEIGHT',
-    rateSource: 'ITEM_KARAT',
-    entitlementKarat: 21,
-    reservationTimeoutMinutes: 30,
-    enabledPerBranch: {},
-  },
   security: {
     allowSelfPasswordChange: false,
     sessionIdleMinutes: 10,
@@ -183,10 +155,6 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     maxAgeHours: 26,
     maxVerifyAgeDays: 7,
   },
-  mockHasad: {
-    latencyMs: 250,
-    simulateOutage: false,
-  },
 };
 
 // ───────────────────────────── registry ─────────────────────────────
@@ -194,7 +162,6 @@ export const DEFAULT_SETTINGS: SystemSettings = {
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
 const text = (min: number, max: number) => z.string().trim().min(min).max(max);
 const roleKey = z.string().regex(/^[A-Z][A-Z0-9_]{1,39}$/);
-const branchCode = z.string().regex(/^[A-Z]{2,6}$/);
 const karat = int(8, 24);
 const timezone = z.string().min(1).max(64).refine((tz) => {
   try {
@@ -247,11 +214,6 @@ export const SETTINGS_REGISTRY = {
       .max(10)
       .refine((a) => new Set(a).size === a.length, 'Duplicate karat'),
   },
-  'hasad.settlementBasis': { schema: z.enum(['NET_WEIGHT', 'PURE_GOLD_EQUIVALENT']) },
-  'hasad.rateSource': { schema: z.enum(['ITEM_KARAT', 'ENTITLEMENT_KARAT']) },
-  'hasad.entitlementKarat': { schema: karat },
-  'hasad.reservationTimeoutMinutes': { schema: int(5, 24 * 60) },
-  'hasad.enabledPerBranch': { schema: z.record(branchCode, z.boolean()) },
   'security.allowSelfPasswordChange': { schema: z.boolean() },
   'security.sessionIdleMinutes': { schema: int(1, 240) },
   'security.idleMinutes': { schema: int(5, 240) },
@@ -274,8 +236,6 @@ export const SETTINGS_REGISTRY = {
   'print.autoPrintAfterSale': { schema: z.boolean() },
   'backup.maxAgeHours': { schema: int(1, 24 * 14) },
   'backup.maxVerifyAgeDays': { schema: int(1, 90) },
-  'mockHasad.latencyMs': { schema: int(0, 10_000), demoOnly: true },
-  'mockHasad.simulateOutage': { schema: z.boolean(), demoOnly: true },
 } satisfies Record<string, SettingDef>;
 
 export type SettingKey = keyof typeof SETTINGS_REGISTRY;
@@ -311,9 +271,6 @@ export function flattenSettings(patch: Partial<Record<keyof SystemSettings, Reco
 export function crossFieldProblem(s: SystemSettings): { key: SettingKey; message: string } | null {
   if (s.security.lockoutMaxMinutes < s.security.lockoutBaseMinutes) {
     return { key: 'security.lockoutMaxMinutes', message: 'Must be ≥ lockoutBaseMinutes' };
-  }
-  if (!s.inventory.allowedKarats.includes(s.hasad.entitlementKarat)) {
-    return { key: 'hasad.entitlementKarat', message: 'Must be one of the allowed karats' };
   }
   return null;
 }

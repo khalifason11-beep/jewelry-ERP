@@ -26,11 +26,6 @@ export const PERMISSIONS = {
   'purchases.view': 'View purchases',
   'purchases.create': 'Record purchases (stock receipt)',
 
-  // Hasad
-  'hasad.process': 'Process Hasad withdrawals at the counter',
-  'hasad.view': 'View Hasad withdrawals and redemptions',
-  'hasad.cancel': 'Cancel a Hasad withdrawal request',
-  'hasad.simulate': 'Use the mock Hasad simulator (demo only)',
 
   // Dashboards & reports
   'dashboard.branch': 'Branch dashboard',
@@ -69,7 +64,6 @@ const CASHIER: Permission[] = [
   'sales.discount',
   'sales.view_own',
   'inventory.view_available',
-  'hasad.process',
   'sessions.view_own',
 ];
 
@@ -85,9 +79,6 @@ const BRANCH_MANAGER: Permission[] = [
   'inventory.transfer',
   'purchases.view',
   'purchases.create',
-  'hasad.view',
-  // Cancelling a Hasad request is manager-only (decision Q14).
-  'hasad.cancel',
   'dashboard.branch',
   'reports.view',
   // Expected cash and the daily reconciliation of the own branch (Phase 2b).
@@ -115,7 +106,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SystemRoleCode, Permission[]> = {
 };
 
 export const DEFAULT_ROLES: { code: SystemRoleCode; name: string; nameAr: string; description: string }[] = [
-  { code: 'CASHIER', name: 'Cashier', nameAr: 'كاشير', description: 'Point of sale and Hasad counter operations for one branch' },
+  { code: 'CASHIER', name: 'Cashier', nameAr: 'كاشير', description: 'Point of sale for one branch' },
   { code: 'BRANCH_MANAGER', name: 'Branch Manager', nameAr: 'مدير فرع', description: 'Full operational control of one branch' },
   { code: 'GENERAL_MANAGER', name: 'General Manager', nameAr: 'المدير العام', description: 'Company-wide access and administration' },
 ];

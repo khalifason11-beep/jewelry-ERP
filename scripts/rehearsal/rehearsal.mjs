@@ -169,19 +169,22 @@ const apiGet = (page, url) => page.evaluate(async (u) => {
 const pathIs = (page, paths) => page.waitForURL((u) => paths.includes(u.pathname), { timeout: 15_000 });
 
 const EXPENSE_WORDS = /expense|مصروف|مصاريف/i;
-/** Visit each screen in Arabic and in English; no expense wording may be visible (REM-1). */
-async function noExpenseWords(page, base, paths, who) {
+// Hasad stays only as a payment channel (REM-2): the POS methods, the Cash receivable, the payment-method setting.
+const HASAD_WORDS = /hasad|حصاد|withdrawal|سحوبات|طلب سحب/i;
+/** Visit each screen in Arabic and in English; the given wording may not be visible (REM-1, REM-2). */
+async function noWords(page, base, paths, who, words, what, selector = 'body') {
   for (const lang of ['ar', 'en']) {
     await page.evaluate((l) => localStorage.setItem('jerp.lang', l), lang);
     for (const p of paths) {
       await page.goto(`${base}${p}`);
       await page.waitForLoadState('networkidle');
-      const text = await page.locator('body').innerText();
-      check(!EXPENSE_WORDS.test(text), `${who}: ${p} (${lang}) shows no expense wording`);
+      const text = await page.locator(selector).first().innerText();
+      check(!words.test(text), `${who}: ${p} (${lang}) shows no ${what}`);
     }
   }
   await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
 }
+const noExpenseWords = (page, base, paths, who) => noWords(page, base, paths, who, EXPENSE_WORDS, 'expense wording');
 
 // ── the rehearsal ──
 async function main() {
@@ -327,6 +330,20 @@ async function main() {
       check(r.status === 404 || r.status === 400, `branch manager: ${p} answers ${r.status} (no such route or report)`);
     }
     await noExpenseWords(page, origin, ['/dashboard', '/cash', '/reports'], 'branch manager');
+
+    section('REM-2: Hasad only as a payment channel');
+    for (const p of ['/api/hasad/withdrawals', '/api/hasad/simulator/customers', '/api/reports/hasad']) {
+      const r = await apiGet(page, p);
+      check(r.status === 404 || r.status === 400, `branch manager: ${p} answers ${r.status} (no such route or report)`);
+    }
+    await noWords(page, origin, ['/dashboard', '/reports', '/inventory', '/transfers'], 'branch manager', HASAD_WORDS, 'Hasad withdrawal wording');
+    await noWords(page, origin, ['/pos'], 'branch manager (menu)', HASAD_WORDS, 'Hasad entry in the menu', 'nav');
+    await page.goto(`${origin}/pos`);
+    await page.getByTestId('pos-payment-methods').waitFor();
+    const methods = await page.getByTestId('pos-payment-methods').innerText();
+    check(/نقد/.test(methods) && /تحويل بنكي/.test(methods) && /حصاد/.test(methods), 'the POS offers Cash, Bank transfer and Hasad as payment methods');
+    const me = await apiGet(page, '/api/auth/me');
+    check(!('hasadMode' in me.body) && me.body.posPaymentMethods.join(',') === 'CASH,BANK_TRANSFER,HASAD', 'no Hasad integration mode; the counter methods are Cash, Bank transfer, Hasad');
     await signOut(page);
 
     section('General Manager: audit trail');
@@ -336,6 +353,10 @@ async function main() {
     await pathIs(page, ['/overview']);
     ok('the General Manager signs in again with password + passkey');
     await noExpenseWords(page, origin, ['/overview', '/branches', '/cash', '/reports', '/settings'], 'General Manager');
+    await noWords(page, origin, ['/overview', '/branches', '/reports'], 'General Manager', HASAD_WORDS, 'Hasad withdrawal wording');
+    await noWords(page, origin, ['/overview'], 'General Manager (menu)', HASAD_WORDS, 'Hasad entry in the menu', 'nav');
+    const settings = (await apiGet(page, '/api/settings')).body.settings;
+    check(settings.hasad === undefined && settings.mockHasad === undefined, 'no Hasad workspace or mock settings remain');
     const rec = await apiGet(page, `/api/cash/reconciliation?branchId=${branchId}`);
     const total = (lines) => lines.reduce((sum, l) => sum + l.amount, 0);
     check(

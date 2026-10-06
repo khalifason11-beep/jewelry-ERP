@@ -12,9 +12,6 @@ import { AppShell } from './components/layout/AppShell';
 import { LoginPage } from './pages/LoginPage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { PosPage } from './pages/pos/PosPage';
-import { HasadListPage } from './pages/hasad/HasadListPage';
-import { HasadWorkspacePage } from './pages/hasad/HasadWorkspacePage';
-import { HasadSimulatorPage } from './pages/hasad/HasadSimulatorPage';
 import { BranchDashboardPage } from './pages/dashboard/BranchDashboardPage';
 import { CompanyDashboardPage } from './pages/dashboard/CompanyDashboardPage';
 import { BranchesPage, BranchDetailPage } from './pages/branches/BranchPages';
@@ -86,9 +83,6 @@ export function App() {
         >
           <Route index element={<Home />} />
           <Route path="pos" element={<Guard perm="pos.access"><PosPage /></Guard>} />
-          <Route path="hasad" element={<Guard any={['hasad.process', 'hasad.view']}><HasadListPage /></Guard>} />
-          <Route path="hasad/:id" element={<Guard any={['hasad.process', 'hasad.view']}><HasadWorkspacePage /></Guard>} />
-          <Route path="hasad-simulator" element={<Guard perm="hasad.simulate"><HasadSimulatorPage /></Guard>} />
           <Route path="me" element={<MyActivityPage />} />
           <Route path="security" element={<SecurityPage />} />
           <Route path="overview" element={<Guard perm="dashboard.company"><CompanyDashboardPage /></Guard>} />

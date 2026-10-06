@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowLeftRight, Fingerprint, BarChart3, Bell, Building2, ChevronsLeft, ChevronsRight, ClipboardList, Coins, FlaskConical, Gem, Globe, LayoutDashboard, LogOut, MonitorSmartphone, Package, Receipt, ScrollText, Settings, ShoppingCart, Truck, UserRound, Users, Banknote, Recycle } from 'lucide-react';
+import { ArrowLeftRight, Fingerprint, BarChart3, Bell, Building2, ChevronsLeft, ChevronsRight, ClipboardList, Gem, Globe, LayoutDashboard, LogOut, MonitorSmartphone, Package, Receipt, ScrollText, Settings, ShoppingCart, Truck, UserRound, Users, Banknote, Recycle } from 'lucide-react';
 import type { Permission } from '@jerp/shared';
 import { get, post, setCurrentModule, translateParams } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -43,25 +43,12 @@ export function Logo({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function useHasadQueueCount() {
-  const { can } = useAuth();
-  const enabled = can('hasad.process') || can('hasad.view');
-  const q = useQuery({
-    queryKey: ['hasad', 'queue-count'],
-    queryFn: () => get<{ withdrawals: { status: string }[] }>('/hasad/withdrawals', { status: 'READY_FOR_PICKUP,IN_PROGRESS' }),
-    enabled,
-    refetchInterval: 20_000,
-  });
-  return q.data?.withdrawals.length ?? 0;
-}
-
 export function AppShell() {
   const { me, can, logout } = useAuth();
   const { t, L, lang, setLang } = useI18n();
   const location = useLocation();
   const navigate = useNavigate();
-  const hasadCount = useHasadQueueCount();
-  const focusMode = location.pathname.startsWith('/pos') || /^\/hasad\/\d+/.test(location.pathname);
+  const focusMode = location.pathname.startsWith('/pos');
   const [collapsed, setCollapsed] = useState(focusMode);
   useEffect(() => setCollapsed(focusMode), [focusMode]);
 
@@ -83,7 +70,6 @@ export function AppShell() {
       title: t('Counter'),
       items: [
         { to: '/pos', label: t('Point of Sale'), icon: <ShoppingCart />, show: (c) => c('pos.access') },
-        { to: '/hasad', label: t('Hasad Withdrawals'), icon: <Coins />, show: (c) => c('hasad.process') || c('hasad.view'), badge: hasadCount },
         { to: '/me', label: t('My Activity'), icon: <UserRound />, show: (c) => c('sales.view_own') && !c('sales.view') },
       ],
     },
@@ -108,7 +94,6 @@ export function AppShell() {
         { to: '/users', label: t('Users'), icon: <Users />, show: (c) => c('users.view') },
         { to: '/sessions', label: t('Active Users'), icon: <MonitorSmartphone />, show: (c) => c('sessions.view') },
         { to: '/audit', label: t('Audit Log'), icon: <ScrollText />, show: (c) => c('audit.view') },
-        { to: '/hasad-simulator', label: t('Hasad Simulator'), icon: <FlaskConical />, show: (c) => c('hasad.simulate') && me?.appMode === 'demo' },
         { to: '/settings', label: t('Settings'), icon: <Settings />, show: (c) => c('settings.manage') },
       ],
     },
@@ -170,9 +155,11 @@ export function AppShell() {
               <Building2 className="size-3.5 text-ink-500" />
               {me.user.branch ? L(me.user.branch.name, me.user.branch.nameAr) : t('All branches')}
             </span>
-            <span className="hidden rounded border border-dashed border-gold-500/60 px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-gold-700 md:inline" title={t('Demo data · Hasad Gold is simulated by a mock service')}>
-              {me.hasadMode === 'MOCK' ? t('Demo · Hasad mock') : t('Demo · Hasad live')}
-            </span>
+            {me.appMode === 'demo' && (
+              <span className="hidden rounded border border-dashed border-gold-500/60 px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-gold-700 md:inline" title={t('Demo data')}>
+                {t('Demo')}
+              </span>
+            )}
           </div>
           <div className="ms-auto flex items-center gap-1.5 sm:gap-3">
             <GoldRate />
@@ -275,7 +262,7 @@ function Notifications() {
                 }}
                 className="flex w-full gap-3 border-b border-line/70 px-4 py-3 text-start last:border-0 hover:bg-canvas"
               >
-                <span className={clsx('mt-1.5 size-2 shrink-0 rounded-full', n.severity === 'warning' ? 'bg-amber-500' : n.kind === 'HASAD' ? 'bg-gold-500' : 'bg-sky-500')} />
+                <span className={clsx('mt-1.5 size-2 shrink-0 rounded-full', n.severity === 'warning' ? 'bg-amber-500' : 'bg-sky-500')} />
                 <span className="min-w-0">
                   <span className="block text-[13px] font-medium text-ink-900">{t(n.title, translateParams(n.params))}</span>
                   <span className="block truncate text-xs text-ink-500">{t(n.body, translateParams(n.params))}</span>

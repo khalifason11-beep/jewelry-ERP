@@ -64,7 +64,6 @@ describe('idempotency keys', () => {
     const idem = ROUTE_MATRIX.filter((r) => r.idempotent).map((r) => routeId(r.method, r.path)).sort();
     expect(idem).toEqual(
       [
-        'POST /hasad/withdrawals/:id/complete',
         'POST /purchases',
         'POST /sales',
         'POST /sales/:id/void',

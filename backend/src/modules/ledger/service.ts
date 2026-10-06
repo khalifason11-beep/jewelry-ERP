@@ -167,12 +167,13 @@ export async function drawer(ctx: Ctx, actor: Actor, q: { branchId?: number }) {
 /**
  * Lines of the daily reconciliation, per account (SPEC §18.10, D-rem1-5). Every ledger entry of the
  * day on that account falls into exactly one line; an event type without a line of its own for the
- * account (including retired ones such as a historical EXPENSE) lands in OTHER, so the lines always
- * add up to the account's movement in the ledger. Nothing silently disappears.
+ * account (including retired ones: a historical EXPENSE, or a HASAD_SETTLEMENT of the removed Hasad
+ * weight-difference flow) lands in OTHER, so the lines always add up to the account's movement in
+ * the ledger. Nothing silently disappears.
  */
 export const RECONCILIATION_LINES = {
-  CASH: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'MAKING_CHARGES', 'HASAD_SETTLEMENTS', 'OTHER'],
-  BANK: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'MAKING_CHARGES', 'HASAD_SETTLEMENTS', 'HASAD_RECEIVABLE_SETTLEMENTS', 'OTHER'],
+  CASH: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'MAKING_CHARGES', 'OTHER'],
+  BANK: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'MAKING_CHARGES', 'HASAD_RECEIVABLE_SETTLEMENTS', 'OTHER'],
 } as const;
 export type ReconciliationLine = (typeof RECONCILIATION_LINES)['BANK'][number];
 const LINE_OF_EVENT: Partial<Record<LedgerEventType, ReconciliationLine>> = {
@@ -180,7 +181,6 @@ const LINE_OF_EVENT: Partial<Record<LedgerEventType, ReconciliationLine>> = {
   SALE_VOID: 'VOIDS',
   SCRAP_PURCHASE: 'SCRAP_PURCHASES',
   SUPPLIER_MAKING_CHARGE: 'MAKING_CHARGES',
-  HASAD_SETTLEMENT: 'HASAD_SETTLEMENTS',
   HASAD_RECEIVABLE_SETTLEMENT: 'HASAD_RECEIVABLE_SETTLEMENTS',
 };
 
@@ -234,8 +234,6 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
     salesTotal: sum((e) => e.eventType === 'SALE'),
     voidsByMethod: methods.map((m) => ({ paymentMethod: m, amount: sum((e) => e.eventType === 'SALE_VOID' && e.paymentMethod === m) })),
     voidsTotal: sum((e) => e.eventType === 'SALE_VOID'),
-    settlementsCash: sum((e) => e.eventType === 'HASAD_SETTLEMENT' && e.kind === 'CASH'),
-    settlementsBank: sum((e) => e.eventType === 'HASAD_SETTLEMENT' && e.kind === 'BANK'),
     // Hasad's bank transfers received this day (receivable → bank; never the drawer).
     hasadReceivableToBank: sum((e) => e.eventType === 'HASAD_RECEIVABLE_SETTLEMENT' && e.kind === 'BANK'),
     // Phase 4: scrap bought from customers and supplier making charges, both paid out at once.

@@ -2,13 +2,11 @@ import { sql } from 'drizzle-orm';
 import { createDatabase, type DatabaseHandle } from '@jerp/database';
 import type { Ctx } from './core/context';
 import { rows } from './core/sql';
-import { createHasadIntegration } from './integrations';
 import { POSTGRES_CACHE_TTL_MS, SettingsStore } from './modules/settings/store';
 
 export function createContext(handle: DatabaseHandle): Ctx {
   const settings = new SettingsStore(handle.db, handle.driver === 'postgres' ? POSTGRES_CACHE_TTL_MS : Number.POSITIVE_INFINITY);
-  const { hasad, mock } = createHasadIntegration(handle.db, settings);
-  return { handle, db: handle.db, hasad, mockHasad: mock, settings };
+  return { handle, db: handle.db, settings };
 }
 
 /**

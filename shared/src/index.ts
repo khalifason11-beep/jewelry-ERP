@@ -2,7 +2,6 @@ export * from './enums';
 export * from './permissions';
 export * from './money';
 export * from './units';
-export * from './settlement';
 export * from './settings';
 export * from './audit';
 export * from './route-matrix';

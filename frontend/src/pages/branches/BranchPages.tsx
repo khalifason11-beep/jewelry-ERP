@@ -17,11 +17,10 @@ import { BranchDashboard } from '../dashboard/BranchDashboardPage';
 import { SalesTable, Crumbs } from '../sales/SalesPages';
 import { InventoryTable } from '../inventory/InventoryPages';
 import { PurchasesTable } from '../purchases/PurchasesPages';
-import { HasadBranchTable } from '../hasad/HasadBranchTable';
 import { SessionsTable } from '../admin/SessionsPage';
 
 interface CompanyBranches {
-  branches: { branchId: number; name: string; nameAr: string; city: string; revenue: number; grossProfit: number; availableItems: number; availableWeightMg: number; hasadCompleted: number; hasadOpen: number; salesCount: number }[];
+  branches: { branchId: number; name: string; nameAr: string; city: string; revenue: number; grossProfit: number; availableItems: number; availableWeightMg: number; salesCount: number }[];
 }
 
 export function BranchesPage() {
@@ -34,7 +33,7 @@ export function BranchesPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={t('Branches')}
-        subtitle={t('Month-to-date results. Open a branch to drill into its sales, inventory, Hasad activity and staff.')}
+        subtitle={t('Month-to-date results. Open a branch to drill into its sales, inventory, purchases and staff.')}
         actions={can('branches.manage') ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')} data-testid="new-branch">{t('New branch')}</Button> : undefined}
       />
       {q.isLoading ? (
@@ -65,8 +64,6 @@ export function BranchesPage() {
                   <div><div className="text-ink-500">{t('Sales')} · {t('MTD')}</div><div className="font-semibold num">{money(b.revenue)}</div></div>
                   <div><div className="text-ink-500">{t('Gross Profit')}</div><div className="font-semibold num">{money(b.grossProfit)}</div></div>
                   <div><div className="text-ink-500">{t('Available')}</div><div className="font-semibold num">{t('{n} pcs', { n: b.availableItems })} · {grams(b.availableWeightMg)}</div></div>
-                  <div><div className="text-ink-500">{t('Hasad done')}</div><div className="font-semibold num">{b.hasadCompleted}</div></div>
-                  <div><div className="text-ink-500">{t('Hasad open')}</div><div className="font-semibold num">{b.hasadOpen}</div></div>
                 </div>
               </Card>
             </Link>
@@ -179,7 +176,7 @@ function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () 
   );
 }
 
-type Tab = 'overview' | 'sales' | 'inventory' | 'purchases' | 'hasad' | 'staff';
+type Tab = 'overview' | 'sales' | 'inventory' | 'purchases' | 'staff';
 
 export function BranchDetailPage() {
   const id = Number(useParams().id);
@@ -215,7 +212,7 @@ export function BranchDetailPage() {
           <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <span className="inline-flex items-center gap-1"><MapPin className="size-3.5" /> {b.address}</span>
             <span className="inline-flex items-center gap-1"><Phone className="size-3.5" /> {b.phone}</span>
-            <span>{t('{n} staff', { n: b.staffCount })} · {t('Hasad code')} <Mono>{b.hasadBranchCode}</Mono></span>
+            <span>{t('{n} staff', { n: b.staffCount })}</span>
           </span>
         }
       />
@@ -228,7 +225,6 @@ export function BranchDetailPage() {
           { value: 'sales', label: t('Sales') },
           { value: 'inventory', label: t('Inventory') },
           { value: 'purchases', label: t('Purchases') },
-          { value: 'hasad', label: t('Hasad Gold') },
           { value: 'staff', label: t('Cashiers & sessions') },
         ]}
       />
@@ -236,7 +232,6 @@ export function BranchDetailPage() {
       {tab === 'sales' && <Card padded={false}><SalesTable branchId={id} from={from} to={to} toolbar={rangeBar} /></Card>}
       {tab === 'inventory' && <Card padded={false}><InventoryTable branchId={id} /></Card>}
       {tab === 'purchases' && <Card padded={false}><PurchasesTable branchId={id} from={from} to={to} toolbar={rangeBar} /></Card>}
-      {tab === 'hasad' && <Card padded={false}><HasadBranchTable branchId={id} /></Card>}
       {tab === 'staff' && <StaffTab branchId={id} />}
     </div>
   );

@@ -36,8 +36,6 @@ interface Reconciliation {
   salesTotal: number;
   voidsByMethod: ByMethod[];
   voidsTotal: number;
-  settlementsCash: number;
-  settlementsBank: number;
   hasadReceivableToBank: number;
   scrapPurchasesCash: number;
   scrapPurchasesBank: number;
@@ -60,7 +58,6 @@ const LINE_LABEL: Record<string, string> = {
   VOIDS: tk('Cancelled sales (refunds)'),
   SCRAP_PURCHASES: tk('Scrap bought from customers'),
   MAKING_CHARGES: tk('Supplier making charges'),
-  HASAD_SETTLEMENTS: tk('Hasad settlements'),
   HASAD_RECEIVABLE_SETTLEMENTS: tk('Hasad transfers received'),
   OTHER: tk('Other movements'),
 };
@@ -85,7 +82,7 @@ export function CashPage() {
       <PageHeader title={t('Cash')} subtitle={t('Expected cash in each drawer, from the branch money ledger, and the daily cash reconciliation.')} />
 
       <Card padded={false} className="mb-5">
-        <CardHeader title={t('Expected cash now')} subtitle={t('Every sale, cancellation, scrap purchase, supplier making charge and Hasad settlement moves these balances. Nothing is typed in by hand.')} />
+        <CardHeader title={t('Expected cash now')} subtitle={t('Every sale, cancellation, scrap purchase, supplier making charge and Hasad bank transfer moves these balances. Nothing is typed in by hand.')} />
         {drawer.isLoading ? (
           <Loading />
         ) : drawer.isError ? (
@@ -100,7 +97,7 @@ export function CashPage() {
               { key: 'branchName', header: t('Branch'), render: (r) => L(r.branchName, r.branchNameAr) },
               { key: 'expectedCash', header: t('Cash drawer'), align: 'end', render: (r) => <span className="font-semibold num">{money(r.expectedCash, false)}</span>, footer: money(drawer.data!.branches.reduce((s, r) => s + r.expectedCash, 0), false) },
               { key: 'bank', header: t('Bank'), align: 'end', render: (r) => <span className="num">{money(r.bank, false)}</span>, footer: money(drawer.data!.branches.reduce((s, r) => s + r.bank, 0), false) },
-              // Hasad payments held for the branch until a settlement with Hasad is designed (open question).
+              // Sales paid through Hasad are held here until Hasad's bank transfer is recorded (D-4-14).
               { key: 'hasadReceivable', header: t('Hasad receivable'), align: 'end', render: (r) => <span className="num">{money(r.hasadReceivable, false)}</span>, footer: money(drawer.data!.branches.reduce((s, r) => s + r.hasadReceivable, 0), false) },
               ...(can('cash.settle_hasad')
                 ? [

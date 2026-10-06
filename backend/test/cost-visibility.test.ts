@@ -11,7 +11,6 @@ import request from 'supertest';
 import { and, desc, eq, getTableColumns, getTableName, is } from 'drizzle-orm';
 import { PgTable } from 'drizzle-orm/pg-core';
 import { schema, t, type DatabaseHandle } from '@jerp/database';
-import { hasadMockTables } from '@jerp/hasad';
 import { COLUMN_CLASSES, COST_RESPONSE_FIELDS, SECRET_RESPONSE_FIELDS, REPORT_KEYS, ROUTE_MATRIX, routeId, scanResponse } from '@jerp/shared';
 import { createApp } from '../src/app';
 import { createContext } from '../src/bootstrap';
@@ -48,7 +47,7 @@ afterAll(async () => handle.close());
 
 describe('1. every database column is classified COST or SAFE', () => {
   type AnyTable = Parameters<typeof getTableName>[0];
-  const tables = [...Object.values(schema), ...Object.values(hasadMockTables)].filter((v) => is(v, PgTable)) as unknown as AnyTable[];
+  const tables = [...Object.values(schema)].filter((v) => is(v, PgTable)) as unknown as AnyTable[];
 
   it('walks the Drizzle schemas: no unclassified, double-classified or stale column', () => {
     const problems: string[] = [];
@@ -100,8 +99,6 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
     const purchase = await one(ctx.db.select().from(t.purchases).where(eq(t.purchases.branchId, krt.id)));
     // A purchase with supplier settlements (Phase 4): its gold debt and settlements are COST.
     const settled = await one(ctx.db.select().from(t.supplierSettlements).where(eq(t.supplierSettlements.branchId, krt.id)));
-    const done = await one(ctx.db.select().from(t.hasadWithdrawals).where(and(eq(t.hasadWithdrawals.branchId, krt.id), eq(t.hasadWithdrawals.status, 'COMPLETED'))));
-    const ready = await one(ctx.db.select().from(t.hasadWithdrawals).where(and(eq(t.hasadWithdrawals.branchId, krt.id), eq(t.hasadWithdrawals.status, 'READY_FOR_PICKUP'))));
     const reportPaths = [
       ...REPORT_KEYS.map((k) => `/reports/${k}`),
       '/reports/inventory-ledger',
@@ -130,9 +127,6 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /inventory/items/:id': [`/inventory/items/${soldItem.id}`, `/inventory/items/${availItem.id}`],
       'GET /sales': ['/sales', '/sales?mine=true'],
       'GET /sales/:id': [`/sales/${ownSale.id}`, ...(voided ? [`/sales/${voided.id}`] : [])],
-      'GET /hasad/withdrawals': ['/hasad/withdrawals'],
-      'GET /hasad/withdrawals/:id': [`/hasad/withdrawals/${done.id}`, `/hasad/withdrawals/${ready.id}`],
-      'GET /hasad/withdrawals/:id/candidates': [`/hasad/withdrawals/${ready.id}/candidates`],
       'GET /purchases': ['/purchases'],
       'GET /purchases/:id': [`/purchases/${purchase.id}`, `/purchases/${settled.purchaseId}`],
       'GET /scrap-rates': ['/scrap-rates'],
@@ -149,8 +143,6 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /auth/sign-ins': ['/auth/sign-ins'],
       'GET /cash/drawer': [`/cash/drawer?branchId=${krt.id}`],
       'GET /cash/reconciliation': [`/cash/reconciliation?branchId=${krt.id}`],
-      'GET /hasad/simulator/customers': ['/hasad/simulator/customers'],
-      'GET /hasad/integration-log': ['/hasad/integration-log'],
     };
   };
 

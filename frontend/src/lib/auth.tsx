@@ -22,7 +22,6 @@ export interface Me {
   csrfToken: string | null;
   allowSelfPasswordChange: boolean;
   maxDiscountPercent: number;
-  hasadMode: 'MOCK' | 'LIVE';
   /** Payment methods offered at the counter (setting sales.posPaymentMethods). */
   posPaymentMethods: import('@jerp/shared').PaymentMethod[];
   /** Karats this deployment sells (setting inventory.allowedKarats). */

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowLeftRight, ChevronRight, Coins, Gem, MonitorSmartphone, Receipt, TrendingUp } from 'lucide-react';
+import { ArrowLeftRight, ChevronRight, Gem, MonitorSmartphone, Receipt, TrendingUp } from 'lucide-react';
 import { get } from '../../lib/api';
 import { addDaysKey, date as formatDate, grams, karatLabel, money, num, pct, todayKey, currencyLabel } from '../../lib/format';
 import { branchColor } from '../../lib/hooks';
@@ -26,10 +26,6 @@ interface BranchRow {
   inventoryCost: number;
   availableItems: number;
   availableWeightMg: number;
-  hasadCompleted: number;
-  hasadWeightMg: number;
-  hasadOpen: number;
-  hasadInProgress: number;
 }
 
 interface CompanyDash {
@@ -44,11 +40,6 @@ interface CompanyDash {
     availableWeightMg: number;
     salesCount: number;
     purchasesCost: number;
-    hasadCompleted: number;
-    hasadWeightMg: number;
-    hasadOpen: number;
-    hasadPaidToCustomers: number;
-    hasadCollectedFromCustomers: number;
     discounts: number;
   };
   branches: BranchRow[];
@@ -162,7 +153,6 @@ function Body({ d, onBranch, L }: { d: CompanyDash; onBranch: (id: number) => vo
                 <th className="px-3 py-2.5 text-end font-medium">{t('Purchases')}</th>
                 <th className="px-3 py-2.5 text-end font-medium">{t('Gross Profit')}</th>
                 <th className="px-3 py-2.5 text-end font-medium">{t('Inventory Value')}</th>
-                <th className="px-3 py-2.5 text-end font-medium">{t('Hasad Redemptions')}</th>
                 <th className="w-8" />
               </tr>
             </thead>
@@ -182,9 +172,6 @@ function Body({ d, onBranch, L }: { d: CompanyDash; onBranch: (id: number) => vo
                   <td className="px-3 py-3 text-end num">{money(b.purchasesCost, false)}</td>
                   <td className="px-3 py-3 text-end num">{money(b.grossProfit, false)}</td>
                   <td className="px-3 py-3 text-end num">{money(b.inventoryCost, false)}</td>
-                  <td className="px-3 py-3 text-end num">
-                    {b.hasadCompleted} <span className="text-[11.5px] text-ink-500">· {grams(b.hasadWeightMg)}</span>
-                  </td>
                   <td className="pe-4 text-ink-300 group-hover:text-gold-600">
                     <ChevronRight className="size-4 rtl:rotate-180" />
                   </td>
@@ -198,7 +185,6 @@ function Body({ d, onBranch, L }: { d: CompanyDash; onBranch: (id: number) => vo
                 <td className="px-3 py-2.5 text-end num">{money(T.purchasesCost, false)}</td>
                 <td className="px-3 py-2.5 text-end num">{money(T.grossProfit, false)}</td>
                 <td className="px-3 py-2.5 text-end num">{money(T.inventoryCost, false)}</td>
-                <td className="px-3 py-2.5 text-end num">{T.hasadCompleted}</td>
                 <td />
               </tr>
             </tfoot>
@@ -217,23 +203,9 @@ function Body({ d, onBranch, L }: { d: CompanyDash; onBranch: (id: number) => vo
         <Card padded={false}>
           <CardHeader title={t('Needs attention')} />
           <ul className="divide-y divide-line text-[13px]">
-            <Attn to="/hasad" icon={<Coins className="size-4 text-gold-600" />} label={t('Hasad requests awaiting customers')} value={num(T.hasadOpen)} />
             <Attn to="/transfers" icon={<ArrowLeftRight className="size-4 text-sky-600" />} label={t('Transfers in transit')} value={num(d.attention.transfersInTransit)} />
             <Attn to="/sessions" icon={<MonitorSmartphone className="size-4 text-emerald-600" />} label={t('Users signed in now')} value={num(d.attention.activeSessions)} />
           </ul>
-          <div className="border-t border-line px-5 py-3">
-            <div className="mb-2 text-[12.5px] font-semibold text-ink-700">{t('Hasad settlements in period')}</div>
-            <div className="grid grid-cols-2 gap-2 text-[12.5px]">
-              <div className="rounded-md bg-rose-50 px-3 py-2">
-                <div className="text-rose-700">{t('Paid to customers')}</div>
-                <div className="font-semibold text-rose-800 num">{money(T.hasadPaidToCustomers)}</div>
-              </div>
-              <div className="rounded-md bg-emerald-50 px-3 py-2">
-                <div className="text-emerald-700">{t('Collected from customers')}</div>
-                <div className="font-semibold text-emerald-800 num">{money(T.hasadCollectedFromCustomers)}</div>
-              </div>
-            </div>
-          </div>
         </Card>
       </div>
 

@@ -111,7 +111,7 @@ describe('production mode (security item 2)', () => {
     expect(leaked).toContain('cashier.kh.01');
   });
 
-  it('does not register demo reset or the Hasad simulator in production (404), even for the GM', async () => {
+  it('does not register demo reset in production (404), even for the GM; the Hasad simulator is gone everywhere', async () => {
     const gm = await prodSession('general.manager');
     expect((await gm.post('/api/demo/reset')).status).toBe(404);
     expect((await gm.get('/api/hasad/simulator/customers')).status).toBe(404);
@@ -119,9 +119,9 @@ describe('production mode (security item 2)', () => {
     expect((await gm.get('/api/hasad/integration-log')).status).toBe(404);
     // The same GM session works for normal routes, so the 404 is not an auth artefact.
     expect((await gm.get('/api/auth/me')).status).toBe(200);
-    // In demo mode the routes exist.
+    // REM-2: the simulator was removed, so it is not registered in demo mode either.
     const demoGm = await loginRole('general.manager');
-    expect((await demoGm.get('/api/hasad/simulator/customers')).status).toBe(200);
+    expect((await demoGm.get('/api/hasad/simulator/customers')).status).toBe(404);
   });
 
   it('never exposes demo credentials in production, and minimises /health', async () => {

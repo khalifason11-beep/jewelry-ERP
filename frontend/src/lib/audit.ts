@@ -36,8 +36,6 @@ const NOTE_PATTERNS: [RegExp, string, string[]][] = [
   [/^Sale cancelled: ([\s\S]*)$/, 'Sale cancelled: {reason}', ['reason']],
   [/^Returned to supplier: ([\s\S]*)$/, 'Returned to supplier: {reason}', ['reason']],
   [/^In transit to (.+)$/, 'In transit to {branch}', ['branch']],
-  [/^Selected by Hasad customer \((.+)\)$/, 'Selected by Hasad customer ({id})', ['id']],
-  [/^Delivered to Hasad customer \((.+)\)$/, 'Delivered to Hasad customer ({id})', ['id']],
 ];
 
 export function noteText(note: string | null | undefined): string {

@@ -99,6 +99,13 @@
       "when": 1791123836388,
       "tag": "0013_remove_expenses",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791123896388,
+      "tag": "0014_hasad_sales_channel",
+      "breakpoints": true
     }
   ]
 }

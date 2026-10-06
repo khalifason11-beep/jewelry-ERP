@@ -1,6 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
 import { z, type ZodType } from 'zod';
-import { HasadError } from '@jerp/hasad';
 import type { Actor } from './context';
 import { AppError, badRequest, unauthorized } from './errors';
 import { log } from './logger';
@@ -39,11 +38,6 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   // `key` + `params` let the UI translate the message; `message` is the English rendering.
   if (err instanceof AppError) {
     res.status(err.status).json({ error: { code: err.code, message: err.message, key: err.key, params: err.params, details: err.details } });
-    return;
-  }
-  if (err instanceof HasadError) {
-    const status = { NOT_FOUND: 404, INVALID_STATE: 409, REJECTED: 422, UNAVAILABLE: 502 }[err.code];
-    res.status(status).json({ error: { code: `HASAD_${err.code}`, message: err.message, key: err.key, params: err.params } });
     return;
   }
   // express.json() body errors: malformed JSON or payload over the size limit.

@@ -126,7 +126,7 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
 ## 10. Hasad
 
 - **[OWNER]** The word **Hasad appears only as a payment method / sales channel** in the POS and in reports grouped by channel.
-- **[REMOVED]** The withdrawal workspace and list, the counter sessions, the entitlement and weight-difference settlement, the simulator, the mock integration package, all `hasad.*` settings and permissions, the Hasad navigation entries and notifications, and `docs/HASAD_INTEGRATION.md`. A customer picking up jewelry against a prepaid balance is **an ordinary sale paid through Hasad**.
+- **[REMOVED, done by REM-2]** The withdrawal workspace and list, the counter sessions, the entitlement and weight-difference settlement, the simulator, the mock integration package, all `hasad.*` settings and permissions, the Hasad navigation entries and notifications, and `docs/HASAD_INTEGRATION.md`. A customer picking up jewelry against a prepaid balance is **an ordinary sale paid through Hasad**.
 - **[BUILT, OPEN]** Sales paid through Hasad post to a separate `HASAD_RECEIVABLE` account because the money is held elsewhere until Hasad pays the shop by **bank transfer**; the branch manager records that arrival (receivable → bank, one transaction). **[OPEN]** Does the client want to track this receivable, or only tag the channel?
 
 ## 11. Reports and dashboards

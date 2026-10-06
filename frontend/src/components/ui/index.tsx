@@ -130,7 +130,6 @@ const STATUS_TONE: Record<string, string> = {
   SOLD: 'bg-ink-900/5 text-ink-700 ring-ink-600/20',
   SALE: 'bg-ink-900/5 text-ink-700 ring-ink-600/20',
   REDEEMED: 'bg-gold-100 text-gold-700 ring-gold-600/30',
-  HASAD_REDEMPTION: 'bg-gold-100 text-gold-700 ring-gold-600/30',
   DAMAGED: 'bg-rose-50 text-rose-700 ring-rose-600/20',
   DAMAGE: 'bg-rose-50 text-rose-700 ring-rose-600/20',
   VOIDED: 'bg-rose-50 text-rose-700 ring-rose-600/20',

@@ -12,7 +12,6 @@ import type { Actor, Ctx } from '../../src/core/context';
 import { loadActor } from '../../src/modules/sessions/service';
 import { createSale } from '../../src/modules/sales/service';
 import { createTransfer, receiveTransfer } from '../../src/modules/transfers/service';
-import { addItem, completeWithdrawal, computeSettlement, openWithdrawal } from '../../src/modules/hasad/service';
 import { seedDemo } from '../../src/seed/demo';
 import { DEMO_PASSWORDS } from '../../src/seed/catalog';
 import { openTestDatabase, PG_MODE } from '../helpers';
@@ -124,38 +123,6 @@ describe('parallel double-receive of a transfer (M-4)', () => {
         .where(and(eq(t.auditLogs.action, 'INVENTORY_TRANSFER_RECEIVED'), eq(t.auditLogs.entityId, tr.number)));
       expect(audits[0].n).toBe(1);
     }
-  });
-});
-
-describe('parallel double-confirm of a Hasad withdrawal', () => {
-  it('parallel "open" creates one counter session; parallel "complete" settles once', async () => {
-    const cashier = await actorOf('cashier.kh.01');
-    const krt = await branchId('KRT');
-    const ready = await ctx.db
-      .select()
-      .from(t.hasadWithdrawals)
-      .where(and(eq(t.hasadWithdrawals.branchId, krt), eq(t.hasadWithdrawals.status, 'READY_FOR_PICKUP')));
-    expect(ready.length).toBeGreaterThan(0);
-    const w = ready[0];
-
-    const opens = await settled([1, 2, 3].map(() => openWithdrawal(ctx, cashier, w.id, { verification: 'ID_DOCUMENT' })));
-    expect(winners(opens).length, reasons(opens).join()).toBeGreaterThan(0);
-    const drafts = await ctx.db.select().from(t.hasadRedemptions).where(and(eq(t.hasadRedemptions.withdrawalId, w.id), eq(t.hasadRedemptions.status, 'DRAFT')));
-    expect(drafts).toHaveLength(1);
-
-    const [item] = await freshItems('KRT', 1);
-    await addItem(ctx, cashier, w.id, item.id);
-    const s = await computeSettlement(ctx, w, [{ netWeightMg: item.netWeightMg, karat: item.karat }]);
-    const input = { paymentMethod: 'CASH' as const, customerAcknowledged: true, expectedDirection: s.direction, expectedAmount: s.amount };
-    const rs = await settled([1, 2, 3].map(() => completeWithdrawal(ctx, cashier, w.id, input)));
-    expect(winners(rs), reasons(rs).join()).toHaveLength(1);
-
-    const redeemed = await ctx.db.select({ n: count() }).from(t.inventoryMovements).where(and(eq(t.inventoryMovements.itemId, item.id), eq(t.inventoryMovements.type, 'HASAD_REDEMPTION')));
-    expect(redeemed[0].n).toBe(1);
-    const settlements = await ctx.db.select({ n: count() }).from(t.settlements).where(eq(t.settlements.redemptionId, drafts[0].id));
-    expect(settlements[0].n).toBe(s.direction === 'NONE' ? 0 : 1);
-    const done = await ctx.db.select({ n: count() }).from(t.auditLogs).where(and(eq(t.auditLogs.action, 'HASAD_WITHDRAWAL_COMPLETED'), eq(t.auditLogs.entityId, w.externalId)));
-    expect(done[0].n).toBe(1);
   });
 });
 
