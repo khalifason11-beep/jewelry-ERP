@@ -171,16 +171,10 @@ Name, phone, optionally an ID number, and a printed receipt for the customer.
 ### RPT-1 — Report review after the removals · TODO · M · P1
 Re-verify every report after REM-1, REM-2 and PRC-1; add reporting by payment channel and the bank-reference list; confirm no report shows cost to non-GM roles. Add the **scrap bought at an override price** list (A8, report only, D-ux-9).
 
-### WGT-1 — Weight precision per deployment · TODO · M · P1 · plan together with PRC-1
-**Why (owner decision):** this client's scales read to **0.01 g**. The owner called this "milligram", but 0.01 g is **10 mg** (a milligram is 0.001 g). The rule is **0.01 g**; **the owner must confirm** this before implementation (question Q-14). Do **not** implement now; plan it with PRC-1 (both touch weights × rates).
-**Scope to analyse in the plan:**
-1. A **per-deployment setting for the number of weight decimals** (2 for this client; other clients may use 3). Internal storage stays **integer milligrams**; the setting only constrains input and display.
-2. **Input validation** rejects more decimals than the setting on every form and import: gross, net, scrap, supplier settlement, opening balance (OPN-1), and the API (server-side, not only the UI).
-3. **One formatter** shows the same number of decimals everywhere: UI, dashboards, details, invoices, receipts, reports, CSV. This is rule **R12** (D-ux-11): "grams use the deployment's precision everywhere".
-4. **Totals** are computed from exact sums (milligrams) and then displayed; decide and document what happens when a displayed total differs from the sum of the displayed rows (with 0.01 g inputs this cannot happen for raw weights; it can for derived 24K figures).
-5. **Important — 24K equivalents:** pure gold = net × karat / 24 is generally not a multiple of 0.01 g (e.g. 5.01 g of 21K = 4.38375 g of 24K), so a supplier gold debt might never be settleable to exactly zero with 0.01 g inputs. Propose how to quantise debts and settlement equivalents (for example: round the order's total debt to the weight precision once at creation, half up, and the 24K equivalent of each settlement the same way; or a documented close-out of a residual below one precision unit). Write the rounding rule in `docs/decisions.md`, add property tests (any sequence of settlements can reach exactly zero; no rounding drift across many orders), and describe the effect on existing tests and data (existing debts were computed at milligram precision).
-6. **PRC-1 interaction:** the computed price multiplies the rate (per gram) by the net weight; with 0.01 g weights the product is still exact in integer milligrams × rate / 1000, but the rounding rule of the price (Q-2) must be applied once, after the multiplication. Note any interaction with the making charge (Q-1).
-**Acceptance:** to be written in the plan; at minimum a 3-decimal input is refused with a clear error on every form and the API, every weight shows 2 decimals, and a supplier debt created from 0.01 g pieces can be settled to exactly zero.
+### WGT-1 — Weight precision per deployment · DEFERRED · M · P3
+**Q-14 closed (owner):** this client's scales read to **0.001 g** (1 mg), which is exactly how the system already works (integer milligrams, three decimals). **Nothing changes for this client.** Build WGT-1 only if another client weighs to two decimals: then a per-deployment setting for the number of weight decimals, input validation on every form, import and the API, one formatter everywhere, and documented totals.
+**No quantisation of the pure-24K debt is needed:** at milligram precision the 24K equivalent of a net weight is rounded to the nearest milligram, and every integer debt can be settled exactly: for every karat 1–24 the conversion step (`round((n+1)·k/24) − round(n·k/24)`) is at most one milligram, so every integer owed value is reached by some whole-milligram weight. REM-3 adds a property test for this.
+**PRC-1 note:** the computed price (rate per gram × net weight in mg / 1000) applies its rounding rule (Q-2) once, after the multiplication.
 
 ### SEC-2 — Void re-confirmation and reasons for price changes · TODO · S · P1
 **Owner decision D-ux-10.** (1) Voiding a sale **above an amount set in Settings** (GM setting, default to be proposed) requires the **password re-confirmation** used elsewhere (and the passkey where the role requires it). (2) Changing a piece's selling price requires a **reason** (today optional). Both audited as today. Not part of any UI phase.
@@ -266,11 +260,11 @@ Updated after UX-0 (D-ux-13, D-ux-14, D-ux-15).
 | 2 | **UI-A1, UI-A2** | The design system and shell before any new screen is built (D-ux-13) |
 | 3 | FIX-1, FIX-2, REM-4, SEC-2 | Small, visible corrections the owner asked for, built on the new design system |
 | 4 | CAT-1 | Item types and free-text descriptions (Q-3) |
-| 5 | PRC-1 together with **WGT-1** | Needs Q-1, Q-2, Q-5 and Q-14; both touch weights × rates |
-| 6 | OPN-1 (+ LBL-1) | Needs CAT-1, Q-4 and the weight precision of WGT-1 |
+| 5 | PRC-1 | Needs Q-1, Q-2, Q-5 |
+| 6 | OPN-1 (+ LBL-1) | Needs CAT-1 and Q-4 |
 | 7 | **BE-1, BE-7** (P1, before the pilot), then UI-B, UI-C | The homes need the attention endpoint; the lists need server-side pagination |
 | 8 | CSH-2, SPL-1, MNY-1, SCR-1, RPT-1 | According to the answers |
 | 9 | HOST-1, DEP-1, BKP-1, 2FA-1, HW-1, TRN-1, LEG-1 | Owner tasks that run in parallel with steps 1–8 |
 | 10 | PIL-1, then SEC-1 | Before relying on the system and before a second branch |
 
-**Questions to put to the client first** (they unblock steps 4–8): Q-1, Q-2, Q-3, Q-4, Q-5, Q-6, Q-7, Q-8, Q-9, Q-14.
+**Questions to put to the client first** (they unblock steps 4–8): Q-1, Q-2, Q-3, Q-4, Q-5, Q-6, Q-7, Q-8, Q-9.

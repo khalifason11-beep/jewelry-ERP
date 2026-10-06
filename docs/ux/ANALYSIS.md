@@ -286,7 +286,7 @@ holds in Arabic; English is shorter.
 | R9 | Table headers | **Sticky** headers and a sticky first column (the code) on long tables |
 | R10 | Pagination | **Server-side** (50 rows per page, max 200) for sales, inventory, audit, purchases, scrap, transfers; today lists load up to 1,000 rows into the browser (`limit: 1000` on inventory) |
 | R11 | Filters per table | ≤ **4** visible (period, branch, status, search); more in a "More filters" popover; the active filters shown as removable chips |
-| R12 | Numbers | *(decided, D-ux-11)* **Grams use the deployment's weight precision everywhere** (UI, dashboards, details, invoices, receipts, reports, CSV) through one formatter — WGT-1; this client: 0.01 g (to be confirmed, BACKLOG WGT-1). Money: no decimals; the currency label once per block, not per cell |
+| R12 | Numbers | *(decided, D-ux-11, Q-14 closed)* **Grams are shown with three decimals everywhere** (dashboards, details, invoices, receipts, reports, CSV); **money has no decimals**; the currency label once per block, not per cell |
 | R13 | Banners | **None above level 1**; system notices go into the attention list or the user menu |
 | R14 | Level-1 fit | Every home's level 1 visible at **1366×768 without scrolling** in Arabic and English |
 | R15 | Empty states | Every list says *what* is empty and offers the *next action* (§8); never a table of zeros |
@@ -470,7 +470,7 @@ The owner's answers are recorded as D-ux-0 … D-ux-16 in `docs/decisions.md` §
 (mockups are the design source); D-1 Sales as its own dark card + one surface for the other three; D-2 Today,
 remembered; D-3 USD hidden until Q-10; D-4 grams and value together; D-5 palette with teal and darkened sand and
 periwinkle, labelled bars; D-6 distinct icons; D-7 no POS entry for the GM; D-8 script font on login only; D-9
-report only; D-10 SEC-2; D-11 rules confirmed (R16 13/15/17/24, R12 per WGT-1); D-12 thresholds as GM settings;
+report only; D-10 SEC-2; D-11 rules confirmed (R16 13/15/17/24, R12 three decimals for grams); D-12 thresholds as GM settings;
 D-13 UI-A1/A2 right after REM-3, before PRC-1, OPN-1, FIX-1/2. The table below is the original proposal.
 
 
