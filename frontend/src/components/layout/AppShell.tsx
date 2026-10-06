@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowLeftRight, Fingerprint, BarChart3, Bell, Building2, ChevronsLeft, ChevronsRight, ClipboardList, Gem, Globe, LayoutDashboard, LogOut, MonitorSmartphone, Package, Receipt, ScrollText, Settings, ShoppingCart, Truck, UserRound, Users, Banknote, Recycle } from 'lucide-react';
+import { ArrowLeftRight, Fingerprint, BarChart3, Bell, Building2, ChevronsLeft, ChevronsRight, ClipboardList, Gem, Globe, LayoutDashboard, LogOut, MonitorSmartphone, Package, Receipt, ScrollText, Settings, ShoppingCart, Truck, UserRound, Users, Banknote, Recycle, Tags } from 'lucide-react';
 import type { Permission } from '@jerp/shared';
 import { get, post, setCurrentModule, translateParams } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -81,6 +81,7 @@ export function AppShell() {
         { to: '/branches', label: t('Branches'), icon: <Building2 />, show: (c) => c('scope.all_branches') },
         { to: '/sales', label: t('Sales'), icon: <Receipt />, show: (c) => c('sales.view') },
         { to: '/inventory', label: t('Inventory'), icon: <Package />, show: (c) => c('inventory.view') },
+        { to: '/catalog', label: t('Types & products'), icon: <Tags />, show: (c) => c('catalog.create') },
         { to: '/purchases', label: t('Purchases'), icon: <Truck />, show: (c) => c('purchases.view') },
         { to: '/scrap', label: t('Scrap gold'), icon: <Recycle />, show: (c) => c('scrap.buy') },
         { to: '/transfers', label: t('Transfers'), icon: <ArrowLeftRight />, show: (c) => c('inventory.transfer') && c('inventory.view') },

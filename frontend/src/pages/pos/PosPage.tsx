@@ -70,7 +70,7 @@ export function PosPage() {
 
   const items = useQuery({
     queryKey: ['pos-items', branchId, dq, karat, category, sort],
-    queryFn: () => get<{ items: ItemRow[]; total: number }>('/inventory/items', { branchId, q: dq, karat, category, sort, status: 'AVAILABLE,RESERVED', limit: 300 }),
+    queryFn: () => get<{ items: ItemRow[]; total: number }>('/inventory/items', { branchId, q: dq, karat, categoryId: category || undefined, sort, status: 'AVAILABLE,RESERVED', limit: 300 }),
     enabled: !!branchId,
   });
 
@@ -240,7 +240,7 @@ export function PosPage() {
           <div className="mt-2.5 flex gap-1.5 overflow-x-auto pb-0.5">
             <Chip active={!category} onClick={() => setCategory('')}>{t('All')}</Chip>
             {categories.data?.map((c) => (
-              <Chip key={c.code} active={category === c.code} onClick={() => setCategory(c.code)}>{L(c.name, c.nameAr)}</Chip>
+              <Chip key={c.id} active={category === String(c.id)} onClick={() => setCategory(String(c.id))}>{L(c.name, c.nameAr)}</Chip>
             ))}
           </div>
         </div>

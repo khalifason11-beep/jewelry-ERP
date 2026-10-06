@@ -451,7 +451,7 @@ function ScrapRatesCard() {
         title={t('Scrap buying rates (per gram)')}
         subtitle={t('What the branches pay customers for scrap gold, by karat. Any karat can be bought as broken scrap.')}
         actions={
-          <Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={m.isPending} onClick={() => m.mutate()}>
+          <Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={m.isPending} onClick={() => m.mutate()} data-testid="save-scrap-rates">
             {t('Save')}
           </Button>
         }
@@ -461,7 +461,7 @@ function ScrapRatesCard() {
           const cur = q.data?.rates.find((r) => r.karat === k);
           return (
             <Field key={k} label={`${k}K`} hint={cur ? dateTime(cur.effectiveAt, lang) : t('Not set')}>
-              <Input type="number" min={0} value={draft[k] ?? ''} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} className="num" />
+              <Input type="number" min={0} value={draft[k] ?? ''} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} className="num" data-testid={`scrap-rate-${k}`} />
             </Field>
           );
         })}

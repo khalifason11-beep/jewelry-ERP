@@ -14,6 +14,7 @@ import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
 import { Crumbs } from '../sales/SalesPages';
 import { useActionKeys } from '../../lib/idempotency';
+import { NewButton, NewProductDialog, NewSupplierDialog, useProducts, useSuppliers } from '../../components/Catalog';
 
 interface Settlement {
   id: number;
@@ -36,6 +37,7 @@ interface PurchaseRow {
   branchId: number;
   branchName: string;
   supplierName: string | null;
+  supplierNameAr: string | null;
   supplierInvoiceNo: string | null;
   itemCount: number;
   totalNetWeightMg: number;
@@ -45,7 +47,7 @@ interface PurchaseRow {
 }
 
 export function PurchasesTable({ branchId, from, to, toolbar }: { branchId?: number; from: string; to: string; toolbar?: React.ReactNode }) {
-  const { t, lang } = useI18n();
+  const { t, L, lang } = useI18n();
   const showCost = useAuth().can('profit.view');
   const navigate = useNavigate();
   const q = useQuery({ queryKey: ['purchases', branchId, from, to], queryFn: () => get<PurchaseRow[]>('/purchases', { branchId, from, to }) });
@@ -64,7 +66,7 @@ export function PurchasesTable({ branchId, from, to, toolbar }: { branchId?: num
         { key: 'number', header: t('Purchase'), render: (r) => <Mono className="font-semibold text-ink-900">{r.number}</Mono> },
         { key: 'createdAt', header: t('Date'), render: (r) => dateTime(r.createdAt, lang) },
         { key: 'branchName', header: t('Branch'), render: (r) => t(r.branchName) },
-        { key: 'supplierName', header: t('Supplier') },
+        { key: 'supplierName', header: t('Supplier'), render: (r) => (r.supplierName || r.supplierNameAr ? L(r.supplierName, r.supplierNameAr) : '—') },
         { key: 'supplierInvoiceNo', header: t('Supplier invoice'), render: (r) => <Mono className="text-ink-500">{r.supplierInvoiceNo ?? '—'}</Mono> },
         { key: 'itemCount', header: t('Items'), align: 'end', footer: rows.reduce((s, r) => s + r.itemCount, 0) },
         { key: 'totalNetWeightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.totalNetWeightMg)}</span>, footer: grams(rows.reduce((s, r) => s + r.totalNetWeightMg, 0)) },
@@ -86,7 +88,7 @@ export function PurchasesPage() {
       <PageHeader
         title={t('Purchases')}
         subtitle={t('Stock received from suppliers. Each line creates one uniquely identified piece.')}
-        actions={can('purchases.create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setOpen(true)}>{t('New purchase')}</Button>}
+        actions={can('purchases.create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setOpen(true)} data-testid="new-purchase">{t('New purchase')}</Button>}
       />
       <Card padded={false}>
         <PurchasesTable branchId={branchId} from={from} to={to} toolbar={<><DateRange from={from} to={to} onChange={(r) => set(r)} /><BranchSelect value={branchId} onChange={(v) => set({ branchId: v })} /></>} />
@@ -115,8 +117,11 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
   const branches = useBranches();
   const rates = useGoldRates();
-  const products = useQuery({ queryKey: ['products'], queryFn: () => get<{ id: number; sku: string; name: string; nameAr: string; karat: number; categoryCode: string }[]>('/products') });
-  const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: () => get<{ id: number; name: string }[]>('/suppliers') });
+  const products = useProducts();
+  const suppliers = useSuppliers();
+  // "New product" / "New supplier" open on top of this form; the created row is selected (CAT-0).
+  const [newProductFor, setNewProductFor] = useState<number | null>(null);
+  const [newSupplier, setNewSupplier] = useState(false);
   const [branchId, setBranchId] = useState<number | ''>(me?.user.branch?.id ?? '');
   const [supplierId, setSupplierId] = useState<number | ''>('');
   const [invoiceNo, setInvoiceNo] = useState('');
@@ -136,7 +141,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
     const making = Math.round((net * 10_000) / 1000) * 1000;
     upd(i, { purchaseCost: String(purchase), makingCost: String(making), sellingPrice: String(Math.round(((purchase + making) * 1.22) / 5000) * 5000) });
   };
-  const valid = lines.every((l) => l.productId && Number(l.net) > 0 && Number(l.gross) >= Number(l.net) && Number(l.purchaseCost) > 0 && Number(l.sellingPrice) > 0) && (branchId || !isGlobal);
+  const valid = lines.every((l) => l.productId && Number(l.net) > 0 && Number(l.gross) >= Number(l.net) && Number(l.purchaseCost) > 0 && Number(l.sellingPrice) > 0) && (branchId || !isGlobal) && !!supplierId;
   const total = lines.reduce((s, l) => s + (Number(l.purchaseCost) || 0) + (Number(l.makingCost) || 0) + (Number(l.otherCost) || 0), 0);
   const making = lines.reduce((s, l) => s + (Number(l.makingCost) || 0), 0);
 
@@ -145,7 +150,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
     mutationFn: () =>
       postOnce<{ id: number; number: string; itemCodes: string[] }>('/purchases', {
         branchId: branchId || undefined,
-        supplierId: supplierId || undefined,
+        supplierId: supplierId || undefined, // required (CAT-0); the button stays disabled without it
         supplierInvoiceNo: invoiceNo || undefined,
         makingChargePaidFrom: paidFrom,
         lines: lines.map((l) => ({
@@ -183,7 +188,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
             {t('Making charge paid now')} <b className="num">{money(making)}</b>
           </span>
           <Button onClick={onClose}>{t('Cancel')}</Button>
-          <Button variant="primary" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()}>{t('Receive into stock')}</Button>
+          <Button variant="primary" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()} data-testid="purchase-save">{t('Receive into stock')}</Button>
         </>
       }
     >
@@ -196,10 +201,10 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
             </Select>
           </Field>
         )}
-        <Field label={t('Supplier')}>
-          <Select value={supplierId} onChange={(e) => setSupplierId(e.target.value ? Number(e.target.value) : '')}>
-            <option value="">—</option>
-            {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        <Field label={t('Supplier')} hint={<NewButton testId="purchase-new-supplier" onClick={() => setNewSupplier(true)}>{t('New supplier')}</NewButton>}>
+          <Select value={supplierId} onChange={(e) => setSupplierId(e.target.value ? Number(e.target.value) : '')} data-testid="purchase-supplier">
+            <option value="">{suppliers.data?.length === 0 ? t('No suppliers yet: add one') : t('Select…')}</option>
+            {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{L(s.name, s.nameAr)}</option>)}
           </Select>
         </Field>
         <Field label={t('Supplier invoice no.')}>
@@ -233,17 +238,22 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
             {lines.map((l, i) => (
               <tr key={i}>
                 <td className="py-1 pe-2">
-                  <Select value={l.productId} onChange={(e) => upd(i, { productId: e.target.value ? Number(e.target.value) : '' })} className="h-8 min-w-48 text-[12.5px]">
-                    <option value="">{t('Select…')}</option>
-                    {sellable?.map((p) => <option key={p.id} value={p.id}>{L(p.name, p.nameAr)} · {p.karat}K</option>)}
-                  </Select>
+                  <div className="flex items-center gap-1.5">
+                    <Select value={l.productId} onChange={(e) => upd(i, { productId: e.target.value ? Number(e.target.value) : '' })} className="h-8 min-w-48 text-[12.5px]" data-testid={`line-product-${i}`}>
+                      <option value="">{sellable?.length === 0 ? t('No products yet: create one') : t('Select…')}</option>
+                      {sellable?.map((p) => <option key={p.id} value={p.id}>{L(p.name, p.nameAr)} · {karatLabel(p.karat)} · {L(p.categoryName, p.categoryNameAr)}</option>)}
+                    </Select>
+                    <button type="button" onClick={() => setNewProductFor(i)} className="rounded p-1 text-gold-700 hover:bg-gold-50" title={t('New product')} aria-label={t('New product')} data-testid={`line-new-product-${i}`}>
+                      <Plus className="size-4" />
+                    </button>
+                  </div>
                 </td>
-                <td className="py-1 pe-2"><Input type="number" step="0.001" value={l.gross} onChange={(e) => upd(i, { gross: e.target.value })} className="h-8 w-20 text-[12.5px]" /></td>
-                <td className="py-1 pe-2"><Input type="number" step="0.001" value={l.net} onChange={(e) => upd(i, { net: e.target.value })} onBlur={() => !l.purchaseCost && suggest(i, l)} className="h-8 w-20 text-[12.5px]" /></td>
-                <td className="py-1 pe-2"><Input type="number" value={l.purchaseCost} onChange={(e) => upd(i, { purchaseCost: e.target.value })} className="h-8 w-28 text-[12.5px]" /></td>
+                <td className="py-1 pe-2"><Input type="number" step="0.001" value={l.gross} onChange={(e) => upd(i, { gross: e.target.value })} className="h-8 w-20 text-[12.5px]" data-testid={`line-gross-${i}`} /></td>
+                <td className="py-1 pe-2"><Input type="number" step="0.001" value={l.net} onChange={(e) => upd(i, { net: e.target.value })} onBlur={() => !l.purchaseCost && suggest(i, l)} className="h-8 w-20 text-[12.5px]" data-testid={`line-net-${i}`} /></td>
+                <td className="py-1 pe-2"><Input type="number" value={l.purchaseCost} onChange={(e) => upd(i, { purchaseCost: e.target.value })} className="h-8 w-28 text-[12.5px]" data-testid={`line-cost-${i}`} /></td>
                 <td className="py-1 pe-2"><Input type="number" value={l.makingCost} onChange={(e) => upd(i, { makingCost: e.target.value })} className="h-8 w-24 text-[12.5px]" /></td>
                 <td className="py-1 pe-2"><Input type="number" value={l.otherCost} onChange={(e) => upd(i, { otherCost: e.target.value })} className="h-8 w-20 text-[12.5px]" /></td>
-                <td className="py-1 pe-2"><Input type="number" value={l.sellingPrice} onChange={(e) => upd(i, { sellingPrice: e.target.value })} className="h-8 w-28 text-[12.5px]" /></td>
+                <td className="py-1 pe-2"><Input type="number" value={l.sellingPrice} onChange={(e) => upd(i, { sellingPrice: e.target.value })} className="h-8 w-28 text-[12.5px]" data-testid={`line-price-${i}`} /></td>
                 <td className="py-1">
                   <button onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} disabled={lines.length === 1} className="p-1 text-ink-400 hover:text-rose-600 disabled:opacity-30" aria-label={t('Remove line')}>
                     <Trash2 className="size-4" />
@@ -256,13 +266,31 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
       </div>
       <Button size="sm" variant="ghost" className="mt-2" icon={<Plus className="size-4" />} onClick={() => setLines((ls) => [...ls, emptyLine()])}>{t('Add piece')}</Button>
       <p className="mt-2 text-[12px] text-ink-500">{t('Tip: enter the net weight and the costs are pre-filled from today’s gold rate. All values stay editable.')}</p>
+      {newProductFor != null && (
+        <NewProductDialog
+          onClose={() => setNewProductFor(null)}
+          onCreated={(p) => {
+            upd(newProductFor, { productId: p.id });
+            setNewProductFor(null);
+          }}
+        />
+      )}
+      {newSupplier && (
+        <NewSupplierDialog
+          onClose={() => setNewSupplier(false)}
+          onCreated={(s) => {
+            setSupplierId(s.id);
+            setNewSupplier(false);
+          }}
+        />
+      )}
     </Dialog>
   );
 }
 
 export function PurchaseDetailPage() {
   const id = Number(useParams().id);
-  const { t, lang } = useI18n();
+  const { t, L, lang } = useI18n();
   const { isGlobal, can } = useAuth();
   const showCost = can('profit.view');
   const q = useQuery({
@@ -278,7 +306,7 @@ export function PurchaseDetailPage() {
           makingChargePaid?: number | null;
           makingChargePaidFrom: 'CASH' | 'BANK' | null;
           settlements: Settlement[];
-          items: { itemId: number; code: string; productName: string; karat: number; netWeightMg: number; purchaseCost: number; makingCost: number; otherCost: number; sellingPrice: number; status: string }[];
+          items: { itemId: number; code: string; productName: string; productNameAr: string; karat: number; netWeightMg: number; purchaseCost: number; makingCost: number; otherCost: number; sellingPrice: number; status: string }[];
         }
       >(`/purchases/${id}`),
   });
@@ -296,7 +324,7 @@ export function PurchaseDetailPage() {
         <KeyValue
           cols={4}
           items={[
-            { label: t('Supplier'), value: p.supplierName ?? '—' },
+            { label: t('Supplier'), value: p.supplierName || p.supplierNameAr ? <span data-testid="purchase-supplier-name">{L(p.supplierName, p.supplierNameAr)}</span> : '—' },
             { label: t('Supplier invoice'), value: p.supplierInvoiceNo ?? '—' },
             { label: t('Items'), value: p.itemCount },
             { label: t('Making charge paid from'), value: p.makingChargePaidFrom ? t(p.makingChargePaidFrom === 'CASH' ? 'Cash drawer' : 'Bank') : '—' },
@@ -344,7 +372,7 @@ export function PurchaseDetailPage() {
           <tbody className="divide-y divide-line">
             {p.items.map((i) => (
               <tr key={i.itemId}>
-                <td className="px-5 py-2.5"><Link to={`/inventory/${i.itemId}`} className="hover:underline"><Mono className="font-semibold">{i.code}</Mono> · {i.productName} · {i.karat}K</Link></td>
+                <td className="px-5 py-2.5"><Link to={`/inventory/${i.itemId}`} className="hover:underline"><Mono className="font-semibold">{i.code}</Mono> · {L(i.productName, i.productNameAr)} · {karatLabel(i.karat)}</Link></td>
                 <td className="px-3 py-2.5 text-end num">{grams(i.netWeightMg)}</td>
                 {showCost && (
                   <>

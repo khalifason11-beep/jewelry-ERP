@@ -31,7 +31,7 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
   const categories = useCategories();
   const query = useQuery({
     queryKey: ['inventory', branchId, status, karat, category, origin, dq],
-    queryFn: () => get<{ items: ItemRow[]; total: number }>('/inventory/items', { branchId, status, karat, category, origin: origin || undefined, q: dq, limit: 1000 }),
+    queryFn: () => get<{ items: ItemRow[]; total: number }>('/inventory/items', { branchId, status, karat, categoryId: category || undefined, origin: origin || undefined, q: dq, limit: 1000 }),
   });
   const rows = query.data?.items ?? [];
   const cost = can('profit.view');
@@ -57,7 +57,7 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
           </Select>
           <Select value={category} onChange={(e) => setCategory(e.target.value)} className="h-8 w-36 text-[13px]" aria-label={t('Category')}>
             <option value="">{t('Category')}</option>
-            {categories.data?.map((c) => <option key={c.code} value={c.code}>{L(c.name, c.nameAr)}</option>)}
+            {categories.data?.map((c) => <option key={c.id} value={c.id}>{L(c.name, c.nameAr)}</option>)}
           </Select>
           <Select value={origin} onChange={(e) => setOrigin(e.target.value)} className="h-8 w-32 text-[13px]" aria-label={t('Origin')}>
             <option value="">{t('New and scrap')}</option>

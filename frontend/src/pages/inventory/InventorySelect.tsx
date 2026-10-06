@@ -48,7 +48,7 @@ export function InventorySelect() {
         q: dq,
         origin: origin || undefined,
         karat,
-        category,
+        categoryId: category || undefined,
         minWeightMg: toMg(dMin),
         maxWeightMg: toMg(dMax),
         status: 'AVAILABLE',
@@ -91,7 +91,7 @@ export function InventorySelect() {
         </Select>
         <Select value={category} onChange={(e) => setCategory(e.target.value)} className="h-8 w-36 text-[13px]" aria-label={t('Category')}>
           <option value="">{t('Category')}</option>
-          {categories.data?.map((c) => <option key={c.code} value={c.code}>{L(c.name, c.nameAr)}</option>)}
+          {categories.data?.map((c) => <option key={c.id} value={c.id}>{L(c.name, c.nameAr)}</option>)}
         </Select>
         <div className="flex items-center gap-1 text-[12.5px] text-ink-600">
           <Input value={minG} onChange={(e) => setMinG(e.target.value)} inputMode="decimal" placeholder={t('Min g')} aria-label={t('Minimum weight (g)')} className="h-8 w-20 text-[13px] num" />

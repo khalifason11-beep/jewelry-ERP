@@ -234,6 +234,7 @@ export function Alert({ tone = 'info', title, children, icon, className }: { ton
 }
 
 // ───────── Dialog ─────────
+const openDialogs: object[] = [];
 export function Dialog({
   open,
   onClose,
@@ -252,17 +253,24 @@ export function Dialog({
   width?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    // Dialogs can open on top of each other (e.g. "New product" from a purchase line): Escape closes
+    // only the topmost one, so the form underneath keeps what was typed.
+    const token = {};
+    openDialogs.push(token);
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && openDialogs[openDialogs.length - 1] === token && closeRef.current();
     window.addEventListener('keydown', onKey);
     const prev = document.activeElement as HTMLElement | null;
     setTimeout(() => ref.current?.querySelector<HTMLElement>('input,select,textarea,button[data-autofocus]')?.focus(), 30);
     return () => {
       window.removeEventListener('keydown', onKey);
+      openDialogs.splice(openDialogs.indexOf(token), 1);
       prev?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return (
     <div className="no-print fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-950/45 p-4 pt-[8vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>

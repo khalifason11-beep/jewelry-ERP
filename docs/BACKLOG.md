@@ -73,7 +73,7 @@ Details and reasons are in `docs/decisions.md` and `docs/DEPLOYMENT.md`.
 - Remove the demo accounts list from the login page, the fake company name, the demo reset action and any text that mentions a prototype.
 - An optional sample set may exist for development only, behind an explicit command, using client-approved names.
 **First-run work (owner decision Q-H):** `ALLOWED_KARATS_INITIAL` (read only at the first start, while the setting row does not exist; the code default stays for other clients), a **mandatory** "allowed karats" step in the first-steps checklist, and the inventory karat filter derived from the setting instead of the hardcoded list.
-**Risk to manage:** most of the test suite depends on the seed (baseline before REM-1, 2026-10-05: **1,424 tests** = 694 on PGlite + 730 on real PostgreSQL, 35 test files; after REM-1: 1,393 = 679 + 714; after REM-2: 1,249 = 606 + 643; after its follow-up: 1,251 = 607 + 644).
+**Risk to manage:** most of the test suite depends on the seed (baseline before REM-1, 2026-10-05: **1,424 tests** = 694 on PGlite + 730 on real PostgreSQL, 35 test files; after REM-1: 1,393 = 679 + 714; after REM-2: 1,249 = 606 + 643; after its follow-up: 1,251 = 607 + 644; after CAT-0: 1,336 = 648 + 688, 38 test files).
 **Never leave the system without a way to enter stock:** CAT-0 must be done before the seed is deleted. Replace it with fixtures first, keep the suite green, then delete the seed.
 **Acceptance:**
 - A fresh database, in demo and production modes, shows no items, sales, customers or suppliers.
@@ -122,12 +122,14 @@ In the invoice summary a negative discount renders as "32,000−" while the line
 
 ## D. Build
 
-### CAT-0 — Minimal "create product" · TODO · S/M · P0
+### CAT-0 — Minimal "create product" · DONE · S/M · P0
 **Why:** today only the demo seed creates products, so an empty production database cannot receive stock (SPEC §4). REM-3 deletes the seed; this must exist first.
 **Requirements:** create a product with name, karat and type (category); General Manager and branch manager; also inline in the supplier purchase and scrap purchase forms. Audited; karat limited by `allowedKarats` for sellable pieces. No invented names are shipped.
 **Acceptance:** on an empty production database (REH-1) a branch manager creates a product inline and records a supplier order and a sellable scrap purchase. CAT-1 stays as written and still waits for Q-3.
+**Done:** "New type", "New product" and "New supplier" dialogs (Arabic name required, English optional), inline from the supplier-purchase line and supplier select and from the sellable-scrap form (karat fixed); a **Types & products** screen (GM deactivates/reactivates with a reason). Duplicates refused after normalization (migration 0015, unique indexes, `jerp_normalize_name`). A supplier purchase now requires a supplier. Production bootstrap seeds no types. Filters use the type id. REH-1 does all of it on an empty production database. See `docs/decisions.md` D-cat0-*; manual script `docs/acceptance/CAT-0.md`.
 
 ### CAT-1 — Item types and stock entry without a product catalog · TODO · M · P0 · Q-3
+**Note after CAT-0:** types and products can now be created (CAT-0), so the empty-database blocker is gone; what remains is the Q-3 question (catalog vs free text) and **rename**. Before allowing a rename, snapshot the Arabic product name and the type names on sale lines (today only the English product name is snapshotted; D-cat0-3).
 **Problem:** a production database created by bootstrap holds categories only, and no screen creates a product. **No stock can enter an empty production system** (purchases and the future opening balance both need it).
 **Requirements:**
 - The GM manages a bilingual **list of item types** (create, rename, deactivate). Production ships empty; the names come from the client in real Sudanese terms. Do not invent them.

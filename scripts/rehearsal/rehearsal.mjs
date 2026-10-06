@@ -63,6 +63,8 @@ const section = (title) => console.log(`\n── ${title}`);
 const GM = { username: 'rehearsal.alpha', fullName: 'Rehearsal Alpha', password: 'Rehearsal-Alpha-Pass-2026' };
 const BRANCH = { code: 'RHA', name: 'Rehearsal Branch A', nameAr: 'فرع التجربة أ', city: 'Rehearsal City' };
 const BM = { username: 'rehearsal.bravo', fullName: 'Rehearsal Bravo', role: 'BRANCH_MANAGER', password: 'Rehearsal-Bravo-Pass-2026' };
+// CAT-0 fixture names (Arabic only: the English name is optional).
+const CAT = { supplier: 'مصنع التجربة', type: 'خواتم التجربة', typeVariant: 'خواتم  التجربـة', product: 'خاتم التجربة', scrapProduct: 'خاتم كسر التجربة', scrapRate21: 95_000 };
 const CASHIER = { username: 'rehearsal.charlie', fullName: 'Rehearsal Charlie', role: 'CASHIER', password: 'Rehearsal-Charlie-Pass-2026' };
 
 // ── infrastructure ──
@@ -302,6 +304,16 @@ async function main() {
       await page.click('[data-testid=temporary-password-done]');
       ok(`${u.role === 'CASHIER' ? 'cashier' : 'branch manager'} "${u.username}" created with a generated temporary password`);
     }
+    const types0 = await apiGet(page, '/api/categories');
+    const products0 = await apiGet(page, '/api/products');
+    const suppliers0 = await apiGet(page, '/api/suppliers');
+    check(types0.body.length === 0 && products0.body.length === 0 && suppliers0.body.length === 0, 'no item types, products or suppliers were invented (CAT-0: they come from the client)');
+    await page.goto(`${origin}/settings`);
+    await page.fill('[data-testid=scrap-rate-21]', String(CAT.scrapRate21));
+    await page.click('[data-testid=save-scrap-rates]');
+    await confirmIfAsked(page, GM.password);
+    await waitFor(async () => (await apiGet(page, '/api/scrap-rates')).body.rates.some((r) => r.karat === 21 && r.pricePerGram === CAT.scrapRate21), 'the 21K scrap rate', 15_000);
+    ok('the General Manager sets the 21K scrap buying rate in Settings');
     await signOut(page);
 
     section('Staff: first sign-in');
@@ -344,6 +356,68 @@ async function main() {
     check(/نقد/.test(methods) && /تحويل بنكي/.test(methods) && /حصاد/.test(methods), 'the POS offers Cash, Bank transfer and Hasad as payment methods');
     const me = await apiGet(page, '/api/auth/me');
     check(!('hasadMode' in me.body) && me.body.posPaymentMethods.join(',') === 'CASH,BANK_TRANSFER,HASAD', 'no Hasad integration mode; the counter methods are Cash, Bank transfer, Hasad');
+
+    section('CAT-0: supplier, type and product created where they are needed');
+    await page.goto(`${origin}/purchases`);
+    await page.click('[data-testid=new-purchase]');
+    await page.click('[data-testid=purchase-new-supplier]');
+    await page.fill('[data-testid=name-ar]', CAT.supplier);
+    await page.click('[data-testid=save-supplier]');
+    await waitFor(async () => (await page.inputValue('[data-testid=purchase-supplier]')) !== '', 'the new supplier selected', 15_000);
+    ok(`branch manager adds supplier "${CAT.supplier}" from the purchase form (Arabic name only); it is selected`);
+    await page.click('[data-testid=line-new-product-0]');
+    await page.fill('[data-testid=name-ar]', CAT.product);
+    await page.selectOption('[data-testid=product-karat]', '21');
+    await page.click('[data-testid=product-new-type]');
+    await page.locator('[data-testid=name-ar]').last().fill(CAT.type);
+    await page.click('[data-testid=save-type]');
+    await waitFor(async () => (await page.inputValue('[data-testid=product-type]')) !== '', 'the new type selected', 15_000);
+    await page.click('[data-testid=save-product]');
+    await waitFor(async () => (await page.inputValue('[data-testid=line-product-0]')) !== '', 'the new product selected', 15_000);
+    ok(`type "${CAT.type}" and product "${CAT.product}" (21K) created inline from the purchase line and selected`);
+    await page.fill('[data-testid=line-gross-0]', '5.2');
+    await page.fill('[data-testid=line-net-0]', '5');
+    await page.fill('[data-testid=line-cost-0]', '1000000');
+    await page.fill('[data-testid=line-price-0]', '1500000');
+    await page.click('[data-testid=purchase-save]');
+    await page.waitForURL((u) => /^\/purchases\/\d+$/.test(u.pathname), { timeout: 15_000 });
+    const poId = Number(new URL(page.url()).pathname.split('/').pop());
+    const supplierShown = (await page.getByTestId('purchase-supplier-name').innerText()).trim();
+    const owedShown = await page.getByTestId('gold-owed').count();
+    const po = (await apiGet(page, `/api/purchases/${poId}`)).body;
+    check(supplierShown === CAT.supplier && owedShown === 1 && po.goldOwedMgPure24 === 4375, `the supplier order shows the supplier "${CAT.supplier}" and the gold owed (4.375 g of 24K for 5 g of 21K)`);
+
+    const typeId = (await apiGet(page, '/api/categories')).body.find((c) => c.nameAr === CAT.type).id;
+    await page.goto(`${origin}/catalog`);
+    await page.click('[data-testid=new-type]');
+    await page.fill('[data-testid=name-ar]', CAT.typeVariant);
+    await page.click('[data-testid=save-type]');
+    await page.getByTestId('use-existing').waitFor({ timeout: 15_000 });
+    const typesAfter = (await apiGet(page, '/api/categories')).body;
+    check(typesAfter.length === 1, `a second spelling ("${CAT.typeVariant}") is refused and the existing type is offered instead`);
+    await page.keyboard.press('Escape');
+
+    await page.goto(`${origin}/scrap`);
+    await page.click('[data-testid=scrap-kind-SELLABLE]');
+    await page.selectOption('[data-testid=scrap-karat]', '21');
+    await page.click('[data-testid=scrap-new-product]');
+    await page.fill('[data-testid=name-ar]', CAT.scrapProduct);
+    await page.selectOption('[data-testid=product-type]', String(typeId));
+    await page.click('[data-testid=save-product]');
+    await waitFor(async () => (await page.inputValue('[data-testid=scrap-product]')) !== '', 'the new scrap product selected', 15_000);
+    await page.fill('[data-testid=scrap-gross]', '3');
+    await page.fill('[data-testid=scrap-net]', '3');
+    await page.fill('[data-testid=scrap-selling-price]', '900000');
+    await page.click('[data-testid=scrap-buy]');
+    await waitFor(async () => (await apiGet(page, `/api/inventory/items?branchId=${branchId}&categoryId=${typeId}`)).body.items.length === 2, 'two pieces of the new type', 15_000);
+    ok(`a sellable scrap piece is bought with product "${CAT.scrapProduct}" created inline (karat fixed to 21K); filtering stock by the new type finds both pieces`);
+
+    await page.evaluate(() => localStorage.setItem('jerp.lang', 'en'));
+    await page.goto(`${origin}/catalog`);
+    await page.waitForLoadState('networkidle');
+    const enText = await page.locator('main').first().innerText().catch(async () => page.locator('body').innerText());
+    await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
+    check(enText.includes(CAT.product) && enText.includes(CAT.type) && /Types & products/.test(enText), 'in English, names without an English version show in Arabic');
     await signOut(page);
 
     section('General Manager: audit trail');
@@ -367,6 +441,7 @@ async function main() {
     const rows = Array.isArray(audit.body) ? audit.body : (audit.body?.rows ?? audit.body?.items ?? []);
     const actions = new Set(rows.map((r) => r.action));
     check(['BRANCH_CREATED', 'USER_CREATED'].every((a) => actions.has(a)), 'the audit log shows the branch and the users created');
+    check(['SUPPLIER_CREATED', 'ITEM_TYPE_CREATED', 'PRODUCT_CREATED', 'SCRAP_RATE_CHANGED'].every((a) => actions.has(a)), 'the audit log shows the supplier, type and products created and the scrap rate set');
   } catch (e) {
     failed = true;
     throw e;

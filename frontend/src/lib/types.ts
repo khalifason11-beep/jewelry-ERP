@@ -16,11 +16,11 @@ export interface ItemRow {
   code: string;
   barcode: string;
   productId: number;
-  productName: string;
+  productName: string | null;
   productNameAr: string;
   sku: string;
   categoryCode: string;
-  categoryName: string;
+  categoryName: string | null;
   categoryNameAr: string;
   karat: number;
   grossWeightMg: number;
@@ -43,11 +43,34 @@ export interface ItemRow {
   updatedAt: string;
 }
 
+/** An item type (table `categories`). The English name is optional (CAT-0): show it with L(name, nameAr). */
 export interface Category {
   id: number;
   code: string;
-  name: string;
+  name: string | null;
   nameAr: string;
+  isActive: boolean;
+}
+
+/** A product (sellable design) with its type. */
+export interface Product {
+  id: number;
+  sku: string;
+  name: string | null;
+  nameAr: string;
+  karat: number;
+  categoryId: number;
+  categoryCode: string;
+  categoryName: string | null;
+  categoryNameAr: string;
+  isActive: boolean;
+}
+
+export interface Supplier {
+  id: number;
+  name: string | null;
+  nameAr: string;
+  phone: string | null;
 }
 
 export interface Report {

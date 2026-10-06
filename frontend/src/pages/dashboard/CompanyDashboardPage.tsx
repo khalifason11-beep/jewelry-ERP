@@ -46,7 +46,7 @@ interface CompanyDash {
   trend: Record<string, number | string>[];
   inventoryByKarat: { karat: number; items: number; weightMg: number; cost: number }[];
   stockWeight: StockWeight;
-  salesByCategory: { category: string; items: number; revenue: number; profit: number }[];
+  salesByCategory: { category: string; categoryAr: string; items: number; revenue: number; profit: number }[];
   attention: { transfersInTransit: number; activeSessions: number };
 }
 
@@ -218,7 +218,7 @@ function Body({ d, onBranch, L }: { d: CompanyDash; onBranch: (id: number) => vo
           />
           <div className="px-3 pb-3 pt-2">
             {d.salesByCategory.length ? (
-              <CategoryBarChart data={d.salesByCategory.map((c) => ({ ...c, category: t(c.category) }))} labelKey="category" valueKey="revenue" colorOf={() => 'var(--color-ink-700)'} layout="horizontal" height={Math.max(160, d.salesByCategory.length * 34)} />
+              <CategoryBarChart data={d.salesByCategory.map((c) => ({ ...c, category: L(c.category, c.categoryAr) }))} labelKey="category" valueKey="revenue" colorOf={() => 'var(--color-ink-700)'} layout="horizontal" height={Math.max(160, d.salesByCategory.length * 34)} />
             ) : (
               <div className="py-10 text-center text-[13px] text-ink-500">{t('No sales in this period')}</div>
             )}

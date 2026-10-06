@@ -228,6 +228,17 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   `EXPENSE` entries in `ledger_entries`. Existing rows stay untouched (history); a historical `EXPENSE` entry appears
   on the Cash screen under "Other movements", so the daily lines still add up to the ledger. REM-5 drops the table.
 
+### Types, products and suppliers (CAT-0, migration 0015)
+
+- The bootstrap command creates **no item types**, products or suppliers: the General Manager or a branch manager
+  creates them (Inventory → **Types & products**, or inline from a supplier purchase or a sellable scrap purchase).
+- A supplier purchase now **requires a supplier**.
+- Migration 0015 adds the function `jerp_normalize_name`, normalized-name columns with unique indexes, `is_active`
+  and `created_by`/`created_at` on types, products and suppliers, and makes the English names optional. **It stops
+  without changing anything** if two existing types, products (same karat and type) or suppliers have names that are
+  the same after normalization (أ/ا, ى/ي, tatweel, diacritics, digits, spaces, case); the error lists them. Rename or
+  merge those rows, then run the migration again.
+
 ### Hasad reduced to a payment channel (REM-2, migration 0014)
 
 - Hasad is only a payment method now (with the Hasad invoice number and an optional transaction reference) and the

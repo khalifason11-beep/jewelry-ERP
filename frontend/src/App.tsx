@@ -17,6 +17,7 @@ import { CompanyDashboardPage } from './pages/dashboard/CompanyDashboardPage';
 import { BranchesPage, BranchDetailPage } from './pages/branches/BranchPages';
 import { SalesPage, SaleDetailPage } from './pages/sales/SalesPages';
 import { InventoryPage, ItemDetailPage } from './pages/inventory/InventoryPages';
+import { CatalogPage } from './pages/inventory/CatalogPage';
 import { PurchasesPage, PurchaseDetailPage } from './pages/purchases/PurchasesPages';
 import { CashPage } from './pages/cash/CashPage';
 import { ScrapPage } from './pages/scrap/ScrapPage';
@@ -93,6 +94,7 @@ export function App() {
           <Route path="sales/:id" element={<Guard any={['sales.view', 'sales.view_own']}><SaleDetailPage /></Guard>} />
           <Route path="inventory" element={<Guard perm="inventory.view"><InventoryPage /></Guard>} />
           <Route path="inventory/:id" element={<Guard any={['inventory.view', 'inventory.view_available']}><ItemDetailPage /></Guard>} />
+          <Route path="catalog" element={<Guard perm="catalog.create"><CatalogPage /></Guard>} />
           <Route path="purchases" element={<Guard perm="purchases.view"><PurchasesPage /></Guard>} />
           <Route path="purchases/:id" element={<Guard perm="purchases.view"><PurchaseDetailPage /></Guard>} />
           <Route path="cash" element={<Guard perm="cash.view"><CashPage /></Guard>} />
