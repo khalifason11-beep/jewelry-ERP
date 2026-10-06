@@ -298,11 +298,11 @@ describe('supplier purchase: making charge in money, gold debt in 24K', () => {
   });
 
   it('is refused when supplier credit is turned off', async () => {
-    await ctx.settings.apply(ctx.db, { 'purchases.supplierCreditEnabled': false }, { actor: { id: null, username: 'test' }, allowDemoOnly: true });
+    await ctx.settings.apply(ctx.db, { 'purchases.supplierCreditEnabled': false }, { actor: { id: null, username: 'test' } });
     try {
       expect(await errorOf(newPurchase('KRT', [5_000]))).toMatchObject({ status: 400, key: 'Supplier purchases on gold credit are turned off in the settings' });
     } finally {
-      await ctx.settings.apply(ctx.db, { 'purchases.supplierCreditEnabled': true }, { actor: { id: null, username: 'test' }, allowDemoOnly: true });
+      await ctx.settings.apply(ctx.db, { 'purchases.supplierCreditEnabled': true }, { actor: { id: null, username: 'test' } });
     }
   });
 });

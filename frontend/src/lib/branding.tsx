@@ -20,7 +20,6 @@ export interface Branding {
 export interface Meta {
   appMode: 'demo' | 'production';
   branding: Branding;
-  demoAccounts: { username: string; password: string; role: string; branch: string | null }[];
 }
 
 /** Neutral placeholders shown only until /api/meta answers. */

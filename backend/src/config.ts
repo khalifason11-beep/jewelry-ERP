@@ -56,8 +56,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     /** First-start-only initial values of the guarded second-factor settings (never read afterwards). */
     webauthnUvInitial: env.WEBAUTHN_UV_INITIAL || undefined,
     twoFactorRolesInitial: env.TWO_FACTOR_REQUIRED_ROLES_INITIAL,
-    /** Demo only: keep the second factor required for the General Manager (testing the passkey flow). */
-    demoTwoFactor: env.DEMO_TWO_FACTOR === 'true',
     /** `__Host-` prefix pins the cookie to this host over HTTPS (production only). */
     cookieName: production ? '__Host-jerp_session' : 'jerp_session',
     cookieSecure: production ? env.COOKIE_SECURE !== 'false' : env.COOKIE_SECURE === 'true',

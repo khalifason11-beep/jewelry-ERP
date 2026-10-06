@@ -389,7 +389,6 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'GET /dashboard/company': () => ({ path: '/dashboard/company' }),
   'GET /reports/:key': () => ({ path: '/reports/sales' }),
   'GET /audit': () => ({ path: '/audit', query: { limit: 5 } }),
-  'POST /demo/reset': () => ({ path: '/demo/reset' }),
 };
 
 /** For every branch-scoped rule: a request by a Khartoum user that targets Omdurman data. */
@@ -482,7 +481,7 @@ describe('route permission matrix (generated from shared/src/route-matrix.ts)', 
   it('every registered route is in the matrix and every matrix rule is registered', () => {
     const ids = (rules: RouteRule[]) => rules.map((x) => routeId(x.method, x.path)).sort();
     expect(ids(app.locals.apiRoutes)).toEqual(ids([...ROUTE_MATRIX]));
-    expect(ids(prodApp.locals.apiRoutes)).toEqual(ids(ROUTE_MATRIX.filter((x) => !x.demoOnly)));
+    expect(ids(prodApp.locals.apiRoutes)).toEqual(ids([...ROUTE_MATRIX])); // REM-3: no demo-only route exists
     // GM: no destructive operation on business data in production.
     expect(prodApp.locals.apiRoutes.filter((x: RouteRule) => x.destructive)).toEqual([]);
   });
@@ -491,8 +490,8 @@ describe('route permission matrix (generated from shared/src/route-matrix.ts)', 
     const reg = defineRoutes(Router(), ctx, { demo: true });
     expect(() => reg.route('GET', '/secret/unlisted', (_req, res) => res.json({}))).toThrow(/not in ROUTE_MATRIX/);
     const prod = defineRoutes(Router(), ctx, { demo: false });
-    prod.route('POST', '/demo/reset', (_req, res) => res.json({}));
-    expect(prod.registered).toEqual([]); // demo-only rules are skipped outside demo mode
+    // REM-3: the demo reset is gone; it is not in the matrix, so it can never be registered.
+    expect(() => prod.route('POST', '/demo/reset', (_req, res) => res.json({}))).toThrow(/not in ROUTE_MATRIX/);
   });
 
   it('has a sample request for every rule and a cross-branch request for every branch-scoped rule', () => {

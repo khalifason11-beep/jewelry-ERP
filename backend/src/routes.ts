@@ -43,8 +43,6 @@ import { runIdempotent } from './core/idempotency';
 import { defineRoutes } from './core/guard';
 import { costRedaction } from './core/cost-redaction';
 import { notificationsFor } from './modules/notifications/service';
-import { resetDemoData } from './seed/reset';
-import { DEMO_PASSWORDS, USERS } from './seed/catalog';
 
 // ───────── shared validators ─────────
 /** 1 trillion SDG: far above any real amount, far below JS/bigint limits. */
@@ -129,19 +127,11 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     res.json({ ok: true });
   });
 
-  /** Public, non-sensitive app metadata for the login screen. Demo credentials only in demo mode. */
+  /** Public, non-sensitive app metadata for the login screen (no accounts or credentials, REM-3). */
   route('GET', '/meta', async (_req, res) => {
     res.json({
       appMode: config.appMode,
       branding: publicBranding(await ctx.settings.get()),
-      demoAccounts: demo
-        ? USERS.filter((u) => ['general.manager', 'branch.manager.kh', 'cashier.kh.01', 'cashier.kh.02', 'branch.manager.omd', 'cashier.omd.01'].includes(u.username)).map((u) => ({
-            username: u.username,
-            password: DEMO_PASSWORDS[u.role],
-            role: u.role,
-            branch: u.branch,
-          }))
-        : [],
     });
   });
 
@@ -320,7 +310,6 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
         actor: { id: actor.userId, username: actor.username },
         reason: body.reason,
         expectedVersions: body.expectedVersions,
-        allowDemoOnly: demo,
       });
       if (changed.length) {
         await writeAudit(tx, actor, {
@@ -686,13 +675,5 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     res.json({ ...b, staffCount: staff.length });
   });
 
-  // ─────────── demo tooling: NOT registered in production (security item 2) ───────────
-  if (demo) {
-    route('POST', '/demo/reset', async (req: Request, res: Response) => {
-      await resetDemoData(ctx);
-      res.clearCookie(config.cookieName, { path: '/' });
-      res.json({ ok: true });
-    });
-  }
   return Object.assign(r, { registered });
 }

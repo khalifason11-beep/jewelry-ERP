@@ -14,6 +14,7 @@ import { resetThrottleMemory } from '../src/auth/lockout';
 import { log } from '../src/core/logger';
 import { webauthnConfigProblems } from '../src/core/startup';
 import { applyInitialSecuritySettings } from '../src/modules/auth/passkeys';
+import { bootstrapProduction } from '../src/modules/bootstrap/service';
 import { operatorResetSecondFactor } from '../src/modules/ops/service';
 import { seedWorld } from './fixtures/world';
 import { DEMO_PASSWORDS } from './fixtures/world-data';
@@ -453,17 +454,18 @@ describe('operator console reset (lost device)', () => {
   });
 });
 
-describe('demo mode default', () => {
-  it('without DEMO_TWO_FACTOR the demo requires no second factor (the login page keeps working)', async () => {
+describe('demo mode default (REM-3)', () => {
+  it('a fresh demo-mode database has the production default (GM passkey required); TWO_FACTOR_REQUIRED_ROLES_INITIAL lifts it on the first start only', async () => {
     const h = await openTestDatabase();
     try {
       const c = createContext(h);
-      await seedWorld(c);
+      await bootstrapProduction(c, { username: 'samira.osman', fullName: 'Owner' });
+      expect((await c.settings.get()).security.twoFactorRequiredRoles).toEqual(['GENERAL_MANAGER']);
+      expect(await applyInitialSecuritySettings(c, { roles: '' })).toEqual([expect.objectContaining({ key: 'security.twoFactorRequiredRoles' })]);
       expect((await c.settings.get()).security.twoFactorRequiredRoles).toEqual([]);
-      const a2 = createApp(c, loadConfig({ VITEST: '1', APP_ORIGIN: ORIGIN } as NodeJS.ProcessEnv));
-      const r = await request(a2).post('/api/auth/login').send(GM);
-      expect(r.body.user.username).toBe(GM.username);
-      expect(r.body.secondFactor).toMatchObject({ required: false, enrollmentRequired: false });
+      // Read only while the setting row does not exist: a second start changes nothing.
+      expect(await applyInitialSecuritySettings(c, { roles: 'GENERAL_MANAGER' })).toEqual([]);
+      expect((await c.settings.get()).security.twoFactorRequiredRoles).toEqual([]);
     } finally {
       await h.close();
     }

@@ -176,8 +176,6 @@ export type SettingGroup = keyof SystemSettings;
 
 export interface SettingDef {
   schema: z.ZodType;
-  /** Only meaningful (and only editable) in APP_MODE=demo. */
-  demoOnly?: boolean;
   /** Changed only through a dedicated flow (password + passkey), refused by the generic settings form. */
   guarded?: boolean;
 }

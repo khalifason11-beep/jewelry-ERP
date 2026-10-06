@@ -16,7 +16,6 @@ import {
 } from '@jerp/shared';
 import type { Actor, Ctx } from '../../src/core/context';
 import { writeAudit } from '../../src/core/audit';
-import { config } from '../../src/config';
 import { addDays, dayKey, dayStart } from '../../src/core/time';
 import { hashPassword } from '../../src/auth/password';
 import { createSession, hashToken, loadActor } from '../../src/modules/sessions/service';
@@ -91,10 +90,10 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
       // This client sells 21K only (D-4-1). Broken scrap of any karat is still bought.
       'inventory.allowedKarats': [21],
       // Demo: no second factor by default, so the login page and the demo script keep working
-      // (D-2fa-10). DEMO_TWO_FACTOR=true keeps it required for the General Manager (testing).
-      'security.twoFactorRequiredRoles': (opts.twoFactor ?? config.demoTwoFactor) ? ['GENERAL_MANAGER'] : [],
+      // (D-2fa-10). seedWorld(ctx, now, { twoFactor: true }) keeps it required for the General Manager.
+      'security.twoFactorRequiredRoles': (opts.twoFactor ?? false) ? ['GENERAL_MANAGER'] : [],
     },
-    { actor: { id: null, username: 'demo-seed' }, allowDemoOnly: true, allowGuarded: true },
+    { actor: { id: null, username: 'demo-seed' }, allowGuarded: true },
   );
 
   // ───────── branches & users ─────────

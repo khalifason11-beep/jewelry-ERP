@@ -214,7 +214,6 @@ export async function listSessions(
       status: t.sessions.status,
       endedAt: t.sessions.endedAt,
       endedReason: t.sessions.endedReason,
-      isSimulated: t.sessions.isSimulated,
     })
     .from(t.sessions)
     .innerJoin(t.users, eq(t.users.id, t.sessions.userId))

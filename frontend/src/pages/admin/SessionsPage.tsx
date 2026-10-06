@@ -30,7 +30,6 @@ export interface SessionRow {
   status: string;
   endedAt: string | null;
   endedReason: string | null;
-  isSimulated: boolean;
   isCurrent: boolean;
   presence: 'ACTIVE' | 'IDLE' | 'ENDED';
   concurrentSessions: number;
@@ -87,7 +86,6 @@ export function SessionsTable({ branchId, scope, mine }: { branchId?: number; sc
             render: (r) => (
               <div className="text-[12.5px]">
                 {deviceText(r.device)}
-                {r.isSimulated && <div className="text-[10.5px] text-ink-400">{t('demo presence (simulated)')}</div>}
               </div>
             ),
           },

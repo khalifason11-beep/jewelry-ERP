@@ -7,7 +7,7 @@ import type { Permission } from '@jerp/shared';
 import { get, post, setCurrentModule, translateParams } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { deviceText, money, relative } from '../../lib/format';
-import { useBranding, useMeta } from '../../lib/branding';
+import { useBranding } from '../../lib/branding';
 import { useI18n } from '../../lib/i18n';
 import { SecurityBanners } from '../../pages/SecurityPage';
 
@@ -21,8 +21,7 @@ interface NavItem {
 
 export function Logo({ compact = false }: { compact?: boolean }) {
   const branding = useBranding();
-  const meta = useMeta();
-  const { t, L } = useI18n();
+  const { L } = useI18n();
   return (
     <div className="flex items-center gap-2.5">
       <div className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg border border-gold-600/40 bg-ink-850">
@@ -35,8 +34,6 @@ export function Logo({ compact = false }: { compact?: boolean }) {
       {!compact && (
         <div className="min-w-0 leading-tight">
           <div className="truncate text-[14px] font-semibold text-white">{L(branding.company.nameEn, branding.company.nameAr)}</div>
-          {/* The "prototype" label is a demo marker only: never shown in production (D-print-9). */}
-          {meta.data?.appMode === 'demo' && <div className="text-[11px] tracking-wide text-gold-400/90">{t('ERP · Prototype')}</div>}
         </div>
       )}
     </div>
@@ -157,7 +154,8 @@ export function AppShell() {
               {me.user.branch ? L(me.user.branch.name, me.user.branch.nameAr) : t('All branches')}
             </span>
             {me.appMode === 'demo' && (
-              <span className="hidden rounded border border-dashed border-gold-500/60 px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-gold-700 md:inline" title={t('Demo data')}>
+              // REM-3: a small neutral marker so a local copy is never mistaken for production (never shown there).
+              <span className="hidden rounded border border-line-strong bg-canvas px-1.5 py-0.5 text-[11px] font-medium text-ink-600 md:inline" title={t('Demo mode: not the production system')} data-testid="demo-badge">
                 {t('Demo')}
               </span>
             )}

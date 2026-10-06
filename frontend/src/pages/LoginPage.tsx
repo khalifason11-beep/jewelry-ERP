@@ -3,15 +3,12 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Fingerprint, KeyRound, LogIn, ShieldCheck } from 'lucide-react';
 import { ApiError, errorText, post } from '../lib/api';
 import { getPasskey, PasskeyError, type PublicKeyCredentialRequestOptionsJSON } from '../lib/webauthn';
-import { useMeta } from '../lib/branding';
 import { homePath, useAuth, type Me, type PendingSignIn } from '../lib/auth';
-import { humanize } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { Alert, Button, Field, Input } from '../components/ui';
 import { Logo } from '../components/layout/AppShell';
 
 
-const BRANCH_BY_CODE: Record<string, string> = { KRT: 'Khartoum Branch', OMD: 'Omdurman Branch', BHR: 'Bahri Branch', PZU: 'Port Sudan Branch' };
 
 export function LoginPage() {
   const { me, login } = useAuth();
@@ -23,9 +20,6 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<PendingSignIn | null>(null);
-  // Demo credentials come from the server and only in demo mode (never in production bundles).
-  const meta = useMeta();
-  const demoAccounts = meta.data?.demoAccounts ?? [];
 
   if (me) return <Navigate to={me.user.mustChangePassword ? '/change-password' : homePath(me)} replace />;
 
@@ -118,31 +112,6 @@ export function LoginPage() {
             </Button>
           </form>
 
-          {demoAccounts.length > 0 && (
-          <div className="mt-8 rounded-lg border border-dashed border-gold-500/60 bg-gold-50/60 p-3">
-            <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-gold-700">
-              <KeyRound className="size-3.5" /> {t('Demo accounts — fictitious credentials')}
-            </div>
-            <div className="grid gap-1">
-              {demoAccounts.map((a) => (
-                <button
-                  key={a.username}
-                  type="button"
-                  onClick={() => {
-                    setUsername(a.username);
-                    setPassword(a.password);
-                  }}
-                  className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-start text-[12.5px] hover:bg-white"
-                >
-                  <span className="font-mono text-ink-800">{a.username}</span>
-                  <span className="text-ink-500">
-                    {humanize(a.role)} · {a.branch ? t(BRANCH_BY_CODE[a.branch] ?? a.branch) : t('All branches')}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-          )}
           </>
           )}
           <p className="mt-4 flex items-center gap-1.5 text-[11.5px] text-ink-400">

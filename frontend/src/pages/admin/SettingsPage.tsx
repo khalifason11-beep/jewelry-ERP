@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ImageUp, Printer, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { ImageUp, Printer, Save, Trash2 } from 'lucide-react';
 import { KARATS, PAYMENT_METHODS, settingValue, type InvoiceFormat, type SettingKey, type SystemSettings } from '@jerp/shared';
 import { del, get, post, put, upload } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -12,7 +12,7 @@ import { useToast } from '../../lib/toast';
 import { printDocument } from '../../lib/print';
 import { CalibrationPrint } from '../../print/documents';
 import { errorText as apiErrorText } from '../../lib/api';
-import { Alert, Button, Card, CardHeader, Dialog, Field, Input, Loading, PageHeader, Select, Textarea } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, Field, Input, Loading, PageHeader, Select, Textarea } from '../../components/ui';
 
 interface SettingsResponse {
   settings: SystemSettings;
@@ -26,15 +26,12 @@ export function SettingsPage() {
   const { t, lang } = useI18n();
   const toast = useToast();
   const qc = useQueryClient();
-  const { logout, me } = useAuth();
-  const isDemo = me?.appMode === 'demo';
   const branding = useBranding();
   const s = useQuery({ queryKey: ['settings'], queryFn: () => get<SettingsResponse>('/settings') });
   const rates = useGoldRates();
   const [draft, setDraft] = useState<SystemSettings | null>(null);
   const [reason, setReason] = useState('');
   const [rateDraft, setRateDraft] = useState<Record<string, string>>({});
-  const [resetOpen, setResetOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (s.data) setDraft(s.data.settings);
@@ -89,15 +86,6 @@ export function SettingsPage() {
     onSuccess: () => {
       toast.success(t('Logo removed'));
       refreshAll();
-    },
-    onError: (e) => toast.fromError(e),
-  });
-  const reset = useMutation({
-    mutationFn: () => post('/demo/reset'),
-    onSuccess: async () => {
-      toast.success(t('Demo data rebuilt'), t('Please sign in again.'));
-      await logout().catch(() => undefined);
-      window.location.href = '/login';
     },
     onError: (e) => toast.fromError(e),
   });
@@ -387,28 +375,7 @@ export function SettingsPage() {
         </Card>
 
         <SecondFactorCard />
-
-        {isDemo && (
-          <Card padded={false}>
-            <CardHeader title={t('Demo data')} />
-            <div className="p-5">
-              <Alert tone="warning" className="mb-3">
-                {t('Rebuilds the entire demo database relative to the current date and time: branches, users, 30 days of transactions. All current data and sessions are discarded.')}
-              </Alert>
-              <Button variant="danger" icon={<RotateCcw className="size-4" />} onClick={() => setResetOpen(true)}>{t('Reset demo data')}</Button>
-            </div>
-          </Card>
-        )}
       </div>
-      <Dialog
-        open={resetOpen}
-        onClose={() => setResetOpen(false)}
-        title={t('Reset all demo data?')}
-        subtitle={t('Everyone will be signed out.')}
-        footer={<><Button onClick={() => setResetOpen(false)}>{t('Cancel')}</Button><Button variant="danger" loading={reset.isPending} onClick={() => reset.mutate()}>{t('Reset now')}</Button></>}
-      >
-        <p className="text-[13px] text-ink-600">{t('This takes a few seconds.')}</p>
-      </Dialog>
     </div>
   );
 }

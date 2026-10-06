@@ -1,7 +1,7 @@
 [
   {
     "category": "PAYMENT_METHOD",
-    "files": ["shared/src/enums.ts", "shared/src/settings.ts", "frontend/src/pages/pos/PosPage.tsx", "backend/src/seed/demo.ts", "backend/src/modules/ledger/service.ts"],
+    "files": ["shared/src/enums.ts", "shared/src/settings.ts", "frontend/src/pages/pos/PosPage.tsx", "backend/src/modules/ledger/service.ts"],
     "match": "'HASAD'|\\bHASAD: |HASAD = the customer paid through the Hasad app|The counter takes cash, bank transfer and Hasad",
     "reason": "HASAD is a payment method: the enum, its account mapping, the counter's default methods and the POS icon."
   },
@@ -19,7 +19,7 @@
   },
   {
     "category": "RECEIVABLE",
-    "files": ["shared/src/enums.ts", "shared/src/permissions.ts", "shared/src/route-matrix.ts", "shared/src/db-checks.ts", "shared/src/field-classification.ts", "database/src/schema.ts", "backend/src/core/startup.ts", "backend/src/routes.ts", "backend/src/modules/ledger/service.ts", "backend/src/modules/sales/service.ts", "backend/src/seed/demo.ts", "frontend/src/pages/cash/CashPage.tsx", "frontend/src/lib/i18n-ar.ts"],
+    "files": ["shared/src/enums.ts", "shared/src/permissions.ts", "shared/src/route-matrix.ts", "shared/src/db-checks.ts", "shared/src/field-classification.ts", "database/src/schema.ts", "backend/src/core/startup.ts", "backend/src/routes.ts", "backend/src/modules/ledger/service.ts", "backend/src/modules/sales/service.ts", "frontend/src/pages/cash/CashPage.tsx", "frontend/src/lib/i18n-ar.ts"],
     "match": "HASAD_RECEIVABLE|hasadReceivable|hasad_receivable|settleHasadReceivable|settle_hasad|hasad-settle|HasadSettle|HasadTransfer|hasad-transfers|hasad-settlements|listHasadSettlements|Hasad receivable|Hasad bank transfer|Hasad transfer|Hasad paid|Hasad pays|Hasad's bank transfer|Hasad receivable settled|مستحقات حصاد|تحويل(ات)? حصاد|دفعت حصاد|دفعة من حصاد|HASAD_RECEIVABLE_SETTLE|settle-hasad-",
     "reason": "The per-branch Hasad receivable and its settlement by Hasad's bank transfer (D-4-14), kept by REM-2 pending Q-7."
   },

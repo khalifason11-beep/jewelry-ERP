@@ -111,7 +111,7 @@ describe('production mode (security item 2)', () => {
     expect(leaked).toContain('cashier.kh.01');
   });
 
-  it('does not register demo reset in production (404), even for the GM; the Hasad simulator is gone everywhere', async () => {
+  it('the demo reset no longer exists (404), even for the GM; the Hasad simulator is gone everywhere', async () => {
     const gm = await prodSession('general.manager');
     expect((await gm.post('/api/demo/reset')).status).toBe(404);
     expect((await gm.get('/api/hasad/simulator/customers')).status).toBe(404);
@@ -122,13 +122,15 @@ describe('production mode (security item 2)', () => {
     // REM-2: the simulator was removed, so it is not registered in demo mode either.
     const demoGm = await loginRole('general.manager');
     expect((await demoGm.get('/api/hasad/simulator/customers')).status).toBe(404);
+    // REM-3: the demo reset was removed, so it is not registered in demo mode either.
+    expect((await demoGm.post('/api/demo/reset')).status).toBe(404);
   });
 
   it('never exposes demo credentials in production, and minimises /health', async () => {
     const prodMeta = await request(prodApp).get('/api/meta');
     expect(prodMeta.status).toBe(200);
     expect(prodMeta.body.appMode).toBe('production');
-    expect(prodMeta.body.demoAccounts).toEqual([]);
+    expect(prodMeta.body).not.toHaveProperty('demoAccounts');
     expect(JSON.stringify(prodMeta.body)).not.toContain('demo-');
     // Minimal: ok + the backup status (ages and status only, D-2c-6); no driver, mode or versions.
     const health = (await request(prodApp).get('/api/health')).body;
@@ -136,8 +138,11 @@ describe('production mode (security item 2)', () => {
     expect(health.ok).toBe(true);
     expect(Object.keys(health.backup).sort()).toEqual(['backupAgeHours', 'reasons', 'status', 'verifyAgeHours']);
 
+    // REM-3: the login page lists no accounts in demo mode either.
     const demoMeta = await request(demoApp).get('/api/meta');
-    expect(demoMeta.body.demoAccounts.length).toBeGreaterThan(0);
+    expect(demoMeta.body.appMode).toBe('demo');
+    expect(demoMeta.body).not.toHaveProperty('demoAccounts');
+    expect(JSON.stringify(demoMeta.body)).not.toContain('demo-');
   });
 
   it('uses a __Host- Secure cookie and HSTS in production', async () => {

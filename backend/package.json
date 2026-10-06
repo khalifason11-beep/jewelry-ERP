@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "tsx watch --clear-screen=false src/server.ts",
     "start": "tsx src/server.ts",
-    "seed": "tsx src/seed/cli.ts",
     "bootstrap": "tsx src/bootstrap-cli.ts",
     "ops": "tsx src/ops-cli.ts",
     "migrate": "tsx src/migrate-cli.ts",

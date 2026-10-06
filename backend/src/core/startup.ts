@@ -6,7 +6,6 @@ import { t, type DB, type Executor } from '@jerp/database';
 import { rows } from './sql';
 import type { Config } from '../config';
 import { verifyPassword } from '../auth/password';
-import { DEMO_PASSWORDS, USERS } from '../seed/catalog';
 
 const DEFAULT_DB_PASSWORDS = new Set(['', 'postgres', 'password', 'admin', 'root', 'changeme', 'secret', '123456', 'pass', 'test']);
 
@@ -55,16 +54,28 @@ export function webauthnConfigProblems(cfg: Config): string[] {
   return problems;
 }
 
-/** Demo accounts that still accept their published demo password (must be none in production). */
+/**
+ * The demo accounts and passwords that earlier versions published on the login page (REM-3 removed the
+ * demo data, but a database created by an older version may still contain them). Production refuses
+ * to start while any of them still accepts its published password.
+ */
+const PUBLISHED_DEMO_PASSWORDS = { GENERAL_MANAGER: 'demo-gm-2026', BRANCH_MANAGER: 'demo-bm-2026', CASHIER: 'demo-cashier-2026' } as const;
+export const PUBLISHED_DEMO_ACCOUNTS: readonly { username: string; role: keyof typeof PUBLISHED_DEMO_PASSWORDS }[] = [
+  { username: 'general.manager', role: 'GENERAL_MANAGER' },
+  ...['kh', 'omd', 'bhr', 'pzu'].map((b) => ({ username: `branch.manager.${b}`, role: 'BRANCH_MANAGER' as const })),
+  ...['kh.01', 'kh.02', 'omd.01', 'bhr.01', 'pzu.01'].map((b) => ({ username: `cashier.${b}`, role: 'CASHIER' as const })),
+];
+
+/** Accounts that still accept a published demo password (must be none in production). */
 export async function demoCredentialsInUse(db: DB): Promise<string[]> {
   const rows = await db
     .select({ username: t.users.username, passwordHash: t.users.passwordHash, status: t.users.status })
     .from(t.users)
-    .where(inArray(t.users.username, USERS.map((u) => u.username)));
+    .where(inArray(t.users.username, PUBLISHED_DEMO_ACCOUNTS.map((u) => u.username)));
   const found: string[] = [];
   for (const r of rows) {
-    const role = USERS.find((u) => u.username === r.username)!.role;
-    if (r.status === 'ACTIVE' && (await verifyPassword(DEMO_PASSWORDS[role], r.passwordHash))) found.push(r.username);
+    const role = PUBLISHED_DEMO_ACCOUNTS.find((u) => u.username === r.username)!.role;
+    if (r.status === 'ACTIVE' && (await verifyPassword(PUBLISHED_DEMO_PASSWORDS[role], r.passwordHash))) found.push(r.username);
   }
   return found;
 }

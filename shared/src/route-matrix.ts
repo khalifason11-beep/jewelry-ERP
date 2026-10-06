@@ -29,9 +29,7 @@ export interface RouteRule {
   any?: Permission[];
   /** Password re-confirmation within the re-auth window. */
   reauth?: boolean;
-  /** Registered only in APP_MODE=demo. */
-  demoOnly?: boolean;
-  /** Destroys business data — only ever allowed in demo mode. */
+  /** Destroys business data — never registered outside demo mode (REM-3: no such route exists). */
   destructive?: boolean;
   /**
    * Creates or confirms a business record: the request must carry an `Idempotency-Key` header.
@@ -170,9 +168,6 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('GET', '/dashboard/company', 'global', { all: ['dashboard.company'] }),
   r('GET', '/reports/:key', 'branch', { all: ['reports.view'] }),
   r('GET', '/audit', 'branch', { all: ['audit.view'] }),
-
-  // ── demo tooling (never registered in production)
-  r('POST', '/demo/reset', 'global', { all: ['settings.manage'], reauth: true, demoOnly: true, destructive: true }),
 ];
 
 export const routeId = (method: string, path: string) => `${method.toUpperCase()} ${path}`;

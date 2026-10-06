@@ -199,7 +199,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     goldOwedMgPure24 owedAfterMgPure24 goldDebtMgPure24 settledKarat settledWeightMg settledPureMg24 bankReference hasadReceivableToBank hasadReceivableBalance
     cashLines bankLines bankMovement line
     isActive categoryAr supplierNameAr productNameAr existing
-    otherOut isSimulated
+    otherOut
     scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates
   `),
 );

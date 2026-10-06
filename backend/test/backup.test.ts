@@ -77,9 +77,9 @@ describe('health check and GM status', () => {
     const s = (await gm.get('/api/backups/status')).body;
     expect(s).toMatchObject({ status: 'WARNING', reasons: ['BACKUP_STALE'], maxAgeHours: 26, maxVerifyAgeDays: 7 });
     // Raising the threshold (setting) clears the warning.
-    await ctx.settings.apply(ctx.db, { 'backup.maxAgeHours': 48 }, { actor: { id: null, username: 'test' }, allowDemoOnly: true });
+    await ctx.settings.apply(ctx.db, { 'backup.maxAgeHours': 48 }, { actor: { id: null, username: 'test' } });
     expect((await gm.get('/api/backups/status')).body).toMatchObject({ status: 'OK', reasons: [], maxAgeHours: 48 });
-    await ctx.settings.apply(ctx.db, { 'backup.maxAgeHours': 26 }, { actor: { id: null, username: 'test' }, allowDemoOnly: true });
+    await ctx.settings.apply(ctx.db, { 'backup.maxAgeHours': 26 }, { actor: { id: null, username: 'test' } });
   });
 
   it('branch managers and cashiers cannot read the backup status', async () => {
