@@ -389,6 +389,8 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'GET /dashboard/company': () => ({ path: '/dashboard/company' }),
   'GET /reports/:key': () => ({ path: '/reports/sales' }),
   'GET /audit': () => ({ path: '/audit', query: { limit: 5 } }),
+  'GET /setup/status': () => ({ path: '/setup/status' }),
+  'POST /setup/allowed-karats': () => ({ path: '/setup/allowed-karats', body: { allowedKarats: [18, 21, 22, 24] } }),
 };
 
 /** For every branch-scoped rule: a request by a Khartoum user that targets Omdurman data. */

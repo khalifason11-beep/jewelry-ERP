@@ -26,6 +26,7 @@ import * as sales from './modules/sales/service';
 import * as printing from './modules/print/service';
 import * as purchases from './modules/purchases/service';
 import * as catalog from './modules/catalog/service';
+import * as setup from './modules/setup/service';
 import * as transfers from './modules/transfers/service';
 import * as dashboard from './modules/dashboard/service';
 import * as reports from './modules/reports/service';
@@ -663,6 +664,13 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     res.json(data.map(({ sessionId, ...a }) => ({ ...a, sessionRef: sessionId ? sessions.sessionRef(sessionId) : null })));
   });
   route('GET', '/notifications', async (req, res) => res.json(await notificationsFor(ctx, actorOf(req))));
+
+  // First steps on an empty system (REM-3).
+  route('GET', '/setup/status', async (req, res) => res.json(await setup.setupStatus(ctx, actorOf(req))));
+  route('POST', '/setup/allowed-karats', async (req, res) => {
+    const body = parse(z.object({ allowedKarats: z.array(z.number().int().min(8).max(24)).min(1).max(10) }).strict(), req.body);
+    res.json(await setup.confirmAllowedKarats(ctx, actorOf(req), body.allowedKarats));
+  });
 
   // Branch-scoped quick lookup used by the drill-down header.
   route('GET', '/branches/:id', async (req, res) => {

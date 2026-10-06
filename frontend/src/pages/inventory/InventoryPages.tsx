@@ -20,7 +20,7 @@ import { InventorySelect } from './InventorySelect';
 
 export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarExtra }: { branchId?: number; initialStatus?: string; toolbarExtra?: React.ReactNode }) {
   const { t, L } = useI18n();
-  const { can, isGlobal } = useAuth();
+  const { can, isGlobal, me } = useAuth();
   const navigate = useNavigate();
   const [status, setStatus] = useState(initialStatus);
   const [karat, setKarat] = useState<number | ''>('');
@@ -53,7 +53,8 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
           </Select>
           <Select value={karat} onChange={(e) => setKarat(e.target.value ? Number(e.target.value) : '')} className="h-8 w-24 text-[13px]" aria-label={t('Karat')}>
             <option value="">{t('Karat')}</option>
-            {[18, 21, 22, 24].map((k) => <option key={k} value={k}>{karatLabel(k)}</option>)}
+            {/* REM-3: the karats this deployment sells (setting), not a hardcoded list. */}
+            {(me?.allowedKarats ?? []).map((k) => <option key={k} value={k}>{karatLabel(k)}</option>)}
           </Select>
           <Select value={category} onChange={(e) => setCategory(e.target.value)} className="h-8 w-36 text-[13px]" aria-label={t('Category')}>
             <option value="">{t('Category')}</option>

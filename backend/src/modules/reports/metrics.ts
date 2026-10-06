@@ -96,8 +96,14 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
   return out;
 }
 
+const ZERO_METRICS: Omit<BranchMetrics, 'branchId'> = {
+  salesCount: 0, itemsSold: 0, weightSoldMg: 0, revenue: 0, discounts: 0, costOfSales: 0, grossProfit: 0, purchasesCount: 0,
+  purchasedItems: 0, purchasesCost: 0, availableItems: 0, availableWeightMg: 0, reservedItems: 0, inventoryCost: 0, inventoryRetail: 0,
+};
+
+/** Totals over branches; with no branches every figure is 0 (an empty company shows zeros, not "—"). */
 export function sumMetrics(list: BranchMetrics[]): Omit<BranchMetrics, 'branchId'> {
-  const total = {} as Record<string, number>;
+  const total = { ...ZERO_METRICS } as Record<string, number>;
   for (const m of list) for (const [k, v] of Object.entries(m)) if (k !== 'branchId') total[k] = (total[k] ?? 0) + (v as number);
   return total as unknown as Omit<BranchMetrics, 'branchId'>;
 }

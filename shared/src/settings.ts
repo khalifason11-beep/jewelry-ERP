@@ -55,6 +55,11 @@ export interface SystemSettings {
   inventory: {
     /** Karats accepted anywhere in the system. */
     allowedKarats: number[];
+    /**
+     * The General Manager confirmed the allowed karats (REM-3 first-steps checklist, mandatory step).
+     * Set only by POST /setup/allowed-karats; an initial value from ALLOWED_KARATS_INITIAL is not a confirmation.
+     */
+    allowedKaratsConfirmed: boolean;
   };
   security: {
     /** Centralized password control: users cannot change their password except when forced. */
@@ -132,6 +137,7 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   },
   inventory: {
     allowedKarats: [18, 21, 22, 24],
+    allowedKaratsConfirmed: false,
   },
   security: {
     allowSelfPasswordChange: false,
@@ -212,6 +218,8 @@ export const SETTINGS_REGISTRY = {
       .max(10)
       .refine((a) => new Set(a).size === a.length, 'Duplicate karat'),
   },
+  // Changed only by the first-steps confirmation (POST /setup/allowed-karats), never by the settings form.
+  'inventory.allowedKaratsConfirmed': { schema: z.boolean(), guarded: true },
   'security.allowSelfPasswordChange': { schema: z.boolean() },
   'security.sessionIdleMinutes': { schema: int(1, 240) },
   'security.idleMinutes': { schema: int(5, 240) },

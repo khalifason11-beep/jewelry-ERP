@@ -253,7 +253,18 @@ export function PosPage() {
           ) : items.isError ? (
             <ErrorState error={items.error} onRetry={() => items.refetch()} />
           ) : !items.data?.items.length ? (
-            <Empty icon={<Search className="size-5" />} title={t('No matching pieces')} body={q ? t('Nothing in {branch} matches “{q}”.', { branch: branchName, q }) : t('No available stock in this branch.')} />
+            !q && karat === '' && !category ? (
+              // REM-3: no filter is active, so the branch simply has no stock yet (not "no match").
+              <div data-testid="pos-no-stock">
+                <Empty
+                  icon={<ShoppingBag className="size-5" />}
+                  title={t('No pieces in this branch yet')}
+                  body={can('purchases.create') ? t('Receive a supplier order or buy scrap to add stock.') : t('Ask your branch manager to receive stock.')}
+                />
+              </div>
+            ) : (
+              <Empty icon={<Search className="size-5" />} title={t('No matching pieces')} body={q ? t('Nothing in {branch} matches “{q}”.', { branch: branchName, q }) : t('No pieces match these filters.')} />
+            )
           ) : (
             <>
               <div className="mb-2 text-xs text-ink-500 num">

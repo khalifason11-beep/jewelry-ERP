@@ -100,9 +100,15 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
         <Kpi label={t('Available Inventory')} value={t('{n} pcs', { n: num(k.availableItems) })} sub={`${grams(k.availableWeightMg)}${k.reservedItems ? ` · ${t('{n} reserved', { n: k.reservedItems })}` : ''}`} icon={<Gem className="size-4" />} onClick={() => navigate(`/inventory?branchId=${d.branchId}`)} />
       </div>
 
-      <StockWeightCard s={d.stockWeight} reportQuery={`?branchId=${d.branchId}`} />
-
-      <MovementCard d={d} isToday={isToday} />
+      {/* REM-3: a branch with no stock at all gets a meaningful empty state instead of tables of zeros. */}
+      {k.availableItems === 0 && d.stockWeight.totalWeightMg === 0 && k.salesCount === 0 ? (
+        <NoStockYet />
+      ) : (
+        <>
+          <StockWeightCard s={d.stockWeight} reportQuery={`?branchId=${d.branchId}`} />
+          <MovementCard d={d} isToday={isToday} />
+        </>
+      )}
 
       <div className="grid gap-5">
         <Card padded={false}>
@@ -161,6 +167,23 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
         </div>
       </Card>
     </div>
+  );
+}
+
+function NoStockYet() {
+  const { t } = useI18n();
+  const { can } = useAuth();
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-4" data-testid="no-stock-yet">
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-ink-900">{t('Your branch has no stock yet')}</div>
+          <div className="text-[13px] text-ink-500">{t('Receive a supplier order or buy scrap to start. Types and products can be created on the same screens.')}</div>
+        </div>
+        {can('purchases.create') && <Link to="/purchases" className="rounded-md bg-ink-900 px-3 py-2 text-[13px] font-medium text-white hover:bg-ink-800">{t('New purchase')}</Link>}
+        {can('scrap.buy') && <Link to="/scrap" className="rounded-md border border-line-strong px-3 py-2 text-[13px] font-medium text-ink-800 hover:bg-canvas">{t('Buy scrap')}</Link>}
+      </div>
+    </Card>
   );
 }
 

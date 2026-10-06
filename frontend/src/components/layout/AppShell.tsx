@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { ArrowLeftRight, Fingerprint, BarChart3, Bell, Building2, ChevronsLeft, ChevronsRight, ClipboardList, Gem, Globe, LayoutDashboard, LogOut, MonitorSmartphone, Package, Receipt, ScrollText, Settings, ShoppingCart, Truck, UserRound, Users, Banknote, Recycle, Tags } from 'lucide-react';
@@ -186,14 +186,22 @@ export function AppShell() {
 function GoldRate() {
   const { t } = useI18n();
   const q = useQuery({ queryKey: ['gold-rates'], queryFn: () => get<{ current: Record<string, { pricePerGram: number }> }>('/gold-rates'), refetchInterval: 120_000 });
+  const { can } = useAuth();
   const r = q.data?.current['21']?.pricePerGram;
-  return (
-    <div className="hidden items-center gap-2 rounded-md bg-ink-900 px-2.5 py-1 text-[12.5px] lg:flex" title={t('Reference gold price per gram (set by the General Manager)')}>
+  // REM-3: on a new system no rate exists yet: say so (and where to set it) instead of "—/g".
+  const missing = q.isSuccess && !r;
+  const chip = (
+    <div className="hidden items-center gap-2 rounded-md bg-ink-900 px-2.5 py-1 text-[12.5px] lg:flex" title={t('Reference gold price per gram (set by the General Manager)')} data-testid="rate-chip">
       <span className="size-1.5 rounded-full bg-gold-400" />
       <span className="text-ink-300">{t('Gold 21K')}</span>
-      <span className="font-semibold text-gold-300 num">{r ? money(r) : '—'}/{t('g')}</span>
+      {missing ? (
+        <span className="font-semibold text-gold-300">{can('settings.manage') ? t('Set today’s rate') : t('No rate set yet')}</span>
+      ) : (
+        <span className="font-semibold text-gold-300 num">{r ? money(r) : '—'}/{t('g')}</span>
+      )}
     </div>
   );
+  return missing && can('settings.manage') ? <Link to="/settings" className="hover:opacity-90">{chip}</Link> : chip;
 }
 
 function Clock() {

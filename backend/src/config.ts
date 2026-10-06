@@ -11,6 +11,17 @@ function appMode(v: string | undefined): AppMode {
   throw new Error(`APP_MODE must be "demo" or "production" (got "${v}")`);
 }
 
+/** ALLOWED_KARATS_INITIAL: a comma-separated list of karats 8–24 (the setting's own rule); anything else stops the start. */
+function allowedKaratsInitial(v: string | undefined): number[] | undefined {
+  if (v === undefined || v.trim() === '') return undefined;
+  const list = v.split(',').map((x) => x.trim());
+  const karats = list.map(Number);
+  if (karats.some((k, i) => !/^\d+$/.test(list[i]) || k < 8 || k > 24) || new Set(karats).size !== karats.length || karats.length > 10) {
+    throw new Error(`ALLOWED_KARATS_INITIAL must be a comma-separated list of distinct karats from 8 to 24, e.g. "21" (got "${v}")`);
+  }
+  return karats;
+}
+
 /** Express `trust proxy`: off unless explicitly configured (see docs/decisions.md D-1a-9). */
 function trustProxy(v: string | undefined): boolean | number | string {
   if (!v || v === 'false' || v === '0') return false;
@@ -56,6 +67,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     /** First-start-only initial values of the guarded second-factor settings (never read afterwards). */
     webauthnUvInitial: env.WEBAUTHN_UV_INITIAL || undefined,
     twoFactorRolesInitial: env.TWO_FACTOR_REQUIRED_ROLES_INITIAL,
+    /** First-start-only initial value of `inventory.allowedKarats` (REM-3): one karat or a comma-separated list. */
+    allowedKaratsInitial: allowedKaratsInitial(env.ALLOWED_KARATS_INITIAL),
     /** `__Host-` prefix pins the cookie to this host over HTTPS (production only). */
     cookieName: production ? '__Host-jerp_session' : 'jerp_session',
     cookieSecure: production ? env.COOKIE_SECURE !== 'false' : env.COOKIE_SECURE === 'true',

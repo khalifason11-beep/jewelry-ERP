@@ -139,6 +139,7 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /reports/:key': reportPaths,
       'GET /audit': ['/audit', '/audit?limit=5000'],
       'GET /backups/status': ['/backups/status'],
+      'GET /setup/status': ['/setup/status'],
       'GET /auth/passkeys': ['/auth/passkeys'],
       'GET /auth/sign-ins': ['/auth/sign-ins'],
       'GET /cash/drawer': [`/cash/drawer?branchId=${krt.id}`],

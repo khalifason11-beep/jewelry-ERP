@@ -149,7 +149,7 @@ export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
 export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
   words(`
     abortReason abortedAt absDifferenceMg action actions active activeSessions actual address addedAt allowSelfPasswordChange
-    allowedKarats alreadyOpen amount appMode ar asOf at attention availableItems availableWeightMg
+    allowedKarats allowedKaratsConfirmed alreadyOpen amount appMode ar asOf at attention availableItems availableWeightMg
     balanceGrams barcode basis branch branchAddress branchCode branchId branchName branchNameAr branchPhone branches branding
     byCategory cancelReason cancelled cancelledAt cancelledBy cashierId cashierName cashierNameAr cashierUsername cashiers
     category categoryCode categoryId categoryName categoryNameAr city closing closingItems closingWeightMg code codes
@@ -199,7 +199,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     goldOwedMgPure24 owedAfterMgPure24 goldDebtMgPure24 settledKarat settledWeightMg settledPureMg24 bankReference hasadReceivableToBank hasadReceivableBalance
     cashLines bankLines bankMovement line
     isActive categoryAr supplierNameAr productNameAr existing
-    otherOut
+    otherOut setupSteps steps done complete
     scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates
   `),
 );

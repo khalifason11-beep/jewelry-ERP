@@ -10,6 +10,7 @@ import { useI18n } from '../../lib/i18n';
 import { Card, CardHeader, ErrorState, Input, Kpi, Loading, PageHeader } from '../../components/ui';
 import { StockWeightCard, type StockWeight } from '../../components/StockWeight';
 import { BackupBanner } from '../../components/BackupBanner';
+import { FirstSteps, useSetupStatus } from '../../components/FirstSteps';
 import { CategoryBarChart, StackedMoneyBars } from '../../components/charts';
 
 interface BranchRow {
@@ -70,6 +71,7 @@ export function CompanyDashboardPage() {
             : custom;
 
   const q = useQuery({ queryKey: ['dashboard', 'company', range.from, range.to], queryFn: () => get<CompanyDash>('/dashboard/company', range), refetchInterval: 60_000 });
+  const setup = useSetupStatus();
 
   const presets: { v: Preset; label: string }[] = [
     { v: 'today', label: t('Today') },
@@ -111,11 +113,14 @@ export function CompanyDashboardPage() {
 
       <BackupBanner />
 
+      {/* REM-3: the first-steps checklist until the system can take its first sale. */}
+      {setup.data && !setup.data.complete && <FirstSteps status={setup.data} />}
+
       {q.isLoading ? (
         <Loading />
       ) : q.isError ? (
         <ErrorState error={q.error} onRetry={() => q.refetch()} />
-      ) : (
+      ) : q.data!.branches.length === 0 ? null : (
         <Body d={q.data!} onBranch={(id) => navigate(`/branches/${id}`)} L={L} />
       )}
     </div>

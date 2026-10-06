@@ -5,6 +5,7 @@ import { log } from './core/logger';
 import { demoCredentialsInUse, productionConfigProblems, runtimeRoleProblems, unvalidatedConstraints } from './core/startup';
 import { applyInitialSecuritySettings, purgeExpiredSecondFactorState } from './modules/auth/passkeys';
 import { replaceLegacyInvoiceFooters } from './modules/settings/legacy-footer';
+import { applyInitialInventorySettings } from './modules/setup/service';
 
 // ── Refuse unsafe production configurations before touching the database (security item 2).
 const problems = productionConfigProblems(config);
@@ -57,6 +58,9 @@ const footers = await replaceLegacyInvoiceFooters(ctx);
 if (footers.length) log.info('unedited default invoice footer replaced by the new default', { keys: footers });
 const initial = await applyInitialSecuritySettings(ctx, { uv: config.webauthnUvInitial, roles: config.twoFactorRolesInitial });
 if (initial.length) log.info('second-factor settings initialised from the environment (first start)', { keys: initial.map((c) => c.key) });
+// Allowed karats: ALLOWED_KARATS_INITIAL applies on the very first start only (REM-3); the GM still confirms them.
+const karatsInit = await applyInitialInventorySettings(ctx, { allowedKarats: config.allowedKaratsInitial });
+if (config.allowedKaratsInitial && karatsInit.length) log.info('allowed karats initialised from the environment (first start)', { allowedKarats: config.allowedKaratsInitial });
 const { security: sec } = await ctx.settings.get();
 log.info('second factor', { rpId: config.webauthnRpId ?? '(demo: from each request)', userVerification: sec.webauthnUserVerification, requiredRoles: sec.twoFactorRequiredRoles });
 

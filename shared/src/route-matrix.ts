@@ -168,6 +168,10 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('GET', '/dashboard/company', 'global', { all: ['dashboard.company'] }),
   r('GET', '/reports/:key', 'branch', { all: ['reports.view'] }),
   r('GET', '/audit', 'branch', { all: ['audit.view'] }),
+
+  // ── first steps on an empty system (REM-3)
+  r('GET', '/setup/status', 'global', { all: ['settings.manage'] }),
+  r('POST', '/setup/allowed-karats', 'global', { all: ['settings.manage'], reauth: true }),
 ];
 
 export const routeId = (method: string, path: string) => `${method.toUpperCase()} ${path}`;
