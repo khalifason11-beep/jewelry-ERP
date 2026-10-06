@@ -190,7 +190,7 @@ Requirements: GM-only, once per branch, then **sealed** (changes only through au
 7. Tests run on both PGlite and real PostgreSQL. Phase gate: typecheck, tests, build, `npm run i18n:check`, migration applied to a copy of an existing database, docs and `docs/decisions.md` updated, push.
 8. **Acceptance of any phase that changes a user flow includes the empty-database rehearsal** (BACKLOG REH-1), not only automated tests.
 9. Decisions made under ambiguity are recorded in `docs/decisions.md` with the option chosen and how to change it.
-10. **The daily cash reconciliation adds up.** Its lines sum exactly to each account's movement of the day in the ledger (for CASH: opening cash + lines = expected cash). A ledger event type without a dedicated line appears in an "Other" line; nothing may silently disappear. Tested.
+10. **The daily cash reconciliation adds up.** Its lines sum exactly to each account's movement of the day in the ledger (for CASH: opening cash + lines = expected cash). A ledger event type without a dedicated line appears in an "Other" line; nothing may silently disappear. Tested. Every event type is either given a line or listed, with a reason, as "Other" (`OTHER_EVENT_TYPES`); a guardrail test fails on an undecided one.
 
 ## 19. Glossary
 

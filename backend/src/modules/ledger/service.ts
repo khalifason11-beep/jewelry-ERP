@@ -176,12 +176,27 @@ export const RECONCILIATION_LINES = {
   BANK: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'MAKING_CHARGES', 'HASAD_RECEIVABLE_SETTLEMENTS', 'OTHER'],
 } as const;
 export type ReconciliationLine = (typeof RECONCILIATION_LINES)['BANK'][number];
-const LINE_OF_EVENT: Partial<Record<LedgerEventType, ReconciliationLine>> = {
+export const LINE_OF_EVENT: Partial<Record<LedgerEventType, ReconciliationLine>> = {
   SALE: 'SALES',
   SALE_VOID: 'VOIDS',
   SCRAP_PURCHASE: 'SCRAP_PURCHASES',
   SUPPLIER_MAKING_CHARGE: 'MAKING_CHARGES',
   HASAD_RECEIVABLE_SETTLEMENT: 'HASAD_RECEIVABLE_SETTLEMENTS',
+};
+
+/**
+ * Event types that deliberately have NO line of their own and are shown under OTHER, each with its
+ * reason. Every member of LEDGER_EVENT_TYPES must be either in LINE_OF_EVENT or here (guardrail test
+ * in test/ledger.test.ts): adding an event type fails the build until someone decides where it goes.
+ */
+export const OTHER_EVENT_TYPES: Readonly<Partial<Record<LedgerEventType, string>>> = {
+  // Expenses were removed (REM-1); migration 0013 refuses new EXPENSE entries. Only history remains.
+  EXPENSE: 'historical only: expenses were removed (REM-1)',
+  // Hasad weight-difference settlements were removed (REM-2); migration 0014 refuses new entries.
+  HASAD_SETTLEMENT: 'historical only: Hasad weight-difference settlements were removed (REM-2)',
+  // A generic correction that reverses an earlier entry of any kind; it has no business line of its
+  // own (sale voids use SALE_VOID). Shown as "Other" so the day still adds up.
+  REVERSAL: 'generic correction of an earlier entry; no business line of its own',
 };
 
 /** Group one account's entries into its reconciliation lines; their sum always equals the account's movement. */

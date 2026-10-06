@@ -37,7 +37,7 @@ export const branches = pgTable('branches', {
   city: text('city').notNull(),
   address: text('address'),
   phone: text('phone'),
-  /** Branch identifier used by the Hasad Gold system. */
+  /** DEPRECATED (REM-2): Hasad branch identifier of the removed integration; no longer written. Dropped by REM-5. */
   hasadBranchCode: text('hasad_branch_code').unique(),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: createdAt(),
@@ -496,8 +496,10 @@ export const transferItems = pgTable(
   (t) => [primaryKey({ columns: [t.transferId, t.itemId] })],
 );
 
-// ───────────────────────────── Hasad Gold (ERP side) ─────────────────────────────
+// ───────────────────────────── Hasad Gold (ERP side, DEPRECATED) ─────────────────────────────
 
+// REM-2: the Hasad withdrawal workspace was removed; Hasad is only a payment method now. These tables stay
+// for history; migration 0014 refuses new rows. Dropped by REM-5 before the first production deployment.
 /** ERP mirror of withdrawal requests received from Hasad Gold. Never touches inventory. */
 export const hasadWithdrawals = pgTable(
   'hasad_withdrawals',
@@ -568,7 +570,7 @@ export const hasadRedemptionItems = pgTable(
   (t) => [index('hri_redemption_idx').on(t.redemptionId)],
 );
 
-/** Money settled at the counter (currently only Hasad weight differences). */
+/** DEPRECATED (REM-2): Hasad weight-difference money settled at the counter; no new rows (migration 0014). */
 export const settlements = pgTable('settlements', {
   id: serial('id').primaryKey(),
   number: text('number').notNull().unique(),

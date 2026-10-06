@@ -12,7 +12,8 @@ import { rows } from '../src/core/sql';
 import { resetThrottleMemory } from '../src/auth/lockout';
 import { loadActor } from '../src/modules/sessions/service';
 import { createSale, voidSale } from '../src/modules/sales/service';
-import { balances, cashBalance, entriesFor, post, reconciliation, reconciliationLines, RECONCILIATION_LINES } from '../src/modules/ledger/service';
+import { balances, cashBalance, entriesFor, LINE_OF_EVENT, OTHER_EVENT_TYPES, post, reconciliation, reconciliationLines, RECONCILIATION_LINES } from '../src/modules/ledger/service';
+import { LEDGER_EVENT_TYPES } from '@jerp/shared';
 import { addDays, dayKey, dayStart } from '../src/core/time';
 import { seedDemo } from '../src/seed/demo';
 import { DEMO_PASSWORDS } from '../src/seed/catalog';
@@ -403,6 +404,23 @@ describe('expected cash and daily reconciliation', () => {
       }
     }
     expect(days).toBeGreaterThan(100);
+  });
+
+  it('guardrail: every ledger event type has a reconciliation line or is explicitly listed as "Other" with a reason', () => {
+    // Adding an event type to LEDGER_EVENT_TYPES fails here until someone decides: give it a line in
+    // LINE_OF_EVENT, or add it to OTHER_EVENT_TYPES with the reason (backend/src/modules/ledger/service.ts).
+    const undecided = LEDGER_EVENT_TYPES.filter((e) => !(e in LINE_OF_EVENT) && !(e in OTHER_EVENT_TYPES));
+    expect(undecided, 'ledger event types with no reconciliation decision').toEqual([]);
+    const both = LEDGER_EVENT_TYPES.filter((e) => e in LINE_OF_EVENT && e in OTHER_EVENT_TYPES);
+    expect(both, 'an event type cannot have a line and be listed as Other').toEqual([]);
+    for (const [e, reason] of Object.entries(OTHER_EVENT_TYPES)) {
+      expect((LEDGER_EVENT_TYPES as readonly string[]).includes(e), `${e} is not a ledger event type`).toBe(true);
+      expect(reason?.trim().length, `${e} needs a reason`).toBeGreaterThan(10);
+    }
+    expect(Object.keys(OTHER_EVENT_TYPES).sort()).toEqual(['EXPENSE', 'HASAD_SETTLEMENT', 'REVERSAL']);
+    // And the lines they map to exist for at least one account.
+    const all = new Set<string>([...RECONCILIATION_LINES.CASH, ...RECONCILIATION_LINES.BANK]);
+    for (const line of Object.values(LINE_OF_EVENT)) expect(all.has(line!), line).toBe(true);
   });
 
   it('an event type without a line of its own is shown under "Other": nothing silently disappears', async () => {
