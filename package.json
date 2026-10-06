@@ -23,7 +23,8 @@
     "i18n:check": "node scripts/i18n-check.mjs",
     "rehearsal": "node scripts/rehearsal/rehearsal.mjs",
     "check:lockfile": "node scripts/check-lockfile-platforms.mjs",
-    "check:hasad": "node scripts/check-hasad-footprint.mjs"
+    "check:hasad": "node scripts/check-hasad-footprint.mjs",
+    "dev:sample": "npm run dev:sample -w @jerp/backend --"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

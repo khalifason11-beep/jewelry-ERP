@@ -12,7 +12,8 @@
     "backup": "tsx src/backup-cli.ts",
     "backup:verify": "tsx src/backup-verify-cli.ts",
     "test": "vitest run",
-    "test:pg": "REQUIRE_PG_TESTS=1 vitest run --project postgres"
+    "test:pg": "REQUIRE_PG_TESTS=1 vitest run --project postgres",
+    "dev:sample": "tsx src/dev/sample-cli.ts"
   },
   "dependencies": {
     "@jerp/database": "*",

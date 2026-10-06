@@ -6,7 +6,8 @@
 //   node scripts/capture-ui-baseline.mjs --only=empty         # empty production database only (needs REHEARSAL_ADMIN_URL)
 //   node scripts/capture-ui-baseline.mjs --skip-build --out=docs/ux/baseline
 //
-// demo:  a fresh demo database (embedded PGlite, 30 days of seeded activity) served in demo mode; every
+// demo:  a fresh demo-mode database filled by `npm run dev:sample` (REM-3: no demo data ships; marked sample
+//        names from backend/src/dev/sample-names.json) and served in demo mode; every
 //        main screen and the catalog dialogs, as the General Manager, a branch manager and a cashier.
 // empty: the REH-1 rehearsal (production mode, real PostgreSQL behind TLS) with UI_BASELINE_DIR set, which
 //        photographs each role's home right after its first sign-in (scripts/rehearsal/rehearsal.mjs).
@@ -16,7 +17,7 @@
 // Reads only; changes no application code. The demo database lives in a temporary folder and is deleted.
 
 import { createRequire } from 'node:module';
-import { execSync, spawn, spawnSync } from 'node:child_process';
+import { execFileSync, execSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -63,12 +64,8 @@ async function waitFor(fn, what, ms = 180_000) {
   throw new Error(`timed out waiting for ${what}`);
 }
 
-// Demo accounts (backend/src/seed/catalog.ts).
-const ROLES = {
-  gm: { username: 'general.manager', password: 'demo-gm-2026' },
-  bm: { username: 'branch.manager.kh', password: 'demo-bm-2026' },
-  cashier: { username: 'cashier.kh.01', password: 'demo-cashier-2026' },
-};
+// Accounts created by `npm run dev:sample` (passwords generated per run); filled in by captureDemo().
+const ROLES = {};
 
 /**
  * What to photograph. `path` may be a function of the page (to find a real sale or purchase id);
@@ -141,17 +138,18 @@ async function shoot(page, file, full) {
 async function captureDemo(browser) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jerp-ux-'));
   const port = await freePort();
-  const server = spawn('npx', ['tsx', 'src/server.ts'], {
-    cwd: path.join(ROOT, 'backend'),
-    env: { ...process.env, APP_MODE: 'demo', PORT: String(port), PGLITE_DIR: path.join(tmp, 'pglite'), DATABASE_URL: '', LOG_LEVEL: 'warn' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  // No passkey for the sample GM (first start only), so screenshots need no authenticator.
+  const env = { ...process.env, APP_MODE: 'demo', PORT: String(port), PGLITE_DIR: path.join(tmp, 'pglite'), DATABASE_URL: '', LOG_LEVEL: 'warn', TWO_FACTOR_REQUIRED_ROLES_INITIAL: '' };
+  // Fill the empty database BEFORE the server opens it (an embedded database is never shared by two processes).
+  const sample = JSON.parse(execFileSync('npx', ['tsx', 'src/dev/sample-cli.ts', '--json'], { cwd: path.join(ROOT, 'backend'), env, encoding: 'utf8' }).trim().split('\n').pop());
+  Object.assign(ROLES, { gm: sample.gm, bm: sample.branchManagers[0], cashier: sample.cashiers[0] });
+  const server = spawn('npx', ['tsx', 'src/server.ts'], { cwd: path.join(ROOT, 'backend'), env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   let log = '';
   server.stdout.on('data', (d) => (log += d));
   server.stderr.on('data', (d) => (log += d));
   const base = `http://127.0.0.1:${port}`;
   try {
-    await waitFor(async () => (await fetch(`${base}/api/health`)).ok, 'the demo server (seeding takes a minute)');
+    await waitFor(async () => (await fetch(`${base}/api/health`)).ok, 'the demo server');
     let n = 0;
     const counter = new Map();
     for (const lang of LANGS) {
@@ -187,7 +185,12 @@ async function captureDemo(browser) {
     console.error(log.slice(-3000));
     throw e;
   } finally {
-    server.kill('SIGTERM');
+    try {
+      process.kill(-server.pid, 'SIGTERM'); // npx starts the real server as a child: stop the whole group
+    } catch {
+      /* already gone */
+    }
+    await new Promise((r) => (server.exitCode !== null ? r() : server.once('exit', r)));
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
