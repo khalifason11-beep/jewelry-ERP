@@ -311,13 +311,15 @@ describe('idempotency inside the money transaction', () => {
   it('parallel submits with one key: one sale, one entry, the others replay or wait', async () => {
     const cashier = await login('cashier.kh.02', 'CASHIER', false);
     const [item] = await freshItems('KRT', 1);
+    // A piece back in stock after a voided sale already has a sale line: count only new ones.
+    const before = (await ctx.db.select().from(t.saleItems).where(eq(t.saleItems.itemId, item.id))).length;
     const key = `ldg-${crypto.randomUUID()}`;
     const rs = await Promise.all([1, 2, 3, 4].map(() => cashier.post('/api/sales').set('Idempotency-Key', key).send({ items: [{ itemId: item.id }], paymentMethod: 'CASH' })));
     for (const r of rs) expect([200, 409]).toContain(r.status);
     const ids = new Set(rs.filter((r) => r.status === 200).map((r) => r.body.id));
     expect(ids.size).toBe(1);
     const sales = await ctx.db.select().from(t.saleItems).where(eq(t.saleItems.itemId, item.id));
-    expect(sales).toHaveLength(1);
+    expect(sales).toHaveLength(before + 1);
     expect(await entriesFor(ctx.db, 'sale', [[...ids][0]])).toHaveLength(1);
   });
 });

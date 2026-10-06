@@ -100,6 +100,9 @@ describe('idempotency keys', () => {
     const [item] = await availableItems('KRT', 1);
     const k = key();
     const before = await saleCount();
+    // A piece back in stock after a voided sale already has a SALE movement: count only new ones.
+    const saleMoves = async () => (await ctx.db.select().from(t.inventoryMovements).where(and(eq(t.inventoryMovements.itemId, item.id), eq(t.inventoryMovements.type, 'SALE')))).length;
+    const movesBefore = await saleMoves();
     const body = { items: [{ itemId: item.id }], paymentMethod: 'CASH' };
     const first = await cashier.post('/api/sales').set('Idempotency-Key', k).send(body);
     expect(first.status).toBe(200);
@@ -109,8 +112,7 @@ describe('idempotency keys', () => {
     expect(again.headers['idempotent-replayed']).toBe('true');
     expect(again.body).toEqual(first.body);
     expect(await saleCount()).toBe(before + 1);
-    const movements = await ctx.db.select().from(t.inventoryMovements).where(and(eq(t.inventoryMovements.itemId, item.id), eq(t.inventoryMovements.type, 'SALE')));
-    expect(movements).toHaveLength(1);
+    expect(await saleMoves()).toBe(movesBefore + 1);
   });
 
   it('same key + different body is 422 and changes nothing', async () => {

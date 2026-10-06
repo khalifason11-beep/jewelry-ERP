@@ -174,12 +174,12 @@ export function SettingsPage() {
           <CardHeader
             title={t('Gold rates ({currency} per gram)', { currency: currencyLabel() })}
             subtitle={t('The selling rate per gram, shown to cashiers')}
-            actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={saveRates.isPending} onClick={() => saveRates.mutate()}>{t('Save rates')}</Button>}
+            actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={saveRates.isPending} onClick={() => saveRates.mutate()} data-testid="save-gold-rates">{t('Save rates')}</Button>}
           />
           <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
             {draft.inventory.allowedKarats.map((k) => (
               <Field key={k} label={`${k}K`}>
-                <Input type="number" value={rateDraft[k] ?? ''} onChange={(e) => setRateDraft({ ...rateDraft, [k]: e.target.value })} className="num" />
+                <Input type="number" value={rateDraft[k] ?? ''} onChange={(e) => setRateDraft({ ...rateDraft, [k]: e.target.value })} className="num" data-testid={`gold-rate-${k}`} />
               </Field>
             ))}
           </div>

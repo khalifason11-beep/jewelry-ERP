@@ -24,7 +24,7 @@ site is needed.
 
 | Variable | Value on Render | Why |
 |---|---|---|
-| `APP_MODE` | `production` | Turns off demo data, demo accounts and "Reset demo data", and turns on the start-up refusals. |
+| `APP_MODE` | `production` | Turns on the start-up refusals, removes the "Demo" badge and refuses `npm run dev:sample`. (Since REM-3 there is no demo data in any mode: demo mode starts empty too.) |
 | `DATABASE_URL` | Render's **Internal Database URL** (`postgresql://user:password@host/db`) | Required in production; embedded PGlite is refused. Render generates a strong password. Never reuse `postgres`, `password`, `admin`, `root`, `changeme`, `secret` or `123456`: they are refused. |
 | `APP_ORIGIN` | `https://<your-service>.onrender.com`, or your custom domain, e.g. `https://erp.example.com` | Exact origin the browser uses (scheme + host, no trailing slash, no path). Must be `https://`. State-changing requests from any other origin are rejected (CSRF defence). If you add a custom domain later, update this value. |
 | `TRUST_PROXY` | `1` to start with, then **verify** (section 4) | Number of proxy hops in front of the app. It decides which `X-Forwarded-For` entry becomes the client IP used in the audit log, the sessions list and the per-IP sign-in throttle. Unset means "no proxy": all users then appear with the proxy's IP. |
@@ -37,6 +37,7 @@ site is needed.
 | `WEBAUTHN_RP_ID` | leave **unset** (= the host of `APP_ORIGIN`), or the parent domain, e.g. `example.com` | The domain passkeys belong to. Must be the host of `APP_ORIGIN` or a parent of it; anything else is refused at start-up. **Changing it later invalidates every passkey** (section 8.1). |
 | `WEBAUTHN_RP_NAME` | optional, e.g. the company name | Shown by Windows Hello / the phone when registering. Cosmetic. |
 | `WEBAUTHN_UV_INITIAL` | optional: `required` (default) or `preferred` | **First start only**: initial value of "what a passkey must check" (section 8.4). Ignored once the setting exists. |
+| `ALLOWED_KARATS_INITIAL` | optional, e.g. `21` | **First start only**: the initial list of allowed karats (comma-separated, 8–24; an invalid value stops the start). Ignored once the setting exists. The GM still confirms the list once (first-steps checklist). |
 | `TWO_FACTOR_REQUIRED_ROLES_INITIAL` | optional, e.g. `GENERAL_MANAGER` (default) or empty | **First start only**: roles that must use a passkey. Empty = not enforced (accepted risk, section 8.7). Ignored once the setting exists. |
 
 Secrets: the only secret is the database password inside `DATABASE_URL`. Keep it in Render's
@@ -44,7 +45,7 @@ environment settings (or an Environment Group), never in the repository. The app
 CSRF tokens and session ids are random values stored in the database. Rotating the database password
 means updating `DATABASE_URL` and redeploying; all sessions survive because they live in the database.
 
-Not used in production: `PGLITE_DIR` (embedded demo database only).
+Not used in production: `PGLITE_DIR` (embedded database for local demo mode only).
 
 Backup variables (`BACKUP_*`) are listed in section 7; they belong to the backup job, not to the web service.
 
@@ -64,10 +65,19 @@ Backup variables (`BACKUP_*`) are listed in section 7; they belong to the backup
 3. Sign in as the GM and change the password. The GM must then register a passkey and save the recovery codes
    before anything else opens (section 8: decide the final domain **first**). Then open **Settings** and set the company names, currency
    labels, invoice footer and logo.
-4. Still in **Settings** (Phase 4):
-   - **Business rules → Allowed karats**: set to **21 only** for this client. Only these karats can be bought from a
-     supplier, bought as a sellable scrap piece, priced, sold or delivered; broken scrap of any karat can still be
-     bought. (The code default lists 18/21/22/24; nothing in the code assumes 21.)
+4. The GM's home shows the **first steps** checklist until each step is done (REM-3):
+   1. **Allowed karats** (mandatory): tick the karats and confirm (password re-confirmation; audited as
+      "Allowed karats confirmed"). For this client: **21 only** (or start with `ALLOWED_KARATS_INITIAL=21`, then
+      just confirm). Only these karats can be bought from a supplier, bought as a sellable scrap piece, priced, sold
+      or delivered; broken scrap of any karat can still be bought. (The code default lists 18/21/22/24; nothing in
+      the code assumes 21.)
+   2. **Today's gold rate and the scrap rates** (Settings).
+   3. **The first branch** (if the bootstrap created none).
+   4. **A branch manager and a cashier** (Users).
+
+   Until stock exists, the branch dashboard and the point of sale show an explanation instead of empty tables, and
+   the header shows "Set today's rate" until a gold rate exists.
+5. Still in **Settings** (Phase 4):
    - **Scrap buying rates (per gram)**: enter today's rate for every karat the branches buy as scrap (any karat 1–24
      can be added). Without a rate for a karat, scrap of that karat cannot be bought.
    - **Sales → Payment methods at the counter**: Cash, Bank transfer and Hasad by default. Card and mobile
@@ -216,7 +226,7 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
 - Upgrading an existing database creates the branch accounts (CASH, BANK, FUNDS_IN_TRANSIT) and backfills the
   item cost model, but **never creates ledger entries** for past sales or settlements. A real company's
   books start at the opening balance (Phase 3); until then the Cash screen only reflects events recorded after the
-  upgrade. (Demo databases are the one exception: in `APP_MODE=demo` their history is re-posted at start-up.)
+  upgrade. (Old demo databases from before REM-3 kept their seeded history; demo data no longer exists.)
 - API clients: create sale, void sale and record a Hasad bank transfer store their
   idempotency record in the same transaction as the money movement; a retry with the same key returns the first
   result, and nothing is ever posted twice.
@@ -269,7 +279,7 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
 
 - `GET /api/health` returns `200`.
 - The login page shows the company name and logo from Settings, not "Jewelry ERP".
-- No demo accounts are listed on the login page (they are listed only in demo mode).
+- The login page lists no accounts, and the header shows no "Demo" badge (it appears only in `APP_MODE=demo`).
 - The start-up log has no `integrity constraints left NOT VALID` warning (see section 5).
 - `GET /api/health` shows `"backup": {"status": "OK", …}` once backups and restore drills run (section 7).
 - Settings show **Allowed karats = 21** and a scrap buying rate for each karat the branches buy.
@@ -542,7 +552,8 @@ until a second device exists. A single device is a single point of failure.
 Settings → Second factor → "Who must use a passkey" can untick the General Manager (password + passkey required to
 do so; audited). Then a stolen GM password alone opens the account, and a red banner says so permanently. Only do
 this temporarily, e.g. while replacing hardware, and record why in the "Reason" field. `TWO_FACTOR_REQUIRED_ROLES_INITIAL=`
-(empty) starts a new installation this way; the demo starts this way unless `DEMO_TWO_FACTOR=true`.
+(empty) starts a new installation this way, in production or demo mode (e.g. to try the app locally without a
+passkey).
 
 ### 8.8 Before go-live (human)
 

@@ -364,12 +364,11 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
     const when = at(ev.day, 15, int(0, 50));
     const customer = pick(CUSTOMER_NAMES);
     if (ev.kind === 'SETTLE') {
-      let weightMg: number;
-      if (ev.g === 'REST') {
-        // The last visit settles the order in full: the weight whose 24K equivalent is exactly what is owed.
-        const [po] = await db.select({ owed: t.purchases.goldOwedMgPure24 }).from(t.purchases).where(eq(t.purchases.id, ev.purchase));
-        weightMg = Math.round((po.owed! * 24) / ev.karat);
-      } else weightMg = Math.round(ev.g * 1000);
+      const [po] = await db.select({ owed: t.purchases.goldOwedMgPure24 }).from(t.purchases).where(eq(t.purchases.id, ev.purchase));
+      // The last visit settles the order in full: the weight whose 24K equivalent is exactly what is owed.
+      // An earlier visit brings at most half of what is still owed: the order's lines (and so its debt) depend on
+      // the weekday the world is built on, and a fixed weight could exceed it.
+      const weightMg = ev.g === 'REST' ? Math.round((po.owed! * 24) / ev.karat) : Math.min(Math.round(ev.g * 1000), Math.floor((po.owed! * 24) / ev.karat / 2));
       await settleWithScrap(ctx, bm[ev.code], ev.purchase, { karat: ev.karat, weightMg, note: 'زيارة مندوب المورد' }, { at: when });
       continue;
     }

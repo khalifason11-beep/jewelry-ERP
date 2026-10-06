@@ -58,6 +58,10 @@ describe('parallel double-sell of the same item', () => {
     const c2 = await actorOf('cashier.kh.02');
     for (let round = 0; round < ROUNDS; round++) {
       const [item] = await freshItems('KRT', 1);
+      // A piece back in stock after a voided sale already has a sale line and a SALE movement: count only new ones.
+      const linesOf = async () => (await ctx.db.select({ n: count() }).from(t.saleItems).where(eq(t.saleItems.itemId, item.id)))[0].n;
+      const movesOf = async () => (await ctx.db.select({ n: count() }).from(t.inventoryMovements).where(and(eq(t.inventoryMovements.itemId, item.id), eq(t.inventoryMovements.type, 'SALE'))))[0].n;
+      const [linesBefore, movesBefore] = [await linesOf(), await movesOf()];
       const rs = await settled([
         createSale(ctx, c1, { items: [{ itemId: item.id }], paymentMethod: 'CASH' }),
         createSale(ctx, c2, { items: [{ itemId: item.id }], paymentMethod: 'BANK_TRANSFER' }),
@@ -65,10 +69,8 @@ describe('parallel double-sell of the same item', () => {
       ]);
       expect(winners(rs), `round ${round}: ${reasons(rs)}`).toHaveLength(1);
       for (const r of reasons(rs)) expect(r).toMatch(/cannot be sold/);
-      const lines = await ctx.db.select({ n: count() }).from(t.saleItems).where(eq(t.saleItems.itemId, item.id));
-      expect(lines[0].n).toBe(1);
-      const moves = await ctx.db.select({ n: count() }).from(t.inventoryMovements).where(and(eq(t.inventoryMovements.itemId, item.id), eq(t.inventoryMovements.type, 'SALE')));
-      expect(moves[0].n).toBe(1);
+      expect(await linesOf()).toBe(linesBefore + 1);
+      expect(await movesOf()).toBe(movesBefore + 1);
       const [after] = await ctx.db.select().from(t.jewelryItems).where(eq(t.jewelryItems.id, item.id));
       expect(after.status).toBe('SOLD');
     }

@@ -187,8 +187,10 @@ describe('3. audit entries never reveal a cost figure to BM or cashier', () => {
     const [krt] = await ctx.db.select().from(t.branches).where(eq(t.branches.code, 'KRT'));
     const [p] = await ctx.db.select().from(t.purchases).where(eq(t.purchases.branchId, krt.id)).orderBy(desc(t.purchases.id)).limit(1);
     const figure = p.totalCost.toLocaleString('en-US');
+    // The audit list defaults to today; the latest purchase is today only after the first minutes of the day.
+    const day = (d: number) => new Date(p.createdAt.getTime() + d * 86_400_000).toISOString().slice(0, 10);
     const find = async (role: Role) => {
-      const res = await agents[role].get(`/api/audit?limit=5000&q=${encodeURIComponent(p.number)}`);
+      const res = await agents[role].get(`/api/audit?limit=5000&from=${day(-1)}&to=${day(1)}&q=${encodeURIComponent(p.number)}`);
       expect(res.status).toBe(200);
       return (res.body as { action: string; description: string; descriptionParams: Record<string, unknown> }[]).find((a) => a.action === 'PURCHASE_CREATED');
     };

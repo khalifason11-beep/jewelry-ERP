@@ -18,7 +18,7 @@
 // Playwright is resolved from the project, then from the global npm modules (npm i -g playwright).
 
 import { createRequire } from 'node:module';
-import { execFileSync, execSync, spawn } from 'node:child_process';
+import { execFileSync, execSync, spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -27,6 +27,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { prepareGm, PEOPLE as E2E, startEmptyServer } from '../lib/e2e-world.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const ARGS = new Set(process.argv.slice(2));
@@ -236,7 +237,7 @@ async function main() {
     dbUrl.pathname = `/${dbName}`;
     const [appPort, proxyPort] = [await freePort(), await freePort()];
     const origin = `https://localhost:${proxyPort}`;
-    const env = { APP_MODE: 'production', DATABASE_URL: dbUrl.toString(), APP_ORIGIN: origin, TRUST_PROXY: '1', PORT: String(appPort), LOG_LEVEL: 'warn' };
+    const env = { APP_MODE: 'production', DATABASE_URL: dbUrl.toString(), APP_ORIGIN: origin, TRUST_PROXY: '1', PORT: String(appPort), LOG_LEVEL: 'warn', ALLOWED_KARATS_INITIAL: '21' };
     for (const k of ['MIGRATION_DATABASE_URL', 'PGLITE_DIR', 'COOKIE_SECURE', 'WEBAUTHN_RP_ID', 'STRICT_DB_ROLES']) delete process.env[k];
 
     // 1. Bootstrap (the operator's one-time command): reference data + the first GM, no branch.
@@ -245,12 +246,17 @@ async function main() {
     check(!!otp, 'bootstrap on an empty PostgreSQL database prints a one-time password for the first General Manager');
 
     // 2. The server in production mode, behind the TLS proxy.
-    const server = spawn('npx', ['tsx', 'src/server.ts'], { cwd: path.join(ROOT, 'backend'), env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    // detached: npx starts the real server as a child, so stop the whole process group (else it outlives the script).
+    const server = spawn('npx', ['tsx', 'src/server.ts'], { cwd: path.join(ROOT, 'backend'), env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     let serverLog = '';
     server.stdout.on('data', (d) => (serverLog += d));
     server.stderr.on('data', (d) => (serverLog += d));
     cleanup.unshift(async () => {
-      server.kill('SIGTERM');
+      try {
+        process.kill(-server.pid, 'SIGTERM');
+      } catch {
+        /* already gone */
+      }
       if (failed && serverLog) console.error(`\n--- server log ---\n${serverLog.slice(-4000)}`);
     });
     const proxy = await startProxy(selfSignedCert(tmp), proxyPort, appPort);
@@ -301,6 +307,24 @@ async function main() {
     const drawer0 = await apiGet(page, '/api/cash/drawer');
     check(drawer0.status === 200 && drawer0.body.branches.length === 0, 'no ledger accounts with money (no branches, no opening cash)');
 
+    section('REM-3: first steps on an empty system');
+    const inv0 = (await apiGet(page, '/api/settings')).body.settings.inventory;
+    check(JSON.stringify(inv0.allowedKarats) === '[21]' && inv0.allowedKaratsConfirmed === false, 'ALLOWED_KARATS_INITIAL=21 applied on the first start, not yet confirmed by the General Manager');
+    await page.goto(`${origin}/overview`);
+    await page.getByTestId('first-steps').waitFor({ timeout: 15_000 });
+    const stepState = async () => Object.fromEntries(await Promise.all(['karats', 'rates', 'branch', 'staff'].map(async (k) => [k, await page.getAttribute(`[data-testid=step-${k}]`, 'data-done')])));
+    check(Object.values(await stepState()).every((v) => v === 'false'), 'the GM home shows the four first steps (karats, rates, branch, staff), none done');
+    const chip = await page.getByTestId('rate-chip').innerText();
+    check(/حدّد سعر اليوم/.test(chip) && !/—/.test(chip), 'the rate chip says "Set today’s rate" instead of "—/g"');
+    check((await page.getByTestId('demo-badge').count()) === 0, 'production mode shows no "Demo" badge');
+    await page.click('[data-testid=step-karats-action]');
+    check(await page.isChecked('[data-testid=karat-21]'), 'the confirmation dialog proposes 21K (from ALLOWED_KARATS_INITIAL)');
+    await page.click('[data-testid=confirm-karats]');
+    await confirmIfAsked(page, GM.password);
+    await waitFor(async () => (await page.getAttribute('[data-testid=step-karats]', 'data-done')) === 'true', 'step 1 done', 15_000);
+    ok('the General Manager confirms the allowed karats (password re-confirmation): step 1 done');
+    await noWords(page, origin, ['/overview', '/settings', '/users'], 'General Manager', /prototype|نموذج أولي|demo account|حسابات تجريبية/i, 'prototype or demo-account wording');
+
     section('General Manager: branch and staff');
     await page.goto(`${origin}/branches`);
     await page.click('[data-testid=new-branch]');
@@ -308,6 +332,10 @@ async function main() {
     await page.fill('[data-testid=branch-name]', BRANCH.name);
     await page.fill('[data-testid=branch-name-ar]', BRANCH.nameAr);
     await page.fill('[data-testid=branch-city]', BRANCH.city);
+    if (await page.isDisabled('[data-testid=branch-save]')) {
+      const vals = await Promise.all(['branch-code', 'branch-name', 'branch-name-ar', 'branch-city'].map((id) => page.inputValue(`[data-testid=${id}]`).catch((e) => `ERR ${e.message.slice(0, 60)}`)));
+      console.error('branch form with Save disabled:', page.url(), JSON.stringify(vals), await page.locator('[role=dialog]').count());
+    }
     await page.click('[data-testid=branch-save]');
     await confirmIfAsked(page, GM.password);
     await waitFor(async () => (await apiGet(page, '/api/branches')).body.some((b) => b.code === BRANCH.code), 'the new branch', 15_000);
@@ -341,6 +369,13 @@ async function main() {
     await confirmIfAsked(page, GM.password);
     await waitFor(async () => (await apiGet(page, '/api/scrap-rates')).body.rates.some((r) => r.karat === 21 && r.pricePerGram === CAT.scrapRate21), 'the 21K scrap rate', 15_000);
     ok('the General Manager sets the 21K scrap buying rate in Settings');
+    await page.fill('[data-testid=gold-rate-21]', '190000');
+    await page.click('[data-testid=save-gold-rates]');
+    await confirmIfAsked(page, GM.password);
+    await waitFor(async () => (await apiGet(page, '/api/gold-rates')).body.current['21']?.pricePerGram === 190_000, 'the 21K gold rate', 15_000);
+    await page.goto(`${origin}/overview`);
+    await page.waitForLoadState('networkidle');
+    check((await page.getByTestId('first-steps').count()) === 0 && /190,000/.test(await page.getByTestId('rate-chip').innerText()), 'gold rate set: all four first steps done, the checklist disappears and the rate chip shows the rate');
     await signOut(page);
 
     section('Staff: first sign-in');
@@ -348,6 +383,8 @@ async function main() {
     await changePassword(page, temps[BM.username], BM.password);
     await pathIs(page, ['/dashboard']);
     ok('branch manager sets a personal password and lands on the branch dashboard');
+    await page.getByTestId('no-stock-yet').waitFor({ timeout: 15_000 });
+    ok('the branch dashboard says "Your branch has no stock yet" (with New purchase / Buy scrap), not tables of zeros');
     await captureBaseline(page, '02-branch-manager-home');
     const bmSelf = await apiGet(page, '/api/auth/me');
     check(bmSelf.body.user.branch?.id === branchId, 'the branch manager is bound to the new branch');
@@ -357,6 +394,8 @@ async function main() {
     await changePassword(page, temps[CASHIER.username], CASHIER.password);
     await pathIs(page, ['/pos']);
     ok('cashier sets a personal password and lands on the point of sale');
+    await page.getByTestId('pos-no-stock').waitFor({ timeout: 15_000 });
+    ok('the POS says "No pieces in this branch yet" (not "no matching pieces")');
     await captureBaseline(page, '03-cashier-home');
     const cashierUsers = await apiGet(page, '/api/users');
     check(cashierUsers.status === 403, 'the cashier cannot open the user list (403)');
@@ -406,10 +445,19 @@ async function main() {
     ok(`type "${CAT.type}" and product "${CAT.product}" (21K) created inline from the purchase line and selected`);
     await page.fill('[data-testid=line-gross-0]', '5.2');
     await page.fill('[data-testid=line-net-0]', '5');
+    // With today's gold rate set, leaving the net weight pre-fills the costs from the rate (editable):
+    // wait for that suggestion, as a person would see it, then replace it.
+    await page.locator('[data-testid=line-net-0]').blur();
+    await waitFor(async () => (await page.inputValue('[data-testid=line-cost-0]')) !== '', 'the cost suggested from the gold rate', 10_000);
+    ok(`with today's gold rate set, the purchase line suggests the cost from the rate (${await page.inputValue('[data-testid=line-cost-0]')})`);
     await page.fill('[data-testid=line-cost-0]', '1000000');
     await page.fill('[data-testid=line-price-0]', '1500000');
     await page.click('[data-testid=purchase-save]');
-    await page.waitForURL((u) => /^\/purchases\/\d+$/.test(u.pathname), { timeout: 15_000 });
+    await page.waitForURL((u) => /^\/purchases\/\d+$/.test(u.pathname), { timeout: 15_000 }).catch(async (e) => {
+      const vals = await Promise.all(['line-gross-0', 'line-net-0', 'line-cost-0', 'line-price-0'].map((id) => page.inputValue(`[data-testid=${id}]`).catch(() => '?')));
+      console.error('purchase form at the time of failure:', JSON.stringify(vals), JSON.stringify(await page.locator('[role=status]').allInnerTexts()));
+      throw e;
+    });
     const poId = Number(new URL(page.url()).pathname.split('/').pop());
     const supplierShown = (await page.getByTestId('purchase-supplier-name').innerText()).trim();
     const owedShown = await page.getByTestId('gold-owed').count();
@@ -471,6 +519,32 @@ async function main() {
     const actions = new Set(rows.map((r) => r.action));
     check(['BRANCH_CREATED', 'USER_CREATED'].every((a) => actions.has(a)), 'the audit log shows the branch and the users created');
     check(['SUPPLIER_CREATED', 'ITEM_TYPE_CREATED', 'PRODUCT_CREATED', 'SCRAP_RATE_CHANGED'].every((a) => actions.has(a)), 'the audit log shows the supplier, type and products created and the scrap rate set');
+    check(actions.has('ALLOWED_KARATS_CONFIRMED'), 'the audit log shows the confirmation of the allowed karats');
+
+    section('REM-3: a fresh demo-mode database');
+    // `npm run demo` without a terminal: prints the bootstrap command and stops cleanly (no GM is invented).
+    const demoDir = path.join(tmp, 'demo-cli');
+    const cli = spawnSync('npx', ['tsx', 'src/demo-cli.ts'], { cwd: path.join(ROOT, 'backend'), env: { ...process.env, APP_MODE: 'demo', PGLITE_DIR: demoDir, DATABASE_URL: '' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    check(cli.status === 10 && /npm run bootstrap -w @jerp\/backend -- --username/.test(cli.stdout), '`npm run demo` without a terminal prints the bootstrap command and creates nobody');
+    const demo = await startEmptyServer({ withBranch: true, env: { TWO_FACTOR_REQUIRED_ROLES_INITIAL: '' } });
+    cleanup.unshift(() => demo.stop());
+    const dgm = await prepareGm(demo);
+    const counts = {};
+    for (const [k, url] of [['items', '/inventory/items'], ['sales', '/sales'], ['purchases', '/purchases'], ['suppliers', '/suppliers'], ['products', '/products'], ['types', '/categories'], ['scrap', '/scrap-purchases']]) {
+      const r = await dgm.call('GET', url);
+      counts[k] = Array.isArray(r.body) ? r.body.length : (r.body?.items ?? r.body?.rows ?? []).length;
+    }
+    await dgm.dispose();
+    check(Object.values(counts).every((n) => n === 0), `a fresh demo-mode database holds no items, sales (customers exist only on sales), purchases, suppliers, products, types or scrap (${JSON.stringify(counts)})`);
+    const dctx = await browser.newContext({ viewport: { width: 1366, height: 768 } });
+    const dpage = await dctx.newPage();
+    const dmeta = await (await dpage.request.get(`${demo.base}/api/meta`)).json();
+    check(dmeta.appMode === 'demo' && dmeta.demoAccounts === undefined, 'the demo login page lists no accounts either');
+    await signIn(dpage, demo.base, E2E.gm.username, E2E.gm.password);
+    await dpage.waitForURL((u) => u.pathname !== '/login', { timeout: 15_000 });
+    await dpage.getByTestId('demo-badge').waitFor({ timeout: 15_000 });
+    ok('demo mode shows the small neutral "Demo" badge');
+    await dctx.close();
   } catch (e) {
     failed = true;
     throw e;
@@ -482,7 +556,10 @@ async function main() {
 }
 
 main()
-  .then(() => console.log(`\nREHEARSAL PASSED: ${step} checks.`))
+  .then(() => {
+    console.log(`\nREHEARSAL PASSED: ${step} checks.`);
+    process.exit(0); // nothing may keep the run alive (open sockets of the proxy or the browser)
+  })
   .catch((e) => {
     console.error(`\nREHEARSAL FAILED after ${step} checks:`, e.message ?? e);
     process.exit(1);

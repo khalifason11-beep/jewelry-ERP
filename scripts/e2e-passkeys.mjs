@@ -163,7 +163,8 @@ async function main() {
     await page.click('[data-testid=add-passkey]');
     await page.fill('[data-testid=add-passkey-nickname]', 'My phone');
     await page.click('[data-testid=add-passkey-confirm]');
-    await page.getByText('My phone').first().waitFor();
+    // Wait for the list itself (the name also appears in the success message before the list reloads).
+    await page.getByTestId('passkey-list').locator('li', { hasText: 'My phone' }).first().waitFor().catch(() => {});
     const rows = await page.getByTestId('passkey-list').locator('li').count();
     check(rows === 2, 'second device registered (within the step-up window): 2 passkeys listed');
     await page.waitForTimeout(300);
