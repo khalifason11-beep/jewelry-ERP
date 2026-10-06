@@ -90,7 +90,9 @@ describe('typed settings: one row per key, history, versions', () => {
     // The demo seed configures this client's karat (D-4-1); the code default stays generic.
     expect(s.inventory.allowedKarats).toEqual([21]);
     expect(s.security.idleMinutes).toBe(60);
-    expect(s.hasad.enabledPerBranch).toMatchObject({ KRT: true, OMD: true });
+    // REM-2: the Hasad workspace and mock settings are gone.
+    expect(s.hasad).toBeUndefined();
+    expect(s.mockHasad).toBeUndefined();
   });
 
   it('settings_history is append-only at the database level', async () => {
@@ -111,14 +113,14 @@ describe('typed settings: one row per key, history, versions', () => {
     const gm = await gmAgent();
     const versions = (await gm.get('/api/settings')).body.versions;
     await gm.put('/api/settings').send({ changes: { 'rates.rateChangeMaxPct': 7 } });
-    const before = (await gm.get('/api/settings')).body.settings.expenses.approvalThreshold;
+    const before = (await gm.get('/api/settings')).body.settings.transfers.pendingClaimStaleHours;
     const stale = await gm.put('/api/settings').send({
-      changes: { 'expenses.approvalThreshold': before + 1, 'rates.rateChangeMaxPct': 9 },
-      expectedVersions: { 'expenses.approvalThreshold': versions['expenses.approvalThreshold'], 'rates.rateChangeMaxPct': versions['rates.rateChangeMaxPct'] },
+      changes: { 'transfers.pendingClaimStaleHours': before + 1, 'rates.rateChangeMaxPct': 9 },
+      expectedVersions: { 'transfers.pendingClaimStaleHours': versions['transfers.pendingClaimStaleHours'], 'rates.rateChangeMaxPct': versions['rates.rateChangeMaxPct'] },
     });
     expect(stale.status).toBe(409);
     const after = (await gm.get('/api/settings')).body.settings;
-    expect(after.expenses.approvalThreshold).toBe(before); // first key rolled back too
+    expect(after.transfers.pendingClaimStaleHours).toBe(before); // first key rolled back too
     expect(after.rates.rateChangeMaxPct).toBe(7);
   });
 
@@ -127,13 +129,13 @@ describe('typed settings: one row per key, history, versions', () => {
     const bad = await gm.put('/api/settings').send({ changes: { 'rates.goldRateScope': 'BRANCH', 'inventory.allowedKarats': [18, 18] } });
     expect(bad.status).toBe(400);
     expect((await gm.get('/api/settings')).body.settings.rates.goldRateScope).toBe('GLOBAL');
-    const cross = await gm.put('/api/settings').send({ changes: { 'inventory.allowedKarats': [18, 24] } }); // entitlement karat 21 not allowed
+    const cross = await gm.put('/api/settings').send({ changes: { 'security.lockoutMaxMinutes': 5 } }); // below lockoutBaseMinutes (15)
     expect(cross.status).toBe(400);
-    expect(cross.body.error.params.field).toBe('hasad.entitlementKarat');
+    expect(cross.body.error.params.field).toBe('security.lockoutMaxMinutes');
     expect((await gm.put('/api/settings').send({ changes: { 'branding.logoAssetId': 1 } })).status).toBe(403);
   });
 
-  it('refuses demo-only settings in production and non-GM callers', async () => {
+  it('refuses removed (former demo-only) settings in production and non-GM callers', async () => {
     const u = (await ctx.db.select().from(t.users).where(eq(t.users.username, 'general.manager')))[0];
     const s = await createSession(ctx.db, { userId: u.id, branchId: null, absoluteHours: 12 });
     await ctx.db.update(t.sessions).set({ reauthAt: new Date() }).where(eq(t.sessions.id, s.id));
@@ -143,7 +145,8 @@ describe('typed settings: one row per key, history, versions', () => {
       .set('x-csrf-token', s.csrfToken)
       .set('Origin', prodConfig.appOrigin!)
       .send({ changes: { 'mockHasad.simulateOutage': true } });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(400); // REM-2: no longer a setting at all
+    expect(res.body.error.key).toBe('Unknown setting: {key}');
     const bm = await login(ROLE_USER.BRANCH_MANAGER);
     expect((await bm.put('/api/settings').send({ changes: { 'security.idleMinutes': 30 } })).body.error.key).toBe('Missing permission: {permission}');
   });
@@ -290,8 +293,8 @@ describe('operator console (break-glass)', () => {
 // ───────────────────────── route permission matrix (generated) ─────────────────────────
 type Req = { method?: string; path: string; query?: Record<string, string | number>; body?: unknown; contentType?: string };
 interface Fixtures {
-  krt: number; omd: number; krtItem: number; omdItem: number; krtSale: number; omdSale: number; krtPurchase: number; omdPurchase: number; omdExpense: number;
-  omdWithdrawal: number; omdTransferTo: number; omdUser: number; omdSessionKey: string;
+  krt: number; omd: number; krtItem: number; omdItem: number; krtSale: number; omdSale: number; krtPurchase: number; omdPurchase: number;
+  omdTransferTo: number; omdUser: number; omdSessionKey: string;
 }
 const NONE = 999_999;
 
@@ -329,6 +332,13 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'GET /gold-rates': () => ({ path: '/gold-rates' }),
   'GET /products': () => ({ path: '/products' }),
   'GET /suppliers': () => ({ path: '/suppliers' }),
+  'POST /categories': () => ({ path: '/categories', body: {} }),
+  'POST /categories/:id/deactivate': () => ({ path: `/categories/${NONE}/deactivate`, body: {} }),
+  'POST /categories/:id/reactivate': () => ({ path: `/categories/${NONE}/reactivate`, body: {} }),
+  'POST /products': () => ({ path: '/products', body: {} }),
+  'POST /products/:id/deactivate': () => ({ path: `/products/${NONE}/deactivate`, body: {} }),
+  'POST /products/:id/reactivate': () => ({ path: `/products/${NONE}/reactivate`, body: {} }),
+  'POST /suppliers': () => ({ path: '/suppliers', body: {} }),
   'GET /roles': () => ({ path: '/roles' }),
   'GET /branches/:id': (f) => ({ path: `/branches/${f.krt}` }),
   'POST /gold-rates': () => ({ path: '/gold-rates', body: {} }),
@@ -357,21 +367,9 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'GET /sales/:id': (f) => ({ path: `/sales/${f.krtSale}` }),
   'POST /sales/:id/print': () => ({ path: `/sales/${NONE}/print`, body: {} }),
   'POST /sales/:id/void': () => ({ path: `/sales/${NONE}/void`, body: {} }),
-  'GET /hasad/withdrawals': () => ({ path: '/hasad/withdrawals' }),
-  'GET /hasad/withdrawals/:id': () => ({ path: `/hasad/withdrawals/${NONE}` }),
-  'GET /hasad/withdrawals/:id/candidates': () => ({ path: `/hasad/withdrawals/${NONE}/candidates` }),
-  'POST /hasad/withdrawals/:id/open': () => ({ path: `/hasad/withdrawals/${NONE}/open`, body: {} }),
-  'POST /hasad/withdrawals/:id/items': () => ({ path: `/hasad/withdrawals/${NONE}/items`, body: {} }),
-  'DELETE /hasad/withdrawals/:id/items/:itemId': () => ({ path: `/hasad/withdrawals/${NONE}/items/${NONE}` }),
-  'POST /hasad/withdrawals/:id/complete': () => ({ path: `/hasad/withdrawals/${NONE}/complete`, body: {} }),
-  'POST /hasad/withdrawals/:id/abort': () => ({ path: `/hasad/withdrawals/${NONE}/abort`, body: {} }),
-  'POST /hasad/withdrawals/:id/cancel': () => ({ path: `/hasad/withdrawals/${NONE}/cancel`, body: {} }),
   'GET /purchases': () => ({ path: '/purchases' }),
   'GET /purchases/:id': () => ({ path: `/purchases/${NONE}` }),
   'POST /purchases': () => ({ path: '/purchases', body: {} }),
-  'GET /expenses': () => ({ path: '/expenses' }),
-  'POST /expenses': () => ({ path: '/expenses', body: {} }),
-  'POST /expenses/:id/review': () => ({ path: `/expenses/${NONE}/review`, body: {} }),
   'GET /transfers': () => ({ path: '/transfers' }),
   'POST /transfers': () => ({ path: '/transfers', body: {} }),
   'POST /transfers/:id/receive': () => ({ path: `/transfers/${NONE}/receive` }),
@@ -392,9 +390,6 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'GET /reports/:key': () => ({ path: '/reports/sales' }),
   'GET /audit': () => ({ path: '/audit', query: { limit: 5 } }),
   'POST /demo/reset': () => ({ path: '/demo/reset' }),
-  'GET /hasad/simulator/customers': () => ({ path: '/hasad/simulator/customers' }),
-  'POST /hasad/simulator/withdrawals': () => ({ path: '/hasad/simulator/withdrawals', body: {} }),
-  'GET /hasad/integration-log': () => ({ path: '/hasad/integration-log' }),
 };
 
 /** For every branch-scoped rule: a request by a Khartoum user that targets Omdurman data. */
@@ -418,21 +413,9 @@ const CROSS: Record<string, (f: Fixtures) => Req> = {
   'GET /sales/:id': (f) => ({ path: `/sales/${f.omdSale}` }),
   'POST /sales/:id/print': (f) => ({ path: `/sales/${f.omdSale}/print`, body: {} }),
   'POST /sales/:id/void': (f) => ({ path: `/sales/${f.omdSale}/void`, body: { reason: 'cross-branch' } }),
-  'GET /hasad/withdrawals': (f) => ({ path: '/hasad/withdrawals', query: { branchId: f.omd } }),
-  'GET /hasad/withdrawals/:id': (f) => ({ path: `/hasad/withdrawals/${f.omdWithdrawal}` }),
-  'GET /hasad/withdrawals/:id/candidates': (f) => ({ path: `/hasad/withdrawals/${f.omdWithdrawal}/candidates` }),
-  'POST /hasad/withdrawals/:id/open': (f) => ({ path: `/hasad/withdrawals/${f.omdWithdrawal}/open`, body: { verification: 'ID_DOCUMENT' } }),
-  'POST /hasad/withdrawals/:id/items': (f) => ({ path: `/hasad/withdrawals/${f.omdWithdrawal}/items`, body: { itemId: f.omdItem } }),
-  'DELETE /hasad/withdrawals/:id/items/:itemId': (f) => ({ method: 'DELETE', path: `/hasad/withdrawals/${f.omdWithdrawal}/items/${f.omdItem}` }),
-  'POST /hasad/withdrawals/:id/complete': (f) => ({ path: `/hasad/withdrawals/${f.omdWithdrawal}/complete`, body: { paymentMethod: 'CASH', customerAcknowledged: true, expectedDirection: 'NONE', expectedAmount: 0 } }),
-  'POST /hasad/withdrawals/:id/abort': (f) => ({ path: `/hasad/withdrawals/${f.omdWithdrawal}/abort`, body: { reason: 'cross-branch' } }),
-  'POST /hasad/withdrawals/:id/cancel': (f) => ({ path: `/hasad/withdrawals/${f.omdWithdrawal}/cancel`, body: { reason: 'cross-branch' } }),
   'GET /purchases': (f) => ({ path: '/purchases', query: { branchId: f.omd } }),
   'GET /purchases/:id': (f) => ({ path: `/purchases/${f.omdPurchase}` }),
   'POST /purchases': (f) => ({ path: '/purchases', body: { branchId: f.omd, lines: [{ productId: 1, grossWeightMg: 5000, netWeightMg: 4800, purchaseCost: 100, makingCost: 0, otherCost: 0, sellingPrice: 200 }] } }),
-  'GET /expenses': (f) => ({ path: '/expenses', query: { branchId: f.omd } }),
-  'POST /expenses': (f) => ({ path: '/expenses', body: { branchId: f.omd, category: 'OTHER', amount: 1000, description: 'cross-branch' } }),
-  'POST /expenses/:id/review': (f) => ({ path: `/expenses/${f.omdExpense}/review`, body: { decision: 'APPROVED' } }),
   'GET /transfers': (f) => ({ path: '/transfers', query: { branchId: f.omd } }),
   'POST /transfers': (f) => ({ path: '/transfers', body: { fromBranchId: f.omd, toBranchId: f.krt, itemIds: [f.omdItem] } }),
   'POST /transfers/:id/receive': (f) => ({ path: `/transfers/${f.omdTransferTo}/receive` }),
@@ -486,8 +469,6 @@ describe('route permission matrix (generated from shared/src/route-matrix.ts)', 
       omdSale: await id(ctx.db.select({ id: t.sales.id }).from(t.sales).where(and(eq(t.sales.branchId, omd), eq(t.sales.status, 'COMPLETED'))).limit(1)),
       krtPurchase: await id(ctx.db.select({ id: t.purchases.id }).from(t.purchases).where(eq(t.purchases.branchId, krt)).limit(1)),
       omdPurchase: await id(ctx.db.select({ id: t.purchases.id }).from(t.purchases).where(eq(t.purchases.branchId, omd)).limit(1)),
-      omdExpense: await id(ctx.db.select({ id: t.expenses.id }).from(t.expenses).where(eq(t.expenses.branchId, omd)).limit(1)),
-      omdWithdrawal: await id(ctx.db.select({ id: t.hasadWithdrawals.id }).from(t.hasadWithdrawals).where(and(eq(t.hasadWithdrawals.branchId, omd), eq(t.hasadWithdrawals.status, 'READY_FOR_PICKUP'))).limit(1)),
       omdTransferTo: await id(ctx.db.select({ id: t.transfers.id }).from(t.transfers).where(ne(t.transfers.toBranchId, krt)).limit(1)),
       omdUser: await id(ctx.db.select({ id: t.users.id }).from(t.users).where(eq(t.users.branchId, omd)).limit(1)),
       omdSessionKey: omdSession.id.slice(0, 16),
@@ -598,7 +579,6 @@ describe('cost, acquisition cost and profit are GM-only (Q15)', () => {
   const endpoints = async () => {
     const [sale] = await ctx.db.select({ id: t.sales.id }).from(t.sales).where(eq(t.sales.branchId, F.krt)).limit(1);
     const [purchase] = await ctx.db.select({ id: t.purchases.id }).from(t.purchases).where(eq(t.purchases.branchId, F.krt)).limit(1);
-    const [w] = await ctx.db.select({ id: t.hasadWithdrawals.id }).from(t.hasadWithdrawals).where(eq(t.hasadWithdrawals.branchId, F.krt)).limit(1);
     return [
       '/inventory/items',
       `/inventory/items/${F.krtItem}`,
@@ -612,12 +592,7 @@ describe('cost, acquisition cost and profit are GM-only (Q15)', () => {
       '/reports/inventory',
       '/reports/inventory-movement',
       '/reports/inventory-ledger',
-      '/reports/hasad',
-      '/reports/expenses',
-      `/hasad/withdrawals/${w.id}`,
-      '/hasad/withdrawals',
       '/transfers',
-      '/expenses',
       '/notifications',
     ];
   };
@@ -647,12 +622,5 @@ describe('cost, acquisition cost and profit are GM-only (Q15)', () => {
     expect(items.body.items[0]).toHaveProperty('totalCost');
     const report = await gm.get('/api/reports/sales');
     expect(report.body.columns.map((c: { key: string }) => c.key)).toContain('grossProfit');
-  });
-
-  it('cashiers lost hasad.cancel; branch managers have it (Q14)', async () => {
-    const [w] = await ctx.db.select({ id: t.hasadWithdrawals.id }).from(t.hasadWithdrawals).where(and(eq(t.hasadWithdrawals.branchId, F.krt), eq(t.hasadWithdrawals.status, 'READY_FOR_PICKUP'))).limit(1);
-    const c = await agents.CASHIER.post(`/api/hasad/withdrawals/${w.id}/cancel`).send({ reason: 'test cancel' });
-    expect(c.status).toBe(403);
-    expect(c.body.error.key).toBe('Missing permission: {permission}');
   });
 });

@@ -1,6 +1,7 @@
 // Cash (Phase 2b): the money that should be in each drawer now (from the branch ledger), and the
-// daily reconciliation of one branch — opening cash, sales by payment method, voids, expenses,
-// Hasad settlements, expected cash, the cash counted by the manager, and the difference.
+// daily reconciliation of one branch — opening cash, sales by payment method, the day's drawer and bank
+// movements line by line (they always add up to the ledger: anything without its own line is shown as
+// "Other"), expected cash, the cash counted by the manager, and the difference.
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -8,7 +9,7 @@ import { ArrowRightLeft, Banknote, Calculator, Landmark } from 'lucide-react';
 import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, humanize, money, todayKey } from '../../lib/format';
-import { useI18n } from '../../lib/i18n';
+import { tk, useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { useBranches } from '../../lib/hooks';
 import { useActionKeys } from '../../lib/idempotency';
@@ -23,6 +24,10 @@ interface ByMethod {
   paymentMethod: string;
   amount: number;
 }
+interface ReconciliationLine {
+  line: string;
+  amount: number;
+}
 interface Reconciliation {
   branchId: number;
   day: string;
@@ -31,22 +36,31 @@ interface Reconciliation {
   salesTotal: number;
   voidsByMethod: ByMethod[];
   voidsTotal: number;
-  expensesCash: number;
-  expensesBank: number;
-  settlementsCash: number;
-  settlementsBank: number;
   hasadReceivableToBank: number;
   scrapPurchasesCash: number;
   scrapPurchasesBank: number;
   makingChargesCash: number;
   makingChargesBank: number;
+  cashLines: ReconciliationLine[];
+  bankLines: ReconciliationLine[];
   cashMovement: number;
+  bankMovement: number;
   expectedCash: number;
   counted: { amount: number; at: string; countedByName: string | null; note: string | null } | null;
   difference: number | null;
 }
 
 const signed = (n: number) => (n > 0 ? `+${money(n, false)}` : money(n, false));
+
+// One label per reconciliation line (backend: RECONCILIATION_LINES in modules/ledger/service.ts).
+const LINE_LABEL: Record<string, string> = {
+  SALES: tk('Sales'),
+  VOIDS: tk('Cancelled sales (refunds)'),
+  SCRAP_PURCHASES: tk('Scrap bought from customers'),
+  MAKING_CHARGES: tk('Supplier making charges'),
+  HASAD_RECEIVABLE_SETTLEMENTS: tk('Hasad transfers received'),
+  OTHER: tk('Other movements'),
+};
 
 export function CashPage() {
   const { t, L } = useI18n();
@@ -68,7 +82,7 @@ export function CashPage() {
       <PageHeader title={t('Cash')} subtitle={t('Expected cash in each drawer, from the branch money ledger, and the daily cash reconciliation.')} />
 
       <Card padded={false} className="mb-5">
-        <CardHeader title={t('Expected cash now')} subtitle={t('Every sale, cancellation, approved expense, scrap purchase, supplier making charge and Hasad settlement moves these balances. Nothing is typed in by hand.')} />
+        <CardHeader title={t('Expected cash now')} subtitle={t('Every sale, cancellation, scrap purchase, supplier making charge and Hasad bank transfer moves these balances. Nothing is typed in by hand.')} />
         {drawer.isLoading ? (
           <Loading />
         ) : drawer.isError ? (
@@ -83,7 +97,7 @@ export function CashPage() {
               { key: 'branchName', header: t('Branch'), render: (r) => L(r.branchName, r.branchNameAr) },
               { key: 'expectedCash', header: t('Cash drawer'), align: 'end', render: (r) => <span className="font-semibold num">{money(r.expectedCash, false)}</span>, footer: money(drawer.data!.branches.reduce((s, r) => s + r.expectedCash, 0), false) },
               { key: 'bank', header: t('Bank'), align: 'end', render: (r) => <span className="num">{money(r.bank, false)}</span>, footer: money(drawer.data!.branches.reduce((s, r) => s + r.bank, 0), false) },
-              // Hasad payments held for the branch until a settlement with Hasad is designed (open question).
+              // Sales paid through Hasad are held here until Hasad's bank transfer is recorded (D-4-14).
               { key: 'hasadReceivable', header: t('Hasad receivable'), align: 'end', render: (r) => <span className="num">{money(r.hasadReceivable, false)}</span>, footer: money(drawer.data!.branches.reduce((s, r) => s + r.hasadReceivable, 0), false) },
               ...(can('cash.settle_hasad')
                 ? [
@@ -167,21 +181,9 @@ function ReconciliationView({ r, canCount }: { r: Reconciliation; canCount: bool
             ]}
           />
         </div>
-        <div>
-          <h3 className="mb-2 text-[13px] font-semibold text-ink-700">{t('Other money movements')}</h3>
-          <KeyValue
-            items={[
-              { label: t('Expenses paid from the drawer'), value: <span className="num">{signed(r.expensesCash)}</span> },
-              { label: t('Expenses paid from the bank'), value: <span className="num">{signed(r.expensesBank)}</span> },
-              { label: t('Hasad settlements in cash'), value: <span className="num">{signed(r.settlementsCash)}</span> },
-              { label: t('Hasad settlements via the bank'), value: <span className="num">{signed(r.settlementsBank)}</span> },
-              { label: t('Hasad transfers received in the bank'), value: <span className="num">{signed(r.hasadReceivableToBank)}</span> },
-              { label: t('Scrap bought, paid from the drawer'), value: <span className="num">{signed(r.scrapPurchasesCash)}</span> },
-              { label: t('Scrap bought, paid by bank'), value: <span className="num">{signed(r.scrapPurchasesBank)}</span> },
-              { label: t('Supplier making charges from the drawer'), value: <span className="num">{signed(r.makingChargesCash)}</span> },
-              { label: t('Supplier making charges from the bank'), value: <span className="num">{signed(r.makingChargesBank)}</span> },
-            ]}
-          />
+        <div className="grid gap-5">
+          <LinesView title={t('Drawer (cash) movements')} lines={r.cashLines} total={r.cashMovement} testId="cash-lines" />
+          <LinesView title={t('Bank movements')} lines={r.bankLines} total={r.bankMovement} testId="bank-lines" />
         </div>
       </div>
 
@@ -193,6 +195,22 @@ function ReconciliationView({ r, canCount }: { r: Reconciliation; canCount: bool
       )}
       {canCount && <CountForm r={r} />}
     </>
+  );
+}
+
+/** Lines of one account for the day; their sum is the account's movement in the ledger (SPEC §18). */
+function LinesView({ title, lines, total, testId }: { title: string; lines: ReconciliationLine[]; total: number; testId: string }) {
+  const { t } = useI18n();
+  return (
+    <div data-testid={testId}>
+      <h3 className="mb-2 text-[13px] font-semibold text-ink-700">{title}</h3>
+      <KeyValue
+        items={[
+          ...lines.map((l) => ({ label: t(LINE_LABEL[l.line] ?? l.line), value: <span className="num">{signed(l.amount)}</span> })),
+          { label: <strong>{t('Total of the day')}</strong>, value: <strong className="num">{signed(total)}</strong> },
+        ]}
+      />
+    </div>
   );
 }
 

@@ -15,14 +15,12 @@ import { Button, Card, CardHeader, Dialog, ErrorState, Field, Input, Loading, Mo
 import { DateRange, useRangeParams } from '../../components/Filters';
 import { BranchDashboard } from '../dashboard/BranchDashboardPage';
 import { SalesTable, Crumbs } from '../sales/SalesPages';
-import { ExpensesTable } from '../expenses/ExpensesPage';
 import { InventoryTable } from '../inventory/InventoryPages';
 import { PurchasesTable } from '../purchases/PurchasesPages';
-import { HasadBranchTable } from '../hasad/HasadBranchTable';
 import { SessionsTable } from '../admin/SessionsPage';
 
 interface CompanyBranches {
-  branches: { branchId: number; name: string; nameAr: string; city: string; revenue: number; grossProfit: number; expenses: number; contribution: number; availableItems: number; availableWeightMg: number; hasadCompleted: number; hasadOpen: number; salesCount: number }[];
+  branches: { branchId: number; name: string; nameAr: string; city: string; revenue: number; grossProfit: number; availableItems: number; availableWeightMg: number; salesCount: number }[];
 }
 
 export function BranchesPage() {
@@ -35,8 +33,8 @@ export function BranchesPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={t('Branches')}
-        subtitle={t('Month-to-date results. Open a branch to drill into its sales, expenses, inventory, Hasad activity and staff.')}
-        actions={can('branches.manage') ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>{t('New branch')}</Button> : undefined}
+        subtitle={t('Month-to-date results. Open a branch to drill into its sales, inventory, purchases and staff.')}
+        actions={can('branches.manage') ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')} data-testid="new-branch">{t('New branch')}</Button> : undefined}
       />
       {q.isLoading ? (
         <Loading />
@@ -65,10 +63,7 @@ export function BranchesPage() {
                 <div className="mt-4 grid grid-cols-3 gap-3 text-[13px]">
                   <div><div className="text-ink-500">{t('Sales')} · {t('MTD')}</div><div className="font-semibold num">{money(b.revenue)}</div></div>
                   <div><div className="text-ink-500">{t('Gross Profit')}</div><div className="font-semibold num">{money(b.grossProfit)}</div></div>
-                  <div><div className="text-ink-500">{t('Contribution')}</div><div className="font-semibold text-emerald-700 num">{money(b.contribution)}</div></div>
                   <div><div className="text-ink-500">{t('Available')}</div><div className="font-semibold num">{t('{n} pcs', { n: b.availableItems })} · {grams(b.availableWeightMg)}</div></div>
-                  <div><div className="text-ink-500">{t('Hasad done')}</div><div className="font-semibold num">{b.hasadCompleted}</div></div>
-                  <div><div className="text-ink-500">{t('Hasad open')}</div><div className="font-semibold num">{b.hasadOpen}</div></div>
                 </div>
               </Card>
             </Link>
@@ -149,20 +144,20 @@ function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () 
       open
       onClose={onClose}
       title={branch ? t('Edit branch {code}', { code: branch.code }) : t('New branch')}
-      footer={<><Button onClick={onClose}>{t('Cancel')}</Button><Button variant="primary" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()}>{t('Save')}</Button></>}
+      footer={<><Button onClick={onClose}>{t('Cancel')}</Button><Button variant="primary" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()} data-testid="branch-save">{t('Save')}</Button></>}
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t('Code')} hint={branch ? t('The code cannot be changed.') : t('2–6 capital letters, e.g. KRT. It can never be changed later.')}>
-          <Input value={f.code} disabled={!!branch} maxLength={6} onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })} className="font-mono" />
+          <Input value={f.code} disabled={!!branch} maxLength={6} onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })} className="font-mono" data-testid="branch-code" />
         </Field>
         <Field label={t('City')}>
-          <Input value={f.city} maxLength={60} onChange={(e) => setF({ ...f, city: e.target.value })} />
+          <Input value={f.city} maxLength={60} onChange={(e) => setF({ ...f, city: e.target.value })} data-testid="branch-city" />
         </Field>
         <Field label={t('Name (English)')}>
-          <Input value={f.name} maxLength={80} onChange={(e) => setF({ ...f, name: e.target.value })} />
+          <Input value={f.name} maxLength={80} onChange={(e) => setF({ ...f, name: e.target.value })} data-testid="branch-name" />
         </Field>
         <Field label={t('Name (Arabic)')}>
-          <Input value={f.nameAr} maxLength={80} onChange={(e) => setF({ ...f, nameAr: e.target.value })} />
+          <Input value={f.nameAr} maxLength={80} onChange={(e) => setF({ ...f, nameAr: e.target.value })} data-testid="branch-name-ar" />
         </Field>
         <Field label={t('Address')} className="sm:col-span-2">
           <Input value={f.address} maxLength={200} onChange={(e) => setF({ ...f, address: e.target.value })} />
@@ -181,7 +176,7 @@ function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () 
   );
 }
 
-type Tab = 'overview' | 'sales' | 'expenses' | 'inventory' | 'purchases' | 'hasad' | 'staff';
+type Tab = 'overview' | 'sales' | 'inventory' | 'purchases' | 'staff';
 
 export function BranchDetailPage() {
   const id = Number(useParams().id);
@@ -217,7 +212,7 @@ export function BranchDetailPage() {
           <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <span className="inline-flex items-center gap-1"><MapPin className="size-3.5" /> {b.address}</span>
             <span className="inline-flex items-center gap-1"><Phone className="size-3.5" /> {b.phone}</span>
-            <span>{t('{n} staff', { n: b.staffCount })} · {t('Hasad code')} <Mono>{b.hasadBranchCode}</Mono></span>
+            <span>{t('{n} staff', { n: b.staffCount })}</span>
           </span>
         }
       />
@@ -228,19 +223,15 @@ export function BranchDetailPage() {
         tabs={[
           { value: 'overview', label: t('Overview') },
           { value: 'sales', label: t('Sales') },
-          { value: 'expenses', label: t('Expenses') },
           { value: 'inventory', label: t('Inventory') },
           { value: 'purchases', label: t('Purchases') },
-          { value: 'hasad', label: t('Hasad Gold') },
           { value: 'staff', label: t('Cashiers & sessions') },
         ]}
       />
       {tab === 'overview' && <BranchDashboard branchId={id} embedded />}
       {tab === 'sales' && <Card padded={false}><SalesTable branchId={id} from={from} to={to} toolbar={rangeBar} /></Card>}
-      {tab === 'expenses' && <Card padded={false}><ExpensesTable branchId={id} from={from} to={to} toolbar={rangeBar} /></Card>}
       {tab === 'inventory' && <Card padded={false}><InventoryTable branchId={id} /></Card>}
       {tab === 'purchases' && <Card padded={false}><PurchasesTable branchId={id} from={from} to={to} toolbar={rangeBar} /></Card>}
-      {tab === 'hasad' && <Card padded={false}><HasadBranchTable branchId={id} /></Card>}
       {tab === 'staff' && <StaffTab branchId={id} />}
     </div>
   );

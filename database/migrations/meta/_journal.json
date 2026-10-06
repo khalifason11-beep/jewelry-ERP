@@ -92,6 +92,27 @@
       "when": 1791123776388,
       "tag": "0012_invoice_printing",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791123836388,
+      "tag": "0013_remove_expenses",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791123896388,
+      "tag": "0014_hasad_sales_channel",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1791280684968,
+      "tag": "0015_catalog_entry",
+      "breakpoints": true
     }
   ]
 }

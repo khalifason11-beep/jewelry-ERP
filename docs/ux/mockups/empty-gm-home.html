@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>نموذج: أول دخول — قاعدة بيانات جديدة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* UX-0 static mockup. Fake, labelled data. Tokens approximated from the Figma images (docs/ux/ANALYSIS.md §0.2). */
+:root{
+  --navy:#0F1629; --navy-2:#232D45; --navy-3:#3A4562;
+  --gold:#C9A24B; --gold-soft:#F5ECD6;          /* one accent: brand + current selection */
+  --ink:#0F1629; --ink-2:#4B5570; --ink-3:#8A93A8;
+  --surface:#FFFFFF; --panel:#F4F5F8; --line:#E4E7EE;
+  --warn:#B45309; --warn-bg:#FEF3C7; --crit:#B91C1C; --crit-bg:#FEE2E2; --ok:#047857; --ok-bg:#D1FAE5;
+  --b1:#0F1629; --b2:#5B7DB8; --b3:#3E8E7E; --b4:#9AA3B8;   /* branch palette (DECIDE D-5: gold removed) */
+  --r-panel:20px; --r-row:12px; --r-pill:999px;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:'IBM Plex Sans Arabic',system-ui,sans-serif;background:var(--surface);color:var(--ink);font-size:14px;line-height:1.45}
+.num{font-variant-numeric:tabular-nums;direction:ltr;unicode-bidi:isolate}
+.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh;gap:16px;padding:16px}
+/* sidebar */
+.side{background:var(--navy);border-radius:var(--r-panel);padding:14px 10px;overflow:auto;color:#C8CEDB;position:sticky;top:16px;height:calc(100vh - 32px);display:flex;flex-direction:column}
+.logo{display:flex;align-items:center;gap:10px;color:#fff;font-weight:600;padding:4px 8px 10px}
+.logo i{width:28px;height:28px;border-radius:8px;border:1.5px solid var(--gold);display:grid;place-items:center;color:var(--gold);font-style:normal;font-size:14px}
+.grp{font-size:11px;color:#7F8AA5;margin:10px 10px 3px}
+.nav a{display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:10px;color:inherit;text-decoration:none;font-size:13.5px}
+.nav a.on{background:var(--navy-2);color:#fff;box-shadow:inset -3px 0 0 var(--gold)}
+.nav svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.6;opacity:.85}
+/* top bar */
+.top{display:flex;align-items:center;gap:10px;height:44px;margin-bottom:18px}
+.pill{border-radius:var(--r-pill);padding:8px 14px;background:var(--panel);font-size:13px;display:inline-flex;align-items:center;gap:8px}
+.pill.dark{background:var(--navy);color:#fff}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--gold)}
+.sp{flex:1}
+.avatar{width:36px;height:36px;border-radius:50%;background:var(--panel);display:grid;place-items:center;font-size:12px;font-weight:600}
+/* header */
+.hd{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
+h1{font-size:20px;font-weight:600}
+.sub{color:var(--ink-3);font-size:12.5px;margin-top:2px}
+.seg{display:flex;gap:6px}
+.seg span{border-radius:var(--r-pill);padding:6px 12px;background:var(--panel);font-size:12.5px;color:var(--ink-2)}
+.seg span.on{background:var(--surface);box-shadow:0 0 0 1.5px var(--navy);color:var(--ink);font-weight:500}
+/* KPI strip: one surface, four figures */
+.kpis{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;background:var(--panel);border-radius:var(--r-panel);overflow:hidden;margin-bottom:16px}
+.kpi{padding:14px 18px;border-inline-start:1px solid var(--line)}
+.kpi:first-child{border:0;background:var(--navy);color:#fff}
+.kpi .l{font-size:12.5px;color:var(--ink-2)} .kpi:first-child .l{color:#AEB6C8}
+.kpi .v{font-size:24px;font-weight:600;margin-top:2px}
+.kpi .s{font-size:12px;color:var(--ink-3);margin-top:2px} .kpi:first-child .s{color:#AEB6C8}
+/* level-1 two columns */
+.l1{display:grid;grid-template-columns:1fr 1.25fr;gap:16px}
+.panel{background:var(--panel);border-radius:var(--r-panel);padding:14px}
+.ph{display:flex;align-items:baseline;justify-content:space-between;padding:0 4px 10px}
+.ph h2{font-size:15px;font-weight:600}
+.ph a{font-size:12.5px;color:var(--ink-2);text-decoration:none}
+.row{background:var(--surface);border-radius:var(--r-row);padding:9px 12px;display:flex;align-items:center;gap:10px;margin-top:6px}
+.sev{font-size:11.5px;font-weight:600;border-radius:6px;padding:2px 7px;white-space:nowrap}
+.sev.c{background:var(--crit-bg);color:var(--crit)} .sev.w{background:var(--warn-bg);color:var(--warn)} .sev.i{background:#EEF0F4;color:var(--ink-2)}
+.row .t{flex:1} .row .m{font-size:12px;color:var(--ink-3)}
+.go{color:var(--ink-3);font-size:16px}
+.br{display:grid;grid-template-columns:14px 1.5fr 1fr 1fr 1fr 18px;align-items:center;gap:10px}
+.sw{width:10px;height:10px;border-radius:3px}
+.br .n{font-weight:600} .br .c{font-size:11.5px;color:var(--ink-3);font-weight:400}
+.bh{display:grid;grid-template-columns:14px 1.5fr 1fr 1fr 1fr 18px;gap:10px;font-size:11.5px;color:var(--ink-3);padding:0 12px}
+.flag{width:8px;height:8px;border-radius:50%;background:var(--warn);display:inline-block}
+/* level 2 */
+.fold{margin:26px 0 10px;display:flex;align-items:center;gap:10px;color:var(--ink-3);font-size:12px}
+.fold:before,.fold:after{content:"";flex:1;border-top:1px dashed var(--line)}
+.l2{display:grid;grid-template-columns:1.6fr 1fr;gap:16px}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--ink-2);padding:6px 4px 0}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-inline-end:5px}
+.gold-pos .big{font-size:22px;font-weight:600}
+.bar{height:10px;border-radius:5px;background:#E4E7EE;overflow:hidden;display:flex;margin:10px 0 6px}
+.bar span{display:block;height:100%}
+.kv{display:flex;justify-content:space-between;padding:6px 4px;font-size:13px;border-top:1px solid var(--line)}
+.tag{border:1px dashed var(--ink-3);color:var(--ink-2);font-size:11.5px;border-radius:8px;padding:4px 8px}
+</style>
+<style>
+.steps{display:grid;gap:10px}
+.step{background:var(--surface);border-radius:var(--r-row);padding:14px 16px;display:flex;align-items:center;gap:14px}
+.step .n{width:28px;height:28px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font-weight:600;color:var(--ink-2)}
+.step .t{flex:1} .step .t b{display:block;font-weight:600} .step .t span{font-size:12.5px;color:var(--ink-3)}
+.btn{border-radius:10px;padding:8px 14px;font-size:13px;border:1px solid var(--line);background:var(--surface);font-family:inherit}
+.btn.p{background:var(--navy);color:#fff;border-color:var(--navy)}
+.prog{height:6px;border-radius:3px;background:var(--line);margin:0 4px 14px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo"><i>◆</i>اسم الشركة</div>
+    <nav class="nav">
+      <a class="on" href="#"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>الرئيسية</a>
+      <div class="grp">المبيعات</div>
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6"/></svg>المبيعات</a>
+      <div class="grp">المخزون والذهب</div>
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4zM3 7v10l9 4 9-4V7"/></svg>المخزون</a>
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg>التحويلات</a>
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M12 3v4M5 12H3m18 0h-2M7 7 5.5 5.5M17 7l1.5-1.5M6 21h12l-2-8H8z"/></svg>ذهب الكسر</a>
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M4 4h7l9 9-7 7-9-9z"/><circle cx="8" cy="8" r="1.5"/></svg>الأنواع والمنتجات</a>
+      <div class="grp">الموردون</div>
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M3 7h11v10H3zM14 10h4l3 3v4h-7M7 20a2 2 0 1 0 0-.1M17 20a2 2 0 1 0 0-.1"/></svg>مشتريات الموردين</a>
+      <a href="#"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5M16 11h5M18.5 8.5v5"/></svg>الموردون</a>
+      <div class="grp">المال</div>
+      <a href="#"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>النقدية والتسوية</a>
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 5-6"/></svg>الأسعار</a>
+      <div class="grp">التحليل</div>
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M4 21V9l8-6 8 6v12M9 21v-6h6v6"/></svg>الفروع</a>
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>التقارير</a>
+      <div class="grp">الإدارة</div>
+      <a href="#"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-4 3-6 7-6s7 2 7 6"/></svg>المستخدمون</a>
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg>سجل التدقيق</a>
+      <a href="#"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/></svg>الإعدادات</a>
+    </nav>
+  </aside>
+  <main>
+    <div class="top">
+      <span class="pill dark"><span class="dot"></span>عيار 21 · <b>حدّد سعر اليوم</b></span>
+      <span class="sp"></span>
+      <span class="tag">نموذج ثابت — بيانات وهمية للتوضيح فقط</span>
+      <span class="pill">English</span>
+      <span class="avatar">م ع</span>
+    </div>
+    <div class="hd"><div><h1>مرحباً، لنبدأ</h1><div class="sub">النظام جديد وفارغ. ثلاث خطوات قبل أول عملية بيع.</div></div></div>
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;align-items:start">
+    <section class="panel">
+      <div class="ph"><h2>الخطوات الأولى <span class="num" style="color:var(--ink-3);font-weight:400">0 من 3</span></h2></div>
+      <div class="prog"></div>
+      <div class="steps">
+        <div class="step"><span class="n">1</span><span class="t"><b>حدّد سعر الذهب اليوم</b><span>سعر البيع لعيار 21 وأسعار شراء الكسر. يظهر للكاشير في أعلى الشاشة.</span></span><button class="btn p">تحديد الأسعار</button></div>
+        <div class="step"><span class="n">2</span><span class="t"><b>أنشئ الفرع الأول</b><span>الاسم بالعربية والمدينة. كل فرع يبدأ بنقدية وبنك صفر.</span></span><button class="btn">فرع جديد</button></div>
+        <div class="step"><span class="n">3</span><span class="t"><b>أضف مدير الفرع والكاشير</b><span>يحصل كل منهم على كلمة مرور مؤقتة يغيّرها عند أول دخول.</span></span><button class="btn">مستخدم جديد</button></div>
+      </div>
+      <p class="sub" style="margin:14px 4px 0">بعدها يسجّل مدير الفرع أول طلبية من مورّد (والأنواع والمنتجات من نفس الشاشة)، ثم يبدأ البيع.</p>
+    </section>
+    <section class="panel">
+      <div class="ph"><h2>يحتاج إلى متابعة <span class="num" style="color:var(--ink-3);font-weight:400">(2)</span></h2></div>
+      <div class="row"><span class="sev w">تنبيه</span><span class="t">لم تُسجَّل نسخة احتياطية بعد<div class="m">راجع النسخ الاحتياطي في دليل التشغيل</div></span><span class="go">‹</span></div>
+      <div class="row"><span class="sev i">للعلم</span><span class="t">لديك مفتاح مرور واحد فقط<div class="m">سجّل جهازاً ثانياً حتى لا يمنعك فقدانه من الدخول</div></span><span class="go">‹</span></div>
+    </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

@@ -8,7 +8,7 @@
 //    frontend/src that are not wrapped in t()/translate().
 // 2. Missing Arabic: every key passed to t()/translate() in the frontend, plus every
 //    user-facing key produced by the backend (error messages, report titles/columns/notes,
-//    notifications, Hasad errors, audit-log description keys, ledger note templates) must
+//    notifications, audit-log description keys, ledger note templates) must
 //    exist in frontend/src/lib/i18n-ar.ts.
 // 3. Backend English sentences that bypass the key system: template-literal `description:`
 //    values (audit text must use `key` + `params`) and English free text in seed data.
@@ -139,11 +139,10 @@ for (const file of walk(FRONTEND, ['.tsx', '.ts'])) {
 // ───────── backend keys that reach the UI ─────────
 const backendKeys = new Map();
 const addKey = (k, where) => k && !backendKeys.has(k) && backendKeys.set(k, where);
-const BACKEND_DIRS = [path.join(root, 'backend/src'), path.join(root, 'integrations/hasad/src')];
+const BACKEND_DIRS = [path.join(root, 'backend/src')];
 const patterns = [
   /\b(?:badRequest|forbidden|conflict|unauthorized)\(\s*'((?:[^'\\]|\\.)+)'/g,
   /\bnew AppError\(\s*\d+,\s*'[A-Z_]+',\s*'((?:[^'\\]|\\.)+)'/g,
-  /\bnew HasadError\(\s*'[A-Z_]+',\s*'((?:[^'\\]|\\.)+)'/g,
 ];
 for (const file of BACKEND_DIRS.flatMap((d) => walk(d, ['.ts']))) {
   if (file.includes('/seed/') || file.endsWith('.test.ts')) continue;
@@ -158,7 +157,6 @@ for (const file of BACKEND_DIRS.flatMap((d) => walk(d, ['.ts']))) {
     for (const m of src.matchAll(/notes:\s*\[([^\]]+)\]/g)) for (const n of m[1].matchAll(/'((?:[^'\\]|\\.)+)'/g)) addKey(n[1].replace(/\\'/g, "'"), rel);
   }
   if (rel.endsWith('notifications/service.ts')) for (const m of src.matchAll(/\b(?:title|body):\s*'([^']+)'/g)) addKey(m[1], rel);
-  if (rel.endsWith('hasad/sync.ts')) for (const m of src.matchAll(/'(Hasad Gold[^']*)'/g)) addKey(m[1], rel);
 }
 for (const k of ['Authentication required', 'You do not have permission to perform this action', 'Unexpected server error', 'Unknown API endpoint']) addKey(k, 'backend defaults');
 

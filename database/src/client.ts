@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as erpSchema from './schema';
 
-// The mock Hasad tables (schema `hasad_mock`) are owned by /integrations/hasad; they are
-// included in the generated migrations (see drizzle.config.ts) but not in this typed schema.
+// The deprecated mock Hasad tables (schema `hasad_mock`, src/deprecated-hasad-mock-schema.ts) are
+// included in the generated migrations (see drizzle.config.ts) but not in this typed schema (REM-2).
 export const schema = { ...erpSchema };
 export type Schema = typeof schema;
 export type DB = PgDatabase<PgQueryResultHKT, Schema>;

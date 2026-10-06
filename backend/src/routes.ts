@@ -9,7 +9,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, EXPENSE_CATEGORIES, EXPENSE_PAYMENT_SOURCES, ITEM_ORIGINS, KARATS, PAYMENT_METHODS, SCRAP_KINDS, SCRAP_PAYMENT_METHODS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
+import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, KARATS, PAYMENT_METHODS, SCRAP_KINDS, SCRAP_PAYMENT_METHODS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
@@ -24,9 +24,8 @@ import * as users from './modules/users/service';
 import * as inventory from './modules/inventory/service';
 import * as sales from './modules/sales/service';
 import * as printing from './modules/print/service';
-import * as hasad from './modules/hasad/service';
 import * as purchases from './modules/purchases/service';
-import * as expenses from './modules/expenses/service';
+import * as catalog from './modules/catalog/service';
 import * as transfers from './modules/transfers/service';
 import * as dashboard from './modules/dashboard/service';
 import * as reports from './modules/reports/service';
@@ -44,7 +43,6 @@ import { runIdempotent } from './core/idempotency';
 import { defineRoutes } from './core/guard';
 import { costRedaction } from './core/cost-redaction';
 import { notificationsFor } from './modules/notifications/service';
-import { syncWithdrawals } from './modules/hasad/sync';
 import { resetDemoData } from './seed/reset';
 import { DEMO_PASSWORDS, USERS } from './seed/catalog';
 
@@ -151,7 +149,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     // Backup ages and status only (D-2c-6). Always HTTP 200: a stale backup must not make the host
     // restart a healthy service; monitoring reads `backup.status`.
     const backup = await backups.backupHealth(ctx).catch(() => null);
-    res.json(config.production ? { ok: true, backup } : { ok: true, driver: ctx.handle.driver, hasad: ctx.hasad.mode, appMode: config.appMode, backup });
+    res.json(config.production ? { ok: true, backup } : { ok: true, driver: ctx.handle.driver, appMode: config.appMode, backup });
   });
 
 
@@ -223,11 +221,46 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('GET', '/branches/directory', async (_req, res) => {
     res.json(await ctx.db.select({ id: t.branches.id, code: t.branches.code, name: t.branches.name, nameAr: t.branches.nameAr }).from(t.branches).orderBy(t.branches.id));
   });
-  route('GET', '/categories', async (_req, res) => res.json(await inventory.listCategories(ctx)));
-  route('GET', '/products', async (req, res) => res.json(await inventory.listProducts(ctx, actorOf(req))));
-  route('GET', '/suppliers', async (req, res) => {
-    requirePerm(actorOf(req), 'purchases.view');
-    res.json(await purchases.listSuppliers(ctx));
+  // ── Catalog (CAT-0): item types (the UI says "Type"), products and suppliers.
+  const zNames = { nameAr: zText(200), name: zText(200).nullish() };
+  const zActiveQuery = z.object({ includeInactive: z.enum(['true', 'false']).optional() }).strict();
+  const zReason = z.object({ reason: zText(500) }).strict();
+  route('GET', '/categories', async (req, res) => {
+    const q = parse(zActiveQuery, req.query);
+    res.json(await catalog.listCategories(ctx, actorOf(req), { includeInactive: q.includeInactive === 'true' }));
+  });
+  route('POST', '/categories', async (req, res) => {
+    const body = parse(z.object(zNames).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, () => catalog.createCategory(ctx, actorOf(req), body)));
+  });
+  route('POST', '/categories/:id/deactivate', async (req, res) => {
+    const { reason } = parse(zReason, req.body);
+    res.json(await catalog.setCategoryActive(ctx, actorOf(req), parse(zId, req.params.id), false, reason));
+  });
+  route('POST', '/categories/:id/reactivate', async (req, res) => {
+    const { reason } = parse(zReason, req.body);
+    res.json(await catalog.setCategoryActive(ctx, actorOf(req), parse(zId, req.params.id), true, reason));
+  });
+  route('GET', '/products', async (req, res) => {
+    const q = parse(zActiveQuery.extend({ karat: z.coerce.number().int().min(1).max(24).optional() }), req.query);
+    res.json(await catalog.listProducts(ctx, actorOf(req), { includeInactive: q.includeInactive === 'true', karat: q.karat }));
+  });
+  route('POST', '/products', async (req, res) => {
+    const body = parse(z.object({ ...zNames, karat: z.number().int().min(1).max(24), categoryId: zIdBody }).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, () => catalog.createProduct(ctx, actorOf(req), body)));
+  });
+  route('POST', '/products/:id/deactivate', async (req, res) => {
+    const { reason } = parse(zReason, req.body);
+    res.json(await catalog.setProductActive(ctx, actorOf(req), parse(zId, req.params.id), false, reason));
+  });
+  route('POST', '/products/:id/reactivate', async (req, res) => {
+    const { reason } = parse(zReason, req.body);
+    res.json(await catalog.setProductActive(ctx, actorOf(req), parse(zId, req.params.id), true, reason));
+  });
+  route('GET', '/suppliers', async (_req, res) => res.json(await catalog.listSuppliers(ctx)));
+  route('POST', '/suppliers', async (req, res) => {
+    const body = parse(z.object({ ...zNames, phone: zPhone.nullish() }).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, () => catalog.createSupplier(ctx, actorOf(req), body)));
   });
   route('GET', '/roles', async (req, res) => {
     requirePerm(actorOf(req), 'users.view');
@@ -342,7 +375,6 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           city: zText(60).min(2),
           address: zText(200).optional(),
           phone: zPhone.optional(),
-          hasadBranchCode: z.string().regex(/^[A-Z0-9-]{2,30}$/).optional(),
         })
         .strict(),
       req.body,
@@ -423,7 +455,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           branchId: zOptId,
           q: zQ,
           karat: zKarat.optional(),
-          category: z.string().regex(/^[A-Z_]{2,30}$/).optional(),
+          // CAT-0: filter by item type id (generated type codes such as T-001 are not filter keys).
+          categoryId: zOptId,
           status: zStatusList,
           origin: z.enum(ITEM_ORIGINS).optional(),
           minWeightMg: z.coerce.number().int().min(0).max(MAX_WEIGHT_MG).optional(),
@@ -488,53 +521,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     res.json(await runIdempotent(ctx, req, res, (idem) => sales.voidSale(ctx, actorOf(req), id, body.reason, { idem })));
   });
 
-  // ─────────── Hasad ───────────
-  route('GET', '/hasad/withdrawals', async (req, res) => {
-    const q = parse(z.object({ branchId: zOptId, status: zStatusList, q: zQ, from: zDay.optional(), to: zDay.optional() }).strict(), req.query);
-    res.json(await hasad.listWithdrawals(ctx, actorOf(req), { ...q, status: q.status as never }));
-  });
-  route('GET', '/hasad/withdrawals/:id', async (req, res) => res.json(await hasad.getWithdrawal(ctx, actorOf(req), parse(zId, req.params.id))));
-  route('GET', '/hasad/withdrawals/:id/candidates', async (req, res) => {
-    const q = parse(z.object({ q: zQ, karat: zKarat.optional(), category: z.string().regex(/^[A-Z_]{2,30}$/).optional() }).strict(), req.query);
-    res.json(await hasad.candidateItems(ctx, actorOf(req), parse(zId, req.params.id), q));
-  });
-  route('POST', '/hasad/withdrawals/:id/open', async (req, res) => {
-    const body = parse(z.object({ verification: z.enum(['PICKUP_CODE', 'ID_DOCUMENT']), pickupCode: z.string().regex(/^\d{4,8}$/).optional() }).strict(), req.body);
-    res.json(await hasad.openWithdrawal(ctx, actorOf(req), parse(zId, req.params.id), body));
-  });
-  route('POST', '/hasad/withdrawals/:id/items', async (req, res) => {
-    const body = parse(z.object({ itemId: zIdBody }).strict(), req.body);
-    res.json(await hasad.addItem(ctx, actorOf(req), parse(zId, req.params.id), body.itemId));
-  });
-  route('DELETE', '/hasad/withdrawals/:id/items/:itemId', async (req, res) => {
-    res.json(await hasad.removeItem(ctx, actorOf(req), parse(zId, req.params.id), parse(zId, req.params.itemId)));
-  });
-  route('POST', '/hasad/withdrawals/:id/complete', async (req, res) => {
-    const body = parse(
-      z
-        .object({
-          // A Hasad delivery's price difference is settled in money, never "paid with Hasad".
-          paymentMethod: z.enum(PAYMENT_METHODS).exclude(['HASAD']),
-          customerAcknowledged: z.boolean(),
-          expectedDirection: z.enum(['BRANCH_PAYS_CUSTOMER', 'CUSTOMER_PAYS_BRANCH', 'NONE']),
-          expectedAmount: zMoney,
-        })
-        .strict(),
-      req.body,
-    );
-    const id = parse(zId, req.params.id);
-    res.json(await runIdempotent(ctx, req, res, (idem) => hasad.completeWithdrawal(ctx, actorOf(req), id, body, { idem })));
-  });
-  route('POST', '/hasad/withdrawals/:id/abort', async (req, res) => {
-    const body = parse(z.object({ reason: zText(500).min(3).default('Customer left without completing') }).strict(), req.body);
-    res.json(await hasad.abortRedemption(ctx, actorOf(req), parse(zId, req.params.id), body.reason));
-  });
-  route('POST', '/hasad/withdrawals/:id/cancel', async (req, res) => {
-    const body = parse(z.object({ reason: zText(500).min(3) }).strict(), req.body);
-    res.json(await hasad.cancelWithdrawal(ctx, actorOf(req), parse(zId, req.params.id), body.reason));
-  });
-
-  // ─────────── purchases / expenses / transfers ───────────
+  // ─────────── purchases / transfers ───────────
   route('GET', '/purchases', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId, from: zDay.optional(), to: zDay.optional(), q: zQ }).strict(), req.query);
     res.json(await purchases.listPurchases(ctx, actorOf(req), q));
@@ -560,7 +547,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           supplierId: zIdBody.optional(),
           supplierInvoiceNo: zText(60).optional(),
           notes: zText(1000).optional(),
-          makingChargePaidFrom: z.enum(EXPENSE_PAYMENT_SOURCES).optional(),
+          makingChargePaidFrom: z.enum(CASH_OR_BANK).optional(),
           lines: z.array(line).min(1).max(200),
         })
         .strict(),
@@ -615,44 +602,6 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('GET', '/scrap-pool', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId }).strict(), req.query);
     res.json(await scrap.poolView(ctx, actorOf(req), q));
-  });
-
-  route('GET', '/expenses', async (req, res) => {
-    const q = parse(
-      z
-        .object({
-          branchId: zOptId,
-          from: zDay.optional(),
-          to: zDay.optional(),
-          category: z.enum(EXPENSE_CATEGORIES).optional(),
-          status: z.enum(['APPROVED', 'PENDING', 'REJECTED']).optional(),
-          q: zQ,
-        })
-        .strict(),
-      req.query,
-    );
-    res.json(await expenses.listExpenses(ctx, actorOf(req), q));
-  });
-  route('POST', '/expenses', async (req, res) => {
-    const body = parse(
-      z
-        .object({
-          branchId: zIdBody.optional(),
-          category: z.enum(EXPENSE_CATEGORIES),
-          amount: zPositiveMoney,
-          expenseDate: zDay.optional(),
-          description: zText(500).min(2),
-          paidFrom: z.enum(EXPENSE_PAYMENT_SOURCES).optional(),
-        })
-        .strict(),
-      req.body,
-    );
-    res.json(await runIdempotent(ctx, req, res, (idem) => expenses.createExpense(ctx, actorOf(req), body, { idem })));
-  });
-  route('POST', '/expenses/:id/review', async (req, res) => {
-    const body = parse(z.object({ decision: z.enum(['APPROVED', 'REJECTED']), note: zText(500).optional(), paidFrom: z.enum(EXPENSE_PAYMENT_SOURCES).optional() }).strict(), req.body);
-    const id = parse(zId, req.params.id);
-    res.json(await runIdempotent(ctx, req, res, (idem) => expenses.reviewExpense(ctx, actorOf(req), id, body.decision, body.note, { idem, paidFrom: body.paidFrom })));
   });
 
   // ─────────── Cash: expected drawer balance, daily reconciliation, counted cash (Phase 2b) ───────────
@@ -743,30 +692,6 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
       await resetDemoData(ctx);
       res.clearCookie(config.cookieName, { path: '/' });
       res.json({ ok: true });
-    });
-
-    // Mock Hasad simulator & integration monitor.
-    const simulator = () => {
-      if (!ctx.mockHasad) throw forbidden('Simulator is only available with the mock Hasad service');
-      return ctx.mockHasad;
-    };
-    route('GET', '/hasad/simulator/customers', async (req, res) => {
-      requirePerm(actorOf(req), 'hasad.simulate');
-      res.json(await simulator().simulateCustomers());
-    });
-    route('POST', '/hasad/simulator/withdrawals', async (req, res) => {
-      const actor = actorOf(req);
-      requirePerm(actor, 'hasad.simulate');
-      const body = parse(z.object({ customerId: z.string().regex(/^[A-Z0-9-]{3,30}$/), branchId: zIdBody, weightMg: zWeightMg.optional() }).strict(), req.body);
-      const [branch] = await ctx.db.select().from(t.branches).where(eq(t.branches.id, body.branchId));
-      if (!branch?.hasadBranchCode) throw notFound('Branch');
-      const w = await simulator().simulateWithdrawalRequest({ customerId: body.customerId, branchCode: branch.hasadBranchCode, weightMg: body.weightMg });
-      await syncWithdrawals(ctx, true);
-      res.json(w);
-    });
-    route('GET', '/hasad/integration-log', async (req, res) => {
-      requirePerm(actorOf(req), 'hasad.simulate');
-      res.json(ctx.mockHasad ? await ctx.mockHasad.recentCalls(80) : []);
     });
   }
   return Object.assign(r, { registered });

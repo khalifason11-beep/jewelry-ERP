@@ -6,7 +6,7 @@ import { del, get, post, put, upload } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useBranding } from '../../lib/branding';
 import { currencyLabel, dateTime, humanize, money } from '../../lib/format';
-import { useBranches, useGoldRates } from '../../lib/hooks';
+import { useGoldRates } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { printDocument } from '../../lib/print';
@@ -29,7 +29,6 @@ export function SettingsPage() {
   const { logout, me } = useAuth();
   const isDemo = me?.appMode === 'demo';
   const branding = useBranding();
-  const branches = useBranches();
   const s = useQuery({ queryKey: ['settings'], queryFn: () => get<SettingsResponse>('/settings') });
   const rates = useGoldRates();
   const [draft, setDraft] = useState<SystemSettings | null>(null);
@@ -69,7 +68,7 @@ export function SettingsPage() {
   const saveRates = useMutation({
     mutationFn: () => post('/gold-rates', { rates: Object.fromEntries(Object.entries(rateDraft).filter(([k]) => draft?.inventory.allowedKarats.includes(Number(k))).map(([k, v]) => [k, Number(v)])) }),
     onSuccess: () => {
-      toast.success(t('Gold rates updated'), t('New rates apply immediately to Hasad settlements.'));
+      toast.success(t('Gold rates updated'), t('New rates apply immediately.'));
       refreshAll();
     },
     onError: (e) => toast.fromError(e),
@@ -186,7 +185,7 @@ export function SettingsPage() {
         <Card padded={false}>
           <CardHeader
             title={t('Gold rates ({currency} per gram)', { currency: currencyLabel() })}
-            subtitle={t('Used to value Hasad weight differences and shown to cashiers')}
+            subtitle={t('The selling rate per gram, shown to cashiers')}
             actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={saveRates.isPending} onClick={() => saveRates.mutate()}>{t('Save rates')}</Button>}
           />
           <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
@@ -262,51 +261,10 @@ export function SettingsPage() {
           </div>
         </Card>
 
-        {/* ── Hasad Gold ── */}
-        <Card padded={false}>
-          <CardHeader title={t('Hasad Gold settlement')} actions={saveBtn(['hasad.settlementBasis', 'hasad.rateSource', 'hasad.entitlementKarat', 'hasad.reservationTimeoutMinutes', 'hasad.enabledPerBranch'])} />
-          <div className="grid gap-3 p-5 sm:grid-cols-2">
-            <Field label={t('Weight comparison basis')} hint={t('Spec default: compare net gold weight directly')}>
-              <Select value={draft.hasad.settlementBasis} onChange={(e) => set('hasad', { settlementBasis: e.target.value as SystemSettings['hasad']['settlementBasis'] })}>
-                <option value="NET_WEIGHT">{t('Net gold weight')}</option>
-                <option value="PURE_GOLD_EQUIVALENT">{t('Pure-gold equivalent (karat-adjusted)')}</option>
-              </Select>
-            </Field>
-            <Field label={t('Rate used to value the difference')}>
-              <Select value={draft.hasad.rateSource} onChange={(e) => set('hasad', { rateSource: e.target.value as SystemSettings['hasad']['rateSource'] })}>
-                <option value="ITEM_KARAT">{t('Karat of the selected piece(s)')}</option>
-                <option value="ENTITLEMENT_KARAT">{t('Karat of the entitlement')}</option>
-              </Select>
-            </Field>
-            <Field label={t('Entitlement karat')}>
-              <Select value={draft.hasad.entitlementKarat} onChange={(e) => set('hasad', { entitlementKarat: Number(e.target.value) })}>
-                {draft.inventory.allowedKarats.map((k) => <option key={k} value={k}>{k}K</option>)}
-              </Select>
-            </Field>
-            <Field label={t('Auto-release reserved pieces after (minutes)')}>
-              {numberInput(draft.hasad.reservationTimeoutMinutes, (n) => set('hasad', { reservationTimeoutMinutes: n }), { min: 5 })}
-            </Field>
-            <Field label={t('Hasad Gold enabled for')} className="sm:col-span-2">
-              <div className="flex flex-wrap gap-3">
-                {(branches.data ?? []).map((b) => (
-                  <label key={b.code} className="flex items-center gap-1.5 text-[13px]">
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-ink-900"
-                      checked={!!draft.hasad.enabledPerBranch[b.code]}
-                      onChange={(e) => set('hasad', { enabledPerBranch: { ...draft.hasad.enabledPerBranch, [b.code]: e.target.checked } })}
-                    />
-                    {t(b.name)}
-                  </label>
-                ))}
-              </div>
-            </Field>
-          </div>
-        </Card>
 
-        {/* ── Sales & expenses ── */}
+        {/* ── Sales ── */}
         <Card padded={false}>
-          <CardHeader title={t('Sales & expenses')} actions={saveBtn(['sales.maxDiscountPercentByRole', 'sales.posPaymentMethods', 'expenses.approvalThreshold'])} />
+          <CardHeader title={t('Sales')} actions={saveBtn(['sales.maxDiscountPercentByRole', 'sales.posPaymentMethods'])} />
           <div className="grid gap-3 p-5 sm:grid-cols-3">
             <Field label={t('Payment methods at the counter')} className="sm:col-span-3" hint={t('What the cashier can choose at the POS. Hasad asks for the Hasad invoice number.')}>
               <div className="flex flex-wrap gap-4 pt-1">
@@ -324,9 +282,6 @@ export function SettingsPage() {
                 {numberInput(v, (n) => set('sales', { maxDiscountPercentByRole: { ...draft.sales.maxDiscountPercentByRole, [role]: n } }), { min: 0, max: 100 })}
               </Field>
             ))}
-            <Field label={t('Expense approval threshold ({currency})', { currency: currencyLabel() })} className="sm:col-span-3" hint={t('Expenses above this amount created by branch managers need General Manager approval')}>
-              {numberInput(draft.expenses.approvalThreshold, (n) => set('expenses', { approvalThreshold: n }), { min: 0 })}
-            </Field>
           </div>
         </Card>
 
@@ -435,22 +390,10 @@ export function SettingsPage() {
 
         {isDemo && (
           <Card padded={false}>
-            <CardHeader title={t('Mock Hasad Gold service')} subtitle={t('Demo controls for the simulated integration')} actions={saveBtn(['mockHasad.latencyMs', 'mockHasad.simulateOutage'])} />
-            <div className="grid gap-3 p-5 sm:grid-cols-2">
-              <Field label={t('Simulated latency (ms)')}>{numberInput(draft.mockHasad.latencyMs, (n) => set('mockHasad', { latencyMs: n }), { min: 0 })}</Field>
-              <label className="flex items-center gap-2 self-end pb-2 text-[13px]">
-                <input type="checkbox" className="size-4 accent-rose-600" checked={draft.mockHasad.simulateOutage} onChange={(e) => set('mockHasad', { simulateOutage: e.target.checked })} />
-                {t('Simulate Hasad outage (shows error handling)')}
-              </label>
-            </div>
-          </Card>
-        )}
-        {isDemo && (
-          <Card padded={false}>
             <CardHeader title={t('Demo data')} />
             <div className="p-5">
               <Alert tone="warning" className="mb-3">
-                {t('Rebuilds the entire demo database relative to the current date and time: branches, users, 30 days of transactions, Hasad requests. All current data and sessions are discarded.')}
+                {t('Rebuilds the entire demo database relative to the current date and time: branches, users, 30 days of transactions. All current data and sessions are discarded.')}
               </Alert>
               <Button variant="danger" icon={<RotateCcw className="size-4" />} onClick={() => setResetOpen(true)}>{t('Reset demo data')}</Button>
             </div>
@@ -508,7 +451,7 @@ function ScrapRatesCard() {
         title={t('Scrap buying rates (per gram)')}
         subtitle={t('What the branches pay customers for scrap gold, by karat. Any karat can be bought as broken scrap.')}
         actions={
-          <Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={m.isPending} onClick={() => m.mutate()}>
+          <Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={m.isPending} onClick={() => m.mutate()} data-testid="save-scrap-rates">
             {t('Save')}
           </Button>
         }
@@ -518,7 +461,7 @@ function ScrapRatesCard() {
           const cur = q.data?.rates.find((r) => r.karat === k);
           return (
             <Field key={k} label={`${k}K`} hint={cur ? dateTime(cur.effectiveAt, lang) : t('Not set')}>
-              <Input type="number" min={0} value={draft[k] ?? ''} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} className="num" />
+              <Input type="number" min={0} value={draft[k] ?? ''} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} className="num" data-testid={`scrap-rate-${k}`} />
             </Field>
           );
         })}

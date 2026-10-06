@@ -56,10 +56,11 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
     const byId = new Map(locked.map((i) => [i.id, i]));
     const [branch] = await tx.select().from(t.branches).where(eq(t.branches.id, branchId));
     const products = await tx
-      .select({ id: t.products.id, name: t.products.name })
+      .select({ id: t.products.id, name: t.products.name, nameAr: t.products.nameAr })
       .from(t.products)
       .where(inArray(t.products.id, locked.map((i) => i.productId)));
-    const productName = new Map(products.map((p) => [p.id, p.name]));
+    // Snapshot of the name at the time of sale; the English name is optional (CAT-0), so fall back to Arabic.
+    const productName = new Map(products.map((p) => [p.id, p.name?.trim() ? p.name : p.nameAr]));
 
     const lines = input.items.map((line) => {
       const item = byId.get(line.itemId)!;
@@ -135,7 +136,7 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       metadata: { items: lines.map((l) => l.item.code), total: subtotal - discountTotal, discountTotal },
     });
     // The money: into the drawer (CASH), the bank (CARD, MOBILE_WALLET, BANK_TRANSFER) — Q5 — or the
-    // branch's Hasad receivable (HASAD, D-4-6), held there until a settlement flow is decided.
+    // branch's Hasad receivable (HASAD, D-4-6), until Hasad's bank transfer is recorded (D-4-14).
     await post(
       tx,
       [{ branchId, kind: accountKindFor(input.paymentMethod), amount: subtotal - discountTotal, eventType: 'SALE', paymentMethod: input.paymentMethod, ref: { refType: 'sale', refId: sale.id, refNumber: number }, at }],

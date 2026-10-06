@@ -3,13 +3,12 @@
 
 import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import type { ReportKey } from '@jerp/shared';
+import { PAYMENT_METHODS, sumInt, type ReportKey } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requirePerm } from '../../authz';
 import { badRequest } from '../../core/errors';
-import { rows, num } from '../../core/sql';
+import { nameOrAr, rows, num } from '../../core/sql';
 import { periodFor } from '../dashboard/service';
-import { listExpenses } from '../expenses/service';
 import { searchItems } from '../inventory/service';
 import { listPurchases } from '../purchases/service';
 import { listSales } from '../sales/service';
@@ -61,6 +60,18 @@ function stockSummary(s: StockWeight): NonNullable<Report['summary']> {
 
 const c = (key: string, label: string, type: ColumnType = 'text', link?: string): Column => ({ key, label, type, link });
 
+/** Completed sales grouped by payment channel; labels are the payment-method codes (translated by the UI). */
+async function salesByChannel(ctx: Ctx, rowsAll: Record<string, unknown>[]): Promise<NonNullable<Report['summary']>> {
+  const { sales } = await ctx.settings.get();
+  const completed = rowsAll.filter((r) => r.status === 'COMPLETED');
+  const used = new Set(completed.map((r) => String(r.paymentMethod)));
+  return PAYMENT_METHODS.filter((m) => sales.posPaymentMethods.includes(m) || used.has(m)).map((m) => ({
+    label: m,
+    type: 'money' as const,
+    value: sumInt(completed.filter((r) => r.paymentMethod === m).map((r) => num(r.total))),
+  }));
+}
+
 function totalsOf(rowsAll: Record<string, unknown>[], keys: string[]) {
   const out: Record<string, number> = {};
   for (const k of keys) out[k] = rowsAll.reduce((s, r) => s + num(r[k]), 0);
@@ -100,6 +111,8 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
         ],
         rows: rowsAll,
         totals: totalsOf(rowsAll.filter((r) => r.status === 'COMPLETED'), ['itemCount', 'weightMg', 'discountTotal', 'total', 'costTotal', 'grossProfit']),
+        // Sales by payment channel (SPEC §10, §11): the counter's methods, plus any other method that has sales.
+        summary: await salesByChannel(ctx, rowsAll),
         notes: ['Totals exclude cancelled (voided) sales.'],
         filters: { dateRange: true, branch: true, user: true, status: ['COMPLETED', 'VOIDED'] },
       };
@@ -128,29 +141,6 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
         filters: { dateRange: true, branch: true, user: false },
       };
     }
-    case 'expenses': {
-      requirePerm(actor, 'expenses.view');
-      const data = await listExpenses(ctx, actor, { branchId: branchFilter, from: period.fromKey, to: period.toKey, q: q.q, status: q.status });
-      return {
-        key: 'expenses',
-        title: 'Expenses Report',
-        description: 'Branch operating expenses. Only approved expenses reduce branch contribution.',
-        columns: [
-          c('number', 'Expense', 'code'),
-          c('expenseDate', 'Date', 'date'),
-          c('branchName', 'Branch'),
-          c('category', 'Category', 'status'),
-          c('description', 'Description'),
-          c('amount', 'Amount', 'money'),
-          c('createdByName', 'Created by'),
-          c('status', 'Status', 'status'),
-        ],
-        rows: data,
-        totals: totalsOf(data.filter((e) => e.status === 'APPROVED'), ['amount']),
-        notes: ['Total includes approved expenses only.'],
-        filters: { dateRange: true, branch: true, user: false, status: ['APPROVED', 'PENDING', 'REJECTED'] },
-      };
-    }
     case 'inventory': {
       requirePerm(actor, 'inventory.view');
       const { items } = await searchItems(ctx, actor, {
@@ -159,7 +149,8 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
         status: q.status ? [q.status as never] : undefined,
         limit: 1000,
       });
-      const rowsAll = items.map((i) => ({ ...i, itemId: i.id }));
+      // CAT-0: English names are optional; a report column (and its CSV) falls back to the Arabic name.
+      const rowsAll = items.map((i) => ({ ...i, itemId: i.id, productName: i.productName?.trim() ? i.productName : i.productNameAr, categoryName: i.categoryName?.trim() ? i.categoryName : i.categoryNameAr }));
       return {
         key: 'inventory',
         title: 'Inventory Report',
@@ -222,7 +213,8 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
         transfersIn: L(m, 'TRANSFER_IN').items,
         returns: L(m, 'RETURN').items + L(m, 'ADJUSTMENT_IN').items,
         sales: L(m, 'SALE').items,
-        hasad: L(m, 'HASAD_REDEMPTION').items,
+        // Deliveries of the removed Hasad workspace (historical only, REM-2) stay in the equation.
+        otherOut: L(m, 'HASAD_REDEMPTION').items,
         transfersOut: L(m, 'TRANSFER_OUT').items,
         damaged: L(m, 'DAMAGE').items + L(m, 'ADJUSTMENT_OUT').items,
         closingItems: m.closing.items,
@@ -233,7 +225,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
       return {
         key: 'inventory-movement',
         title: 'Inventory Movement',
-        description: 'Opening stock + purchases + transfers in − sales − Hasad redemptions − transfers out = closing stock. Derived from the ledger.',
+        description: 'Opening stock + purchases + transfers in − sales − transfers out − other = closing stock. Derived from the ledger.',
         columns: [
           c('branchName', 'Branch'),
           c('openingItems', 'Opening', 'number'),
@@ -242,14 +234,14 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('transfersIn', '+ Transfers in', 'number'),
           c('returns', '+ Returns/adj.', 'number'),
           c('sales', '− Sales', 'number'),
-          c('hasad', '− Hasad', 'number'),
+          c('otherOut', '− Other', 'number'),
           c('transfersOut', '− Transfers out', 'number'),
           c('damaged', '− Damaged/adj.', 'number'),
           c('closingItems', '= Closing', 'number'),
           c('closingWeightMg', 'Closing wt', 'weight'),
         ],
         rows: rowsAll,
-        totals: totalsOf(rowsAll, ['openingItems', 'openingWeightMg', 'purchases', 'transfersIn', 'returns', 'sales', 'hasad', 'transfersOut', 'damaged', 'closingItems', 'closingWeightMg']),
+        totals: totalsOf(rowsAll, ['openingItems', 'openingWeightMg', 'purchases', 'transfersIn', 'returns', 'sales', 'otherOut', 'transfersOut', 'damaged', 'closingItems', 'closingWeightMg']),
         filters: { dateRange: true, branch: true, user: false },
       };
     }
@@ -265,7 +257,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           at: t.inventoryMovements.at,
           itemId: t.jewelryItems.id,
           itemCode: t.jewelryItems.code,
-          productName: t.products.name,
+          productName: nameOrAr(t.products.name, t.products.nameAr),
           branchName: t.branches.name,
           type: t.inventoryMovements.type,
           direction: t.inventoryMovements.direction,
@@ -297,7 +289,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('userName', 'User'),
         ],
         rows: data,
-        filters: { dateRange: true, branch: true, user: true, status: ['PURCHASE', 'SALE', 'HASAD_REDEMPTION', 'TRANSFER_IN', 'TRANSFER_OUT', 'RETURN', 'ADJUSTMENT', 'DAMAGE'] },
+        filters: { dateRange: true, branch: true, user: true, status: ['PURCHASE', 'SALE', 'TRANSFER_IN', 'TRANSFER_OUT', 'RETURN', 'ADJUSTMENT', 'DAMAGE'] },
       };
     }
     case 'profit': {
@@ -317,33 +309,32 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           costOfSales: m.costOfSales,
           grossProfit: m.grossProfit,
           margin: m.revenue ? (m.grossProfit / m.revenue) * 100 : 0,
-          expenses: m.expenses,
-          contribution: m.contribution,
         }));
       } else {
         const dim =
-          group === 'category' ? sql`c.name` : group === 'karat' ? sql`(si.karat || 'K')` : group === 'cashier' ? sql`u.full_name` : sql`to_char(s.created_at AT TIME ZONE ${company.timezone},'YYYY-MM-DD')`;
+          group === 'category' ? sql`coalesce(nullif(btrim(c.name), ''), c.name_ar)` : group === 'karat' ? sql`(si.karat || 'K')` : group === 'cashier' ? sql`u.full_name` : sql`to_char(s.created_at AT TIME ZONE ${company.timezone},'YYYY-MM-DD')`;
         const r = await ctx.db.execute(sql`
-          SELECT ${dim} AS label, count(DISTINCT s.id) AS sales_count, coalesce(sum(si.final_price),0) AS revenue,
+          SELECT ${dim} AS label, ${group === 'category' ? sql`c.name_ar` : sql`NULL`} AS label_ar, count(DISTINCT s.id) AS sales_count, coalesce(sum(si.final_price),0) AS revenue,
                  coalesce(sum(si.discount),0) AS discounts, coalesce(sum(si.unit_cost),0) AS cost
           FROM sale_items si JOIN sales s ON s.id = si.sale_id
           JOIN jewelry_items i ON i.id = si.item_id JOIN products p ON p.id = i.product_id JOIN categories c ON c.id = p.category_id
           JOIN users u ON u.id = s.cashier_id
           WHERE s.status = 'COMPLETED' AND s.created_at >= ${iso(period.start)} AND s.created_at < ${iso(period.end)}
           ${scope != null ? sql`AND s.branch_id = ${scope}` : sql``}
-          GROUP BY 1 ORDER BY 1`);
+          GROUP BY ${group === 'category' ? sql`c.id, c.name, c.name_ar` : sql`1`} ORDER BY 1`);
         rowsAll = rows<Record<string, unknown>>(r).map((x) => {
           const revenue = num(x.revenue);
           const cost = num(x.cost);
-          return { label: String(x.label), salesCount: num(x.sales_count), revenue, discounts: num(x.discounts), costOfSales: cost, grossProfit: revenue - cost, margin: revenue ? ((revenue - cost) / revenue) * 100 : 0 };
+          // Types group by id (two types may share an English name); labelAr is the Arabic companion.
+          return { label: String(x.label), ...(group === 'category' ? { labelAr: String(x.label_ar) } : {}), salesCount: num(x.sales_count), revenue, discounts: num(x.discounts), costOfSales: cost, grossProfit: revenue - cost, margin: revenue ? ((revenue - cost) / revenue) * 100 : 0 };
         });
       }
-      const totals = totalsOf(rowsAll, ['salesCount', 'revenue', 'discounts', 'costOfSales', 'grossProfit', 'expenses', 'contribution']);
+      const totals = totalsOf(rowsAll, ['salesCount', 'revenue', 'discounts', 'costOfSales', 'grossProfit']);
       totals.margin = totals.revenue ? (totals.grossProfit / totals.revenue) * 100 : 0;
       return {
         key: 'profit',
         title: 'Profit Report',
-        description: 'Gross profit = selling price (after discount) − item total cost. Contribution = gross profit − approved branch expenses.',
+        description: 'Gross profit = selling price (after discount) − item total cost.',
         columns: [
           c('label', group === 'branch' ? 'Branch' : group[0].toUpperCase() + group.slice(1), 'text', group === 'branch' ? '/branches/:branchId' : undefined),
           c('salesCount', 'Sales', 'number'),
@@ -352,78 +343,13 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('costOfSales', 'Cost of sales', 'money'),
           c('grossProfit', 'Gross profit', 'money'),
           c('margin', 'Margin', 'percent'),
-          ...(group === 'branch' ? [c('expenses', 'Expenses', 'money'), c('contribution', 'Contribution', 'money')] : []),
         ],
         rows: rowsAll,
         totals,
         notes: [
           'Item cost = purchase cost + making cost + other cost (components kept separately; definition configurable with the client).',
-          'Hasad redemptions are reported separately and are not included in revenue until the client defines their accounting treatment.',
         ],
         filters: { dateRange: true, branch: true, user: false },
-      };
-    }
-    case 'hasad': {
-      requirePerm(actor, 'hasad.view');
-      const where: SQL[] = [gte(t.hasadWithdrawals.requestedAt, period.start), lt(t.hasadWithdrawals.requestedAt, period.end)];
-      if (scope != null) where.push(eq(t.hasadWithdrawals.branchId, scope));
-      if (q.status) where.push(eq(t.hasadWithdrawals.status, q.status));
-      if (q.userId) where.push(eq(t.hasadWithdrawals.completedBy, q.userId));
-      if (q.q?.trim()) where.push(or(ilike(t.hasadWithdrawals.externalId, `%${q.q}%`), ilike(t.hasadWithdrawals.customerName, `%${q.q}%`))!);
-      const data = await ctx.db
-        .select({
-          withdrawalId: t.hasadWithdrawals.id,
-          externalId: t.hasadWithdrawals.externalId,
-          requestedAt: t.hasadWithdrawals.requestedAt,
-          customerName: t.hasadWithdrawals.customerName,
-          customerNameAr: t.hasadWithdrawals.customerNameAr,
-          branchName: t.branches.name,
-          entitledWeightMg: t.hasadWithdrawals.entitledWeightMg,
-          status: t.hasadWithdrawals.status,
-          redemptionNumber: t.hasadRedemptions.number,
-          deliveredWeightMg: t.hasadRedemptions.deliveredWeightMg,
-          differenceMg: t.hasadRedemptions.differenceMg,
-          settlementDirection: t.hasadRedemptions.settlementDirection,
-          settlementAmount: t.hasadRedemptions.settlementAmount,
-          itemsCost: t.hasadRedemptions.itemsCost,
-          completedAt: t.hasadWithdrawals.completedAt,
-          cashierName: t.users.fullName,
-          cancelReason: t.hasadWithdrawals.cancelReason,
-        })
-        .from(t.hasadWithdrawals)
-        .innerJoin(t.branches, eq(t.branches.id, t.hasadWithdrawals.branchId))
-        .leftJoin(t.hasadRedemptions, and(eq(t.hasadRedemptions.withdrawalId, t.hasadWithdrawals.id), eq(t.hasadRedemptions.status, 'COMPLETED')))
-        .leftJoin(t.users, eq(t.users.id, t.hasadWithdrawals.completedBy))
-        .where(and(...where))
-        .orderBy(desc(t.hasadWithdrawals.requestedAt));
-      const profit = can(actor, 'profit.view');
-      const completed = data.filter((d) => d.status === 'COMPLETED');
-      return {
-        key: 'hasad',
-        title: 'Hasad Withdrawal Report',
-        description: 'Withdrawal requests from Hasad Gold and how each was fulfilled at the counter.',
-        columns: [
-          c('externalId', 'Withdrawal', 'code', '/hasad/:withdrawalId'),
-          c('requestedAt', 'Requested', 'datetime'),
-          c('customerName', 'Customer'),
-          c('branchName', 'Branch'),
-          c('entitledWeightMg', 'Entitled', 'weight'),
-          c('deliveredWeightMg', 'Delivered', 'weight'),
-          c('differenceMg', 'Difference', 'weight'),
-          c('settlementDirection', 'Settlement', 'status'),
-          c('settlementAmount', 'Amount', 'money'),
-          ...(profit ? [c('itemsCost', 'Items cost', 'money')] : []),
-          c('cashierName', 'Cashier'),
-          c('status', 'Status', 'status'),
-        ],
-        rows: data,
-        totals: {
-          ...totalsOf(completed, ['entitledWeightMg', 'deliveredWeightMg', 'differenceMg', 'itemsCost']),
-          paidToCustomers: completed.filter((d) => d.settlementDirection === 'BRANCH_PAYS_CUSTOMER').reduce((s, d) => s + num(d.settlementAmount), 0),
-          collectedFromCustomers: completed.filter((d) => d.settlementDirection === 'CUSTOMER_PAYS_BRANCH').reduce((s, d) => s + num(d.settlementAmount), 0),
-        },
-        notes: ['Weight totals include completed withdrawals only. Difference = delivered − entitled (negative: branch paid the customer).'],
-        filters: { dateRange: true, branch: true, user: true, status: ['READY_FOR_PICKUP', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] },
       };
     }
     case 'branch-performance': {
@@ -441,14 +367,11 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('salesCount', 'Sales #', 'number'),
           c('revenue', 'Sales', 'money'),
           c('purchasesCost', 'Purchases', 'money'),
-          c('expenses', 'Expenses', 'money'),
-          ...(profit ? [c('grossProfit', 'Gross profit', 'money'), c('contribution', 'Contribution', 'money'), c('inventoryCost', 'Inventory value', 'money')] : []),
+          ...(profit ? [c('grossProfit', 'Gross profit', 'money'), c('inventoryCost', 'Inventory value', 'money')] : []),
           c('availableItems', 'Available items', 'number'),
-          c('hasadCompleted', 'Hasad redemptions', 'number'),
-          c('hasadWeightMg', 'Hasad weight', 'weight'),
         ],
         rows: rowsAll,
-        totals: totalsOf(rowsAll, ['salesCount', 'revenue', 'purchasesCost', 'expenses', 'grossProfit', 'contribution', 'inventoryCost', 'availableItems', 'hasadCompleted', 'hasadWeightMg']),
+        totals: totalsOf(rowsAll, ['salesCount', 'revenue', 'purchasesCost', 'grossProfit', 'inventoryCost', 'availableItems']),
         filters: { dateRange: true, branch: true, user: false },
       };
     }
@@ -460,8 +383,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           (SELECT count(*) FROM audit_logs a WHERE a.entity_id = u.username AND a.action = 'LOGIN_FAILED' AND a.at >= ${iso(period.start)} AND a.at < ${iso(period.end)}) AS failed_logins,
           (SELECT count(*) FROM sales s WHERE s.cashier_id = u.id AND s.status='COMPLETED' AND s.created_at >= ${iso(period.start)} AND s.created_at < ${iso(period.end)}) AS sales_count,
           (SELECT coalesce(sum(total),0) FROM sales s WHERE s.cashier_id = u.id AND s.status='COMPLETED' AND s.created_at >= ${iso(period.start)} AND s.created_at < ${iso(period.end)}) AS sales_total,
-          (SELECT count(*) FROM hasad_redemptions h WHERE h.cashier_id = u.id AND h.status='COMPLETED' AND h.completed_at >= ${iso(period.start)} AND h.completed_at < ${iso(period.end)}) AS hasad_count,
-          (SELECT count(*) FROM audit_logs a WHERE a.user_id = u.id AND a.at >= ${iso(period.start)} AND a.at < ${iso(period.end)}) AS actions,
+            (SELECT count(*) FROM audit_logs a WHERE a.user_id = u.id AND a.at >= ${iso(period.start)} AND a.at < ${iso(period.end)}) AS actions,
           (SELECT count(*) FROM sessions se WHERE se.user_id = u.id AND se.status = 'ACTIVE') AS live_sessions
         FROM users u JOIN roles r ON r.id = u.role_id LEFT JOIN branches b ON b.id = u.branch_id
         WHERE true ${scope != null ? sql`AND u.branch_id = ${scope}` : sql``} ${q.userId ? sql`AND u.id = ${q.userId}` : sql``}
@@ -469,7 +391,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
       const data = rows<Record<string, unknown>>(r).map((x) => ({
         userId: num(x.user_id), fullName: x.full_name, username: x.username, role: x.role, branchName: x.branch_name ?? 'All branches',
         status: x.status, lastLoginAt: x.last_login_at, logins: num(x.logins), failedLogins: num(x.failed_logins),
-        salesCount: num(x.sales_count), salesTotal: num(x.sales_total), hasadCount: num(x.hasad_count), actions: num(x.actions), liveSessions: num(x.live_sessions),
+        salesCount: num(x.sales_count), salesTotal: num(x.sales_total), actions: num(x.actions), liveSessions: num(x.live_sessions),
       }));
       return {
         key: 'user-activity',
@@ -484,14 +406,13 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('failedLogins', 'Failed sign-ins', 'number'),
           c('salesCount', 'Sales', 'number'),
           c('salesTotal', 'Sales value', 'money'),
-          c('hasadCount', 'Hasad', 'number'),
           c('actions', 'Audited actions', 'number'),
           c('liveSessions', 'Live sessions', 'number'),
           c('lastLoginAt', 'Last sign-in', 'datetime'),
           c('status', 'Status', 'status'),
         ],
         rows: data,
-        totals: totalsOf(data, ['logins', 'failedLogins', 'salesCount', 'salesTotal', 'hasadCount', 'actions']),
+        totals: totalsOf(data, ['logins', 'failedLogins', 'salesCount', 'salesTotal', 'actions']),
         filters: { dateRange: true, branch: true, user: true },
       };
     }

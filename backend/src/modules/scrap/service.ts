@@ -11,6 +11,7 @@
 //     SUM(weight_mg), never cached. Its 24K equivalent uses the ONE pure-gold helper (pureGoldMg).
 
 import { and, asc, desc, eq, gte, lt, sql, type SQL } from 'drizzle-orm';
+import { assertProductsUsable } from '../catalog/service';
 import { t, type Executor } from '@jerp/database';
 import { ap, divRound, pureGoldMg, sumInt, valueOfWeight, type ScrapKind, type ScrapPaymentMethod, type ScrapWeightEventType } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
@@ -204,6 +205,8 @@ export async function buyScrap(ctx: Ctx, actor: Actor, input: ScrapPurchaseInput
       const [product] = await tx.select().from(t.products).where(eq(t.products.id, input.productId!));
       if (!product) throw notFound('Product');
       if (product.karat !== input.karat) throw badRequest('The product is {pkarat}K but the piece is {karat}K', { pkarat: product.karat, karat: input.karat });
+      // CAT-0: deactivated products and types receive no new stock.
+      await assertProductsUsable(tx, [product.id]);
       const { code, barcode } = await nextItemCode(tx);
       const [item] = await tx
         .insert(t.jewelryItems)

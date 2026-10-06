@@ -1,5 +1,4 @@
 import type { DatabaseHandle, DB } from '@jerp/database';
-import type { HasadService, MockHasadService } from '@jerp/hasad';
 import type { Permission } from '@jerp/shared';
 import type { SettingsStore } from '../modules/settings/store';
 
@@ -24,8 +23,5 @@ export interface Actor {
 export interface Ctx {
   handle: DatabaseHandle;
   db: DB;
-  hasad: HasadService;
-  /** Present only while the mock is in use (enables the demo simulator). */
-  mockHasad: MockHasadService | null;
   settings: SettingsStore;
 }

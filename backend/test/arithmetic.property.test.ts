@@ -1,10 +1,9 @@
 // Property tests (fast-check) for money and weight arithmetic: exact integer results, no float
-// drift, symmetric rounding for negatives, and the Hasad settlement rule (finding L-7).
+// drift and symmetric rounding for negatives (finding L-7).
 
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import {
-  calculateSettlement,
   divRound,
   formatWeight,
   gramsToMg,
@@ -152,46 +151,6 @@ describe('money', () => {
       RUNS,
     );
     expect(weightedPricePerGram([])).toBe(0);
-  });
-});
-
-describe('Hasad settlement (L-7)', () => {
-  const items = fc.array(fc.record({ netWeightMg: fc.integer({ min: 0, max: 200_000 }), karat }), { maxLength: 8 });
-  const basis = fc.constantFrom('NET_WEIGHT' as const, 'PURE_GOLD_EQUIVALENT' as const);
-
-  it('amount is the exact integer value of |difference|, direction follows the sign', () => {
-    fc.assert(
-      fc.property(weightMg, karat, items, pricePerGram, basis, (entitled, k, its, rate, b) => {
-        const s = calculateSettlement({ entitledWeightMg: entitled, entitlementKarat: k, items: its, ratePerGram: rate, basis: b });
-        const expectedDirection = s.differenceMg < 0 ? 'BRANCH_PAYS_CUSTOMER' : s.differenceMg > 0 ? 'CUSTOMER_PAYS_BRANCH' : 'NONE';
-        return (
-          Number.isSafeInteger(s.amount) &&
-          s.amount >= 0 &&
-          s.direction === expectedDirection &&
-          s.absDifferenceMg === Math.abs(s.differenceMg) &&
-          s.differenceMg === s.deliveredWeightMg - s.entitledWeightMg &&
-          isCorrectRounding(BigInt(s.absDifferenceMg) * BigInt(rate), 1000n, BigInt(s.amount))
-        );
-      }),
-      RUNS,
-    );
-  });
-
-  it('is symmetric: swapping entitled and delivered swaps who pays, never the amount', () => {
-    fc.assert(
-      fc.property(weightMg, weightMg, pricePerGram, (a, b, rate) => {
-        const x = calculateSettlement({ entitledWeightMg: a, entitlementKarat: 21, items: [{ netWeightMg: b, karat: 21 }], ratePerGram: rate, basis: 'NET_WEIGHT' });
-        const y = calculateSettlement({ entitledWeightMg: b, entitlementKarat: 21, items: [{ netWeightMg: a, karat: 21 }], ratePerGram: rate, basis: 'NET_WEIGHT' });
-        const flipped = { BRANCH_PAYS_CUSTOMER: 'CUSTOMER_PAYS_BRANCH', CUSTOMER_PAYS_BRANCH: 'BRANCH_PAYS_CUSTOMER', NONE: 'NONE' } as const;
-        return x.amount === y.amount && y.direction === flipped[x.direction];
-      }),
-      RUNS,
-    );
-  });
-
-  it('matches known values', () => {
-    const s = calculateSettlement({ entitledWeightMg: 10_000, entitlementKarat: 21, items: [{ netWeightMg: 9_873, karat: 21 }], ratePerGram: 190_500, basis: 'NET_WEIGHT' });
-    expect(s).toMatchObject({ direction: 'BRANCH_PAYS_CUSTOMER', absDifferenceMg: 127, amount: 24_194 }); // 127 × 190.5 = 24 193.5 → 24 194
   });
 });
 

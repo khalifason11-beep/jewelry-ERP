@@ -82,7 +82,7 @@ export function UsersPage() {
       <PageHeader
         title={t('Users')}
         subtitle={t('Accounts, roles and branch assignments. Passwords are managed centrally: they can be reset, never viewed.')}
-        actions={manage && <Button variant="primary" icon={<UserPlus className="size-4" />} onClick={() => setEditing('new')}>{t('New user')}</Button>}
+        actions={manage && <Button variant="primary" icon={<UserPlus className="size-4" />} onClick={() => setEditing('new')} data-testid="new-user">{t('New user')}</Button>}
       />
       <Card padded={false}>
         {users.isLoading ? (
@@ -202,9 +202,9 @@ export function UsersPage() {
         <p className="text-[13px] text-ink-600">{t('This action is recorded in the audit log.')}</p>
       </Dialog>
 
-      <Dialog open={!!secret} onClose={() => setSecret(null)} title={t('Temporary password')} subtitle={t('For {user}. Shown only once. Hand it to the user securely.', { user: secret?.username ?? '' })} footer={<Button variant="primary" onClick={() => setSecret(null)}>{t('Done')}</Button>}>
+      <Dialog open={!!secret} onClose={() => setSecret(null)} title={t('Temporary password')} subtitle={t('For {user}. Shown only once. Hand it to the user securely.', { user: secret?.username ?? '' })} footer={<Button variant="primary" onClick={() => setSecret(null)} data-testid="temporary-password-done">{t('Done')}</Button>}>
         <div className="flex items-center gap-2 rounded-md border border-gold-400 bg-gold-50 px-4 py-3">
-          <Mono className="flex-1 text-lg tracking-wider">{secret?.temporaryPassword}</Mono>
+          <Mono className="flex-1 text-lg tracking-wider" data-testid="temporary-password">{secret?.temporaryPassword}</Mono>
           <Button size="sm" icon={<Copy className="size-4" />} onClick={() => { navigator.clipboard?.writeText(secret?.temporaryPassword ?? ''); toast.info(t('Copied')); }}>{t('Copy')}</Button>
         </div>
         <Alert tone="info" className="mt-3">{t('The system stores only a salted hash. Nobody, including the General Manager, can see this password again.')}</Alert>
@@ -248,14 +248,14 @@ function UserDialog({ user, roles, onClose, onCreated }: { user: UserRow | null;
       onClose={onClose}
       title={user ? t('Edit {user}', { user: user.username }) : t('New user')}
       subtitle={user ? t('Changing the role or branch ends the user’s active sessions.') : t('The user must set a personal password at first sign-in.')}
-      footer={<><Button onClick={onClose}>{t('Cancel')}</Button><Button variant="primary" loading={m.isPending} disabled={!f.fullName || (!user && !f.username) || (!global && !f.branchId)} onClick={() => m.mutate()}>{user ? t('Save') : t('Create user')}</Button></>}
+      footer={<><Button onClick={onClose}>{t('Cancel')}</Button><Button variant="primary" loading={m.isPending} disabled={!f.fullName || (!user && !f.username) || (!global && !f.branchId)} onClick={() => m.mutate()} data-testid="user-save">{user ? t('Save') : t('Create user')}</Button></>}
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t('Username')} hint={!user ? t('e.g. cashier.kh.03') : undefined}>
-          <Input value={f.username} disabled={!!user} onChange={(e) => setF({ ...f, username: e.target.value.toLowerCase() })} className="font-mono" />
+          <Input value={f.username} disabled={!!user} onChange={(e) => setF({ ...f, username: e.target.value.toLowerCase() })} className="font-mono" data-testid="user-username" />
         </Field>
         <Field label={t('Full name')}>
-          <Input value={f.fullName} onChange={(e) => setF({ ...f, fullName: e.target.value })} />
+          <Input value={f.fullName} onChange={(e) => setF({ ...f, fullName: e.target.value })} data-testid="user-full-name" />
         </Field>
         <Field label={t('Full name (Arabic)')}>
           <Input dir="rtl" value={f.fullNameAr} onChange={(e) => setF({ ...f, fullNameAr: e.target.value })} />
@@ -264,12 +264,12 @@ function UserDialog({ user, roles, onClose, onCreated }: { user: UserRow | null;
           <Input value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
         </Field>
         <Field label={t('Role')}>
-          <Select value={f.roleCode} onChange={(e) => setF({ ...f, roleCode: e.target.value })}>
+          <Select value={f.roleCode} onChange={(e) => setF({ ...f, roleCode: e.target.value })} data-testid="user-role">
             {roles.map((r) => <option key={r.code} value={r.code}>{t(r.name)}</option>)}
           </Select>
         </Field>
         <Field label={t('Branch')}>
-          <Select value={global ? '' : f.branchId} disabled={global} onChange={(e) => setF({ ...f, branchId: e.target.value ? Number(e.target.value) : '' })}>
+          <Select value={global ? '' : f.branchId} disabled={global} onChange={(e) => setF({ ...f, branchId: e.target.value ? Number(e.target.value) : '' })} data-testid="user-branch">
             <option value="">{global ? t('All branches') : t('Select…')}</option>
             {branches.data?.map((b) => <option key={b.id} value={b.id}>{L(b.name, b.nameAr)}</option>)}
           </Select>

@@ -64,7 +64,7 @@ export function LoginPage() {
             <span className="text-gold-400">{t('every piece accounted for.')}</span>
           </h1>
           <p className="mt-4 text-[15px] leading-relaxed text-ink-300">
-            {t('Item-level inventory, point of sale, Hasad Gold withdrawals, branch profitability and a complete audit trail. One system for Khartoum, Omdurman, Bahri and Port Sudan.')}
+            {t('Item-level inventory, point of sale, purchases, a money ledger per branch and a complete audit trail.')}
           </p>
           <div className="mt-8 grid grid-cols-3 gap-4 border-t border-white/10 pt-6 text-[13px]">
             <div>
@@ -72,8 +72,8 @@ export function LoginPage() {
               <div className="mt-0.5 text-ink-400">{t('Every piece tracked from purchase to sale')}</div>
             </div>
             <div>
-              <div className="font-semibold text-gold-300">{t('Hasad-ready')}</div>
-              <div className="mt-0.5 text-ink-400">{t('Withdrawals settled by real weight')}</div>
+              <div className="font-semibold text-gold-300">{t('Multi-branch')}</div>
+              <div className="mt-0.5 text-ink-400">{t('Stock and money per branch, one view for the owner')}</div>
             </div>
             <div>
               <div className="font-semibold text-gold-300">{t('Auditable')}</div>

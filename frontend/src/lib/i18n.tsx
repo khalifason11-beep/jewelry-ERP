@@ -76,7 +76,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       dir,
       setLang,
       t: (s, params) => interpolate(lang === 'ar' ? (AR[s] ?? s) : s, params),
-      L: (en, ar) => (lang === 'ar' ? ar || en || '' : en || ar || ''),
+      // Bilingual names: the English name is optional (CAT-0), so English falls back to Arabic.
+      // Same rule as displayName() in shared/src/names.ts, used for printed documents and CSV.
+      L: (en, ar) => (lang === 'ar' ? ar?.trim() || en?.trim() || '' : en?.trim() || ar?.trim() || ''),
     }),
     [lang, dir, setLang],
   );

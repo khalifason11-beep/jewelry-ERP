@@ -60,13 +60,10 @@ afterAll(async () => handle.close());
 beforeEach(() => resetThrottleMemory());
 
 describe('idempotency keys', () => {
-  it('every create/confirm route of sales, purchases, expenses, transfers and confirmations is idempotent', () => {
+  it('every create/confirm route of sales, purchases, transfers and confirmations is idempotent', () => {
     const idem = ROUTE_MATRIX.filter((r) => r.idempotent).map((r) => routeId(r.method, r.path)).sort();
     expect(idem).toEqual(
       [
-        'POST /expenses',
-        'POST /expenses/:id/review',
-        'POST /hasad/withdrawals/:id/complete',
         'POST /purchases',
         'POST /sales',
         'POST /sales/:id/void',
@@ -76,6 +73,10 @@ describe('idempotency keys', () => {
         'POST /scrap-purchases',
         'POST /purchases/:id/settlements',
         'POST /cash/hasad-settlements',
+        // CAT-0: a retried "New type / product / supplier" must not create a second row.
+        'POST /categories',
+        'POST /products',
+        'POST /suppliers',
       ].sort(),
     );
     // Only mutating routes can be idempotent.
@@ -127,7 +128,7 @@ describe('idempotency keys', () => {
     // The same key on a different route is also a different request.
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER', false);
     const k2 = key();
-    expect((await bm.post('/api/expenses').set('Idempotency-Key', k2).send({ category: 'OTHER', amount: 1000, description: 'Tea' })).status).toBe(200);
+    expect((await bm.post('/api/cash/counts').set('Idempotency-Key', k2).send({ day: '2026-01-01', countedAmount: 1000 })).status).toBe(200);
     const [c] = await availableItems('KRT', 1);
     const cross = await bm.post('/api/sales').set('Idempotency-Key', k2).send({ items: [{ itemId: c.id }], paymentMethod: 'CASH' });
     expect(cross.status).toBe(422);
@@ -145,11 +146,11 @@ describe('idempotency keys', () => {
   it('a failed request creates nothing and releases the key; a later retry with the same key runs', async () => {
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER', false);
     const k = key();
-    const bad = await bm.post('/api/expenses').set('Idempotency-Key', k).send({ category: 'OTHER', amount: 0, description: 'Zero' });
+    const bad = await bm.post('/api/cash/counts').set('Idempotency-Key', k).send({ day: '2026-01-01', countedAmount: -1 });
     expect(bad.status).toBe(400);
     const [row] = await ctx.db.select().from(t.idempotencyKeys).where(eq(t.idempotencyKeys.key, k));
     expect(row).toBeUndefined();
-    const ok = await bm.post('/api/expenses').set('Idempotency-Key', k).send({ category: 'OTHER', amount: 5000, description: 'Pens' });
+    const ok = await bm.post('/api/cash/counts').set('Idempotency-Key', k).send({ day: '2026-01-01', countedAmount: 5000 });
     expect(ok.status).toBe(200);
   });
 
@@ -172,7 +173,8 @@ describe('idempotency keys', () => {
   // transaction. Money routes use the in-transaction mode instead (test/ledger.test.ts).
   const purchaseBody = async () => {
     const [product] = await ctx.db.select().from(t.products).limit(1);
-    return { lines: [{ productId: product.id, grossWeightMg: 5_100, netWeightMg: 5_000, purchaseCost: 900_000, makingCost: 50_000, otherCost: 0, sellingPrice: 1_200_000 }] };
+    const [supplier] = await ctx.db.select().from(t.suppliers).limit(1);
+    return { supplierId: supplier.id, lines: [{ productId: product.id, grossWeightMg: 5_100, netWeightMg: 5_000, purchaseCost: 900_000, makingCost: 50_000, otherCost: 0, sellingPrice: 1_200_000 }] };
   };
 
   // Reservation mode (non-money routes such as transfers; purchases moved to in-transaction mode in Phase 4).
@@ -268,7 +270,6 @@ describe('database integrity constraints', () => {
     await reject(ctx.db.insert(t.jewelryItems).values({ ...base, totalCost: base.totalCost + 1 }), 'ck_jewelry_items_total_cost_sum');
     await reject(ctx.db.update(t.jewelryItems).set({ status: 'GONE' }).where(eq(t.jewelryItems.id, item.id)), 'ck_jewelry_items_status');
     await reject(ctx.db.insert(t.goldRates).values({ karat: 21, pricePerGram: -5 }), 'ck_gold_rates_price_per_gram_nonneg');
-    await reject(ctx.db.update(t.expenses).set({ amount: 0 }).where(sql`true`), 'ck_expenses_amount_positive');
     await reject(ctx.db.update(t.sales).set({ total: sql`total + 1` }).where(sql`true`), 'ck_sales_total_sum');
   });
 });

@@ -23,8 +23,8 @@ export const ap = {
   mg: (n: number): AuditParam => ({ mg: n }),
   enum: (code: string): AuditParam => ({ enum: code }),
   karat: (k: number): AuditParam => ({ karat: k }),
-  /** Data with an optional Arabic variant (names). */
-  text: (en: string, ar?: string | null): AuditParam => ({ en, ar: ar ?? null }),
+  /** Data with an optional Arabic variant (names). The English text falls back to the Arabic one (CAT-0: English names are optional). */
+  text: (en: string | null | undefined, ar?: string | null): AuditParam => ({ en: en?.trim() ? en : (ar ?? ''), ar: ar ?? null }),
   list: (items: AuditParam[]): AuditParam => ({ list: items }),
   /** A nested translatable phrase (its own key and params). */
   phrase: (key: string, params?: AuditParams): AuditParam => ({ key, params }),

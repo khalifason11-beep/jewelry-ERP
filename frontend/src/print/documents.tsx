@@ -6,7 +6,7 @@ import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import JsBarcode from 'jsbarcode';
 import { contentWidthMm, type InvoicePrintData, type PrintLayout } from '@jerp/shared';
 import { useBranding } from '../lib/branding';
-import { currencyLabel, dateTime, gramUnit, grams, karatLabel, money, numericDateTime } from '../lib/format';
+import { currencyLabel, dateTime, grams, karatLabel, money, numericDateTime } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 
 /** Code128 barcode as inline SVG (no script, no network: CSP-safe). */
@@ -283,75 +283,3 @@ export function CalibrationPrint({ layout }: { layout: PrintLayout }) {
   );
 }
 
-export interface HasadReceiptData {
-  number: string;
-  completedAt: string;
-  branch: { name: string; nameAr: string | null };
-  cashierName: string;
-  customer: { name: string; nameAr: string | null; externalId: string };
-  entitledWeightMg: number;
-  deliveredWeightMg: number;
-  differenceMg: number;
-  direction: string;
-  ratePerGram: number;
-  amount: number;
-  settlement: { number: string; paymentMethod: string } | null;
-  items: { code: string; name: string; nameAr: string | null; karat: number; netWeightMg: number }[];
-}
-
-/** Hasad Gold delivery receipt (signed by the customer). Built from a whitelist: no cost field. */
-export function HasadReceiptPrint({ data, layout }: { data: HasadReceiptData; layout: PrintLayout }) {
-  const { t, L } = useI18n();
-  // Same rule as amounts: the sign and the digits are one LTR run.
-  const signed = (mg: number) => (
-    <span className="pd-amount" data-amount={mg < 0 ? 'negative' : 'positive'}>
-      <span dir="ltr" className="pd-amount-digits">
-        {mg > 0 ? '+' : mg < 0 ? '\u2212' : ''}
-        {(Math.abs(mg) / 1000).toFixed(3)}
-      </span>{' '}
-      {gramUnit()}
-    </span>
-  );
-  return (
-    <Doc layout={layout}>
-      <PrintHeader branch={{ ...data.branch, address: null, phone: null }} />
-      <div className="pd-rule-solid" />
-      <div className="pd-row">
-        <span className="pd-strong">{t('Hasad Gold delivery')}</span>
-        <span className="pd-mono pd-strong">{data.number}</span>
-      </div>
-      <Row label={t('Date')} value={<When at={data.completedAt} layout={layout} />} />
-      <Row label={t('Customer')} value={<span>{L(data.customer.name, data.customer.nameAr)}</span>} />
-      <Row label={t('Hasad request')} value={<span className="pd-mono">{data.customer.externalId}</span>} />
-      <Row label={t('Cashier')} value={<span>{data.cashierName}</span>} />
-      <div className="pd-rule" />
-      {data.items.map((i, n) => (
-        <div key={n} className="pd-line">
-          <div className="pd-strong">{L(i.name, i.nameAr)}</div>
-          <div className="pd-row pd-muted">
-            <span>
-              <span className="pd-mono">{i.code}</span> · {karatLabel(i.karat)}
-            </span>
-            <span className="pd-num">{grams(i.netWeightMg)}</span>
-          </div>
-        </div>
-      ))}
-      <div className="pd-rule" />
-      <Row label={t('Entitled weight')} value={grams(data.entitledWeightMg)} />
-      <Row label={t('Delivered weight')} value={grams(data.deliveredWeightMg)} />
-      <Row label={t('Difference')} value={signed(data.differenceMg)} />
-      {data.direction !== 'NONE' && (
-        <>
-          <Row label={t('Rate per gram')} value={<Amount value={data.ratePerGram} currency={false} />} />
-          <Row label={t(data.direction)} value={<Amount value={data.amount} />} strong />
-        </>
-      )}
-      {data.settlement && <Row label={t('Settlement')} value={<span><span className="pd-mono">{data.settlement.number}</span> · {t(data.settlement.paymentMethod)}</span>} />}
-      <div style={{ marginTop: '8mm' }} className="pd-row">
-        <span>{t('Customer signature')}: ____________</span>
-      </div>
-      <Barcode value={data.number} />
-      <PrintFooter />
-    </Doc>
-  );
-}

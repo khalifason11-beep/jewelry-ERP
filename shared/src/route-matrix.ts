@@ -91,8 +91,16 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('GET', '/branches/directory', 'none'),
   r('GET', '/categories', 'none'),
   r('GET', '/gold-rates', 'none'),
-  r('GET', '/products', 'none', { all: ['purchases.create'] }),
-  r('GET', '/suppliers', 'none', { all: ['purchases.view'] }),
+  r('GET', '/products', 'none', { any: ['purchases.create', 'scrap.buy', 'catalog.create'] }),
+  // ── CAT-0: one resource family per entity; the UI calls a category a "Type".
+  r('POST', '/categories', 'none', { all: ['catalog.create'], idempotent: true }),
+  r('POST', '/categories/:id/deactivate', 'none', { all: ['catalog.manage'] }),
+  r('POST', '/categories/:id/reactivate', 'none', { all: ['catalog.manage'] }),
+  r('POST', '/products', 'none', { all: ['catalog.create'], idempotent: true }),
+  r('POST', '/products/:id/deactivate', 'none', { all: ['catalog.manage'] }),
+  r('POST', '/products/:id/reactivate', 'none', { all: ['catalog.manage'] }),
+  r('POST', '/suppliers', 'none', { all: ['catalog.create'], idempotent: true }),
+  r('GET', '/suppliers', 'none', { any: ['purchases.view', 'catalog.create'] }),
   r('GET', '/roles', 'none', { all: ['users.view'] }),
   r('GET', '/branches/:id', 'branch'),
 
@@ -132,24 +140,11 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/sales/:id/print', 'branch', { any: ['sales.view', 'sales.view_own'] }),
   r('POST', '/sales/:id/void', 'branch', { all: ['sales.void'], idempotent: true, idempotencyInTx: true }),
 
-  // ── Hasad Gold
-  r('GET', '/hasad/withdrawals', 'branch', { any: ['hasad.process', 'hasad.view'] }),
-  r('GET', '/hasad/withdrawals/:id', 'branch', { any: ['hasad.process', 'hasad.view'] }),
-  r('GET', '/hasad/withdrawals/:id/candidates', 'branch', { all: ['hasad.process'] }),
-  r('POST', '/hasad/withdrawals/:id/open', 'branch', { all: ['hasad.process'] }),
-  r('POST', '/hasad/withdrawals/:id/items', 'branch', { all: ['hasad.process'] }),
-  r('DELETE', '/hasad/withdrawals/:id/items/:itemId', 'branch', { all: ['hasad.process'] }),
-  r('POST', '/hasad/withdrawals/:id/complete', 'branch', { all: ['hasad.process'], idempotent: true, idempotencyInTx: true }),
-  r('POST', '/hasad/withdrawals/:id/abort', 'branch', { all: ['hasad.process'] }),
-  r('POST', '/hasad/withdrawals/:id/cancel', 'branch', { all: ['hasad.cancel'] }),
 
-  // ── purchases, expenses, transfers
+  // ── purchases, transfers
   r('GET', '/purchases', 'branch', { all: ['purchases.view'] }),
   r('GET', '/purchases/:id', 'branch', { all: ['purchases.view'] }),
   r('POST', '/purchases', 'branch', { all: ['purchases.create'], idempotent: true, idempotencyInTx: true }),
-  r('GET', '/expenses', 'branch', { all: ['expenses.view'] }),
-  r('POST', '/expenses', 'branch', { all: ['expenses.create'], idempotent: true, idempotencyInTx: true }),
-  r('POST', '/expenses/:id/review', 'branch', { all: ['expenses.approve'], idempotent: true, idempotencyInTx: true }),
   // ── scrap gold and supplier settlement (Phase 4)
   r('GET', '/scrap-rates', 'none', { any: ['scrap.buy', 'settings.manage'] }),
   r('POST', '/scrap-rates', 'global', { all: ['settings.manage'], reauth: true }),
@@ -178,9 +173,6 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
 
   // ── demo tooling (never registered in production)
   r('POST', '/demo/reset', 'global', { all: ['settings.manage'], reauth: true, demoOnly: true, destructive: true }),
-  r('GET', '/hasad/simulator/customers', 'global', { all: ['hasad.simulate'], demoOnly: true }),
-  r('POST', '/hasad/simulator/withdrawals', 'global', { all: ['hasad.simulate'], demoOnly: true }),
-  r('GET', '/hasad/integration-log', 'global', { all: ['hasad.simulate'], demoOnly: true }),
 ];
 
 export const routeId = (method: string, path: string) => `${method.toUpperCase()} ${path}`;

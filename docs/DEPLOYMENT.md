@@ -24,7 +24,7 @@ site is needed.
 
 | Variable | Value on Render | Why |
 |---|---|---|
-| `APP_MODE` | `production` | Turns off demo data, demo accounts, the Hasad simulator and "Reset demo data", and turns on the start-up refusals. |
+| `APP_MODE` | `production` | Turns off demo data, demo accounts and "Reset demo data", and turns on the start-up refusals. |
 | `DATABASE_URL` | Render's **Internal Database URL** (`postgresql://user:password@host/db`) | Required in production; embedded PGlite is refused. Render generates a strong password. Never reuse `postgres`, `password`, `admin`, `root`, `changeme`, `secret` or `123456`: they are refused. |
 | `APP_ORIGIN` | `https://<your-service>.onrender.com`, or your custom domain, e.g. `https://erp.example.com` | Exact origin the browser uses (scheme + host, no trailing slash, no path). Must be `https://`. State-changing requests from any other origin are rejected (CSRF defence). If you add a custom domain later, update this value. |
 | `TRUST_PROXY` | `1` to start with, then **verify** (section 4) | Number of proxy hops in front of the app. It decides which `X-Forwarded-For` entry becomes the client IP used in the audit log, the sessions list and the per-IP sign-in throttle. Unset means "no proxy": all users then appear with the proxy's IP. |
@@ -63,14 +63,14 @@ Backup variables (`BACKUP_*`) are listed in section 7; they belong to the backup
    General Manager exists. Further branches can be added later from **Branches → New branch** (GM only).
 3. Sign in as the GM and change the password. The GM must then register a passkey and save the recovery codes
    before anything else opens (section 8: decide the final domain **first**). Then open **Settings** and set the company names, currency
-   labels, invoice footer and logo. Enable Hasad Gold per branch only when the Hasad integration is live.
+   labels, invoice footer and logo.
 4. Still in **Settings** (Phase 4):
    - **Business rules → Allowed karats**: set to **21 only** for this client. Only these karats can be bought from a
      supplier, bought as a sellable scrap piece, priced, sold or delivered; broken scrap of any karat can still be
      bought. (The code default lists 18/21/22/24; nothing in the code assumes 21.)
    - **Scrap buying rates (per gram)**: enter today's rate for every karat the branches buy as scrap (any karat 1–24
      can be added). Without a rate for a karat, scrap of that karat cannot be bought.
-   - **Sales & expenses → Payment methods at the counter**: Cash, Bank transfer and Hasad by default. Card and mobile
+   - **Sales → Payment methods at the counter**: Cash, Bank transfer and Hasad by default. Card and mobile
      wallet stay off unless the client asks for them.
    - **Business rules → Scrap price tolerance** and **GM approval beyond tolerance**: check the values with the client.
 
@@ -208,18 +208,48 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   then run `ALTER TABLE <table> VALIDATE CONSTRAINT <name>;`. On a fresh database this never appears.
 - **API clients other than the web app** must send an `Idempotency-Key` header (16–128 characters of `A–Z a–z 0–9 _ -`,
   one new key per business action, reused only for retries of that action) on: create sale, void sale, create
-  purchase, create expense, review expense, create transfer, receive transfer and complete Hasad withdrawal.
+  purchase, create transfer, receive transfer, record a cash count and record a Hasad bank transfer.
   Without it the server answers `428`.
 
 ### Money ledger (Phase 2b)
 
 - Upgrading an existing database creates the branch accounts (CASH, BANK, FUNDS_IN_TRANSIT) and backfills the
-  item cost model, but **never creates ledger entries** for past sales, expenses or settlements. A real company's
+  item cost model, but **never creates ledger entries** for past sales or settlements. A real company's
   books start at the opening balance (Phase 3); until then the Cash screen only reflects events recorded after the
   upgrade. (Demo databases are the one exception: in `APP_MODE=demo` their history is re-posted at start-up.)
-- API clients: create sale, void sale, create expense, review expense and complete Hasad withdrawal store their
+- API clients: create sale, void sale and record a Hasad bank transfer store their
   idempotency record in the same transaction as the money movement; a retry with the same key returns the first
   result, and nothing is ever posted twice.
+
+### Expenses removed (REM-1, migration 0013)
+
+- Expenses are no longer part of the product (no screen, route, permission, setting or report). Migration 0013 deletes
+  the `expenses.*` permissions and their role grants, and adds triggers that refuse new rows in `expenses` and new
+  `EXPENSE` entries in `ledger_entries`. Existing rows stay untouched (history); a historical `EXPENSE` entry appears
+  on the Cash screen under "Other movements", so the daily lines still add up to the ledger. REM-5 drops the table.
+
+### Types, products and suppliers (CAT-0, migration 0015)
+
+- The bootstrap command creates **no item types**, products or suppliers: the General Manager or a branch manager
+  creates them (Inventory → **Types & products**, or inline from a supplier purchase or a sellable scrap purchase).
+- A supplier purchase now **requires a supplier**.
+- Migration 0015 adds the function `jerp_normalize_name`, normalized-name columns with unique indexes, `is_active`
+  and `created_by`/`created_at` on types, products and suppliers, and makes the English names optional. **It stops
+  without changing anything** if two existing types, products (same karat and type) or suppliers have names that are
+  the same after normalization (أ/ا, ى/ي, tatweel, diacritics, digits, spaces, case); the error lists them. Rename or
+  merge those rows, then run the migration again.
+
+### Hasad reduced to a payment channel (REM-2, migration 0014)
+
+- Hasad is only a payment method now (with the Hasad invoice number and an optional transaction reference) and the
+  per-branch **Hasad receivable**, settled when Hasad's bank transfer arrives. The withdrawal workspace, counter
+  sessions, weight-difference settlements, the simulator and the mock integration are gone; there is no connection to
+  any external system.
+- Migration 0014 releases any piece still RESERVED by an open counter session (status history and an audit entry per
+  piece, actor System), deletes the `hasad.*` permissions and their grants, and adds triggers that refuse new rows in
+  the Hasad tables, the `settlements` table, the `hasad_mock` schema and new `HASAD_SETTLEMENT` ledger entries.
+  History stays; a historical `HASAD_SETTLEMENT` entry appears on the Cash screen under "Other movements". REM-5 drops
+  the tables and the `hasad_mock` schema.
 
 ### Purchases, scrap and supplier settlement (Phase 4)
 
@@ -407,7 +437,7 @@ record the drill so the health check sees it).
    append-only tables (with `STRICT_DB_ROLES=true` it refuses to start).
 7. **Check** `GET /api/health`, sign in as the General Manager, compare the Cash screen and the last invoices
    with the paper records, then **re-enter everything recorded after the backup time** (that is the data loss).
-   Reconcile Hasad withdrawals and payments with Hasad's own records.
+   Reconcile the sales paid through Hasad and Hasad's bank transfers with Hasad's own records.
 8. Run `npm run backup` immediately, so the restored state is itself backed up.
 
 ### 7.9 Before go-live (human, not automated)

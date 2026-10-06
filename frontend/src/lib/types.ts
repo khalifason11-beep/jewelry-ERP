@@ -8,7 +8,6 @@ export interface Branch {
   city: string;
   address?: string | null;
   phone?: string | null;
-  hasadBranchCode?: string | null;
   isActive?: boolean;
 }
 
@@ -17,11 +16,11 @@ export interface ItemRow {
   code: string;
   barcode: string;
   productId: number;
-  productName: string;
+  productName: string | null;
   productNameAr: string;
   sku: string;
   categoryCode: string;
-  categoryName: string;
+  categoryName: string | null;
   categoryNameAr: string;
   karat: number;
   grossWeightMg: number;
@@ -44,61 +43,34 @@ export interface ItemRow {
   updatedAt: string;
 }
 
+/** An item type (table `categories`). The English name is optional (CAT-0): show it with L(name, nameAr). */
 export interface Category {
   id: number;
   code: string;
-  name: string;
+  name: string | null;
   nameAr: string;
+  isActive: boolean;
 }
 
-export interface Withdrawal {
+/** A product (sellable design) with its type. */
+export interface Product {
   id: number;
-  externalId: string;
-  hasadCustomerId: string;
-  customerName: string;
-  customerNameAr: string | null;
-  customerPhone: string | null;
-  customerNationalIdMasked: string | null;
-  entitledWeightMg: number;
-  entitlementKarat: number;
-  branchId: number;
-  branchName: string;
-  branchNameAr: string;
-  status: string;
-  externalStatus: string;
-  hasPickupCode: boolean;
-  requestedAt: string;
-  receivedAt: string;
-  openedAt: string | null;
-  completedAt: string | null;
-  cancelledAt: string | null;
-  cancelReason: string | null;
-  redemptionNumber: string | null;
-  deliveredWeightMg: number | null;
-  settlementDirection: string | null;
-  settlementAmount: number | null;
-  reservedCount: number;
-  openedByName: string | null;
-  completedByName: string | null;
+  sku: string;
+  name: string | null;
+  nameAr: string;
+  karat: number;
+  categoryId: number;
+  categoryCode: string;
+  categoryName: string | null;
+  categoryNameAr: string;
+  isActive: boolean;
 }
 
-export interface WithdrawalList {
-  syncError: string | null;
-  syncedAt: string;
-  mode: 'MOCK' | 'LIVE';
-  withdrawals: Withdrawal[];
-}
-
-export interface Settlement {
-  entitledWeightMg: number;
-  deliveredWeightMg: number;
-  differenceMg: number;
-  absDifferenceMg: number;
-  direction: 'BRANCH_PAYS_CUSTOMER' | 'CUSTOMER_PAYS_BRANCH' | 'NONE';
-  ratePerGram: number;
-  amount: number;
-  basis: 'NET_WEIGHT' | 'PURE_GOLD_EQUIVALENT';
-  rateKarats: number[];
+export interface Supplier {
+  id: number;
+  name: string | null;
+  nameAr: string;
+  phone: string | null;
 }
 
 export interface Report {

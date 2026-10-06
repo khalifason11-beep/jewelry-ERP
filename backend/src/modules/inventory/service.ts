@@ -23,7 +23,8 @@ export interface ItemSearch {
   branchId?: number;
   q?: string;
   karat?: number;
-  category?: string;
+  /** Item type id (CAT-0: generated type codes are not used as filters). */
+  categoryId?: number;
   status?: ItemStatus[];
   minWeightMg?: number;
   maxWeightMg?: number;
@@ -46,7 +47,7 @@ export async function searchItems(ctx: Ctx, actor: Actor, s: ItemSearch) {
   if (scope != null) where.push(eq(t.jewelryItems.branchId, scope));
   if (statuses?.length) where.push(inArray(t.jewelryItems.status, statuses));
   if (s.karat) where.push(eq(t.jewelryItems.karat, s.karat));
-  if (s.category) where.push(eq(t.categories.code, s.category));
+  if (s.categoryId) where.push(eq(t.categories.id, s.categoryId));
   if (s.minWeightMg) where.push(sql`${t.jewelryItems.netWeightMg} >= ${s.minWeightMg}`);
   if (s.maxWeightMg) where.push(sql`${t.jewelryItems.netWeightMg} <= ${s.maxWeightMg}`);
   if (s.origin) where.push(eq(t.jewelryItems.origin, s.origin));
@@ -196,17 +197,4 @@ export async function adjustItem(ctx: Ctx, actor: Actor, id: number, action: Adj
     });
     return { ok: true };
   });
-}
-
-export async function listCategories(ctx: Ctx) {
-  return ctx.db.select().from(t.categories).orderBy(t.categories.id);
-}
-
-export async function listProducts(ctx: Ctx, actor: Actor) {
-  requirePerm(actor, 'purchases.create');
-  return ctx.db
-    .select({ id: t.products.id, sku: t.products.sku, name: t.products.name, nameAr: t.products.nameAr, karat: t.products.karat, categoryCode: t.categories.code })
-    .from(t.products)
-    .innerJoin(t.categories, eq(t.categories.id, t.products.categoryId))
-    .orderBy(t.products.name);
 }

@@ -30,7 +30,7 @@ export async function settleWithScrap(ctx: Ctx, actor: Actor, purchaseId: number
   if (!Number.isSafeInteger(input.weightMg) || input.weightMg <= 0) throw badRequest('Invalid value for {field}', { field: 'weightMg' });
   if (!Number.isInteger(input.karat) || input.karat < 1 || input.karat > 24) throw badRequest('Invalid value for {field}', { field: 'karat' });
   const at = opts.at ?? new Date();
-  // The single pure-gold conversion of the system (D-2a-6), also used by Hasad settlements.
+  // The single pure-gold conversion of the system (D-2a-6).
   const pure = pureGoldMg(input.weightMg, input.karat);
   if (pure <= 0) throw badRequest('Invalid value for {field}', { field: 'weightMg' });
 

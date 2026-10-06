@@ -70,7 +70,7 @@ export const PRICING_MODES = ['FIXED_TAG', 'COMPUTED'] as const;
 export type PricingMode = (typeof PRICING_MODES)[number];
 
 // ── Branch money ledger (Phase 2b, decisions Q5–Q8, D-2b-*) ──
-/** HASAD_RECEIVABLE (Phase 4): sales paid through the Hasad app, held by Hasad until settled (open question). */
+/** HASAD_RECEIVABLE (Phase 4): sales paid through the Hasad app, held by Hasad until Hasad's bank transfer is recorded (D-4-14). */
 export const LEDGER_ACCOUNT_KINDS = ['CASH', 'BANK', 'FUNDS_IN_TRANSIT', 'HASAD_RECEIVABLE'] as const;
 export type LedgerAccountKind = (typeof LEDGER_ACCOUNT_KINDS)[number];
 
@@ -105,11 +105,12 @@ export type ScrapPaymentMethod = (typeof SCRAP_PAYMENT_METHODS)[number];
 export const SCRAP_WEIGHT_EVENT_TYPES = ['SCRAP_PURCHASE', 'SUPPLIER_SETTLEMENT', 'REVERSAL'] as const;
 export type ScrapWeightEventType = (typeof SCRAP_WEIGHT_EVENT_TYPES)[number];
 
-/** Q7: an expense is paid from the drawer or the bank, chosen per expense. */
-export const EXPENSE_PAYMENT_SOURCES = ['CASH', 'BANK'] as const;
-export type ExpensePaymentSource = (typeof EXPENSE_PAYMENT_SOURCES)[number];
+/** Money paid out from the drawer (CASH) or the bank account (BANK): the supplier making charge, and (historically) expenses. */
+export const CASH_OR_BANK = ['CASH', 'BANK'] as const;
+export type CashOrBank = (typeof CASH_OR_BANK)[number];
 export type SaleStatus = (typeof SALE_STATUSES)[number];
 
+/** DEPRECATED (REM-1): expenses were removed; kept for the CHECKs of the historical `expenses` table until REM-5. */
 export const EXPENSE_CATEGORIES = [
   'RENT',
   'ELECTRICITY',
@@ -130,6 +131,10 @@ export type PurchaseStatus = (typeof PURCHASE_STATUSES)[number];
 export const TRANSFER_STATUSES = ['IN_TRANSIT', 'RECEIVED', 'CANCELLED'] as const;
 export type TransferStatus = (typeof TRANSFER_STATUSES)[number];
 
+/**
+ * DEPRECATED (REM-2): the Hasad withdrawal workspace was removed; Hasad is only a payment method now.
+ * These lists stay for the CHECKs of the historical tables until REM-5.
+ */
 /** ERP-side lifecycle of a Hasad withdrawal request. */
 export const HASAD_WITHDRAWAL_STATUSES = ['READY_FOR_PICKUP', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const;
 export type HasadWithdrawalStatus = (typeof HASAD_WITHDRAWAL_STATUSES)[number];
@@ -229,18 +234,24 @@ export const AUDIT_ACTIONS = [
   'BRANCH_CREATED',
   'BRANCH_UPDATED',
   'CASH_COUNTED',
+  // CAT-0
+  'ITEM_TYPE_CREATED',
+  'ITEM_TYPE_DEACTIVATED',
+  'ITEM_TYPE_REACTIVATED',
+  'PRODUCT_CREATED',
+  'PRODUCT_DEACTIVATED',
+  'PRODUCT_REACTIVATED',
+  'SUPPLIER_CREATED',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
 export const REPORT_KEYS = [
   'sales',
   'purchases',
-  'expenses',
   'inventory',
   'inventory-movement',
   'stock-weight',
   'profit',
-  'hasad',
   'branch-performance',
   'user-activity',
   'audit',

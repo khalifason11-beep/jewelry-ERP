@@ -6,7 +6,6 @@ import request from 'supertest';
 import { openTestDatabase, withIdempotencyKeys } from './helpers';
 import { eq } from 'drizzle-orm';
 import { t, type DatabaseHandle } from '@jerp/database';
-import { hasadMockTables } from '@jerp/hasad';
 import { createApp } from '../src/app';
 import { createContext } from '../src/bootstrap';
 import type { Ctx } from '../src/core/context';
@@ -44,7 +43,6 @@ beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
   await seedDemo(ctx);
-  await ctx.settings.update(ctx.db, { mockHasad: { latencyMs: 0, simulateOutage: false } }, null);
   app = createApp(ctx);
 });
 
@@ -114,7 +112,7 @@ describe('data isolation (enforced by the API, not the UI)', () => {
   });
 });
 
-describe('vertical slice: sale → Hasad redemption → dashboards → audit', () => {
+describe('vertical slice: sale → dashboards → audit', () => {
   it('normal sale marks the item SOLD and updates dashboards', async () => {
     const gm = await login('general.manager');
     const bm = await login('branch.manager.kh');
@@ -152,108 +150,34 @@ describe('vertical slice: sale → Hasad redemption → dashboards → audit', (
     expect(res.status).toBe(403);
   });
 
-  it('Hasad withdrawal: no reservation until the customer picks; settlement both ways; completion', async () => {
+  it('a prepaid Hasad pickup is an ordinary sale paid through Hasad (REM-2)', async () => {
     const cashier = await login('cashier.kh.01');
-    const list = (await cashier.get('/api/hasad/withdrawals')).body;
-    const w = list.withdrawals.find((x: { externalId: string }) => x.externalId === 'HG-10025');
-    expect(w.status).toBe('READY_FOR_PICKUP');
-    expect(w.entitledWeightMg).toBe(4200);
-    expect(w.pickupCode).toBeUndefined(); // secret never sent to the browser
-
-    const availableBefore = (await cashier.get('/api/inventory/items?status=AVAILABLE&limit=1')).body.total;
-
-    // Wrong pickup code is refused.
-    expect((await cashier.post(`/api/hasad/withdrawals/${w.id}/open`).send({ verification: 'PICKUP_CODE', pickupCode: '000000' })).status).toBe(400);
-    const opened = await cashier.post(`/api/hasad/withdrawals/${w.id}/open`).send({ verification: 'PICKUP_CODE', pickupCode: '482913' });
-    expect(opened.status, JSON.stringify(opened.body)).toBe(200);
-
-    // Opening the request does not touch inventory.
-    expect((await cashier.get('/api/inventory/items?status=AVAILABLE&limit=1')).body.total).toBe(availableBefore);
-
-    // CASE A — 4.180 g: branch pays the customer 0.020 g.
-    const a = await itemByCode('J-1002');
-    expect(a.netWeightMg).toBe(4180);
-    expect((await cashier.post(`/api/hasad/withdrawals/${w.id}/items`).send({ itemId: a.id })).status).toBe(200);
-    expect((await itemByCode('J-1002')).status).toBe('RESERVED');
-    let detail = (await cashier.get(`/api/hasad/withdrawals/${w.id}`)).body;
-    expect(detail.settlement.direction).toBe('BRANCH_PAYS_CUSTOMER');
-    expect(detail.settlement.absDifferenceMg).toBe(20);
-    const rate21 = (await cashier.get('/api/gold-rates')).body.current['21'].pricePerGram;
-    expect(detail.settlement.amount).toBe(Math.round(0.02 * rate21));
-
-    // Customer changes their mind → item released back to AVAILABLE.
-    expect((await cashier.delete(`/api/hasad/withdrawals/${w.id}/items/${a.id}`)).status).toBe(200);
-    expect((await itemByCode('J-1002')).status).toBe('AVAILABLE');
-
-    // CASE B — 4.350 g: customer pays the branch 0.150 g.
-    const b = await itemByCode('J-1003');
-    await cashier.post(`/api/hasad/withdrawals/${w.id}/items`).send({ itemId: b.id });
-    detail = (await cashier.get(`/api/hasad/withdrawals/${w.id}`)).body;
-    expect(detail.settlement.direction).toBe('CUSTOMER_PAYS_BRANCH');
-    expect(detail.settlement.absDifferenceMg).toBe(150);
-
-    // Completing with a stale/unconfirmed settlement is refused.
-    const stale = await cashier.post(`/api/hasad/withdrawals/${w.id}/complete`).send({ paymentMethod: 'CASH', customerAcknowledged: true, expectedDirection: 'BRANCH_PAYS_CUSTOMER', expectedAmount: 1 });
-    expect(stale.status).toBe(409);
-    const noAck = await cashier.post(`/api/hasad/withdrawals/${w.id}/complete`).send({ paymentMethod: 'CASH', customerAcknowledged: false, expectedDirection: detail.settlement.direction, expectedAmount: detail.settlement.amount });
-    expect(noAck.status).toBe(400);
-
-    const done = await cashier.post(`/api/hasad/withdrawals/${w.id}/complete`).send({
-      paymentMethod: 'CASH',
-      customerAcknowledged: true,
-      expectedDirection: detail.settlement.direction,
-      expectedAmount: detail.settlement.amount,
-    });
-    expect(done.status, JSON.stringify(done.body)).toBe(200);
-    expect((await itemByCode('J-1003')).status).toBe('REDEEMED');
-    expect((await itemByCode('J-1002')).status).toBe('AVAILABLE');
-
-    const [mock] = await ctx.db.select().from(hasadMockTables.mockWithdrawals).where(eq(hasadMockTables.mockWithdrawals.id, 'HG-10025'));
-    expect(mock.status).toBe('COMPLETED');
-
-    const moves = await ctx.db.select().from(t.inventoryMovements).where(eq(t.inventoryMovements.itemId, b.id));
-    expect(moves.map((m) => m.type)).toContain('HASAD_REDEMPTION');
-
     const gm = await login('general.manager');
-    const audit = (await gm.get('/api/audit?q=HG-10025&from=2000-01-01&to=2100-01-01')).body.map((a: { action: string }) => a.action);
-    for (const act of ['HASAD_WITHDRAWAL_RECEIVED', 'HASAD_WITHDRAWAL_OPENED', 'ITEM_RESERVED', 'ITEM_RELEASED', 'HASAD_WITHDRAWAL_COMPLETED']) {
-      expect(audit).toContain(act);
+    const items = (await cashier.get('/api/inventory/items?status=AVAILABLE')).body.items;
+    const item = items.find((i: { code: string }) => !['J-1001', 'J-1002', 'J-1003'].includes(i.code));
+    // The Hasad invoice number is required; the transaction reference is optional.
+    expect((await cashier.post('/api/sales').send({ items: [{ itemId: item.id }], paymentMethod: 'HASAD' })).status).toBe(400);
+    const sale = await cashier.post('/api/sales').send({ items: [{ itemId: item.id }], paymentMethod: 'HASAD', paymentRefInvoice: 'HSD-INV-77', paymentRefTransaction: 'TX-9' });
+    expect(sale.status, JSON.stringify(sale.body)).toBe(200);
+    const [entry] = await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.refId, sale.body.id));
+    const [account] = await ctx.db.select().from(t.ledgerAccounts).where(eq(t.ledgerAccounts.id, entry.accountId));
+    expect(account.kind).toBe('HASAD_RECEIVABLE');
+    expect(entry.amount).toBe(sale.body.total);
+    // Sales reports group by channel: cash, bank transfer, Hasad.
+    const report = (await gm.get('/api/reports/sales')).body;
+    const channels = Object.fromEntries(report.summary.map((x: { label: string; value: number }) => [x.label, x.value]));
+    expect(Object.keys(channels)).toEqual(expect.arrayContaining(['CASH', 'BANK_TRANSFER', 'HASAD']));
+    expect(channels.HASAD).toBeGreaterThanOrEqual(sale.body.total);
+    const completed = report.rows.filter((r: { status: string }) => r.status === 'COMPLETED');
+    expect(Object.values(channels).reduce((a: number, b) => a + (b as number), 0)).toBe(completed.reduce((a: number, r: { total: number }) => a + r.total, 0));
+    // The withdrawal workspace, simulator and Hasad report are gone.
+    for (const path of ['/api/hasad/withdrawals', '/api/hasad/withdrawals/1', '/api/hasad/simulator/customers', '/api/hasad/integration-log']) {
+      expect((await gm.get(path)).status, path).toBe(404);
     }
-    const bm = await login('branch.manager.kh');
-    const dash = (await bm.get('/api/dashboard/branch')).body;
-    expect(dash.hasad.completedToday).toBeGreaterThanOrEqual(1);
-    expect(dash.hasad.collectedFromCustomers).toBeGreaterThanOrEqual(detail.settlement.amount);
-
-    // Ledger still reconciles after all of this.
+    expect((await gm.get('/api/reports/hasad')).status).toBe(400); // an unknown report key, like any other
+    // The stock ledger still reconciles.
     const summary = await movementSummary(ctx.db, await periodFor(ctx), null);
     for (const m of summary) expect(m.closing.items).toBe(m.actual!.items);
-  });
-
-  it('aborting a counter session releases reserved items and keeps the request open', async () => {
-    const cashier = await login('cashier.kh.02');
-    const list = (await cashier.get('/api/hasad/withdrawals')).body;
-    const w = list.withdrawals.find((x: { externalId: string }) => x.externalId === 'HG-10027');
-    await cashier.post(`/api/hasad/withdrawals/${w.id}/open`).send({ verification: 'ID_DOCUMENT' });
-    const candidates = (await cashier.get(`/api/hasad/withdrawals/${w.id}/candidates`)).body;
-    await cashier.post(`/api/hasad/withdrawals/${w.id}/items`).send({ itemId: candidates[0].id });
-    expect((await ctx.db.select().from(t.jewelryItems).where(eq(t.jewelryItems.id, candidates[0].id)))[0].status).toBe('RESERVED');
-    expect((await cashier.post(`/api/hasad/withdrawals/${w.id}/abort`).send({ reason: 'Customer will come back tomorrow' })).status).toBe(200);
-    expect((await ctx.db.select().from(t.jewelryItems).where(eq(t.jewelryItems.id, candidates[0].id)))[0].status).toBe('AVAILABLE');
-    const after = (await cashier.get(`/api/hasad/withdrawals/${w.id}`)).body;
-    expect(after.withdrawal.status).toBe('READY_FOR_PICKUP');
-  });
-
-  it('Hasad outage is reported cleanly and never corrupts inventory', async () => {
-    const gm = await login('general.manager');
-    await reauth(gm, DEMO_PASSWORDS.GENERAL_MANAGER);
-    expect((await gm.put('/api/settings').send({ changes: { 'mockHasad.simulateOutage': true } })).status).toBe(200);
-    const cashier = await login('cashier.omd.01');
-    const list = (await cashier.get('/api/hasad/withdrawals')).body;
-    const w = list.withdrawals.find((x: { externalId: string }) => x.externalId === 'HG-10028');
-    const res = await cashier.post(`/api/hasad/withdrawals/${w.id}/open`).send({ verification: 'ID_DOCUMENT' });
-    expect(res.status).toBe(502);
-    expect(res.body.error.code).toBe('HASAD_UNAVAILABLE');
-    expect((await gm.put('/api/settings').send({ changes: { 'mockHasad.simulateOutage': false } })).status).toBe(200);
   });
 });
 
@@ -303,7 +227,7 @@ describe('user administration & sessions', () => {
 
   it('every report runs for the General Manager', async () => {
     const gm = await login('general.manager');
-    for (const key of ['sales', 'purchases', 'expenses', 'inventory', 'inventory-movement', 'inventory-ledger', 'profit', 'hasad', 'branch-performance', 'user-activity', 'audit']) {
+    for (const key of ['sales', 'purchases', 'inventory', 'inventory-movement', 'inventory-ledger', 'profit', 'branch-performance', 'user-activity', 'audit']) {
       const res = await gm.get(`/api/reports/${key}?from=2026-01-01&to=2030-12-31`);
       expect(res.status, `${key}: ${JSON.stringify(res.body).slice(0, 200)}`).toBe(200);
       expect(Array.isArray(res.body.rows)).toBe(true);

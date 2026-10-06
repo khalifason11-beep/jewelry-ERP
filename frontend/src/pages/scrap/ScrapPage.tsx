@@ -15,6 +15,8 @@ import { useToast } from '../../lib/toast';
 import { useActionKeys } from '../../lib/idempotency';
 import { Alert, Button, Card, CardHeader, ErrorState, Field, Input, Kpi, Loading, Mono, PageHeader, Select } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
+import { NewButton, NewProductDialog } from '../../components/Catalog';
+import type { Product } from '../../lib/types';
 
 export interface ScrapRates {
   rates: { karat: number; pricePerGram: number; effectiveAt: string }[];
@@ -156,7 +158,8 @@ function BuyForm({ branchId }: { branchId: number }) {
   const qc = useQueryClient();
   const actionKeys = useActionKeys();
   const rates = useQuery({ queryKey: ['scrap-rates'], queryFn: () => get<ScrapRates>('/scrap-rates') });
-  const products = useQuery({ queryKey: ['products'], queryFn: () => get<{ id: number; name: string; nameAr: string; karat: number }[]>('/products'), enabled: can('purchases.create') });
+  const products = useQuery({ queryKey: ['products'], queryFn: () => get<Product[]>('/products'), enabled: can('purchases.create') || can('scrap.buy') });
+  const [newProduct, setNewProduct] = useState(false);
   const [kind, setKind] = useState<ScrapKind>('BROKEN');
   const [karat, setKarat] = useState<number | ''>('');
   const [gross, setGross] = useState('');
@@ -239,6 +242,7 @@ function BuyForm({ branchId }: { branchId: number }) {
               role="radio"
               aria-checked={kind === k}
               onClick={() => { setKind(k); setKarat(''); setProductId(''); }}
+              data-testid={`scrap-kind-${k}`}
               className={'h-8 rounded px-4 text-[13px] font-medium ' + (kind === k ? 'bg-ink-900 text-white' : 'text-ink-600 hover:bg-canvas')}
             >
               {k === 'BROKEN' ? t('Broken scrap (to the pool)') : t('Sellable piece (to inventory)')}
@@ -263,17 +267,17 @@ function BuyForm({ branchId }: { branchId: number }) {
                 aria-label={t('Karat')}
               />
             ) : (
-              <Select value={karat} onChange={(e) => { setKarat(e.target.value ? Number(e.target.value) : ''); setAgreed(''); setProductId(''); }}>
+              <Select value={karat} onChange={(e) => { setKarat(e.target.value ? Number(e.target.value) : ''); setAgreed(''); setProductId(''); }} data-testid="scrap-karat">
                 <option value="">{t('Select…')}</option>
                 {sellKarats.map((k) => <option key={k} value={k}>{karatLabel(k)}</option>)}
               </Select>
             )}
           </Field>
           <Field label={t('Gross weight (g)')}>
-            <Input type="number" min={0} step="0.001" value={gross} onChange={(e) => setGross(e.target.value)} className="num" />
+            <Input type="number" min={0} step="0.001" value={gross} onChange={(e) => setGross(e.target.value)} className="num" data-testid="scrap-gross" />
           </Field>
           <Field label={t('Net weight (g)')}>
-            <Input type="number" min={0} step="0.001" value={net} onChange={(e) => setNet(e.target.value)} className="num" />
+            <Input type="number" min={0} step="0.001" value={net} onChange={(e) => setNet(e.target.value)} className="num" data-testid="scrap-net" />
           </Field>
           <Field label={t('Paid by')}>
             <Select value={payment} onChange={(e) => setPayment(e.target.value as ScrapPaymentMethod)}>
@@ -289,15 +293,25 @@ function BuyForm({ branchId }: { branchId: number }) {
           </Field>
           {kind === 'SELLABLE' && (
             <>
-              <Field label={t('Product')}>
-                <Select value={productId} onChange={(e) => setProductId(e.target.value ? Number(e.target.value) : '')} disabled={karat === ''}>
-                  <option value="">{t('Select…')}</option>
+              <Field label={t('Product')} hint={can('catalog.create') && karat !== '' ? <NewButton testId="scrap-new-product" onClick={() => setNewProduct(true)}>{t('New product')}</NewButton> : undefined}>
+                <Select value={productId} onChange={(e) => setProductId(e.target.value ? Number(e.target.value) : '')} disabled={karat === ''} data-testid="scrap-product">
+                  <option value="">{karat !== '' && piecesProducts.length === 0 ? t('No products yet: create one') : t('Select…')}</option>
                   {piecesProducts.map((p) => <option key={p.id} value={p.id}>{L(p.name, p.nameAr)}</option>)}
                 </Select>
               </Field>
               <Field label={t('Selling price')}>
-                <Input type="number" min={0} value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value)} className="num" />
+                <Input type="number" min={0} value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value)} className="num" data-testid="scrap-selling-price" />
               </Field>
+              {newProduct && karat !== '' && (
+                <NewProductDialog
+                  karat={karat}
+                  onClose={() => setNewProduct(false)}
+                  onCreated={(p) => {
+                    setProductId(p.id);
+                    setNewProduct(false);
+                  }}
+                />
+              )}
             </>
           )}
         </div>
@@ -326,7 +340,7 @@ function BuyForm({ branchId }: { branchId: number }) {
           <span className="text-[13.5px] text-ink-600">
             {t('To pay the customer')}: <b className="text-lg text-ink-950 num">{money(amount)}</b>
           </span>
-          <Button variant="gold" className="ms-auto" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()}>
+          <Button variant="gold" className="ms-auto" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()} data-testid="scrap-buy">
             {t('Buy and pay')}
           </Button>
         </div>

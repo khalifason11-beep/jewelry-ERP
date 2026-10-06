@@ -1,6 +1,7 @@
-import { ap, pureGoldMg, sumInt, type ExpensePaymentSource } from '@jerp/shared';
+import { ap, pureGoldMg, sumInt, type CashOrBank } from '@jerp/shared';
 import { and, desc, eq, gte, ilike, inArray, lt, or, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
+import { nameOrAr } from '../../core/sql';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
@@ -12,6 +13,7 @@ import { assertSellableKarat } from '../../core/karats';
 import type { TxIdempotency } from '../../core/idempotency';
 import { post } from '../ledger/service';
 import { settlementsFor } from '../supplier-settlements/service';
+import { assertProductsUsable } from '../catalog/service';
 
 export interface PurchaseLine {
   productId: number;
@@ -29,7 +31,7 @@ export interface CreatePurchaseInput {
   supplierInvoiceNo?: string;
   notes?: string;
   /** Where the making charge is paid from, immediately (D-4-4). Default CASH. */
-  makingChargePaidFrom?: ExpensePaymentSource;
+  makingChargePaidFrom?: CashOrBank;
   lines: PurchaseLine[];
 }
 
@@ -52,9 +54,11 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
     if (l.purchaseCost <= 0 || l.sellingPrice <= 0) throw badRequest('Costs and prices must be positive');
     if (l.makingCost < 0 || l.otherCost < 0) throw badRequest('Costs and prices must be positive');
   }
+  // SPEC §7.1, owner decision (CAT-0): a supplier order always names its supplier (the gold debt is owed to them).
+  if (!input.supplierId) throw badRequest('Select the supplier');
   const settings = await ctx.settings.get();
   if (!settings.purchases.supplierCreditEnabled) throw badRequest('Supplier purchases on gold credit are turned off in the settings');
-  const paidFrom: ExpensePaymentSource = input.makingChargePaidFrom ?? 'CASH';
+  const paidFrom: CashOrBank = input.makingChargePaidFrom ?? 'CASH';
   const at = opts.at ?? new Date();
 
   return ctx.db.transaction(async (tx) => {
@@ -68,6 +72,10 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
       if (!product) throw notFound('Product');
       await assertSellableKarat(ctx, product.karat);
     }
+    // CAT-0: deactivated products and types receive no new stock.
+    await assertProductsUsable(tx, [...byId.keys()]);
+    const [supplier] = await tx.select({ id: t.suppliers.id }).from(t.suppliers).where(eq(t.suppliers.id, input.supplierId!));
+    if (!supplier) throw notFound('Supplier');
     const number = await nextNumber(tx, branch.code, 'PO');
     const totalCost = input.lines.reduce((s, l) => s + l.purchaseCost + l.makingCost + l.otherCost, 0);
     // The gold debt: one pureGoldMg rounding per piece (the system's single conversion, D-2a-6).
@@ -171,7 +179,7 @@ export async function listPurchases(ctx: Ctx, actor: Actor, q: { branchId?: numb
   }
   if (q.q?.trim()) {
     const s = `%${q.q.trim()}%`;
-    where.push(or(ilike(t.purchases.number, s), ilike(t.suppliers.name, s), ilike(t.purchases.supplierInvoiceNo, s))!);
+    where.push(or(ilike(t.purchases.number, s), ilike(t.suppliers.name, s), ilike(t.suppliers.nameAr, s), ilike(t.purchases.supplierInvoiceNo, s))!);
   }
   return ctx.db
     .select({
@@ -180,7 +188,8 @@ export async function listPurchases(ctx: Ctx, actor: Actor, q: { branchId?: numb
       createdAt: t.purchases.createdAt,
       branchId: t.purchases.branchId,
       branchName: t.branches.name,
-      supplierName: t.suppliers.name,
+      supplierName: nameOrAr(t.suppliers.name, t.suppliers.nameAr),
+      supplierNameAr: t.suppliers.nameAr,
       supplierInvoiceNo: t.purchases.supplierInvoiceNo,
       itemCount: t.purchases.itemCount,
       totalNetWeightMg: t.purchases.totalNetWeightMg,
@@ -200,7 +209,7 @@ export async function listPurchases(ctx: Ctx, actor: Actor, q: { branchId?: numb
 export async function getPurchase(ctx: Ctx, actor: Actor, id: number) {
   requirePerm(actor, 'purchases.view');
   const [p] = await ctx.db
-    .select({ p: t.purchases, branchName: t.branches.name, supplierName: t.suppliers.name, createdByName: t.users.fullName })
+    .select({ p: t.purchases, branchName: t.branches.name, supplierName: nameOrAr(t.suppliers.name, t.suppliers.nameAr), supplierNameAr: t.suppliers.nameAr, createdByName: t.users.fullName })
     .from(t.purchases)
     .innerJoin(t.branches, eq(t.branches.id, t.purchases.branchId))
     .innerJoin(t.users, eq(t.users.id, t.purchases.createdBy))
@@ -212,7 +221,8 @@ export async function getPurchase(ctx: Ctx, actor: Actor, id: number) {
     .select({
       itemId: t.jewelryItems.id,
       code: t.jewelryItems.code,
-      productName: t.products.name,
+      productName: nameOrAr(t.products.name, t.products.nameAr),
+      productNameAr: t.products.nameAr,
       karat: t.jewelryItems.karat,
       netWeightMg: t.jewelryItems.netWeightMg,
       purchaseCost: t.purchaseItems.purchaseCost,
@@ -226,9 +236,6 @@ export async function getPurchase(ctx: Ctx, actor: Actor, id: number) {
     .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
     .where(eq(t.purchaseItems.purchaseId, id));
   const settlements = await settlementsFor(ctx, id);
-  return { ...p.p, branchName: p.branchName, supplierName: p.supplierName, createdByName: p.createdByName, items, settlements };
+  return { ...p.p, branchName: p.branchName, supplierName: p.supplierName, supplierNameAr: p.supplierNameAr, createdByName: p.createdByName, items, settlements };
 }
 
-export async function listSuppliers(ctx: Ctx) {
-  return ctx.db.select().from(t.suppliers).orderBy(t.suppliers.name);
-}

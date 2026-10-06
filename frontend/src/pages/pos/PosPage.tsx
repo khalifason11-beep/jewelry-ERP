@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import {
@@ -7,7 +6,6 @@ import {
   Ban,
   Banknote,
   Clock3,
-  Coins,
   CreditCard,
   Landmark,
   Pause,
@@ -28,7 +26,7 @@ import { grams, karatLabel, money, relative } from '../../lib/format';
 import { useBranches, useCategories, useDebounced } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import type { ItemRow, WithdrawalList } from '../../lib/types';
+import type { ItemRow } from '../../lib/types';
 import { Button, Dialog, Empty, ErrorState, Input, ItemThumb, Select, Skeleton } from '../../components/ui';
 import { InvoiceDocument, type SaleDetail } from '../../components/InvoiceDocument';
 import { printSaleInvoice } from '../../print/actions';
@@ -55,7 +53,6 @@ export function PosPage() {
   const { t, L } = useI18n();
   const toast = useToast();
   const qc = useQueryClient();
-  const navigate = useNavigate();
   const searchRef = useRef<HTMLInputElement>(null);
 
   const branches = useBranches();
@@ -73,7 +70,7 @@ export function PosPage() {
 
   const items = useQuery({
     queryKey: ['pos-items', branchId, dq, karat, category, sort],
-    queryFn: () => get<{ items: ItemRow[]; total: number }>('/inventory/items', { branchId, q: dq, karat, category, sort, status: 'AVAILABLE,RESERVED', limit: 300 }),
+    queryFn: () => get<{ items: ItemRow[]; total: number }>('/inventory/items', { branchId, q: dq, karat, categoryId: category || undefined, sort, status: 'AVAILABLE,RESERVED', limit: 300 }),
     enabled: !!branchId,
   });
 
@@ -127,7 +124,7 @@ export function PosPage() {
   }, [cart]);
 
   const add = (item: ItemRow) => {
-    if (item.status !== 'AVAILABLE') return toast.info(t('{code} is reserved', { code: item.code }), t('It is being held for a Hasad Gold customer at the counter.'));
+    if (item.status !== 'AVAILABLE') return toast.info(t('{code} is reserved', { code: item.code }), t('It cannot be sold until it is available again.'));
     if (inCart.has(item.id)) return toast.info(t('{code} is already in the cart', { code: item.code }));
     setCart((c) => [...c, { item, discount: 0 }]);
   };
@@ -202,10 +199,8 @@ export function PosPage() {
 
   return (
     <div className="flex h-full min-h-0">
-      {/* ───────── Main: Hasad band + product search/grid ───────── */}
+      {/* ───────── Main: product search/grid ───────── */}
       <section className="flex min-w-0 flex-1 flex-col">
-        <HasadBand branchId={branchId} onOpen={(id) => navigate(`/hasad/${id}`)} />
-
         <div className="border-b border-line bg-white px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
             {isGlobal && (
@@ -245,7 +240,7 @@ export function PosPage() {
           <div className="mt-2.5 flex gap-1.5 overflow-x-auto pb-0.5">
             <Chip active={!category} onClick={() => setCategory('')}>{t('All')}</Chip>
             {categories.data?.map((c) => (
-              <Chip key={c.code} active={category === c.code} onClick={() => setCategory(c.code)}>{L(c.name, c.nameAr)}</Chip>
+              <Chip key={c.id} active={category === String(c.id)} onClick={() => setCategory(String(c.id))}>{L(c.name, c.nameAr)}</Chip>
             ))}
           </div>
         </div>
@@ -511,7 +506,7 @@ function ProductCard({ item, inCart, onAdd }: { item: ItemRow; inCart: boolean; 
         inCart ? 'border-gold-500 ring-2 ring-gold-500/30' : 'border-line hover:border-gold-400 hover:shadow-md',
         reserved && 'cursor-not-allowed opacity-60',
       )}
-      title={reserved ? t('Reserved for a Hasad Gold customer') : t('Add {code}', { code: item.code })}
+      title={reserved ? t('Reserved: not available for sale') : t('Add {code}', { code: item.code })}
     >
       <div className="p-2 pb-0">
         <ItemThumb category={item.categoryCode} karat={item.karat} />
@@ -538,63 +533,5 @@ function ProductCard({ item, inCart, onAdd }: { item: ItemRow; inCart: boolean; 
         </div>
       </div>
     </button>
-  );
-}
-
-/** Clearly separated Hasad Gold section at the top of the POS. */
-function HasadBand({ branchId, onOpen }: { branchId?: number; onOpen: (id: number) => void }) {
-  const { t, L } = useI18n();
-  const { can } = useAuth();
-  const [collapsed, setCollapsed] = useState(false);
-  const q = useQuery({
-    queryKey: ['hasad', 'pos-band', branchId],
-    queryFn: () => get<WithdrawalList>('/hasad/withdrawals', { branchId, status: 'READY_FOR_PICKUP,IN_PROGRESS' }),
-    enabled: !!branchId && can('hasad.process'),
-    refetchInterval: 15_000,
-  });
-  if (!can('hasad.process')) return null;
-  const list = q.data?.withdrawals ?? [];
-  return (
-    <div className="border-b border-gold-600/30 bg-ink-900 text-white">
-      <div className="flex items-center gap-3 px-4 py-2">
-        <Coins className="size-4 text-gold-400" />
-        <span className="text-[12px] font-semibold tracking-[0.1em] text-gold-300">{t('HASAD GOLD WITHDRAWALS')}</span>
-        <span className="rounded-full bg-gold-500 px-2 text-[11px] font-bold text-ink-950 num">{list.length}</span>
-        {q.data?.syncError && <span className="text-[11.5px] text-amber-300">⚠ {t(q.data.syncError)}. {t('Showing last known requests')}</span>}
-        <span className="ms-auto hidden text-[11.5px] text-ink-400 md:inline">{t('No inventory is reserved until the customer selects a piece.')}</span>
-        <button onClick={() => setCollapsed((c) => !c)} className="rounded px-2 py-0.5 text-[11.5px] text-ink-300 hover:bg-white/10">
-          {collapsed ? t('Show') : t('Hide')}
-        </button>
-      </div>
-      {!collapsed && (
-        <div className="scroll-thin flex gap-2 overflow-x-auto px-4 pb-3">
-          {q.isLoading && <Skeleton className="h-16 w-60 bg-white/10" />}
-          {!q.isLoading && list.length === 0 && <div className="py-3 text-[12.5px] text-ink-400">{t('No customers waiting for a Hasad withdrawal at this branch.')}</div>}
-          {list.map((w) => (
-            <button
-              key={w.id}
-              onClick={() => onOpen(w.id)}
-              className={clsx(
-                'flex w-64 shrink-0 items-center gap-3 rounded-md border px-3 py-2 text-start transition-colors',
-                w.status === 'IN_PROGRESS' ? 'border-amber-400/60 bg-amber-400/10 hover:bg-amber-400/20' : 'border-white/10 bg-white/[0.04] hover:border-gold-500/60 hover:bg-white/[0.08]',
-              )}
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[11.5px] text-gold-300">{w.externalId}</span>
-                  {w.status === 'IN_PROGRESS' && <span className="rounded bg-amber-400/20 px-1 text-[10px] font-semibold text-amber-200">{t('AT COUNTER')}</span>}
-                </div>
-                <div className="truncate text-[13px] font-medium">{L(w.customerName, w.customerNameAr)}</div>
-                <div className="text-[11px] text-ink-400">{relative(w.requestedAt)}</div>
-              </div>
-              <div className="text-end">
-                <div className="text-[15px] font-semibold text-gold-300 num">{grams(w.entitledWeightMg)}</div>
-                <div className="text-[10.5px] text-ink-400">{t('Entitlement · {karat}', { karat: karatLabel(w.entitlementKarat) })}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }

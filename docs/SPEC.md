@@ -120,13 +120,13 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
 - **[BUILT]** One append-only ledger per branch with CASH, BANK, FUNDS_IN_TRANSIT and HASAD_RECEIVABLE accounts. Balance = sum of entries. Every money event is written in the same transaction as the business change.
 - **[BUILT]** Expected cash in the drawer, a daily reconciliation per branch, and a **manual cash count**. A count difference is **only a note for the GM**; it is not posted to the ledger. **[CLIENT]**
 - **[CLIENT]** Books start at **zero cash** on handover day; only items are entered.
-- **[REMOVED] Expenses.** The client gives employees a fixed operating amount, so there is no expenses screen, approval flow or expense reports. See BACKLOG REM-1.
+- **[REMOVED] Expenses.** The client gives employees a fixed operating amount, so there is no expenses screen, approval flow or expense reports. Removed by BACKLOG REM-1; the old table stays (no new rows) until REM-5.
 - **[OPEN]** Where the operating amount comes from. If it leaves the shop drawer, the daily count will show a shortage unless it is recorded. Recommended: a minimal **cash-out entry** (amount, reason, actor, audited), not an expenses module.
 
 ## 10. Hasad
 
 - **[OWNER]** The word **Hasad appears only as a payment method / sales channel** in the POS and in reports grouped by channel.
-- **[REMOVED]** The withdrawal workspace and list, the counter sessions, the entitlement and weight-difference settlement, the simulator, the mock integration package, all `hasad.*` settings and permissions, the Hasad navigation entries and notifications, and `docs/HASAD_INTEGRATION.md`. A customer picking up jewelry against a prepaid balance is **an ordinary sale paid through Hasad**.
+- **[REMOVED, done by REM-2]** The withdrawal workspace and list, the counter sessions, the entitlement and weight-difference settlement, the simulator, the mock integration package, all `hasad.*` settings and permissions, the Hasad navigation entries and notifications, and `docs/HASAD_INTEGRATION.md`. A customer picking up jewelry against a prepaid balance is **an ordinary sale paid through Hasad**.
 - **[BUILT, OPEN]** Sales paid through Hasad post to a separate `HASAD_RECEIVABLE` account because the money is held elsewhere until Hasad pays the shop by **bank transfer**; the branch manager records that arrival (receivable → bank, one transaction). **[OPEN]** Does the client want to track this receivable, or only tag the channel?
 
 ## 11. Reports and dashboards
@@ -190,6 +190,7 @@ Requirements: GM-only, once per branch, then **sealed** (changes only through au
 7. Tests run on both PGlite and real PostgreSQL. Phase gate: typecheck, tests, build, `npm run i18n:check`, migration applied to a copy of an existing database, docs and `docs/decisions.md` updated, push.
 8. **Acceptance of any phase that changes a user flow includes the empty-database rehearsal** (BACKLOG REH-1), not only automated tests.
 9. Decisions made under ambiguity are recorded in `docs/decisions.md` with the option chosen and how to change it.
+10. **The daily cash reconciliation adds up.** Its lines sum exactly to each account's movement of the day in the ledger (for CASH: opening cash + lines = expected cash). A ledger event type without a dedicated line appears in an "Other" line; nothing may silently disappear. Tested. Every event type is either given a line or listed, with a reason, as "Other" (`OTHER_EVENT_TYPES`); a guardrail test fails on an undecided one.
 
 ## 19. Glossary
 

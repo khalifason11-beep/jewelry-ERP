@@ -111,7 +111,7 @@ describe('production mode (security item 2)', () => {
     expect(leaked).toContain('cashier.kh.01');
   });
 
-  it('does not register demo reset or the Hasad simulator in production (404), even for the GM', async () => {
+  it('does not register demo reset in production (404), even for the GM; the Hasad simulator is gone everywhere', async () => {
     const gm = await prodSession('general.manager');
     expect((await gm.post('/api/demo/reset')).status).toBe(404);
     expect((await gm.get('/api/hasad/simulator/customers')).status).toBe(404);
@@ -119,9 +119,9 @@ describe('production mode (security item 2)', () => {
     expect((await gm.get('/api/hasad/integration-log')).status).toBe(404);
     // The same GM session works for normal routes, so the 404 is not an auth artefact.
     expect((await gm.get('/api/auth/me')).status).toBe(200);
-    // In demo mode the routes exist.
+    // REM-2: the simulator was removed, so it is not registered in demo mode either.
     const demoGm = await loginRole('general.manager');
-    expect((await demoGm.get('/api/hasad/simulator/customers')).status).toBe(200);
+    expect((await demoGm.get('/api/hasad/simulator/customers')).status).toBe(404);
   });
 
   it('never exposes demo credentials in production, and minimises /health', async () => {
@@ -542,9 +542,9 @@ describe('CSRF, headers, proxy trust and validation', () => {
     expect((await gm.put('/api/settings').send({ changes: { 'security.unknownKey': 1 } })).status).toBe(400);
     expect((await gm.put('/api/settings').set('Content-Type', 'application/json').send('{"changes":{"__proto__":{"polluted":true}}}')).status).toBe(400);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
-    const ok = await gm.put('/api/settings').send({ changes: { 'expenses.approvalThreshold': 1_600_000 } });
+    const ok = await gm.put('/api/settings').send({ changes: { 'transfers.pendingClaimStaleHours': 36 } });
     expect(ok.status).toBe(200);
-    expect(ok.body.settings.expenses.approvalThreshold).toBe(1_600_000);
+    expect(ok.body.settings.transfers.pendingClaimStaleHours).toBe(36);
 
     const huge = await cashier.post('/api/sales').send({ items: [{ itemId: 1 }], paymentMethod: 'CASH', customerName: 'x'.repeat(150_000) });
     expect(huge.status).toBe(413);

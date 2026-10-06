@@ -12,9 +12,9 @@ import { rows } from '../src/core/sql';
 import { resetThrottleMemory } from '../src/auth/lockout';
 import { loadActor } from '../src/modules/sessions/service';
 import { createSale, voidSale } from '../src/modules/sales/service';
-import { createExpense, reviewExpense } from '../src/modules/expenses/service';
-import { addItem, completeWithdrawal, computeSettlement, openWithdrawal } from '../src/modules/hasad/service';
-import { balances, cashBalance, entriesFor, post } from '../src/modules/ledger/service';
+import { balances, cashBalance, entriesFor, LINE_OF_EVENT, OTHER_EVENT_TYPES, post, reconciliation, reconciliationLines, RECONCILIATION_LINES } from '../src/modules/ledger/service';
+import { LEDGER_EVENT_TYPES } from '@jerp/shared';
+import { addDays, dayKey, dayStart } from '../src/core/time';
 import { seedDemo } from '../src/seed/demo';
 import { DEMO_PASSWORDS } from '../src/seed/catalog';
 import { openTestDatabase, PG_MODE, withIdempotencyKeys } from './helpers';
@@ -134,11 +134,12 @@ describe('ledger basics', () => {
     expect(saleEntries.reduce((s, e) => s + e.amount, 0)).toBe(sales.reduce((s, x) => s + x.total, 0));
     const voids = await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'SALE_VOID'));
     expect(voids.reduce((s, e) => s + e.amount, 0)).toBe(-sales.filter((x) => x.status === 'VOIDED').reduce((s, x) => s + x.total, 0));
-    const approved = await ctx.db.select().from(t.expenses).where(eq(t.expenses.status, 'APPROVED'));
-    const exp = await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'EXPENSE'));
-    expect(exp).toHaveLength(approved.length);
-    const settlements = await ctx.db.select().from(t.settlements);
-    expect(await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'HASAD_SETTLEMENT'))).toHaveLength(settlements.length);
+    // Expenses were removed (REM-1): the seed records none and the ledger holds no EXPENSE entry.
+    expect(await ctx.db.select().from(t.expenses)).toHaveLength(0);
+    expect(await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'EXPENSE'))).toHaveLength(0);
+    // Hasad weight-difference settlements were removed (REM-2): none in the seed, none in the ledger.
+    expect(await ctx.db.select().from(t.settlements)).toHaveLength(0);
+    expect(await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'HASAD_SETTLEMENT'))).toHaveLength(0);
   });
 
   it('a balance is exactly the sum of its entries (no cached balance anywhere)', async () => {
@@ -159,7 +160,7 @@ describe('ledger basics', () => {
   });
 
   it('a reversal must point at an existing entry, same account, opposite amount, not itself a reversal', async () => {
-    const [e] = await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'EXPENSE')).limit(1);
+    const [e] = await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'SCRAP_PURCHASE')).limit(1);
     const bad = async (values: Partial<typeof t.ledgerEntries.$inferInsert>) => {
       const row = { accountId: e.accountId, branchId: e.branchId, amount: -e.amount, eventType: 'REVERSAL', refType: e.refType, refId: e.refId, reversesEntryId: e.id, ...values };
       return ctx.db.insert(t.ledgerEntries).values(row as typeof t.ledgerEntries.$inferInsert).then(() => null, (err: Error & { cause?: Error }) => `${err.message} ${err.cause?.message}`);
@@ -223,52 +224,59 @@ describe('money events post in the same transaction as the business change', () 
     expect(await entryCount()).toBe(before);
   });
 
-  it('expenses post only on approval, from the chosen account; rejected ones never move money', async () => {
-    const bm = await actorOf('branch.manager.kh');
-    const gm = await actorOf('general.manager');
-    const krt = await branchId('KRT');
-    const { expenses } = await ctx.settings.get();
-    const big = expenses.approvalThreshold + 10_000;
-    const pending = await createExpense(ctx, bm, { category: 'MAINTENANCE', amount: big, description: 'Safe repair', paidFrom: 'BANK' });
-    expect(pending.status).toBe('PENDING');
-    expect(await entriesFor(ctx.db, 'expense', [pending.id])).toHaveLength(0);
-    const bankBefore = (await balances(ctx.db, krt)).find((x) => x.kind === 'BANK')!.balance;
-    await reviewExpense(ctx, gm, pending.id, 'APPROVED');
-    const [e] = await entriesFor(ctx.db, 'expense', [pending.id]);
-    expect(e).toMatchObject({ amount: -big, eventType: 'EXPENSE', paymentMethod: 'BANK_TRANSFER' });
-    expect((await balances(ctx.db, krt)).find((x) => x.kind === 'BANK')!.balance).toBe(bankBefore - big);
-
-    const rejected = await createExpense(ctx, bm, { category: 'OTHER', amount: big, description: 'Not needed' });
-    await reviewExpense(ctx, gm, rejected.id, 'REJECTED');
-    expect(await entriesFor(ctx.db, 'expense', [rejected.id])).toHaveLength(0);
-
-    const small = await createExpense(ctx, bm, { category: 'OTHER', amount: 2_000, description: 'Tea' });
-    expect(small.status).toBe('APPROVED');
-    const [se] = await entriesFor(ctx.db, 'expense', [small.id]);
-    expect(se).toMatchObject({ amount: -2_000, paymentMethod: 'CASH' });
+  it('expenses are gone (REM-1): routes answer 404, no permission, setting or report remains', async () => {
+    const gm = await login('general.manager', 'GENERAL_MANAGER');
+    expect((await gm.get('/api/expenses')).status).toBe(404);
+    expect((await gm.post('/api/expenses').send({ category: 'OTHER', amount: 1000, description: 'Tea' })).status).toBe(404);
+    expect((await gm.post('/api/expenses/1/review').send({ decision: 'APPROVED' })).status).toBe(404);
+    expect((await gm.get('/api/reports/expenses')).status).toBe(400); // an unknown report key, like any other
+    expect(await ctx.db.select().from(t.permissions).where(sql`code LIKE 'expenses.%'`)).toHaveLength(0);
+    expect(await ctx.db.select().from(t.rolePermissions).where(sql`permission_code LIKE 'expenses.%'`)).toHaveLength(0);
+    const settings = (await gm.get('/api/settings')).body;
+    expect(settings.settings.expenses).toBeUndefined();
+    for (const path of ['/api/dashboard/company', '/api/notifications', '/api/reports/branch-performance', '/api/reports/profit']) {
+      const res = await gm.get(path);
+      expect(res.status, path).toBe(200);
+      expect(JSON.stringify(res.body), path).not.toMatch(/expense|contribution/i);
+    }
+    const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
+    expect(JSON.stringify((await bm.get('/api/dashboard/branch')).body)).not.toMatch(/expense|contribution/i);
   });
 
-  it('a Hasad settlement posts to CASH by default, or to BANK when chosen, with the right sign', async () => {
-    const cashier = await actorOf('cashier.kh.01');
+  it('expenses are gone (REM-1): the database refuses new expense rows and new EXPENSE ledger entries', async () => {
     const krt = await branchId('KRT');
-    const ready = await ctx.db.select().from(t.hasadWithdrawals).where(and(eq(t.hasadWithdrawals.branchId, krt), eq(t.hasadWithdrawals.status, 'READY_FOR_PICKUP')));
-    expect(ready.length).toBeGreaterThan(0);
-    const w = ready[0];
-    await openWithdrawal(ctx, cashier, w.id, { verification: 'ID_DOCUMENT' });
-    const [item] = await freshItems('KRT', 1);
-    await addItem(ctx, cashier, w.id, item.id);
-    const s = await computeSettlement(ctx, w, [{ netWeightMg: item.netWeightMg, karat: item.karat }]);
-    const res = await completeWithdrawal(ctx, cashier, w.id, { paymentMethod: 'BANK_TRANSFER', customerAcknowledged: true, expectedDirection: s.direction, expectedAmount: s.amount });
-    const [draft] = await ctx.db.select().from(t.hasadRedemptions).where(eq(t.hasadRedemptions.number, res.redemptionNumber));
-    const e = await entriesFor(ctx.db, 'hasad_redemption', [draft.id]);
-    if (s.direction === 'NONE') expect(e).toHaveLength(0);
-    else {
-      expect(e).toHaveLength(1);
-      expect(e[0].amount).toBe(s.direction === 'BRANCH_PAYS_CUSTOMER' ? -s.amount : s.amount);
-      expect(e[0].paymentMethod).toBe('BANK_TRANSFER');
-      const [acc] = await ctx.db.select().from(t.ledgerAccounts).where(eq(t.ledgerAccounts.id, e[0].accountId));
-      expect(acc.kind).toBe('BANK');
+    const [gm] = await ctx.db.select().from(t.users).where(eq(t.users.username, 'general.manager'));
+    const row = await failure(
+      `INSERT INTO expenses (number, branch_id, category, amount, expense_date, description, status, created_by) VALUES ('EXP-X', ${krt}, 'OTHER', 1000, '2026-01-01', 'x', 'APPROVED', ${gm.id})`,
+    );
+    expect(row).toMatch(/expenses were removed/);
+    const before = await entryCount();
+    await expect(
+      ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'CASH', amount: -1000, eventType: 'EXPENSE', ref: { refType: 'expense', refId: 1 } }], { actor: null })),
+    ).rejects.toThrow();
+    expect(await entryCount()).toBe(before);
+    // Every other event type still posts.
+    await ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'BANK', amount: 1, eventType: 'HASAD_RECEIVABLE_SETTLEMENT', ref: { refType: 'test', refId: 1 } }], { actor: null }));
+    expect(await entryCount()).toBe(before + 1);
+  });
+
+  it('the Hasad workspace is gone (REM-2): the database refuses new withdrawals, sessions, weight settlements and HASAD_SETTLEMENT entries', async () => {
+    const krt = await branchId('KRT');
+    for (const [table, stmt] of [
+      ['hasad_withdrawals', `INSERT INTO hasad_withdrawals (external_id) VALUES ('X')`],
+      ['hasad_redemptions', `INSERT INTO hasad_redemptions (number) VALUES ('X')`],
+      ['hasad_redemption_items', `INSERT INTO hasad_redemption_items (redemption_id) VALUES (1)`],
+      ['settlements', `INSERT INTO settlements (number) VALUES ('X')`],
+      ['hasad_mock.customers', `INSERT INTO hasad_mock.customers (id) VALUES ('X')`],
+    ]) {
+      expect(await failure(stmt), table).toMatch(/was removed|were removed/);
     }
+    const before = await entryCount();
+    await expect(
+      ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'CASH', amount: 500, eventType: 'HASAD_SETTLEMENT', ref: { refType: 'hasad_redemption', refId: 1 } }], { actor: null })),
+    ).rejects.toThrow();
+    expect(await entryCount()).toBe(before);
+    expect(await ctx.db.select().from(t.permissions).where(sql`code LIKE 'hasad.%'`)).toHaveLength(0);
   });
 });
 
@@ -364,6 +372,79 @@ describe('expected cash and daily reconciliation', () => {
     await bm.post('/api/cash/counts').send({ day: r.day, countedAmount: r.expectedCash });
     expect((await bm.get('/api/cash/reconciliation')).body.difference).toBe(0);
     expect(await ctx.db.select().from(t.cashCounts).where(eq(t.cashCounts.businessDay, r.day))).toHaveLength(2);
+  });
+
+  it('SPEC §18.10: for every branch and day, the reconciliation lines add up exactly to the ledger movement of each account', async () => {
+    const gm = await actorOf('general.manager');
+    const { company } = await ctx.settings.get();
+    const today = dayKey(new Date(), company.timezone);
+    const branches = await ctx.db.select().from(t.branches);
+    let days = 0;
+    for (const b of branches) {
+      for (let off = -35; off <= 0; off++) {
+        const day = addDays(today, off);
+        const r = await reconciliation(ctx, gm, { branchId: b.id, day });
+        // Independent of the service: the raw ledger movement of the day per account.
+        const raw = rows<{ kind: string; s: string }>(
+          await ctx.db.execute(sql`
+            SELECT a.kind, coalesce(sum(e.amount), 0)::text AS s FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id
+            WHERE e.branch_id = ${b.id} AND e.at >= ${dayStart(day, company.timezone).toISOString()} AND e.at < ${dayStart(addDays(day, 1), company.timezone).toISOString()}
+            GROUP BY a.kind`),
+        );
+        const moved = (kind: string) => Number(raw.find((x) => x.kind === kind)?.s ?? 0);
+        const sum = (lines: { amount: number }[]) => lines.reduce((s, l) => s + l.amount, 0);
+        expect(r.cashLines.map((l) => l.line)).toEqual([...RECONCILIATION_LINES.CASH]);
+        expect(r.bankLines.map((l) => l.line)).toEqual([...RECONCILIATION_LINES.BANK]);
+        expect(sum(r.cashLines)).toBe(moved('CASH'));
+        expect(r.cashMovement).toBe(moved('CASH'));
+        expect(r.openingCash + sum(r.cashLines)).toBe(r.expectedCash);
+        expect(sum(r.bankLines)).toBe(moved('BANK'));
+        expect(r.bankMovement).toBe(moved('BANK'));
+        days++;
+      }
+    }
+    expect(days).toBeGreaterThan(100);
+  });
+
+  it('guardrail: every ledger event type has a reconciliation line or is explicitly listed as "Other" with a reason', () => {
+    // Adding an event type to LEDGER_EVENT_TYPES fails here until someone decides: give it a line in
+    // LINE_OF_EVENT, or add it to OTHER_EVENT_TYPES with the reason (backend/src/modules/ledger/service.ts).
+    const undecided = LEDGER_EVENT_TYPES.filter((e) => !(e in LINE_OF_EVENT) && !(e in OTHER_EVENT_TYPES));
+    expect(undecided, 'ledger event types with no reconciliation decision').toEqual([]);
+    const both = LEDGER_EVENT_TYPES.filter((e) => e in LINE_OF_EVENT && e in OTHER_EVENT_TYPES);
+    expect(both, 'an event type cannot have a line and be listed as Other').toEqual([]);
+    for (const [e, reason] of Object.entries(OTHER_EVENT_TYPES)) {
+      expect((LEDGER_EVENT_TYPES as readonly string[]).includes(e), `${e} is not a ledger event type`).toBe(true);
+      expect(reason?.trim().length, `${e} needs a reason`).toBeGreaterThan(10);
+    }
+    expect(Object.keys(OTHER_EVENT_TYPES).sort()).toEqual(['EXPENSE', 'HASAD_SETTLEMENT', 'REVERSAL']);
+    // And the lines they map to exist for at least one account.
+    const all = new Set<string>([...RECONCILIATION_LINES.CASH, ...RECONCILIATION_LINES.BANK]);
+    for (const line of Object.values(LINE_OF_EVENT)) expect(all.has(line!), line).toBe(true);
+  });
+
+  it('an event type without a line of its own is shown under "Other": nothing silently disappears', async () => {
+    // Historical EXPENSE (REM-1) and HASAD_SETTLEMENT (REM-2) entries, and any future event type, land in OTHER.
+    const lines = reconciliationLines('CASH', [
+      { kind: 'CASH', eventType: 'SALE', amount: 50_000 },
+      { kind: 'CASH', eventType: 'EXPENSE', amount: -7_000 },
+      { kind: 'CASH', eventType: 'HASAD_SETTLEMENT', amount: -100 }, // a Hasad weight-difference settlement (removed by REM-2)
+      { kind: 'CASH', eventType: 'HASAD_RECEIVABLE_SETTLEMENT', amount: -1 }, // never a drawer event: not a CASH line
+      { kind: 'CASH', eventType: 'SOMETHING_NEW', amount: 3 },
+      { kind: 'BANK', eventType: 'SALE', amount: 999 }, // another account: ignored
+    ]);
+    expect(Object.fromEntries(lines.map((l) => [l.line, l.amount]))).toEqual({ SALES: 50_000, VOIDS: 0, SCRAP_PURCHASES: 0, MAKING_CHARGES: 0, OTHER: -7_098 });
+    // And through the API: an entry on the drawer whose event type has no drawer line appears under OTHER, and the total still matches.
+    const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
+    const krt = await branchId('KRT');
+    const before = (await bm.get('/api/cash/reconciliation')).body;
+    await ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'CASH', amount: -1_234, eventType: 'HASAD_RECEIVABLE_SETTLEMENT', ref: { refType: 'test', refId: 2 } }], { actor: null }));
+    const after = (await bm.get('/api/cash/reconciliation')).body;
+    const other = (r: { cashLines: { line: string; amount: number }[] }) => r.cashLines.find((l) => l.line === 'OTHER')!.amount;
+    expect(other(after) - other(before)).toBe(-1_234);
+    expect(after.cashMovement - before.cashMovement).toBe(-1_234);
+    expect(after.cashLines.reduce((s: number, l: { amount: number }) => s + l.amount, 0)).toBe(after.cashMovement);
+    expect(JSON.stringify(after)).not.toMatch(/expense/i);
   });
 
   it('branch managers see only their own branch; cashiers see no cash screens; no cost or profit anywhere', async () => {

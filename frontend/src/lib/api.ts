@@ -36,7 +36,7 @@ export function translateParams(params?: Params): Params | undefined {
 /** English labels (translation keys) for request fields named in validation errors. */
 const FIELD_LABELS: Record<string, string> = {
   action: 'Action', amount: 'Amount', branchId: 'Branch', category: 'Category', currentPassword: 'Current password',
-  customerAcknowledged: 'Customer confirmation', customerId: 'Hasad customer', customerName: 'Customer name', customerPhone: 'Phone',
+  customerAcknowledged: 'Customer confirmation', customerName: 'Customer name', customerPhone: 'Phone',
   decision: 'Decision', description: 'Description', discount: 'Discount', entityType: 'Entity', expectedAmount: 'Settlement amount',
   expectedDirection: 'Settlement direction', fromBranchId: 'From', fullName: 'Full name', fullNameAr: 'Full name (Arabic)',
   grossWeightMg: 'Gross weight', group: 'Group by', itemId: 'Item', itemIds: 'Pieces', items: 'Items', karat: 'Karat', limit: 'Limit',
@@ -45,7 +45,7 @@ const FIELD_LABELS: Record<string, string> = {
   productId: 'Product', purchaseCost: 'Purchase cost', q: 'Search', rates: 'Gold rates', reason: 'Reason', roleCode: 'Role', scope: 'Scope',
   sellingPrice: 'Selling price', sort: 'Sort', status: 'Status', supplierId: 'Supplier', supplierInvoiceNo: 'Supplier invoice no.',
   targetWeightMg: 'Weight to withdraw (g)', temporaryPassword: 'Temporary password', toBranchId: 'To', username: 'Username',
-  verification: 'Verification method', weightMg: 'Weight', input: 'Input', expenseDate: 'Date',
+  verification: 'Verification method', weightMg: 'Weight', input: 'Input',
 };
 
 /** "lines.2.netWeightMg" → "Net weight" (translated); unknown fields fall back to the raw path. */

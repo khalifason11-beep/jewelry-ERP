@@ -12,16 +12,13 @@ import { AppShell } from './components/layout/AppShell';
 import { LoginPage } from './pages/LoginPage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { PosPage } from './pages/pos/PosPage';
-import { HasadListPage } from './pages/hasad/HasadListPage';
-import { HasadWorkspacePage } from './pages/hasad/HasadWorkspacePage';
-import { HasadSimulatorPage } from './pages/hasad/HasadSimulatorPage';
 import { BranchDashboardPage } from './pages/dashboard/BranchDashboardPage';
 import { CompanyDashboardPage } from './pages/dashboard/CompanyDashboardPage';
 import { BranchesPage, BranchDetailPage } from './pages/branches/BranchPages';
 import { SalesPage, SaleDetailPage } from './pages/sales/SalesPages';
 import { InventoryPage, ItemDetailPage } from './pages/inventory/InventoryPages';
+import { CatalogPage } from './pages/inventory/CatalogPage';
 import { PurchasesPage, PurchaseDetailPage } from './pages/purchases/PurchasesPages';
-import { ExpensesPage } from './pages/expenses/ExpensesPage';
 import { CashPage } from './pages/cash/CashPage';
 import { ScrapPage } from './pages/scrap/ScrapPage';
 import { TransfersPage } from './pages/transfers/TransfersPage';
@@ -87,9 +84,6 @@ export function App() {
         >
           <Route index element={<Home />} />
           <Route path="pos" element={<Guard perm="pos.access"><PosPage /></Guard>} />
-          <Route path="hasad" element={<Guard any={['hasad.process', 'hasad.view']}><HasadListPage /></Guard>} />
-          <Route path="hasad/:id" element={<Guard any={['hasad.process', 'hasad.view']}><HasadWorkspacePage /></Guard>} />
-          <Route path="hasad-simulator" element={<Guard perm="hasad.simulate"><HasadSimulatorPage /></Guard>} />
           <Route path="me" element={<MyActivityPage />} />
           <Route path="security" element={<SecurityPage />} />
           <Route path="overview" element={<Guard perm="dashboard.company"><CompanyDashboardPage /></Guard>} />
@@ -100,9 +94,9 @@ export function App() {
           <Route path="sales/:id" element={<Guard any={['sales.view', 'sales.view_own']}><SaleDetailPage /></Guard>} />
           <Route path="inventory" element={<Guard perm="inventory.view"><InventoryPage /></Guard>} />
           <Route path="inventory/:id" element={<Guard any={['inventory.view', 'inventory.view_available']}><ItemDetailPage /></Guard>} />
+          <Route path="catalog" element={<Guard perm="catalog.create"><CatalogPage /></Guard>} />
           <Route path="purchases" element={<Guard perm="purchases.view"><PurchasesPage /></Guard>} />
           <Route path="purchases/:id" element={<Guard perm="purchases.view"><PurchaseDetailPage /></Guard>} />
-          <Route path="expenses" element={<Guard perm="expenses.view"><ExpensesPage /></Guard>} />
           <Route path="cash" element={<Guard perm="cash.view"><CashPage /></Guard>} />
           <Route path="scrap" element={<Guard perm="scrap.buy"><ScrapPage /></Guard>} />
           <Route path="transfers" element={<Guard perm="inventory.transfer"><TransfersPage /></Guard>} />

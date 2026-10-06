@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@jerp/database": "*",
-    "@jerp/hasad": "*",
     "@jerp/shared": "*",
     "@node-rs/argon2": "^2.2.1",
     "@simplewebauthn/server": "^14.0.3",

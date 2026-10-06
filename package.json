@@ -2,11 +2,10 @@
   "name": "jewelry-erp-prototype",
   "private": true,
   "version": "0.1.0",
-  "description": "Multi-branch jewelry retail ERP — client demo prototype (mock Hasad Gold integration)",
+  "description": "Multi-branch jewelry retail ERP",
   "workspaces": [
     "shared",
     "database",
-    "integrations/hasad",
     "backend",
     "frontend"
   ],
@@ -20,10 +19,12 @@
     "migrate": "npm run migrate -w @jerp/backend",
     "backup": "npm run backup -w @jerp/backend --",
     "backup:verify": "npm run backup:verify -w @jerp/backend --",
-    "typecheck": "npm run check:lockfile && tsc -p shared && tsc -p database && tsc -p integrations/hasad && tsc -p backend && tsc -p frontend",
+    "typecheck": "npm run check:lockfile && npm run check:hasad && tsc -p shared && tsc -p database && tsc -p backend && tsc -p frontend",
     "test": "npm test -w @jerp/backend",
     "i18n:check": "node scripts/i18n-check.mjs",
-    "check:lockfile": "node scripts/check-lockfile-platforms.mjs"
+    "rehearsal": "node scripts/rehearsal/rehearsal.mjs",
+    "check:lockfile": "node scripts/check-lockfile-platforms.mjs",
+    "check:hasad": "node scripts/check-hasad-footprint.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
