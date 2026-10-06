@@ -4,8 +4,10 @@
 // PDF with print media emulation and the page's own @page size, exactly as Chrome would send it to
 // the Windows driver.
 //
-//   1. start a FRESH demo server (no 2FA):   PGLITE_DIR=/tmp/jerp-print PORT=4100 npm start
-//   2. run:   BASE_URL=http://localhost:4100 OUT_DIR=docs/print-check node scripts/e2e-print.mjs
+//   run:   OUT_DIR=docs/print-check node scripts/e2e-print.mjs
+//
+// The script starts its OWN server on a fresh, empty database (REM-3: no demo data exists any more),
+// bootstraps the first General Manager and builds its test data through the API (scripts/lib/e2e-world.mjs).
 //
 // The PDFs written to OUT_DIR are the artifacts of the check (A4 original, 72 mm receipt reprint,
 // 72 mm calibration page, A4 calibration page).
@@ -14,6 +16,7 @@ import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { buildSalesWorld, startEmptyServer } from './lib/e2e-world.mjs';
 
 function loadPlaywright() {
   for (const base of [process.cwd() + '/', path.join(execSync('npm root -g').toString().trim(), '/')]) {
@@ -26,7 +29,7 @@ function loadPlaywright() {
   throw new Error('Playwright not found: npm i -g playwright');
 }
 const { chromium } = loadPlaywright();
-const BASE = process.env.BASE_URL ?? 'http://localhost:4100';
+let BASE = '';
 const OUT = process.env.OUT_DIR ?? 'print-check-output';
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -180,11 +183,16 @@ async function orphans(page) {
 }
 
 async function main() {
+  // No passkey for the GM: this script checks printing, not sign-in.
+  const srv = await startEmptyServer({ env: { TWO_FACTOR_REQUIRED_ROLES_INITIAL: '' } });
+  BASE = srv.base;
+  const world = await buildSalesWorld(srv, { pieces: 10 });
+  ok('empty server bootstrapped; branch manager, cashier, rates and 10 pieces created through the API');
   const browser = await chromium.launch();
   try {
     // ── cashier: sale at the POS, original printed once (A4 default) ──
     const cashier = await newPage(browser);
-    await signIn(cashier, 'cashier.kh.01', 'demo-cashier-2026');
+    await signIn(cashier, world.cashier.username, world.cashier.password);
     await cashier.goto(`${BASE}/pos`);
     await cashier.locator('[data-testid=pos-product]:not([disabled])').first().click();
     await cashier.getByRole('button', { name: /إتمام البيع|Complete Sale/ }).click();
@@ -263,8 +271,8 @@ async function main() {
 
     // ── GM: switch to a 72 mm receipt, reprint the same sale → COPY 1 ──
     const gm = await newPage(browser);
-    await signIn(gm, 'general.manager', 'demo-gm-2026');
-    check((await api(gm, 'POST', '/auth/reauth', { password: 'demo-gm-2026' })).status === 200, 'GM re-confirms the password for the settings change');
+    await signIn(gm, world.gm.username, world.gm.password);
+    check((await api(gm, 'POST', '/auth/reauth', { password: world.gm.password })).status === 200, 'GM re-confirms the password for the settings change');
     const v = (await api(gm, 'GET', '/settings')).body.versions;
     const put = await api(gm, 'PUT', '/settings', {
       changes: { 'print.invoiceFormat': 'RECEIPT', 'print.receiptWidthMm': 72 },
@@ -337,6 +345,7 @@ async function main() {
     await gm.context().close();
   } finally {
     await browser.close();
+    await srv.stop();
   }
 }
 
