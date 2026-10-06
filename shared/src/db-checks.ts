@@ -197,6 +197,10 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   { name: 'ck_backup_runs_size_nonneg', table: 'backup_runs', expr: 'size_bytes IS NULL OR size_bytes >= 0' },
   { name: 'ck_backup_runs_finished_after_start', table: 'backup_runs', expr: 'finished_at >= started_at' },
   { name: 'ck_sales_hasad_reference', table: 'sales', expr: "payment_method <> 'HASAD' OR payment_ref_invoice IS NOT NULL" },
+  // ── CAT-0: names entered by people (migration 0015)
+  { name: 'ck_suppliers_has_name', table: 'suppliers', expr: "coalesce(nullif(btrim(name_ar), ''), nullif(btrim(name), '')) IS NOT NULL" },
+  { name: 'ck_categories_name_ar_not_blank', table: 'categories', expr: "btrim(name_ar) <> ''" },
+  { name: 'ck_products_name_ar_not_blank', table: 'products', expr: "btrim(name_ar) <> ''" },
 ];
 
 /** The SQL expression for an enum check. */

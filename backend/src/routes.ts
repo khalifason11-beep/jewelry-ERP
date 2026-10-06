@@ -25,6 +25,7 @@ import * as inventory from './modules/inventory/service';
 import * as sales from './modules/sales/service';
 import * as printing from './modules/print/service';
 import * as purchases from './modules/purchases/service';
+import * as catalog from './modules/catalog/service';
 import * as transfers from './modules/transfers/service';
 import * as dashboard from './modules/dashboard/service';
 import * as reports from './modules/reports/service';
@@ -220,11 +221,46 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('GET', '/branches/directory', async (_req, res) => {
     res.json(await ctx.db.select({ id: t.branches.id, code: t.branches.code, name: t.branches.name, nameAr: t.branches.nameAr }).from(t.branches).orderBy(t.branches.id));
   });
-  route('GET', '/categories', async (_req, res) => res.json(await inventory.listCategories(ctx)));
-  route('GET', '/products', async (req, res) => res.json(await inventory.listProducts(ctx, actorOf(req))));
-  route('GET', '/suppliers', async (req, res) => {
-    requirePerm(actorOf(req), 'purchases.view');
-    res.json(await purchases.listSuppliers(ctx));
+  // ── Catalog (CAT-0): item types (the UI says "Type"), products and suppliers.
+  const zNames = { nameAr: zText(200), name: zText(200).nullish() };
+  const zActiveQuery = z.object({ includeInactive: z.enum(['true', 'false']).optional() }).strict();
+  const zReason = z.object({ reason: zText(500) }).strict();
+  route('GET', '/categories', async (req, res) => {
+    const q = parse(zActiveQuery, req.query);
+    res.json(await catalog.listCategories(ctx, actorOf(req), { includeInactive: q.includeInactive === 'true' }));
+  });
+  route('POST', '/categories', async (req, res) => {
+    const body = parse(z.object(zNames).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, () => catalog.createCategory(ctx, actorOf(req), body)));
+  });
+  route('POST', '/categories/:id/deactivate', async (req, res) => {
+    const { reason } = parse(zReason, req.body);
+    res.json(await catalog.setCategoryActive(ctx, actorOf(req), parse(zId, req.params.id), false, reason));
+  });
+  route('POST', '/categories/:id/reactivate', async (req, res) => {
+    const { reason } = parse(zReason, req.body);
+    res.json(await catalog.setCategoryActive(ctx, actorOf(req), parse(zId, req.params.id), true, reason));
+  });
+  route('GET', '/products', async (req, res) => {
+    const q = parse(zActiveQuery.extend({ karat: z.coerce.number().int().min(1).max(24).optional() }), req.query);
+    res.json(await catalog.listProducts(ctx, actorOf(req), { includeInactive: q.includeInactive === 'true', karat: q.karat }));
+  });
+  route('POST', '/products', async (req, res) => {
+    const body = parse(z.object({ ...zNames, karat: z.number().int().min(1).max(24), categoryId: zIdBody }).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, () => catalog.createProduct(ctx, actorOf(req), body)));
+  });
+  route('POST', '/products/:id/deactivate', async (req, res) => {
+    const { reason } = parse(zReason, req.body);
+    res.json(await catalog.setProductActive(ctx, actorOf(req), parse(zId, req.params.id), false, reason));
+  });
+  route('POST', '/products/:id/reactivate', async (req, res) => {
+    const { reason } = parse(zReason, req.body);
+    res.json(await catalog.setProductActive(ctx, actorOf(req), parse(zId, req.params.id), true, reason));
+  });
+  route('GET', '/suppliers', async (_req, res) => res.json(await catalog.listSuppliers(ctx)));
+  route('POST', '/suppliers', async (req, res) => {
+    const body = parse(z.object({ ...zNames, phone: zPhone.nullish() }).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, () => catalog.createSupplier(ctx, actorOf(req), body)));
   });
   route('GET', '/roles', async (req, res) => {
     requirePerm(actorOf(req), 'users.view');
@@ -419,7 +455,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           branchId: zOptId,
           q: zQ,
           karat: zKarat.optional(),
-          category: z.string().regex(/^[A-Z_]{2,30}$/).optional(),
+          // CAT-0: filter by item type id (generated type codes such as T-001 are not filter keys).
+          categoryId: zOptId,
           status: zStatusList,
           origin: z.enum(ITEM_ORIGINS).optional(),
           minWeightMg: z.coerce.number().int().min(0).max(MAX_WEIGHT_MG).optional(),

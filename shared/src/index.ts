@@ -8,3 +8,4 @@ export * from './route-matrix';
 export * from './db-checks';
 export * from './field-classification';
 export * from './print';
+export * from './names';

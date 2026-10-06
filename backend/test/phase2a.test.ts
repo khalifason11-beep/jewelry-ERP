@@ -73,6 +73,10 @@ describe('idempotency keys', () => {
         'POST /scrap-purchases',
         'POST /purchases/:id/settlements',
         'POST /cash/hasad-settlements',
+        // CAT-0: a retried "New type / product / supplier" must not create a second row.
+        'POST /categories',
+        'POST /products',
+        'POST /suppliers',
       ].sort(),
     );
     // Only mutating routes can be idempotent.
@@ -169,7 +173,8 @@ describe('idempotency keys', () => {
   // transaction. Money routes use the in-transaction mode instead (test/ledger.test.ts).
   const purchaseBody = async () => {
     const [product] = await ctx.db.select().from(t.products).limit(1);
-    return { lines: [{ productId: product.id, grossWeightMg: 5_100, netWeightMg: 5_000, purchaseCost: 900_000, makingCost: 50_000, otherCost: 0, sellingPrice: 1_200_000 }] };
+    const [supplier] = await ctx.db.select().from(t.suppliers).limit(1);
+    return { supplierId: supplier.id, lines: [{ productId: product.id, grossWeightMg: 5_100, netWeightMg: 5_000, purchaseCost: 900_000, makingCost: 50_000, otherCost: 0, sellingPrice: 1_200_000 }] };
   };
 
   // Reservation mode (non-money routes such as transfers; purchases moved to in-transaction mode in Phase 4).

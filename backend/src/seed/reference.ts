@@ -1,10 +1,9 @@
-// System reference data needed by every deployment (demo AND production): the permission catalogue, the system roles with their default grants, and product categories.
+// System reference data needed by every deployment (demo AND production): the permission catalogue, and the system roles with their default grants. No item types: their names come from the client (CAT-0).
 // Idempotent: existing rows are left untouched, so it is safe to run on every bootstrap.
 
 import { inArray } from 'drizzle-orm';
 import { t, type Executor } from '@jerp/database';
 import { DEFAULT_ROLE_PERMISSIONS, DEFAULT_ROLES, PERMISSIONS } from '@jerp/shared';
-import { CATEGORIES } from './catalog';
 
 /** Relative privilege of the system roles (users can only manage lower ranks). */
 export const ROLE_RANK = { CASHIER: 10, BRANCH_MANAGER: 50, GENERAL_MANAGER: 100 } as const;
@@ -27,11 +26,4 @@ export async function seedRolesAndPermissions(db: Executor): Promise<Record<stri
       .onConflictDoNothing();
   }
   return roleId;
-}
-
-export async function seedCategories(db: Executor): Promise<void> {
-  await db
-    .insert(t.categories)
-    .values(CATEGORIES.map(({ code, name, nameAr }) => ({ code, name, nameAr })))
-    .onConflictDoNothing();
 }

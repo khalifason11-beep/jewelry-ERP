@@ -77,12 +77,13 @@ const failure = async (statement: string) => {
   const e = await ctx.db.execute(sql.raw(statement)).then(() => null, (err: Error & { cause?: Error }) => err);
   return e ? `${e.message} ${e.cause?.message ?? ''}` : null;
 };
+const supplierId = async () => (await ctx.db.select().from(t.suppliers).orderBy(t.suppliers.id).limit(1))[0].id;
 /** A purchase in `code` with known lines (21K): returns it and the expected gold debt. */
 async function newPurchase(code: string, nets: number[], opts: { makingCost?: number; paidFrom?: 'CASH' | 'BANK' } = {}) {
   const bm = await actorOf(code === 'PZU' ? 'branch.manager.pzu' : code === 'OMD' ? 'branch.manager.omd' : code === 'BHR' ? 'branch.manager.bhr' : 'branch.manager.kh');
   const p = await product(21);
   const lines = nets.map((n) => ({ productId: p.id, grossWeightMg: n + 100, netWeightMg: n, purchaseCost: 1_000_000, makingCost: opts.makingCost ?? 50_000, otherCost: 0, sellingPrice: 1_400_000 }));
-  const po = await createPurchase(ctx, bm, { branchId: await branchId(code), lines, makingChargePaidFrom: opts.paidFrom });
+  const po = await createPurchase(ctx, bm, { branchId: await branchId(code), supplierId: await supplierId(), lines, makingChargePaidFrom: opts.paidFrom });
   return { po, bm, owed: sumInt(nets.map((n) => pureGoldMg(n, 21))) };
 }
 async function stockUp(code: string, karat: number, weightMg: number) {
@@ -113,7 +114,7 @@ describe('karat restriction (sellable stock only, from the allowedKarats setting
     const bm = await actorOf('branch.manager.kh');
     const p = await foreignProduct();
     const before = await counts();
-    const e = await errorOf(createPurchase(ctx, bm, { branchId: await branchId('KRT'), lines: [{ productId: p.id, grossWeightMg: 5100, netWeightMg: 5000, purchaseCost: 900_000, makingCost: 40_000, otherCost: 0, sellingPrice: 1_200_000 }] }));
+    const e = await errorOf(createPurchase(ctx, bm, { branchId: await branchId('KRT'), supplierId: await supplierId(), lines: [{ productId: p.id, grossWeightMg: 5100, netWeightMg: 5000, purchaseCost: 900_000, makingCost: 40_000, otherCost: 0, sellingPrice: 1_200_000 }] }));
     expect(e).toMatchObject({ status: 400, key: '{karat}K is not sold here: sellable pieces must be {allowed}' });
     expect(e!.message).toBe('18K is not sold here: sellable pieces must be 21K');
     expect(await counts()).toEqual(before);

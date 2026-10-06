@@ -5,6 +5,7 @@ import { ap } from '@jerp/shared';
 
 import { and, desc, eq, inArray, or, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
+import { nameOrAr } from '../../core/sql';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, isGlobal, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
@@ -106,7 +107,7 @@ export async function listTransfers(ctx: Ctx, actor: Actor, q: { branchId?: numb
   const userRows = await ctx.db.select({ id: t.users.id, name: t.users.fullName }).from(t.users);
   const un = new Map(userRows.map((u) => [u.id, u.name]));
   const links = await ctx.db
-    .select({ transferId: t.transferItems.transferId, code: t.jewelryItems.code, netWeightMg: t.jewelryItems.netWeightMg, productName: t.products.name })
+    .select({ transferId: t.transferItems.transferId, code: t.jewelryItems.code, netWeightMg: t.jewelryItems.netWeightMg, productName: nameOrAr(t.products.name, t.products.nameAr), productNameAr: t.products.nameAr })
     .from(t.transferItems)
     .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.transferItems.itemId))
     .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))

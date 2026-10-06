@@ -91,8 +91,16 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('GET', '/branches/directory', 'none'),
   r('GET', '/categories', 'none'),
   r('GET', '/gold-rates', 'none'),
-  r('GET', '/products', 'none', { all: ['purchases.create'] }),
-  r('GET', '/suppliers', 'none', { all: ['purchases.view'] }),
+  r('GET', '/products', 'none', { any: ['purchases.create', 'scrap.buy', 'catalog.create'] }),
+  // ── CAT-0: one resource family per entity; the UI calls a category a "Type".
+  r('POST', '/categories', 'none', { all: ['catalog.create'], idempotent: true }),
+  r('POST', '/categories/:id/deactivate', 'none', { all: ['catalog.manage'] }),
+  r('POST', '/categories/:id/reactivate', 'none', { all: ['catalog.manage'] }),
+  r('POST', '/products', 'none', { all: ['catalog.create'], idempotent: true }),
+  r('POST', '/products/:id/deactivate', 'none', { all: ['catalog.manage'] }),
+  r('POST', '/products/:id/reactivate', 'none', { all: ['catalog.manage'] }),
+  r('POST', '/suppliers', 'none', { all: ['catalog.create'], idempotent: true }),
+  r('GET', '/suppliers', 'none', { any: ['purchases.view', 'catalog.create'] }),
   r('GET', '/roles', 'none', { all: ['users.view'] }),
   r('GET', '/branches/:id', 'branch'),
 

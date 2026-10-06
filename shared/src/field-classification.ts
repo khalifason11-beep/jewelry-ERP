@@ -27,7 +27,7 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   },
   branches: { safe: words('id code name name_ar city address phone hasad_branch_code is_active created_at') },
   branding_assets: { safe: words('id kind mime bytes sha256 size width height uploaded_by uploaded_at') },
-  categories: { safe: words('id code name name_ar') },
+  categories: { safe: words('id code name name_ar is_active created_at created_by name_ar_norm') },
   document_sequences: { safe: words('scope next') },
   expenses: { safe: words('id number branch_id category amount expense_date description status created_by created_at reviewed_by reviewed_at review_note paid_from') },
   gold_rates: { safe: words('id karat price_per_gram effective_at set_by') },
@@ -52,7 +52,7 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
     safe: words('id code barcode product_id karat gross_weight_mg net_weight_mg selling_price branch_id status purchase_id reservation_ref reserved_at reserved_by created_at updated_at origin supplier_id supplier_invoice_ref'),
   },
   permissions: { safe: words('code description') },
-  products: { safe: words('id sku name name_ar category_id karat description created_at') },
+  products: { safe: words('id sku name name_ar category_id karat description created_at is_active created_by name_ar_norm') },
   purchase_items: { cost: words('purchase_cost making_cost other_cost'), safe: words('id purchase_id item_id') },
   // Phase 4: MONEY costs of a supplier order (total cost, making charge paid) are GM-only.
   purchases: {
@@ -80,7 +80,7 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   settings: { safe: words('key value version updated_at updated_by') },
   settings_history: { safe: words('id key old_value new_value version actor_id actor_username reason at') },
   settlements: { safe: words('id number type redemption_id branch_id direction weight_mg rate_per_gram amount payment_method confirmed_by confirmed_at') },
-  suppliers: { safe: words('id name name_ar phone') },
+  suppliers: { safe: words('id name name_ar phone created_at created_by name_norm') },
   transfer_items: { safe: words('transfer_id item_id') },
   transfers: { safe: words('id number from_branch_id to_branch_id status notes created_by created_at received_by received_at') },
   users: {
@@ -198,6 +198,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     backup backupAgeHours verifyAgeHours maxAgeHours maxVerifyAgeDays reasons
     goldOwedMgPure24 owedAfterMgPure24 goldDebtMgPure24 settledKarat settledWeightMg settledPureMg24 bankReference hasadReceivableToBank hasadReceivableBalance
     cashLines bankLines bankMovement line
+    isActive categoryAr supplierNameAr productNameAr existing
     otherOut isSimulated
     scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates
   `),

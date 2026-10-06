@@ -7,7 +7,7 @@ import { PAYMENT_METHODS, sumInt, type ReportKey } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requirePerm } from '../../authz';
 import { badRequest } from '../../core/errors';
-import { rows, num } from '../../core/sql';
+import { nameOrAr, rows, num } from '../../core/sql';
 import { periodFor } from '../dashboard/service';
 import { searchItems } from '../inventory/service';
 import { listPurchases } from '../purchases/service';
@@ -149,7 +149,8 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
         status: q.status ? [q.status as never] : undefined,
         limit: 1000,
       });
-      const rowsAll = items.map((i) => ({ ...i, itemId: i.id }));
+      // CAT-0: English names are optional; a report column (and its CSV) falls back to the Arabic name.
+      const rowsAll = items.map((i) => ({ ...i, itemId: i.id, productName: i.productName?.trim() ? i.productName : i.productNameAr, categoryName: i.categoryName?.trim() ? i.categoryName : i.categoryNameAr }));
       return {
         key: 'inventory',
         title: 'Inventory Report',
@@ -256,7 +257,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           at: t.inventoryMovements.at,
           itemId: t.jewelryItems.id,
           itemCode: t.jewelryItems.code,
-          productName: t.products.name,
+          productName: nameOrAr(t.products.name, t.products.nameAr),
           branchName: t.branches.name,
           type: t.inventoryMovements.type,
           direction: t.inventoryMovements.direction,
@@ -311,20 +312,21 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
         }));
       } else {
         const dim =
-          group === 'category' ? sql`c.name` : group === 'karat' ? sql`(si.karat || 'K')` : group === 'cashier' ? sql`u.full_name` : sql`to_char(s.created_at AT TIME ZONE ${company.timezone},'YYYY-MM-DD')`;
+          group === 'category' ? sql`coalesce(nullif(btrim(c.name), ''), c.name_ar)` : group === 'karat' ? sql`(si.karat || 'K')` : group === 'cashier' ? sql`u.full_name` : sql`to_char(s.created_at AT TIME ZONE ${company.timezone},'YYYY-MM-DD')`;
         const r = await ctx.db.execute(sql`
-          SELECT ${dim} AS label, count(DISTINCT s.id) AS sales_count, coalesce(sum(si.final_price),0) AS revenue,
+          SELECT ${dim} AS label, ${group === 'category' ? sql`c.name_ar` : sql`NULL`} AS label_ar, count(DISTINCT s.id) AS sales_count, coalesce(sum(si.final_price),0) AS revenue,
                  coalesce(sum(si.discount),0) AS discounts, coalesce(sum(si.unit_cost),0) AS cost
           FROM sale_items si JOIN sales s ON s.id = si.sale_id
           JOIN jewelry_items i ON i.id = si.item_id JOIN products p ON p.id = i.product_id JOIN categories c ON c.id = p.category_id
           JOIN users u ON u.id = s.cashier_id
           WHERE s.status = 'COMPLETED' AND s.created_at >= ${iso(period.start)} AND s.created_at < ${iso(period.end)}
           ${scope != null ? sql`AND s.branch_id = ${scope}` : sql``}
-          GROUP BY 1 ORDER BY 1`);
+          GROUP BY ${group === 'category' ? sql`c.id, c.name, c.name_ar` : sql`1`} ORDER BY 1`);
         rowsAll = rows<Record<string, unknown>>(r).map((x) => {
           const revenue = num(x.revenue);
           const cost = num(x.cost);
-          return { label: String(x.label), salesCount: num(x.sales_count), revenue, discounts: num(x.discounts), costOfSales: cost, grossProfit: revenue - cost, margin: revenue ? ((revenue - cost) / revenue) * 100 : 0 };
+          // Types group by id (two types may share an English name); labelAr is the Arabic companion.
+          return { label: String(x.label), ...(group === 'category' ? { labelAr: String(x.label_ar) } : {}), salesCount: num(x.sales_count), revenue, discounts: num(x.discounts), costOfSales: cost, grossProfit: revenue - cost, margin: revenue ? ((revenue - cost) / revenue) * 100 : 0 };
         });
       }
       const totals = totalsOf(rowsAll, ['salesCount', 'revenue', 'discounts', 'costOfSales', 'grossProfit']);

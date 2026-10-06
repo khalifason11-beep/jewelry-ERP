@@ -39,7 +39,8 @@ const reasons = (rs: PromiseSettledResult<unknown>[]) => rs.filter((r): r is Pro
 
 async function order(bm: Actor, branch: number, net: number) {
   const [p] = await ctx.db.select().from(t.products).where(eq(t.products.karat, 21)).limit(1);
-  return createPurchase(ctx, bm, { branchId: branch, lines: [{ productId: p.id, grossWeightMg: net, netWeightMg: net, purchaseCost: 1_000_000, makingCost: 0, otherCost: 0, sellingPrice: 1_500_000 }] });
+  const [s] = await ctx.db.select().from(t.suppliers).limit(1);
+  return createPurchase(ctx, bm, { branchId: branch, supplierId: s.id, lines: [{ productId: p.id, grossWeightMg: net, netWeightMg: net, purchaseCost: 1_000_000, makingCost: 0, otherCost: 0, sellingPrice: 1_500_000 }] });
 }
 
 beforeAll(async () => {

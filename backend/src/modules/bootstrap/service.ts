@@ -9,7 +9,7 @@ import type { Ctx } from '../../core/context';
 import { writeAudit } from '../../core/audit';
 import { AppError, badRequest } from '../../core/errors';
 import { generateTemporaryPassword, hashPassword } from '../../auth/password';
-import { seedCategories, seedRolesAndPermissions } from '../../seed/reference';
+import { seedRolesAndPermissions } from '../../seed/reference';
 
 export interface BootstrapBranch {
   code: string;
@@ -63,7 +63,8 @@ export async function bootstrapProduction(ctx: Ctx, input: BootstrapInput): Prom
 
   return ctx.db.transaction(async (tx) => {
     const roleId = await seedRolesAndPermissions(tx);
-    await seedCategories(tx);
+    // CAT-0 (owner decision): no item types are seeded; their names come from the client and are
+    // created in the app (also inline from the purchase forms).
     const [existingGm] = await tx
       .select({ id: t.users.id })
       .from(t.users)

@@ -132,11 +132,11 @@ export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: strin
     SELECT karat, count(*) AS items, coalesce(sum(net_weight_mg),0) AS weight, coalesce(sum(total_cost),0) AS cost
     FROM jewelry_items WHERE status IN ('AVAILABLE','RESERVED') GROUP BY karat ORDER BY karat`);
   const catR = await ctx.db.execute(sql`
-    SELECT c.name AS category, count(*) AS items, coalesce(sum(si.final_price),0) AS revenue, coalesce(sum(si.final_price - si.unit_cost),0) AS profit
+    SELECT coalesce(nullif(btrim(c.name), ''), c.name_ar) AS category, c.name_ar AS category_ar, count(*) AS items, coalesce(sum(si.final_price),0) AS revenue, coalesce(sum(si.final_price - si.unit_cost),0) AS profit
     FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN jewelry_items i ON i.id = si.item_id
     JOIN products p ON p.id = i.product_id JOIN categories c ON c.id = p.category_id
     WHERE s.status='COMPLETED' AND s.created_at >= ${iso(period.start)} AND s.created_at < ${iso(period.end)}
-    GROUP BY c.name ORDER BY 3 DESC`);
+    GROUP BY c.id, c.name, c.name_ar ORDER BY 4 DESC`);
   const transitR = await ctx.db.execute(sql`SELECT count(*) AS n FROM transfers WHERE status='IN_TRANSIT'`);
   const sessionsR = await ctx.db.execute(sql`SELECT count(*) AS n FROM sessions WHERE status='ACTIVE'`);
 
@@ -158,7 +158,7 @@ export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: strin
     branches: list,
     trend: eachDay(period.fromKey, period.toKey).map((d) => ({ day: d, ...(byDay.get(d) ?? {}) })),
     inventoryByKarat: rows<Record<string, unknown>>(invR).map((r) => ({ karat: num(r.karat), items: num(r.items), weightMg: num(r.weight), cost: num(r.cost) })),
-    salesByCategory: rows<Record<string, unknown>>(catR).map((r) => ({ category: String(r.category), items: num(r.items), revenue: num(r.revenue), profit: num(r.profit) })),
+    salesByCategory: rows<Record<string, unknown>>(catR).map((r) => ({ category: String(r.category), categoryAr: String(r.category_ar), items: num(r.items), revenue: num(r.revenue), profit: num(r.profit) })),
     attention: {
       transfersInTransit: num(rows<Record<string, unknown>>(transitR)[0]?.n),
       activeSessions: num(rows<Record<string, unknown>>(sessionsR)[0]?.n),

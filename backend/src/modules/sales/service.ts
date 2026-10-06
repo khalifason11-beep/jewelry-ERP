@@ -56,10 +56,11 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
     const byId = new Map(locked.map((i) => [i.id, i]));
     const [branch] = await tx.select().from(t.branches).where(eq(t.branches.id, branchId));
     const products = await tx
-      .select({ id: t.products.id, name: t.products.name })
+      .select({ id: t.products.id, name: t.products.name, nameAr: t.products.nameAr })
       .from(t.products)
       .where(inArray(t.products.id, locked.map((i) => i.productId)));
-    const productName = new Map(products.map((p) => [p.id, p.name]));
+    // Snapshot of the name at the time of sale; the English name is optional (CAT-0), so fall back to Arabic.
+    const productName = new Map(products.map((p) => [p.id, p.name?.trim() ? p.name : p.nameAr]));
 
     const lines = input.items.map((line) => {
       const item = byId.get(line.itemId)!;

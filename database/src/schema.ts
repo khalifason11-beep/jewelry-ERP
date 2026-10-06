@@ -237,31 +237,62 @@ export const signInEvents = pgTable(
 
 // ───────────────────────────── Catalogue & inventory ─────────────────────────────
 
-export const categories = pgTable('categories', {
-  id: serial('id').primaryKey(),
-  code: text('code').notNull().unique(),
-  name: text('name').notNull(),
-  nameAr: text('name_ar').notNull(),
-});
+/**
+ * Item types (the UI says "Type"; CAT-0). Names come from the client; the English name is optional and
+ * every display falls back to the Arabic one. `name_ar_norm` is computed by the database
+ * (jerp_normalize_name, migration 0015) and unique, so the same name cannot be entered twice in another
+ * spelling. Deactivated, never deleted.
+ */
+export const categories = pgTable(
+  'categories',
+  {
+    id: serial('id').primaryKey(),
+    /** Generated (T-001, …) for types created in the app; seeded demo types keep their codes. */
+    code: text('code').notNull().unique(),
+    name: text('name'),
+    nameAr: text('name_ar').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+    createdBy: integer('created_by').references(() => users.id),
+    nameArNorm: text('name_ar_norm').generatedAlwaysAs(sql`jerp_normalize_name(name_ar)`),
+  },
+  (t) => [uniqueIndex('categories_name_ar_norm_uq').on(t.nameArNorm)],
+);
 
-/** A design/model. Physical pieces are `jewelry_items`. */
-export const products = pgTable('products', {
-  id: serial('id').primaryKey(),
-  sku: text('sku').notNull().unique(),
-  name: text('name').notNull(),
-  nameAr: text('name_ar').notNull(),
-  categoryId: integer('category_id').notNull().references(() => categories.id),
-  karat: smallint('karat').notNull(),
-  description: text('description'),
-  createdAt: createdAt(),
-});
+/** A design/model. Physical pieces are `jewelry_items`. Unique per normalized Arabic name + karat + type (CAT-0). */
+export const products = pgTable(
+  'products',
+  {
+    id: serial('id').primaryKey(),
+    /** Generated (P-000001, …) for products created in the app; no SKU is typed (CAT-0). */
+    sku: text('sku').notNull().unique(),
+    name: text('name'),
+    nameAr: text('name_ar').notNull(),
+    categoryId: integer('category_id').notNull().references(() => categories.id),
+    karat: smallint('karat').notNull(),
+    description: text('description'),
+    createdAt: createdAt(),
+    isActive: boolean('is_active').notNull().default(true),
+    createdBy: integer('created_by').references(() => users.id),
+    nameArNorm: text('name_ar_norm').generatedAlwaysAs(sql`jerp_normalize_name(name_ar)`),
+  },
+  (t) => [uniqueIndex('products_name_ar_norm_karat_category_uq').on(t.nameArNorm, t.karat, t.categoryId)],
+);
 
-export const suppliers = pgTable('suppliers', {
-  id: serial('id').primaryKey(),
-  name: text('name').notNull(),
-  nameAr: text('name_ar'),
-  phone: text('phone'),
-});
+/** Suppliers (CAT-0: created inline; Arabic name required for new rows, unique after normalization). */
+export const suppliers = pgTable(
+  'suppliers',
+  {
+    id: serial('id').primaryKey(),
+    name: text('name'),
+    nameAr: text('name_ar'),
+    phone: text('phone'),
+    createdAt: createdAt(),
+    createdBy: integer('created_by').references(() => users.id),
+    nameNorm: text('name_norm').generatedAlwaysAs(sql`jerp_normalize_name(coalesce(name_ar, name))`),
+  },
+  (t) => [uniqueIndex('suppliers_name_norm_uq').on(t.nameNorm)],
+);
 
 export const jewelryItems = pgTable(
   'jewelry_items',

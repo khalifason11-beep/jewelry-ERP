@@ -22,6 +22,10 @@ export const PERMISSIONS = {
   'inventory.price_edit': 'Change item selling price',
   'inventory.transfer': 'Send and receive inter-branch transfers',
 
+  // Catalog (CAT-0): item types, products and suppliers entered by people
+  'catalog.create': 'Create item types, products and suppliers (also inline in the purchase forms)',
+  'catalog.manage': 'Deactivate or reactivate item types and products',
+
   // Purchases
   'purchases.view': 'View purchases',
   'purchases.create': 'Record purchases (stock receipt)',
@@ -79,6 +83,8 @@ const BRANCH_MANAGER: Permission[] = [
   'inventory.transfer',
   'purchases.view',
   'purchases.create',
+  // CAT-0: a branch manager creates types, products and suppliers while recording stock; only the GM deactivates.
+  'catalog.create',
   'dashboard.branch',
   'reports.view',
   // Expected cash and the daily reconciliation of the own branch (Phase 2b).
