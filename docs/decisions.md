@@ -253,3 +253,28 @@ references) and D-4-14 (the receivable settled by bank transfer) stay in force.
 | D-cat0-9 | API shape (A4) | new `/item-types` vs existing family | `POST /categories` next to `GET /categories` (the table is `categories`; the UI says **Type**), `POST /categories/:id/deactivate|reactivate`, `POST /products` (+ deactivate/reactivate), `POST /suppliers`. Generated codes: `T-001…` for types, `P-000001…` for products. | — |
 | D-cat0-10 | Filtering by type (A1) | code vs id | Inventory lists, the POS and reports filter by **type id** (`categoryId`); the old `category=<code>` parameter is refused (400). The profit report "by type" groups by the type itself (two types may share an English name) and carries the Arabic companion. New types get the generic thumbnail glyph. | — |
 
+
+## 14. UX-0 decisions (UX analysis approved by the owner)
+
+Reference: `docs/ux/ANALYSIS.md` (rules R1–R16, attention signals A1–A17, backend items BE-1…BE-11) and the static
+mockups in `docs/ux/mockups/`.
+
+| # | Context | Options | Choice | How to change later |
+|---|---|---|---|---|
+| D-ux-0 | Design source (closes Q-UX-1) | Figma exports vs the approved mockups | **No Figma export files will be provided.** The owner approved the look of the static mockups; **their CSS variables are the source of truth for the design tokens**, written out in `docs/design-reference/tokens.md` (colour, type scale, spacing, radii, shadows). The Figma screenshots shown in the conversation are not in the repository and are not relied on. Login: `docs/design-reference/login-background.jpg` does not exist, so the login page is plain (logo, company name, tagline from settings); if the image is added later (licence confirmed by the owner) it is served locally as WebP under 200 KB. | Change a token in the mockup and in `tokens.md` together. |
+| D-ux-1 | KPI presentation (Figma's 4 cards vs the brief; amended by the owner; replaces R2) | | **Sales is its own dark card**, separated by a gap; the other three figures (GM: gross profit, gold held, stock value at cost; BM: expected cash, available stock, gold owed to suppliers) share **one light surface divided by thin lines**. | If the owner meant four fully separate cards, change only this rule. |
+| D-ux-2 | Default period on the GM home | Today vs month to date | **Today**, and the last choice is **remembered per user in the browser** (localStorage, a convenience only). | — |
+| D-ux-3 | USD chip | | **Hidden** until Q-10 is answered. | Q-10. |
+| D-ux-4 | Gold and value on the GM's level 1 | | **Grams and value together** (gold held in grams; stock value at cost with pieces and grams in its sub-line). | — |
+| D-ux-5 | Branch colours | Figma palette vs a new one | The mockups' palette with **gold replaced by a dark teal** and the **cream darkened** (sand), the periwinkle darkened to reach 3:1: `#0F1629`, `#1E6B66`, `#A2824D`, `#7487CB`. **Bars are labelled by branch name**; colour never identifies a branch alone. | `tokens.md`. |
+| D-ux-6 | Sidebar icons | | **Distinct icons per item**; the diamond only as the logo. | — |
+| D-ux-7 | POS in the GM's sidebar | | **Hidden** from the GM's sidebar. **No permission change**: the GM can still open `/pos`. | — |
+| D-ux-8 | Display fonts | | A script font **on the login page only**; everywhere else IBM Plex Sans Arabic, until the owner supplies an Arabic equivalent. | — |
+| D-ux-9 | Scrap price beyond tolerance (A8) | approval queue vs report | **Report only** (small query listing scrap bought at an override price). No approval queue. | A new backlog item if ever needed. |
+| D-ux-10 | Voids and price changes (security) | | **Yes**, as a separate backlog item **SEC-2**: password re-confirmation for a void **above an amount set in Settings**, and a **required reason** for price changes. Not part of any UI phase. | SEC-2. |
+| D-ux-11 | Measurable rules | | **R1–R16 confirmed**, with R2 replaced by D-ux-1, **R16 = 13 / 15 / 17 / 24 px** (meta, body, section titles, KPI) and **page title 20 px**, and **R12 = grams use the deployment's weight precision everywhere** (WGT-1). | ANALYSIS §5. |
+| D-ux-12 | Attention thresholds | | Confirmed as **GM settings** with the proposed defaults (cash-count tolerance 0, supplier debt 30 days, transfer stale 24 h — the existing `transfers.pendingClaimStaleHours`). | Settings. |
+| D-ux-13 | Order of UI work | after everything vs early | **UI-A1 (design system) and UI-A2 (shell) come right after REM-3** and **before** PRC-1, OPN-1 and FIX-1/FIX-2, so new screens are built on the new design system. UI-B and UI-C follow the functional items. | BACKLOG §H. |
+| D-ux-14 | Attention for the pilot | | **BE-1**: one extensible endpoint `/api/attention`, role- and scope-aware, each signal with severity, count, branch and link. Minimum set **A1, A2, A4, A5, A6, A9, A10, A11, A12, A15, A16**. Deferred: A3 (needs a dispute feature), A7 (Q-7), A8 report only, A13, A14; A17 not now. Tests prove a branch manager never receives a signal that exposes a COST field. | BACKLOG BE-1. |
+| D-ux-15 | Server-side pagination | | **BE-7 is P1** (before the pilot): sales, inventory, audit, purchases, scrap, transfers. Today inventory loads up to 1,000 rows into the browser. | — |
+| D-ux-16 | Sidebar entries | | The sidebar shows **only screens that exist**: no Prices or Suppliers entry until those pages are built. | — |

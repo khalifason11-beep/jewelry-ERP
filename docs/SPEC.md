@@ -64,6 +64,7 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
   The list must be **filterable by weight, karat and kind**.
 - **[CLIENT]** **Broken scrap (كسر مكسور)** — an irreparable piece (a broken ring, a cut chain) — is **never an inventory item**. It exists only as a **weight pool per branch**, by karat. It **counts in the branch's total stock weight** (raw weight by karat and the 24-karat equivalent), is visible, and is used to pay suppliers (§7).
 - **[BUILT]** The broken-scrap pool is an append-only weight ledger; balance = sum of entries.
+- **[OWNER]** **Weight precision** (BACKLOG WGT-1): this client's scales read to **0.01 g** (to be confirmed, Q-14). A per-deployment setting fixes the number of weight decimals for input and display; storage stays integer milligrams; one formatter shows the same precision everywhere; 24K equivalents and supplier debts are quantised by a documented rounding rule so a debt can be settled to exactly zero.
 - **[CLIENT]** The client sells **21 karat only**. This is the setting `allowedKarats = [21]` for this deployment (never hardcode 21). It restricts what can be created and sold as a sellable piece. **Buying is not restricted**: customers' scrap may be any karat from 1 to 24.
 - **[OPEN]** A clean-scrap piece bought at another karat (for example 18): today it cannot be sold, repriced or delivered. Does the client melt it, sell it anyway at its real karat, or reject such purchases?
 - **[OPEN] Item types and names.** The type and name lists must use **real Sudanese jewelry terminology supplied by the client**. The demo data used Modern Standard Arabic categories (خواتم، أساور، قلائد…) and invented names, which the owner rejected. **Do not invent names.** Production ships with an empty catalog. Items need a type and a free-text description with suggestions from previously entered names.
@@ -134,7 +135,8 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
 - **[BUILT]** Branch dashboard, company overview (GM), sales, inventory, stock weight (including the broken-scrap pool), cash and daily reconciliation, audit.
 - **[OWNER]** Add reporting **by payment channel** (cash / bank / Hasad). Re-verify every report after expenses are removed and pricing changes.
 - **[INVARIANT]** Cost, inventory value at cost and profit appear for the GM only; the branch manager's dashboard is designed without them.
-- **[OPEN]** The header shows the current **21K sell rate**; a **USD per gram chip** (in the design) needs an exchange-rate setting entered by the GM. Does the client want it?
+- **[OPEN]** The header shows the current **21K sell rate**; a **USD per gram chip** needs an exchange-rate setting entered by the GM. Does the client want it? **Hidden until Q-10 is answered** (D-ux-3).
+- **[OWNER]** Dashboards follow `docs/ux/ANALYSIS.md` as decided (D-ux-*): three levels, level 1 of every home fits 1366×768; an **attention list** (BACKLOG BE-1, pilot set A1, A2, A4, A5, A6, A9, A10, A11, A12, A15, A16) with GM-set thresholds; lists paginate on the server (BE-7).
 
 ## 12. Printing [BUILT]
 
@@ -161,12 +163,14 @@ Requirements: GM-only, once per branch, then **sealed** (changes only through au
 
 ## 15. User interface
 
-- **[OWNER]** The visual design exists as **Figma mockups** (login, dashboard, branches, sales list): navy sidebar, white/cream cards with large radii, gold accent, pill chips in the top bar, bar charts in a four-color branch palette. Reference images and exported tokens go in `docs/design-reference/`. Figma's generated CSS is a **reference for exact values only**; never paste it into the project.
+- **[OWNER]** **Design source (D-ux-0, replaces the Figma reference):** the owner approved the static mockups in `docs/ux/mockups/`; their CSS variables are the source of truth for the design tokens, written out in `docs/design-reference/tokens.md` (colour, type scale 13 / 15 / 17 / 24 and page title 20, spacing, radii, shadows). No Figma export files will be provided. Navy sidebar, light panels with large radii, **one** gold accent, pill chips in the top bar, a four-colour branch palette (navy, dark teal, sand, periwinkle) with bars labelled by branch name. Hierarchy, density and role focus: `docs/ux/BRIEF.md` and `docs/ux/ANALYSIS.md` (SPEC overrides the brief).
+- **[OWNER]** Login page: plain (logo, company name, tagline from settings) unless `docs/design-reference/login-background.jpg` is added with its commercial licence confirmed; a script display font on the login page only (D-ux-8).
 - **[INVARIANT]** Arabic RTL is the primary layout; the English LTR layout must be equally correct. Colors, type scale, radii and shadows are CSS variables in one place so another client's brand can be applied by changing tokens. Fonts are bundled locally (the CSP forbids external fonts).
-- **Corrections to the mockups:** "Mange" → "Manage", "Cache" → "Cash", "Costumer" → "Customer". The diamond icon repeated for every menu item is a placeholder: use distinct icons. Text on pale gold must be dark navy (white on that gold is about 2:1 contrast). Body text ≥ 14 px, secondary ≥ 12 px, WCAG AA.
+- Distinct icons per menu item; the diamond only as the logo (D-ux-6). Text on gold must be dark navy (white on the gold accent is 2.4:1). Body text 15 px, meta text 13 px, WCAG AA (contrast values in `tokens.md`).
 - **Not designed, so extrapolated and reviewed by the owner:** POS (most important: cashier speed and clarity), scrap and supplier purchases, cash and reconciliation, transfers, settings, security, users, reports.
-- **Sidebar**, by role and permission: Home, Branches, Prices (the GM's gold and scrap rates), Sales, Inventory, Purchases, Scrap, Transfers, Cash, Reports; Administration: Users, Active users, Security, Audit log, Settings. POS for cashiers and branch managers. **No Expenses, no Hasad entries.**
-- Branch colors: a color per branch used in dots and charts (a branch field or an automatic palette by order).
+- **Sidebar**, by role and permission, grouped as in `docs/ux/ANALYSIS.md` §4.1, and showing **only screens that exist** (D-ux-16): Prices and Suppliers appear once those pages are built. POS for cashiers and branch managers; **not in the GM's sidebar** (D-ux-7, no permission change). Security sits in the user menu. **No Expenses, no Hasad entries.**
+- Branch colors: a color per branch used in dots and charts, always next to the branch name (a branch field or the palette of `tokens.md` by order).
+- **[OWNER]** Order: the design system and the shell (UI-A1, UI-A2) come right after REM-3, before PRC-1, OPN-1 and FIX-1/FIX-2 (D-ux-13).
 
 ## 16. Data policy
 
@@ -223,3 +227,4 @@ Requirements: GM-only, once per branch, then **sealed** (changes only through au
 | Q-11 | The GM's sign-in hardware; hosting provider and domain; backup frequency | HOST-1 |
 | Q-12 | Customer identification on scrap purchases | SCR |
 | Q-13 | Written agreement with the client: hosting cost, support hours, who holds keys and credentials, what happens if the developer is unavailable | go-live |
+| Q-14 | Weight precision: the owner said "milligram" but the scales read to 0.01 g (= 10 mg). Confirm **0.01 g** (2 decimals) as the rule for this client | WGT-1, OPN-1 |

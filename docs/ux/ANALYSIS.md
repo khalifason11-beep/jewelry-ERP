@@ -1,13 +1,16 @@
 # UX-0 — Analysis and proposed UX architecture
 
-Status: **proposal, for the owner's decisions.** No application code was changed for this document.
+Status: **approved by the owner with decisions D-ux-0 … D-ux-16** (`docs/decisions.md` §14; summary in §10.2
+below). No application code was changed for this document. Where a decision changed a proposal, the text below
+is updated and marked *(decided)*.
 Inputs: `docs/ux/BRIEF.md` (hierarchy, density, role focus), `docs/SPEC.md` (overrides the brief),
 `docs/BACKLOG.md` (UI-A, UI-B, UI-C, FIX-1, FIX-2, REM-3, PRC-1, RPT-1), the Figma mockups (see §0.2) and the
 baseline screenshots in `docs/ux/baseline/` (2026-10-06, demo and empty production databases).
 
-Precedence used throughout: **SPEC > BRIEF**; **Figma** decides the visual language (tokens, shell, shapes); the
-**brief** decides hierarchy, density and role focus. Where they conflict, a resolution is proposed and marked
-**DECIDE**. All decisions are collected in §10.2.
+Precedence used throughout: **SPEC > BRIEF**; the **approved mockups** (`docs/ux/mockups/`, tokens in
+`docs/design-reference/tokens.md`) decide the visual language; the **brief** decides hierarchy, density and role
+focus. *(decided, D-ux-0: no Figma export files will be provided; the Figma screenshots shown in the conversation
+are not in the repository and are not relied on.)*
 
 ---
 
@@ -19,10 +22,10 @@ only as a payment method** (invoice number required, transaction reference optio
 **Hasad receivable** settled by Hasad's bank transfer (Cash screen). Where the brief lists "Expenses" in a KPI row
 or "Hasad orders" in a role's focus, this analysis drops them.
 
-### 0.2 The Figma reference
-The owner shared five images in the conversation (login background, GM dashboard, login, branches, sales list).
-**They are not in the repository yet** (`docs/design-reference/` does not exist) and no `tokens.md` was provided.
-Values below are read off the images and are **approximate** until the files are committed (question Q-UX-1).
+### 0.2 The Figma reference (historical)
+*(decided, D-ux-0)* The design source is now the approved mockups; their CSS variables are written out in
+`docs/design-reference/tokens.md`. The table below records what the Figma screenshots shown in the conversation
+looked like when this analysis was written; it is **not** a source of values. Q-UX-1 is closed.
 
 | Element | What the mockup shows | Approximate value |
 |---|---|---|
@@ -209,10 +212,10 @@ Labels are the existing Arabic terms. Groups follow the work, not the database.
 | Group | Items |
 |---|---|
 | — | الرئيسية (Executive overview) |
-| المبيعات (Sales) | المبيعات · نقطة البيع (only if the GM sells; DECIDE D-7) |
+| المبيعات (Sales) | المبيعات *(decided, D-ux-7: no POS entry for the GM; no permission change)* |
 | المخزون والذهب (Stock and gold) | المخزون · التحويلات · ذهب الكسر · الأنواع والمنتجات |
-| الموردون (Suppliers) | مشتريات الموردين · الموردون (new list with gold owed, A6; UI-C) |
-| المال (Money) | النقدية والتسوية · الأسعار (gold and scrap rates, PRC-1; Figma's "Prices") |
+| الموردون (Suppliers) | مشتريات الموردين · *later:* الموردون, only once the page exists (UI-C3, BE-3) |
+| المال (Money) | النقدية والتسوية · *later:* الأسعار, only once the Prices page exists (PRC-1) |
 | التحليل (Analysis) | الفروع · التقارير |
 | الإدارة (Administration) | المستخدمون · المستخدمون النشطون · سجل التدقيق · الإعدادات |
 
@@ -230,23 +233,26 @@ Labels are the existing Arabic terms. Groups follow the work, not the database.
 **Cashier**: نقطة البيع · نشاطي (My activity). Nothing else — two icons, as today.
 
 Security (passkeys, recovery codes) and the language switch stay in the **user menu**, not in the sidebar.
-Icons: one distinct icon per item (Figma uses the same diamond for all; that hurts scanning — DECIDE D-6).
+Icons: *(decided, D-ux-6)* one distinct icon per item; the diamond only as the logo.
+*(decided, D-ux-16)* The sidebar shows **only screens that exist**: no dead links (Prices, Suppliers) until those pages are built.
 
 ### 4.2 Dashboard levels
 
 **GM — Executive overview**
-- **Level 1 (one 1366×768 window, no scrolling):** period pills · one KPI strip with 4 figures: **Sales**
-  (with invoices), **Gross profit** (with margin), **Gold held** (grams, of which scrap), **Stock value at cost** ·
+- **Level 1 (one 1366×768 window, no scrolling):** period pills (default **Today**, remembered per user in the
+  browser, D-ux-2) · **Sales** (with invoices) as its own dark card · one light surface with **Gross profit** (with
+  margin), **Gold held** (grams, of which scrap) and **Stock value at cost** (with pieces and grams: D-ux-4) ·
   **Needs attention** list (max 5 lines + "show all") or "No urgent actions." · **Branch strips** (4 branches:
   sales, profit, gold held, one attention dot).
-- **Level 2 (below the fold, same page):** sales trend by branch (one chart) · gold position (pieces / scrap /
-  24K) · purchases in the period.
+- **Level 2 (below the fold, same page):** sales by branch for the period (horizontal bars **labelled by branch
+  name**, D-ux-5; the daily trend per branch is in the sales report) · gold position (pieces / scrap / 24K, gold
+  owed to suppliers).
 - **Level 3 (other pages):** branch detail → sale → item; inventory report (karat valuation, retail value);
   profit by type; inventory movement; cash reconciliation; audit.
 
 **BM — Branch dashboard**
-- **Level 1:** Today's **sales** (amount, invoices, pieces) · **Expected cash in drawer** · **Available stock**
-  (pieces, grams) · **Gold owed to suppliers** (24K g) · **Needs attention** (transfers to receive, cash count,
+- **Level 1:** Today's **sales** (amount, invoices, pieces) as its own dark card · one light surface with
+  **Expected cash in drawer**, **Available stock** (pieces, grams) and **Gold owed to suppliers** (24K g) · **Needs attention** (transfers to receive, cash count,
   voids, stock mismatch, supplier debt age) or "No urgent actions."
 - **Level 2:** 14-day sales line · team today (name, invoices, value, voids, signed in) · stock today (+in / −out,
   reconciles ✓).
@@ -259,6 +265,9 @@ Level-1 fit check at 1366×768 (712 px of content height under a 56 px top bar):
 attention list 5 × 40 + header 48 = 248 + branch strips 4 × 56 + header 48 = 272 + gaps 3 × 20 → **≈ 740 px**.
 It fits only with **compact** spacing (row height 40, strip 88) or with the attention list and the branch strips
 **side by side** (the mockups use side by side: `docs/ux/mockups/`).
+*(re-checked after D-ux-1 and R16 13/15/17/24)*: in `gm-home.html` and `bm-home.html` level 1 ends at about
+570 px of the 768 px window at 1366×768 (top bar, header, KPI row, attention list and branch strips/team), so R14
+holds in Arabic; English is shorter.
 
 ---
 
@@ -267,7 +276,7 @@ It fits only with **compact** spacing (row height 40, strip 88) or with the atte
 | # | Rule | Proposed value |
 |---|---|---|
 | R1 | Primary KPIs on a dashboard | **≤ 4** (GM 4, BM 4, none for the cashier) |
-| R2 | KPI presentation | **One strip** (a single surface with dividers), not one card per metric; at most **one** emphasised (dark) figure. Resolves Figma's 4 cards vs the brief — DECIDE D-1 |
+| R2 | KPI presentation | *(decided, D-ux-1, replaces "one strip")* **Sales is its own dark card**, separated by a gap; the other three figures share **one light surface divided by thin lines** (GM: gross profit, gold held, stock value at cost; BM: expected cash, available stock, gold owed). If the owner later says four fully separate cards were meant, only this rule changes |
 | R3 | Cards/panels per screen | **≤ 4** on a dashboard; **≤ 3** on an operational page (filters + table count as one) |
 | R4 | Primary actions per screen | **Exactly one** filled navy button (or none on dashboards/lists that only navigate); everything else secondary/ghost; danger actions are red-outlined, never primary |
 | R5 | Accent colour | **One** accent: gold = brand + "current selection" (active nav, selected chip, focus ring). Never a KPI fill, never a link colour, never a chart series (DECIDE D-5) |
@@ -277,11 +286,11 @@ It fits only with **compact** spacing (row height 40, strip 88) or with the atte
 | R9 | Table headers | **Sticky** headers and a sticky first column (the code) on long tables |
 | R10 | Pagination | **Server-side** (50 rows per page, max 200) for sales, inventory, audit, purchases, scrap, transfers; today lists load up to 1,000 rows into the browser (`limit: 1000` on inventory) |
 | R11 | Filters per table | ≤ **4** visible (period, branch, status, search); more in a "More filters" popover; the active filters shown as removable chips |
-| R12 | Numbers | Grams with 3 decimals only on detail pages; dashboards show **2 decimals** for grams and **no decimals** for money (the currency label once per block, not per cell) |
+| R12 | Numbers | *(decided, D-ux-11)* **Grams use the deployment's weight precision everywhere** (UI, dashboards, details, invoices, receipts, reports, CSV) through one formatter — WGT-1; this client: 0.01 g (to be confirmed, BACKLOG WGT-1). Money: no decimals; the currency label once per block, not per cell |
 | R13 | Banners | **None above level 1**; system notices go into the attention list or the user menu |
 | R14 | Level-1 fit | Every home's level 1 visible at **1366×768 without scrolling** in Arabic and English |
 | R15 | Empty states | Every list says *what* is empty and offers the *next action* (§8); never a table of zeros |
-| R16 | Text sizes | 4 sizes only: 12 (meta), 14 (body/tables), 16 (section titles), 24 (KPI figures); page title 20 |
+| R16 | Text sizes | *(decided, D-ux-11)* **13** (meta), **15** (body/tables), **17** (section titles), **24** (KPI figures); page title **20** |
 
 ---
 
@@ -376,8 +385,11 @@ stock; the rate chip shows "—/g". First-steps guidance itself is REM-3; the te
 
 ## 9. Static mockups
 
-`docs/ux/mockups/` — self-contained HTML, RTL, fake and clearly labelled data, Figma-derived tokens (approximate,
-§0.2), no application code, no external requests except the Google Fonts stylesheet for IBM Plex Sans Arabic:
+`docs/ux/mockups/` — self-contained HTML, RTL, fake and clearly labelled data, **approved by the owner; their CSS
+variables are the design tokens** (`docs/design-reference/tokens.md`), no application code, no external requests
+except the Google Fonts stylesheet for IBM Plex Sans Arabic. Updated after the decisions: D-ux-1 KPI layout, R16
+type scale, D-ux-5 palette with labelled bars, D-ux-16 no dead links, and the cashier mockup with **Cash first and
+selected by default** and the Hasad fields shown only when Hasad is selected:
 
 - `gm-home.html` — Executive overview, level 1 in one 1366×768 window, level 2 below.
 - `bm-home.html` — Branch dashboard.
@@ -411,7 +423,7 @@ unprompted:
 **Cashier (`cashier-home.html`)**
 - [ ] where to search/scan a piece;
 - [ ] the cart total;
-- [ ] the three payment methods and that Hasad asks for an invoice number;
+- [ ] the three payment methods, and that Cash is already selected;
 - [ ] the one button that completes the sale.
 
 **Empty database (`empty-gm-home.html`)**
@@ -425,10 +437,10 @@ unprompted:
 
 | Phase | Content | Depends on |
 |---|---|---|
-| **UI-A1** Design system | Tokens from Figma (§0.2, after Q-UX-1): colours (ink, one gold accent, meaning colours R6), type scale R16, spacing (4/8/12/16/24/32), radii (pill, 12, 24), shadows (none on panels; one for dialogs), buttons (primary/secondary/ghost/danger), inputs, tables (sticky, density), badges, alerts, dialogs, empty/loading/error/permission-denied states, skeletons. A `/ui` kitchen-sink page in demo mode only | Q-UX-1, D-1…D-6 |
-| **UI-A2** Shell | Grouped role-aware sidebar (§4.1), distinct icons, collapse to icons; top bar: rate chip(s), language, user menu (Security inside); banners removed (R13); login with image panel, logo, tagline (new branding setting) | UI-A1 |
-| **UI-B1** GM home | §4.2 GM levels; attention list **with the signals that already exist** (A1, A9, A11) | UI-A2 |
-| **UI-B2** BM home | §4.2 BM levels; attention with existing signals; remove the empty profit KPI; fix the "$" typo | UI-A2 |
+| **UI-A1** Design system | Tokens from `docs/design-reference/tokens.md` (D-ux-0): colours (ink, one gold accent, meaning colours R6), type scale R16, spacing (4/8/12/16/24/32), radii (pill, 12, 24), shadows (none on panels; one for dialogs), buttons (primary/secondary/ghost/danger), inputs, tables (sticky, density), badges, alerts, dialogs, empty/loading/error/permission-denied states, skeletons. A `/ui` kitchen-sink page in development only | REM-3 (D-ux-13) |
+| **UI-A2** Shell | Grouped role-aware sidebar (§4.1), distinct icons, collapse to icons; top bar: rate chip(s), language, user menu (Security inside); banners removed (R13); **plain login page** (logo, company name, tagline from a new branding setting; no image panel unless `login-background.jpg` is added with a confirmed licence) | UI-A1 |
+| **UI-B1** GM home | §4.2 GM levels; attention list from BE-1 | UI-A2, BE-1 |
+| **UI-B2** BM home | §4.2 BM levels; attention from BE-1; remove the empty profit KPI; fix the "$" typo | UI-A2, BE-1 |
 | **UI-B3** Branches + sales list | Figma branches grid and sales list; filter pills; server-side pagination (backend) | UI-A2, BE-7 |
 | **UI-C1** POS | Owner reviews a screenshot first (UI-C in BACKLOG); together with FIX-1 (transfer from cart) and FIX-2 (bank reference) | FIX-1, FIX-2 |
 | **UI-C2** Stock & gold | Inventory (7 columns + drawer), Types & products, Scrap (form first), Transfers (no horizontal overflow; receive action visible) | — |
@@ -440,19 +452,27 @@ unprompted:
 
 | ID | Item | Signals |
 |---|---|---|
-| BE-1 | Attention endpoint: one `/api/attention` returning typed items with severity, per role and scope | all |
+| BE-1 | Attention endpoint: one extensible `/api/attention`, role and scope aware; each signal carries severity, count, branch and link. *(decided, D-ux-14)* **Pilot minimum set: A1, A2, A4, A5, A6, A9, A10, A11, A12, A15, A16**; tests prove a branch manager never receives a signal exposing a COST field | pilot set |
 | BE-2 | Transfer staleness using `pendingClaimStaleHours`; incoming count for the BM | A1, A2 |
 | BE-3 | Supplier gold owed per supplier (+ setting `purchases.supplierDebtMaxAgeDays`); supplier list API | A6 |
 | BE-4 | Cash-count difference across branches, missing count (+ setting `cash.countDifferenceTolerance`) | A4, A5 |
-| BE-5 | Receivable ageing (+ setting) | A7 |
+| BE-5 | Receivable ageing (+ setting) — *deferred (Q-7)* | A7 |
 | BE-6 | Security signals: new devices (company-wide), locked accounts | A10, A12 |
-| BE-7 | Server-side pagination and sorting for sales, inventory, audit, purchases, scrap, transfers | R10 |
-| BE-8 | Voids/reprints thresholds (+ settings) and company view | A13, A14 |
+| BE-7 | Server-side pagination and sorting for sales, inventory, audit, purchases, scrap, transfers — *(decided, D-ux-15)* **P1, before the pilot** | R10 |
+| BE-8 | Voids/reprints thresholds (+ settings) and company view — *deferred* | A13, A14 |
 | BE-9 | Stock reconciliation per branch for the company view; missing-rate check | A15, A16 |
-| BE-10 | Transfer item dispute (new feature, with FIX-1) | A3 |
-| BE-11 | Scrap override approval queue (new feature) — only if D-9 chooses (a) | A8 |
+| BE-10 | Transfer item dispute (new feature, with FIX-1) — *deferred* | A3 |
+| BE-11 | ~~Scrap override approval queue~~ — *(decided, D-ux-9)* not built; A8 is a report of override purchases only (small query, part of RPT-1) | A8 |
 
-### 10.2 Questions for the owner
+### 10.2 Questions for the owner — answered
+
+The owner's answers are recorded as D-ux-0 … D-ux-16 in `docs/decisions.md` §14. In short: Q-UX-1 closed
+(mockups are the design source); D-1 Sales as its own dark card + one surface for the other three; D-2 Today,
+remembered; D-3 USD hidden until Q-10; D-4 grams and value together; D-5 palette with teal and darkened sand and
+periwinkle, labelled bars; D-6 distinct icons; D-7 no POS entry for the GM; D-8 script font on login only; D-9
+report only; D-10 SEC-2; D-11 rules confirmed (R16 13/15/17/24, R12 per WGT-1); D-12 thresholds as GM settings;
+D-13 UI-A1/A2 right after REM-3, before PRC-1, OPN-1, FIX-1/2. The table below is the original proposal.
+
 
 | # | Question | My recommendation |
 |---|---|---|

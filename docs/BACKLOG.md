@@ -169,7 +169,31 @@ A claim by the sender, confirmation by the receiver, through `FUNDS_IN_TRANSIT`,
 Name, phone, optionally an ID number, and a printed receipt for the customer.
 
 ### RPT-1 — Report review after the removals · TODO · M · P1
-Re-verify every report after REM-1, REM-2 and PRC-1; add reporting by payment channel and the bank-reference list; confirm no report shows cost to non-GM roles.
+Re-verify every report after REM-1, REM-2 and PRC-1; add reporting by payment channel and the bank-reference list; confirm no report shows cost to non-GM roles. Add the **scrap bought at an override price** list (A8, report only, D-ux-9).
+
+### WGT-1 — Weight precision per deployment · TODO · M · P1 · plan together with PRC-1
+**Why (owner decision):** this client's scales read to **0.01 g**. The owner called this "milligram", but 0.01 g is **10 mg** (a milligram is 0.001 g). The rule is **0.01 g**; **the owner must confirm** this before implementation (question Q-14). Do **not** implement now; plan it with PRC-1 (both touch weights × rates).
+**Scope to analyse in the plan:**
+1. A **per-deployment setting for the number of weight decimals** (2 for this client; other clients may use 3). Internal storage stays **integer milligrams**; the setting only constrains input and display.
+2. **Input validation** rejects more decimals than the setting on every form and import: gross, net, scrap, supplier settlement, opening balance (OPN-1), and the API (server-side, not only the UI).
+3. **One formatter** shows the same number of decimals everywhere: UI, dashboards, details, invoices, receipts, reports, CSV. This is rule **R12** (D-ux-11): "grams use the deployment's precision everywhere".
+4. **Totals** are computed from exact sums (milligrams) and then displayed; decide and document what happens when a displayed total differs from the sum of the displayed rows (with 0.01 g inputs this cannot happen for raw weights; it can for derived 24K figures).
+5. **Important — 24K equivalents:** pure gold = net × karat / 24 is generally not a multiple of 0.01 g (e.g. 5.01 g of 21K = 4.38375 g of 24K), so a supplier gold debt might never be settleable to exactly zero with 0.01 g inputs. Propose how to quantise debts and settlement equivalents (for example: round the order's total debt to the weight precision once at creation, half up, and the 24K equivalent of each settlement the same way; or a documented close-out of a residual below one precision unit). Write the rounding rule in `docs/decisions.md`, add property tests (any sequence of settlements can reach exactly zero; no rounding drift across many orders), and describe the effect on existing tests and data (existing debts were computed at milligram precision).
+6. **PRC-1 interaction:** the computed price multiplies the rate (per gram) by the net weight; with 0.01 g weights the product is still exact in integer milligrams × rate / 1000, but the rounding rule of the price (Q-2) must be applied once, after the multiplication. Note any interaction with the making charge (Q-1).
+**Acceptance:** to be written in the plan; at minimum a 3-decimal input is refused with a clear error on every form and the API, every weight shows 2 decimals, and a supplier debt created from 0.01 g pieces can be settled to exactly zero.
+
+### SEC-2 — Void re-confirmation and reasons for price changes · TODO · S · P1
+**Owner decision D-ux-10.** (1) Voiding a sale **above an amount set in Settings** (GM setting, default to be proposed) requires the **password re-confirmation** used elsewhere (and the passkey where the role requires it). (2) Changing a piece's selling price requires a **reason** (today optional). Both audited as today. Not part of any UI phase.
+**Acceptance:** a void above the threshold without re-confirmation is refused (403 with the re-auth code), below it is unchanged; a price change without a reason is refused; tests on both projects; route matrix and permission tests updated.
+
+### BE-1 — Attention endpoint · TODO · M · P1
+**Owner decision D-ux-14.** One extensible endpoint **`/api/attention`**, role- and scope-aware (GM: all branches; BM: own branch; cashier: none). Each signal: type, **severity** (critical / warning / info), **count**, **branch**, **link**, short text key + params. Thresholds are **GM settings** (D-ux-12).
+**Pilot minimum set** (`docs/ux/ANALYSIS.md` §3): **A1** transfers in transit, **A2** transfer stale (`transfers.pendingClaimStaleHours`), **A4** cash-count difference (+ `cash.countDifferenceTolerance`, default 0), **A5** missing cash count, **A6** supplier gold owed per supplier and its age (+ `purchases.supplierDebtMaxAgeDays`, default 30), **A9** backup health, **A10** sign-in from a new device, **A11** failed sign-ins, **A12** locked accounts, **A15** stock does not reconcile, **A16** no gold/scrap rate set. **Deferred:** A3 (needs a dispute feature), A7 (depends on Q-7), A8 (report only, RPT-1), A13, A14; A17 not now.
+**Acceptance:** each signal has a test that raises and clears it; **tests prove a branch manager never receives a signal that exposes a COST field** (field-classification registry); the route is in the route matrix with its scope.
+
+### BE-7 — Server-side pagination and sorting · TODO · M · P1
+**Owner decision D-ux-15.** Sales, inventory, audit, purchases, scrap purchases and transfers page and sort on the server (50 rows per page, max 200), with the filters of R11. Today inventory loads up to 1,000 rows into the browser. CSV export keeps exporting the whole filtered result.
+**Acceptance:** lists stay correct and fast with 10,000 pieces and 20,000 sales on real PostgreSQL; cost-visibility tests still pass on every page.
 
 ### TAX-1 — Official tax invoice · BLOCKED (Q-9) · ? · P2
 Only if the client is legally required to issue one.
@@ -181,18 +205,24 @@ Do not build. Keep permission identifiers granular and centralized.
 
 ## E. User interface redesign
 
-Reference: Figma mockups in `docs/design-reference/` (login, dashboard, branches, sales list, login background), exported SVG assets, and `tokens.md`. Figma's generated CSS is a reference for values only.
+**Design source (D-ux-0):** the owner approved the static mockups in `docs/ux/mockups/`; **their CSS variables are the source of truth for the tokens**, written out in `docs/design-reference/tokens.md`. No Figma export files will be provided; the Figma screenshots shown earlier are not in the repository. Hierarchy, density and role focus: `docs/ux/BRIEF.md` and `docs/ux/ANALYSIS.md` (rules R1–R16 as decided in `docs/decisions.md` §14).
 
-Do this **after** REM-1/2/3, FIX-1/2, CAT-1, PRC-1 and OPN-1 so the screens being restyled are the final ones.
+**Order (D-ux-13):** UI-A1 and UI-A2 come **right after REM-3** and **before** PRC-1, OPN-1 and FIX-1/FIX-2, so the new screens are built on the new design system. UI-B and UI-C follow the functional items they depend on.
 
-### UI-A — Design system, shell, login · TODO · M · P1
-CSS-variable tokens in one place; locally bundled fonts; the app shell with a grouped sidebar by permission, distinct icons, collapsible to icons; top bar with the 21K rate chip, language toggle and user menu; login page with the image panel, logo and tagline from settings (new branding setting); restyled shared components. Fix the mockup typos; dark text on gold; AA contrast; RTL as the primary layout. Do not touch the print documents. Keep every e2e script green. Screenshots at 1366×768 and 1920×1080 in Arabic and English.
+### UX-0 — UX analysis · DONE
+`docs/ux/ANALYSIS.md`, baseline screenshots `docs/ux/baseline/` (`scripts/capture-ui-baseline.mjs`), static mockups `docs/ux/mockups/`. Approved with decisions D-ux-0 … D-ux-16.
 
-### UI-B — Dashboard, branches, sales list · TODO · M · P1 · Q-10
-As in the mockups. The GM's dashboard shows sales, purchases, stock and values per branch with the branch palette; the branch manager's dashboard excludes cost figures. Branch color field or automatic palette. USD chip only if Q-10 says yes.
+### UI-A1 — Design system · TODO · M · P1 · after REM-3
+Tokens from `tokens.md` as CSS variables in one place (`frontend/src/index.css`); type scale 13 / 15 / 17 / 24, page title 20; one gold accent and the meaning colours (R5, R6); buttons (primary / secondary / ghost / danger: one primary per screen, R4), inputs, tables (sticky headers, 6–7 default columns + details drawer, R8–R9), badges, alerts, dialogs, empty / loading / error / permission-denied states and skeletons; IBM Plex Sans Arabic bundled locally. A component page in development only. No screen content changes.
+
+### UI-A2 — Shell and login · TODO · M · P1 · after UI-A1
+Grouped, role-aware sidebar with **distinct icons** (diamond only as the logo), collapsible to icons; **only screens that exist** (no Prices or Suppliers entry until those pages exist; **no POS entry for the GM**, no permission change); top bar with the 21K rate chip (a "set today's rate" hint when none is set), language and user menu (Security inside); **no banners above level 1** (R13). **Plain login page**: logo, company name, tagline from a new branding setting; no image panel unless `docs/design-reference/login-background.jpg` is added with a commercial licence confirmed by the owner (then WebP under 200 KB, served locally); a script display font on the login page only. **USD chip hidden** until Q-10. AA contrast; RTL primary. Do not touch the print documents. Keep every e2e script and REH-1 green. Screenshots at 1366×768 and 1920×1080 in Arabic and English (`scripts/capture-ui-baseline.mjs`).
+
+### UI-B — Homes, branches, sales list · TODO · M · P1 · UI-A2, BE-1, BE-7
+GM home and BM home as in `docs/ux/mockups/gm-home.html` and `bm-home.html`: **Sales as its own dark card**, the other three figures on one light surface (D-ux-1); default period **Today**, remembered per user in the browser; GM level 1 shows grams and value together; attention list from BE-1; branch bars **labelled by branch name** in the palette of `tokens.md`. The branch manager's home has no cost figures. Branches page and sales list with filter pills and server-side pagination (BE-7). Level 1 fits 1366×768 without scrolling (R14).
 
 ### UI-C — All other screens · TODO · L · P1
-POS first (speed and clarity for the cashier, owner reviews a screenshot before the build), then scrap and supplier purchases, cash, transfers, inventory, settings, security, users, reports.
+POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fields only when Hasad is selected; owner reviews a screenshot before the build; built with FIX-1 and FIX-2), then scrap (form first) and supplier purchases, a Suppliers page (gold owed per supplier, A6), cash, transfers (no horizontal overflow), inventory (7 default columns + drawer), settings, security, users, reports. Empty states as in `docs/ux/ANALYSIS.md` §8.
 
 ---
 
@@ -226,18 +256,21 @@ POS first (speed and clarity for the cashier, owner reviews a screenshot before 
 
 ## H. Suggested sequence
 
+Updated after UX-0 (D-ux-13, D-ux-14, D-ux-15).
+
 | Step | Items | Why this order |
 |---|---|---|
 | 0 | Commit `SPEC.md` and `BACKLOG.md`; start REH-1 with the bootstrap → branch → users part | The rehearsal grows with the system |
-| 1 | REM-1, REM-2, CAT-0, REM-3 (FIX-3 already done) | Shrink the surface before adding to it; CAT-0 before the seed goes, so stock can always be entered |
+| 1 | REM-1, REM-2, CAT-0 (done), UX-0 (done), **REM-3** | Shrink the surface before adding to it; CAT-0 before the seed goes, so stock can always be entered |
 | 1b | REM-5 | Drop the deprecated schema once REM-3 and CAT-0 are proven, before the first production deployment |
-| 2 | FIX-1, FIX-2, REM-4 | Small, visible corrections the owner already asked for |
-| 3 | CAT-1 | An empty production system cannot receive stock without it |
-| 4 | PRC-1 | Needs Q-1, Q-2, Q-5 answered |
-| 5 | OPN-1 (+ LBL-1) | Needs CAT-1 and Q-4 |
-| 6 | CSH-2, SPL-1, MNY-1, SCR-1, RPT-1 | According to the answers |
-| 7 | UI-A, UI-B, UI-C | Restyle the final screens |
-| 8 | HOST-1, DEP-1, BKP-1, 2FA-1, HW-1, TRN-1, LEG-1 | Owner tasks that run in parallel with steps 1–7 |
-| 9 | PIL-1, then SEC-1 | Before relying on the system and before a second branch |
+| 2 | **UI-A1, UI-A2** | The design system and shell before any new screen is built (D-ux-13) |
+| 3 | FIX-1, FIX-2, REM-4, SEC-2 | Small, visible corrections the owner asked for, built on the new design system |
+| 4 | CAT-1 | Item types and free-text descriptions (Q-3) |
+| 5 | PRC-1 together with **WGT-1** | Needs Q-1, Q-2, Q-5 and Q-14; both touch weights × rates |
+| 6 | OPN-1 (+ LBL-1) | Needs CAT-1, Q-4 and the weight precision of WGT-1 |
+| 7 | **BE-1, BE-7** (P1, before the pilot), then UI-B, UI-C | The homes need the attention endpoint; the lists need server-side pagination |
+| 8 | CSH-2, SPL-1, MNY-1, SCR-1, RPT-1 | According to the answers |
+| 9 | HOST-1, DEP-1, BKP-1, 2FA-1, HW-1, TRN-1, LEG-1 | Owner tasks that run in parallel with steps 1–8 |
+| 10 | PIL-1, then SEC-1 | Before relying on the system and before a second branch |
 
-**Questions to put to the client first** (they unblock steps 4–6): Q-1, Q-2, Q-3, Q-4, Q-5, Q-6, Q-7, Q-8, Q-9.
+**Questions to put to the client first** (they unblock steps 4–8): Q-1, Q-2, Q-3, Q-4, Q-5, Q-6, Q-7, Q-8, Q-9, Q-14.

@@ -7,76 +7,90 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-/* UX-0 static mockup. Fake, labelled data. Tokens approximated from the Figma images (docs/ux/ANALYSIS.md §0.2). */
+/* UX static mockup. Fake, labelled data. These variables are the design-token source of truth
+   (docs/design-reference/tokens.md, decision D-ux-0). */
 :root{
-  --navy:#0F1629; --navy-2:#232D45; --navy-3:#3A4562;
-  --gold:#C9A24B; --gold-soft:#F5ECD6;          /* one accent: brand + current selection */
-  --ink:#0F1629; --ink-2:#4B5570; --ink-3:#8A93A8;
-  --surface:#FFFFFF; --panel:#F4F5F8; --line:#E4E7EE;
+  /* colour */
+  --navy:#0F1629; --navy-2:#232D45; --navy-3:#3A4562; --on-navy:#C8CEDB; --on-navy-muted:#7F8AA5; --on-navy-soft:#AEB6C8;
+  --gold:#C9A24B; --gold-soft:#F5ECD6;            /* the one accent: brand + current selection */
+  --ink:#0F1629; --ink-2:#4B5570; --ink-3:#646D82;
+  --surface:#FFFFFF; --panel:#F4F5F8; --line:#E4E7EE; --neutral-bg:#EEF0F4;
   --warn:#B45309; --warn-bg:#FEF3C7; --crit:#B91C1C; --crit-bg:#FEE2E2; --ok:#047857; --ok-bg:#D1FAE5;
-  --b1:#0F1629; --b2:#5B7DB8; --b3:#3E8E7E; --b4:#9AA3B8;   /* branch palette (DECIDE D-5: gold removed) */
-  --r-panel:20px; --r-row:12px; --r-pill:999px;
+  --b1:#0F1629; --b2:#1E6B66; --b3:#A2824D; --b4:#7487CB;   /* branch palette (D-5): navy, dark teal, sand, periwinkle */
+  /* type (R16): meta 13, body 15, section 17, page title 20, KPI 24 */
+  --fs-meta:13px; --fs-body:15px; --fs-section:17px; --fs-title:20px; --fs-kpi:24px;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600;
+  /* spacing (4-px grid) */
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px;
+  /* radii */
+  --r-panel:20px; --r-card:16px; --r-row:12px; --r-control:10px; --r-badge:6px; --r-pill:999px;
+  /* shadows: panels are flat; only dialogs and menus float */
+  --shadow-none:none; --shadow-pop:0 8px 28px rgba(15,22,41,.16);
 }
 *{box-sizing:border-box;margin:0}
-body{font-family:'IBM Plex Sans Arabic',system-ui,sans-serif;background:var(--surface);color:var(--ink);font-size:14px;line-height:1.45}
+body{font-family:'IBM Plex Sans Arabic',system-ui,sans-serif;background:var(--surface);color:var(--ink);font-size:var(--fs-body);line-height:1.45}
 .num{font-variant-numeric:tabular-nums;direction:ltr;unicode-bidi:isolate}
-.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh;gap:16px;padding:16px}
+.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh;gap:var(--s4);padding:var(--s4)}
 /* sidebar */
-.side{background:var(--navy);border-radius:var(--r-panel);padding:14px 10px;overflow:auto;color:#C8CEDB;position:sticky;top:16px;height:calc(100vh - 32px);display:flex;flex-direction:column}
-.logo{display:flex;align-items:center;gap:10px;color:#fff;font-weight:600;padding:4px 8px 10px}
+.side{background:var(--navy);border-radius:var(--r-panel);padding:14px 10px;overflow:auto;color:var(--on-navy);position:sticky;top:var(--s4);height:calc(100vh - 32px);display:flex;flex-direction:column}
+.logo{display:flex;align-items:center;gap:10px;color:#fff;font-weight:var(--fw-semibold);padding:4px 8px 10px}
 .logo i{width:28px;height:28px;border-radius:8px;border:1.5px solid var(--gold);display:grid;place-items:center;color:var(--gold);font-style:normal;font-size:14px}
-.grp{font-size:11px;color:#7F8AA5;margin:10px 10px 3px}
-.nav a{display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:10px;color:inherit;text-decoration:none;font-size:13.5px}
+.grp{font-size:var(--fs-meta);color:var(--on-navy-muted);margin:10px 10px 2px}
+.nav a{display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:var(--r-control);color:inherit;text-decoration:none;font-size:var(--fs-body)}
 .nav a.on{background:var(--navy-2);color:#fff;box-shadow:inset -3px 0 0 var(--gold)}
 .nav svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.6;opacity:.85}
 /* top bar */
-.top{display:flex;align-items:center;gap:10px;height:44px;margin-bottom:18px}
-.pill{border-radius:var(--r-pill);padding:8px 14px;background:var(--panel);font-size:13px;display:inline-flex;align-items:center;gap:8px}
+.top{display:flex;align-items:center;gap:10px;height:44px;margin-bottom:var(--s4)}
+.pill{border-radius:var(--r-pill);padding:8px 14px;background:var(--panel);font-size:var(--fs-meta);display:inline-flex;align-items:center;gap:8px}
 .pill.dark{background:var(--navy);color:#fff}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--gold)}
 .sp{flex:1}
-.avatar{width:36px;height:36px;border-radius:50%;background:var(--panel);display:grid;place-items:center;font-size:12px;font-weight:600}
-/* header */
-.hd{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
-h1{font-size:20px;font-weight:600}
-.sub{color:var(--ink-3);font-size:12.5px;margin-top:2px}
+.avatar{width:36px;height:36px;border-radius:50%;background:var(--panel);display:grid;place-items:center;font-size:var(--fs-meta);font-weight:var(--fw-semibold)}
+.tag{border:1px dashed var(--ink-3);color:var(--ink-2);font-size:var(--fs-meta);border-radius:8px;padding:4px 8px}
+/* page header */
+.hd{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:var(--s3)}
+h1{font-size:var(--fs-title);font-weight:var(--fw-semibold)}
+.sub{color:var(--ink-3);font-size:var(--fs-meta);margin-top:2px}
 .seg{display:flex;gap:6px}
-.seg span{border-radius:var(--r-pill);padding:6px 12px;background:var(--panel);font-size:12.5px;color:var(--ink-2)}
-.seg span.on{background:var(--surface);box-shadow:0 0 0 1.5px var(--navy);color:var(--ink);font-weight:500}
-/* KPI strip: one surface, four figures */
-.kpis{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;background:var(--panel);border-radius:var(--r-panel);overflow:hidden;margin-bottom:16px}
-.kpi{padding:14px 18px;border-inline-start:1px solid var(--line)}
-.kpi:first-child{border:0;background:var(--navy);color:#fff}
-.kpi .l{font-size:12.5px;color:var(--ink-2)} .kpi:first-child .l{color:#AEB6C8}
-.kpi .v{font-size:24px;font-weight:600;margin-top:2px}
-.kpi .s{font-size:12px;color:var(--ink-3);margin-top:2px} .kpi:first-child .s{color:#AEB6C8}
-/* level-1 two columns */
-.l1{display:grid;grid-template-columns:1fr 1.25fr;gap:16px}
-.panel{background:var(--panel);border-radius:var(--r-panel);padding:14px}
-.ph{display:flex;align-items:baseline;justify-content:space-between;padding:0 4px 10px}
-.ph h2{font-size:15px;font-weight:600}
-.ph a{font-size:12.5px;color:var(--ink-2);text-decoration:none}
-.row{background:var(--surface);border-radius:var(--r-row);padding:9px 12px;display:flex;align-items:center;gap:10px;margin-top:6px}
-.sev{font-size:11.5px;font-weight:600;border-radius:6px;padding:2px 7px;white-space:nowrap}
-.sev.c{background:var(--crit-bg);color:var(--crit)} .sev.w{background:var(--warn-bg);color:var(--warn)} .sev.i{background:#EEF0F4;color:var(--ink-2)}
-.row .t{flex:1} .row .m{font-size:12px;color:var(--ink-3)}
+.seg span{border-radius:var(--r-pill);padding:5px 12px;background:var(--panel);font-size:var(--fs-meta);color:var(--ink-2)}
+.seg span.on{background:var(--surface);box-shadow:0 0 0 1.5px var(--navy);color:var(--ink);font-weight:var(--fw-medium)}
+/* KPIs (D-1): Sales is its own dark card; the other three share one light surface, divided by thin lines */
+.kpis{display:grid;grid-template-columns:1fr 3fr;gap:var(--s4);margin-bottom:var(--s4)}
+.hero{background:var(--navy);color:#fff;border-radius:var(--r-card);padding:14px 18px}
+.hero .l,.hero .s{color:var(--on-navy-soft)}
+.group{display:grid;grid-template-columns:repeat(3,1fr);background:var(--panel);border-radius:var(--r-card)}
+.kpi{padding:14px 18px}
+.group .kpi + .kpi{border-inline-start:1px solid var(--line)}
+.l{font-size:var(--fs-meta);color:var(--ink-2)}
+.v{font-size:var(--fs-kpi);font-weight:var(--fw-semibold);margin-top:2px;line-height:1.25}
+.s{font-size:var(--fs-meta);color:var(--ink-3);margin-top:2px}
+/* level-1 columns */
+.l1{display:grid;grid-template-columns:1fr 1.25fr;gap:var(--s4)}
+.panel{background:var(--panel);border-radius:var(--r-panel);padding:var(--s3) 14px}
+.ph{display:flex;align-items:baseline;justify-content:space-between;padding:0 4px 6px}
+.ph h2{font-size:var(--fs-section);font-weight:var(--fw-semibold)}
+.ph a{font-size:var(--fs-meta);color:var(--ink-2);text-decoration:none}
+.row{background:var(--surface);border-radius:var(--r-row);padding:7px 12px;display:flex;align-items:center;gap:10px;margin-top:6px}
+.sev{font-size:var(--fs-meta);font-weight:var(--fw-semibold);border-radius:var(--r-badge);padding:1px 7px;white-space:nowrap}
+.sev.c{background:var(--crit-bg);color:var(--crit)} .sev.w{background:var(--warn-bg);color:var(--warn)} .sev.i{background:var(--neutral-bg);color:var(--ink-2)}
+.row .t{flex:1} .m{font-size:var(--fs-meta);color:var(--ink-3);font-weight:var(--fw-regular)}
 .go{color:var(--ink-3);font-size:16px}
-.br{display:grid;grid-template-columns:14px 1.5fr 1fr 1fr 1fr 18px;align-items:center;gap:10px}
+.br,.bh{display:grid;grid-template-columns:12px 1.4fr 1fr 1fr 1fr 14px;align-items:center;gap:10px}
+.bh{font-size:var(--fs-meta);color:var(--ink-3);padding:0 12px}
 .sw{width:10px;height:10px;border-radius:3px}
-.br .n{font-weight:600} .br .c{font-size:11.5px;color:var(--ink-3);font-weight:400}
-.bh{display:grid;grid-template-columns:14px 1.5fr 1fr 1fr 1fr 18px;gap:10px;font-size:11.5px;color:var(--ink-3);padding:0 12px}
+.br .n{font-weight:var(--fw-semibold)}
 .flag{width:8px;height:8px;border-radius:50%;background:var(--warn);display:inline-block}
 /* level 2 */
-.fold{margin:26px 0 10px;display:flex;align-items:center;gap:10px;color:var(--ink-3);font-size:12px}
+.fold{margin:26px 0 10px;display:flex;align-items:center;gap:10px;color:var(--ink-3);font-size:var(--fs-meta)}
 .fold:before,.fold:after{content:"";flex:1;border-top:1px dashed var(--line)}
-.l2{display:grid;grid-template-columns:1.6fr 1fr;gap:16px}
-.legend{display:flex;gap:14px;font-size:12px;color:var(--ink-2);padding:6px 4px 0}
-.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-inline-end:5px}
-.gold-pos .big{font-size:22px;font-weight:600}
-.bar{height:10px;border-radius:5px;background:#E4E7EE;overflow:hidden;display:flex;margin:10px 0 6px}
+.l2{display:grid;grid-template-columns:1.4fr 1fr;gap:var(--s4)}
+.hbar{display:grid;grid-template-columns:90px 1fr 110px;align-items:center;gap:10px;padding:6px 4px}
+.hbar .track{height:14px;border-radius:4px;background:var(--neutral-bg);overflow:hidden}
+.hbar .track span{display:block;height:100%;border-radius:4px}
+.big{font-size:22px;font-weight:var(--fw-semibold)}
+.bar{height:10px;border-radius:5px;background:var(--line);overflow:hidden;display:flex;margin:10px 0 6px}
 .bar span{display:block;height:100%}
-.kv{display:flex;justify-content:space-between;padding:6px 4px;font-size:13px;border-top:1px solid var(--line)}
-.tag{border:1px dashed var(--ink-3);color:var(--ink-2);font-size:11.5px;border-radius:8px;padding:4px 8px}
+.kv{display:flex;justify-content:space-between;padding:6px 4px;font-size:var(--fs-meta);border-top:1px solid var(--line)}
 </style>
 <style>
 .app{grid-template-columns:64px 1fr}
@@ -88,23 +102,23 @@ h1{font-size:20px;font-weight:600}
 .search{display:flex;gap:8px;margin-bottom:10px}
 .search .in{flex:1;border-radius:12px;background:var(--panel);padding:11px 14px;color:var(--ink-3);box-shadow:0 0 0 1.5px var(--navy) inset}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
-.chips span{border-radius:999px;padding:5px 12px;background:var(--panel);font-size:12.5px;color:var(--ink-2)}
+.chips span{border-radius:var(--r-pill);padding:5px 12px;background:var(--panel);font-size:var(--fs-meta);color:var(--ink-2)}
 .chips span.on{background:var(--navy);color:#fff}
 .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;overflow:auto;align-content:start}
 .card{background:var(--panel);border-radius:14px;padding:12px}
-.card .t{font-weight:600} .card .m{font-size:12px;color:var(--ink-3)}
+.card .t{font-weight:600} .card .m{font-size:var(--fs-meta);color:var(--ink-3)}
 .card .foot{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px}
-.card .p{font-weight:600;font-size:15px}
+.card .p{font-weight:600;font-size:var(--fs-section)}
 .cart{background:var(--panel);border-radius:var(--r-panel);padding:14px;display:flex;flex-direction:column}
 .line{background:var(--surface);border-radius:12px;padding:10px 12px;display:flex;justify-content:space-between;margin-top:6px}
 .pay{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}
-.pay span{background:var(--surface);border-radius:10px;padding:9px;text-align:center;font-size:13px;border:1px solid var(--line)}
+.pay span{background:var(--surface);border-radius:var(--r-control);padding:9px;text-align:center;font-size:var(--fs-body);border:1px solid var(--line)}
 .pay span.on{background:var(--navy);color:#fff;border-color:var(--navy)}
 .ref{background:var(--surface);border-radius:10px;padding:9px 12px;margin-top:6px;font-size:13px;color:var(--ink-3);border:1px solid var(--line)}
 .total{display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid var(--line);margin-top:12px;padding-top:10px}
 .total b{font-size:24px}
-.go-btn{margin-top:12px;background:var(--navy);color:#fff;border-radius:12px;padding:13px;text-align:center;font-weight:600;font-size:15px}
-.sec{display:flex;gap:8px;margin-top:8px}.sec span{flex:1;text-align:center;font-size:12.5px;color:var(--ink-2);padding:7px;border-radius:10px;border:1px solid var(--line);background:var(--surface)}
+.go-btn{margin-top:12px;background:var(--navy);color:#fff;border-radius:12px;padding:13px;text-align:center;font-weight:600;font-size:var(--fs-section)}
+.sec{display:flex;gap:8px;margin-top:8px}.sec span{flex:1;text-align:center;font-size:var(--fs-meta);color:var(--ink-2);padding:7px;border-radius:10px;border:1px solid var(--line);background:var(--surface)}
 </style>
 </head>
 <body>
@@ -127,24 +141,23 @@ h1{font-size:20px;font-weight:600}
         <div class="search"><div class="in">امسح الباركود أو ابحث بالاسم أو الرمز…  ( / )</div></div>
         <div class="chips"><span class="on">الكل</span><span>خواتم</span><span>قلائد</span><span>أساور</span><span>أقراط</span><span>أطقم</span><span>سلاسل</span></div>
         <div class="grid">
-        <div class="card"><div class="t">عقد مشغول</div><div class="m"><span class="num">J-1369</span> · قلائد</div><div class="foot"><span class="num p">2,750,000</span><span class="m"><span class="num">12.18</span> جم</span></div></div>
-        <div class="card"><div class="t">حلق صغير</div><div class="m"><span class="num">J-1368</span> · أقراط</div><div class="foot"><span class="num p">725,000</span><span class="m"><span class="num">3.08</span> جم</span></div></div>
-        <div class="card"><div class="t">خاتم فصوص</div><div class="m"><span class="num">J-1377</span> · خواتم</div><div class="foot"><span class="num p">990,000</span><span class="m"><span class="num">4.01</span> جم</span></div></div>
-        <div class="card"><div class="t">طقم عروس</div><div class="m"><span class="num">J-1376</span> · أطقم</div><div class="foot"><span class="num p">9,480,000</span><span class="m"><span class="num">40.48</span> جم</span></div></div>
-        <div class="card"><div class="t">عقد جنيهات</div><div class="m"><span class="num">J-1375</span> · قلائد</div><div class="foot"><span class="num p">4,510,000</span><span class="m"><span class="num">19.76</span> جم</span></div></div>
-        <div class="card"><div class="t">عقد جنيهات</div><div class="m"><span class="num">J-1374</span> · قلائد</div><div class="foot"><span class="num p">5,055,000</span><span class="m"><span class="num">21.43</span> جم</span></div></div>
-        <div class="card"><div class="t">دبلة زواج منقوشة</div><div class="m"><span class="num">J-1373</span> · خواتم</div><div class="foot"><span class="num p">1,760,000</span><span class="m"><span class="num">7.39</span> جم</span></div></div>
-        <div class="card"><div class="t">دبلة زواج منقوشة</div><div class="m"><span class="num">J-1372</span> · خواتم</div><div class="foot"><span class="num p">2,000,000</span><span class="m"><span class="num">7.96</span> جم</span></div></div>
+        <div class="card"><div class="t">عقد مشغول</div><div class="m"><bdi dir="ltr">J-1369</bdi> · قلائد</div><div class="foot"><span class="num p">2,750,000</span><span class="m"><span class="num">12.18</span> جم</span></div></div>
+        <div class="card"><div class="t">حلق صغير</div><div class="m"><bdi dir="ltr">J-1368</bdi> · أقراط</div><div class="foot"><span class="num p">725,000</span><span class="m"><span class="num">3.08</span> جم</span></div></div>
+        <div class="card"><div class="t">خاتم فصوص</div><div class="m"><bdi dir="ltr">J-1377</bdi> · خواتم</div><div class="foot"><span class="num p">990,000</span><span class="m"><span class="num">4.01</span> جم</span></div></div>
+        <div class="card"><div class="t">طقم عروس</div><div class="m"><bdi dir="ltr">J-1376</bdi> · أطقم</div><div class="foot"><span class="num p">9,480,000</span><span class="m"><span class="num">40.48</span> جم</span></div></div>
+        <div class="card"><div class="t">عقد جنيهات</div><div class="m"><bdi dir="ltr">J-1375</bdi> · قلائد</div><div class="foot"><span class="num p">4,510,000</span><span class="m"><span class="num">19.76</span> جم</span></div></div>
+        <div class="card"><div class="t">عقد جنيهات</div><div class="m"><bdi dir="ltr">J-1374</bdi> · قلائد</div><div class="foot"><span class="num p">5,055,000</span><span class="m"><span class="num">21.43</span> جم</span></div></div>
+        <div class="card"><div class="t">دبلة زواج منقوشة</div><div class="m"><bdi dir="ltr">J-1373</bdi> · خواتم</div><div class="foot"><span class="num p">1,760,000</span><span class="m"><span class="num">7.39</span> جم</span></div></div>
+        <div class="card"><div class="t">دبلة زواج منقوشة</div><div class="m"><bdi dir="ltr">J-1372</bdi> · خواتم</div><div class="foot"><span class="num p">2,000,000</span><span class="m"><span class="num">7.96</span> جم</span></div></div>
         </div>
       </section>
       <aside class="cart">
         <div class="ph" style="padding:0 2px 4px"><h2>البيع الحالي</h2><a href="#">المبيعات المعلّقة</a></div>
-        <div class="line"><span>عقد مشغول <span class="m num">J-1369</span></span><span class="num">2,750,000</span></div>
-        <div class="line"><span>حلق صغير <span class="m num">J-1368</span></span><span class="num">725,000</span></div>
+        <div class="line"><span>عقد مشغول <bdi class="m" dir="ltr">J-1369</bdi></span><span class="num">2,750,000</span></div>
+        <div class="line"><span>حلق صغير <bdi class="m" dir="ltr">J-1368</bdi></span><span class="num">725,000</span></div>
         <div style="flex:1"></div>
-        <div class="pay"><span>نقداً</span><span>تحويل بنكي</span><span class="on">حصاد</span></div>
-        <div class="ref">رقم فاتورة حصاد (مطلوب)</div>
-        <div class="ref">رقم العملية (اختياري)</div>
+        <!-- Cash first and selected by default; Hasad fields appear only when Hasad is selected (FIX-2 adds the bank reference field the same way). -->
+        <div class="pay"><span class="on">نقداً</span><span>تحويل بنكي</span><span>حصاد</span></div>
         <div class="total"><span>الإجمالي · قطعتان · <span class="num">15.26</span> جم</span><b class="num">3,475,000</b></div>
         <div class="go-btn">إتمام البيع</div>
         <div class="sec"><span>تعليق</span><span>إفراغ السلة</span></div>
