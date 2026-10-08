@@ -9,6 +9,16 @@ site is needed.
 > [decisions.md](decisions.md)). If the service does not come up, read the start-up log first: it lists
 > every problem it found.
 
+> **The old hosted demo cannot run from the default branch any more (REM-3).** Earlier versions, started with
+> `npm start` in `APP_MODE=demo` (e.g. a Render web service without `APP_MODE=production`), seeded fictional data
+> and listed demo accounts on the login page on an empty database. That code is gone: `npm start` now creates **no
+> General Manager** and no data, so such a service starts with an empty database that nobody can sign in to (the log
+> says `no users yet`). `npm run demo` asks for the username in a terminal, which a hosting platform does not have,
+> and an embedded PGlite database on an ephemeral disk is lost at every deploy. A **public demo needs its own
+> plan** (BACKLOG DEMO-1): where it runs, who bootstraps it, what sample data with client-approved names, how it
+> is reset, and how it stays separate from production. Until then, show the system from a local `npm run demo` or a
+> `dev:sample` database (docs/DEMO_SCRIPT.md).
+
 ## 1. Services
 
 | Render resource | Settings |

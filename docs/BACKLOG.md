@@ -236,6 +236,7 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
 | PIL-1 | Two-week parallel run with paper using the checklist. Proposed go/no-go: daily sales total, item count and stock weight match the paper records for 10 consecutive business days. | Owner + client | P1 | all of the above |
 | SEC-1 | Independent human security review and `docs/SECURITY.md` (threat model, pass/fail checklist, residual risks) before a second branch. | Owner + reviewer | P2 | |
 | LEG-1 | Written agreement with the client (Q-13): hosting cost, support hours, who holds keys and credentials, continuity if the developer is unavailable. | Owner | P1 | |
+| **DEMO-1** | **A plan for a public demo.** The old hosted demo (a service started with `npm start` in demo mode, which seeded fictional data and listed demo accounts) cannot run from the default branch since REM-3: `npm start` creates no General Manager and no data, so it starts empty and nobody can sign in; `npm run demo` needs a terminal; PGlite on an ephemeral disk is lost at every deploy. Decide before showing the system publicly: where it runs (its own service and database, never next to production), who bootstraps it, which sample data (client-approved names, see `dev:sample`), how and how often it is reset, and that it never shares credentials or data with production. | Owner + Engineering | P2 | REM-3 |
 
 ---
 
