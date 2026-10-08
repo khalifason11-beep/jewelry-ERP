@@ -70,9 +70,11 @@ describe('cost model', () => {
     const supplier = items.filter((i) => i.origin === 'SUPPLIER_NEW');
     const scrap = items.filter((i) => i.origin === 'SCRAP');
     expect(supplier.length + scrap.length).toBe(items.length);
+    const lines = new Map((await ctx.db.select().from(t.purchaseItems)).map((l) => [l.itemId, l]));
     for (const i of supplier) {
-      expect(i.acquisitionCost).toBe(i.purchaseCost + i.makingCost + i.otherCost);
-      expect(i.makingCharge).toBe(i.makingCost);
+      const l = lines.get(i.id)!;
+      expect(i.acquisitionCost).toBe(l.purchaseCost + l.makingCost + l.otherCost);
+      expect(i.makingCharge).toBe(l.makingCost);
       expect(i.makingCharge).toBeLessThanOrEqual(i.acquisitionCost);
       expect(i.costIsEstimated).toBe(false);
       expect(i.supplierId).not.toBeNull();
@@ -134,12 +136,6 @@ describe('ledger basics', () => {
     expect(saleEntries.reduce((s, e) => s + e.amount, 0)).toBe(sales.reduce((s, x) => s + x.total, 0));
     const voids = await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'SALE_VOID'));
     expect(voids.reduce((s, e) => s + e.amount, 0)).toBe(-sales.filter((x) => x.status === 'VOIDED').reduce((s, x) => s + x.total, 0));
-    // Expenses were removed (REM-1): the seed records none and the ledger holds no EXPENSE entry.
-    expect(await ctx.db.select().from(t.expenses)).toHaveLength(0);
-    expect(await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'EXPENSE'))).toHaveLength(0);
-    // Hasad weight-difference settlements were removed (REM-2): none in the seed, none in the ledger.
-    expect(await ctx.db.select().from(t.settlements)).toHaveLength(0);
-    expect(await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'HASAD_SETTLEMENT'))).toHaveLength(0);
   });
 
   it('a balance is exactly the sum of its entries (no cached balance anywhere)', async () => {
@@ -243,40 +239,23 @@ describe('money events post in the same transaction as the business change', () 
     expect(JSON.stringify((await bm.get('/api/dashboard/branch')).body)).not.toMatch(/expense|contribution/i);
   });
 
-  it('expenses are gone (REM-1): the database refuses new expense rows and new EXPENSE ledger entries', async () => {
+  it('expenses and the Hasad workspace are gone (REM-1, REM-2, dropped by REM-5): no tables, and the ledger refuses their event types', async () => {
     const krt = await branchId('KRT');
-    const [gm] = await ctx.db.select().from(t.users).where(eq(t.users.username, 'general.manager'));
-    const row = await failure(
-      `INSERT INTO expenses (number, branch_id, category, amount, expense_date, description, status, created_by) VALUES ('EXP-X', ${krt}, 'OTHER', 1000, '2026-01-01', 'x', 'APPROVED', ${gm.id})`,
-    );
-    expect(row).toMatch(/expenses were removed/);
-    const before = await entryCount();
-    await expect(
-      ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'CASH', amount: -1000, eventType: 'EXPENSE', ref: { refType: 'expense', refId: 1 } }], { actor: null })),
-    ).rejects.toThrow();
-    expect(await entryCount()).toBe(before);
-    // Every other event type still posts.
-    await ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'BANK', amount: 1, eventType: 'HASAD_RECEIVABLE_SETTLEMENT', ref: { refType: 'test', refId: 1 } }], { actor: null }));
-    expect(await entryCount()).toBe(before + 1);
-  });
-
-  it('the Hasad workspace is gone (REM-2): the database refuses new withdrawals, sessions, weight settlements and HASAD_SETTLEMENT entries', async () => {
-    const krt = await branchId('KRT');
-    for (const [table, stmt] of [
-      ['hasad_withdrawals', `INSERT INTO hasad_withdrawals (external_id) VALUES ('X')`],
-      ['hasad_redemptions', `INSERT INTO hasad_redemptions (number) VALUES ('X')`],
-      ['hasad_redemption_items', `INSERT INTO hasad_redemption_items (redemption_id) VALUES (1)`],
-      ['settlements', `INSERT INTO settlements (number) VALUES ('X')`],
-      ['hasad_mock.customers', `INSERT INTO hasad_mock.customers (id) VALUES ('X')`],
-    ]) {
-      expect(await failure(stmt), table).toMatch(/was removed|were removed/);
+    for (const stmt of ['SELECT 1 FROM expenses', 'SELECT 1 FROM hasad_withdrawals', 'SELECT 1 FROM hasad_redemptions', 'SELECT 1 FROM hasad_redemption_items', 'SELECT 1 FROM settlements', 'SELECT 1 FROM hasad_mock.customers']) {
+      expect(await failure(stmt), stmt).toMatch(/does not exist/);
     }
     const before = await entryCount();
-    await expect(
-      ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'CASH', amount: 500, eventType: 'HASAD_SETTLEMENT', ref: { refType: 'hasad_redemption', refId: 1 } }], { actor: null })),
-    ).rejects.toThrow();
+    for (const eventType of ['EXPENSE', 'HASAD_SETTLEMENT']) {
+      await expect(
+        ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'CASH', amount: -1000, eventType: eventType as never, ref: { refType: 'test', refId: 1 } }], { actor: null })),
+        eventType,
+      ).rejects.toThrow();
+    }
     expect(await entryCount()).toBe(before);
-    expect(await ctx.db.select().from(t.permissions).where(sql`code LIKE 'hasad.%'`)).toHaveLength(0);
+    // Every kept event type still posts.
+    await ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'BANK', amount: 1, eventType: 'HASAD_RECEIVABLE_SETTLEMENT', ref: { refType: 'test', refId: 1 } }], { actor: null }));
+    expect(await entryCount()).toBe(before + 1);
+    expect(await ctx.db.select().from(t.permissions).where(sql`code LIKE 'hasad.%' OR code LIKE 'expenses.%'`)).toHaveLength(0);
   });
 });
 
@@ -419,7 +398,7 @@ describe('expected cash and daily reconciliation', () => {
       expect((LEDGER_EVENT_TYPES as readonly string[]).includes(e), `${e} is not a ledger event type`).toBe(true);
       expect(reason?.trim().length, `${e} needs a reason`).toBeGreaterThan(10);
     }
-    expect(Object.keys(OTHER_EVENT_TYPES).sort()).toEqual(['EXPENSE', 'HASAD_SETTLEMENT', 'REVERSAL']);
+    expect(Object.keys(OTHER_EVENT_TYPES).sort()).toEqual(['REVERSAL']); // EXPENSE and HASAD_SETTLEMENT were dropped by REM-5
     // And the lines they map to exist for at least one account.
     const all = new Set<string>([...RECONCILIATION_LINES.CASH, ...RECONCILIATION_LINES.BANK]);
     for (const line of Object.values(LINE_OF_EVENT)) expect(all.has(line!), line).toBe(true);

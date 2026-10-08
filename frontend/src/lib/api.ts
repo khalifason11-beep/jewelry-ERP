@@ -19,7 +19,7 @@ export class ApiError extends Error {
   }
 }
 
-/** Translate a param value when it is a known term (e.g. SOLD, AVAILABLE / RESERVED, a branch). */
+/** Translate a param value when it is a known term (e.g. SOLD, AVAILABLE, a branch). */
 function translateValue(v: Params[string]): Params[string] {
   if (typeof v !== 'string') return v;
   return v

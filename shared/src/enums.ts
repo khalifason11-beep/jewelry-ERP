@@ -3,9 +3,7 @@
 
 export const ITEM_STATUSES = [
   'AVAILABLE',
-  'RESERVED',
   'SOLD',
-  'REDEEMED',
   'TRANSFERRED',
   'DAMAGED',
   'RETURNED',
@@ -23,12 +21,11 @@ export const ITEM_ORIGINS = ['OPENING', 'SUPPLIER_NEW', 'SCRAP'] as const;
 export type ItemOrigin = (typeof ITEM_ORIGINS)[number];
 
 /** Statuses that count as the branch's sellable stock on hand. */
-export const STOCK_STATUSES: readonly ItemStatus[] = ['AVAILABLE', 'RESERVED'];
+export const STOCK_STATUSES: readonly ItemStatus[] = ['AVAILABLE'];
 
 export const MOVEMENT_TYPES = [
   'PURCHASE',
   'SALE',
-  'HASAD_REDEMPTION',
   'TRANSFER_IN',
   'TRANSFER_OUT',
   'RETURN',
@@ -43,7 +40,6 @@ export const MOVEMENT_DIRECTION: Record<MovementType, 1 | -1 | 0> = {
   TRANSFER_IN: 1,
   RETURN: 1,
   SALE: -1,
-  HASAD_REDEMPTION: -1,
   TRANSFER_OUT: -1,
   DAMAGE: -1,
   ADJUSTMENT: 0,
@@ -74,7 +70,7 @@ export type PricingMode = (typeof PRICING_MODES)[number];
 export const LEDGER_ACCOUNT_KINDS = ['CASH', 'BANK', 'FUNDS_IN_TRANSIT', 'HASAD_RECEIVABLE'] as const;
 export type LedgerAccountKind = (typeof LEDGER_ACCOUNT_KINDS)[number];
 
-export const LEDGER_EVENT_TYPES = ['SALE', 'SALE_VOID', 'EXPENSE', 'HASAD_SETTLEMENT', 'REVERSAL', 'SCRAP_PURCHASE', 'SUPPLIER_MAKING_CHARGE', 'HASAD_RECEIVABLE_SETTLEMENT'] as const;
+export const LEDGER_EVENT_TYPES = ['SALE', 'SALE_VOID', 'REVERSAL', 'SCRAP_PURCHASE', 'SUPPLIER_MAKING_CHARGE', 'HASAD_RECEIVABLE_SETTLEMENT'] as const;
 export type LedgerEventType = (typeof LEDGER_EVENT_TYPES)[number];
 
 /** Q5: which branch account a payment method moves. Every entry keeps its own payment method too. */
@@ -105,52 +101,16 @@ export type ScrapPaymentMethod = (typeof SCRAP_PAYMENT_METHODS)[number];
 export const SCRAP_WEIGHT_EVENT_TYPES = ['SCRAP_PURCHASE', 'SUPPLIER_SETTLEMENT', 'REVERSAL'] as const;
 export type ScrapWeightEventType = (typeof SCRAP_WEIGHT_EVENT_TYPES)[number];
 
-/** Money paid out from the drawer (CASH) or the bank account (BANK): the supplier making charge, and (historically) expenses. */
+/** Money paid out from the drawer (CASH) or the bank account (BANK): the supplier making charge. */
 export const CASH_OR_BANK = ['CASH', 'BANK'] as const;
 export type CashOrBank = (typeof CASH_OR_BANK)[number];
 export type SaleStatus = (typeof SALE_STATUSES)[number];
-
-/** DEPRECATED (REM-1): expenses were removed; kept for the CHECKs of the historical `expenses` table until REM-5. */
-export const EXPENSE_CATEGORIES = [
-  'RENT',
-  'ELECTRICITY',
-  'TRANSPORTATION',
-  'SALARIES',
-  'MAINTENANCE',
-  'SECURITY',
-  'OTHER',
-] as const;
-export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
-
-export const EXPENSE_STATUSES = ['APPROVED', 'PENDING', 'REJECTED'] as const;
-export type ExpenseStatus = (typeof EXPENSE_STATUSES)[number];
 
 export const PURCHASE_STATUSES = ['RECEIVED'] as const;
 export type PurchaseStatus = (typeof PURCHASE_STATUSES)[number];
 
 export const TRANSFER_STATUSES = ['IN_TRANSIT', 'RECEIVED', 'CANCELLED'] as const;
 export type TransferStatus = (typeof TRANSFER_STATUSES)[number];
-
-/**
- * DEPRECATED (REM-2): the Hasad withdrawal workspace was removed; Hasad is only a payment method now.
- * These lists stay for the CHECKs of the historical tables until REM-5.
- */
-/** ERP-side lifecycle of a Hasad withdrawal request. */
-export const HASAD_WITHDRAWAL_STATUSES = ['READY_FOR_PICKUP', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const;
-export type HasadWithdrawalStatus = (typeof HASAD_WITHDRAWAL_STATUSES)[number];
-
-/** Statuses as the Hasad Gold system reports them (mirrored in `hasad_withdrawals.external_status`). */
-export const HASAD_EXTERNAL_STATUSES = ['PENDING', 'READY_FOR_PICKUP', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const;
-export type HasadExternalStatusValue = (typeof HASAD_EXTERNAL_STATUSES)[number];
-
-export const HASAD_REDEMPTION_STATUSES = ['DRAFT', 'COMPLETED', 'ABORTED'] as const;
-export type HasadRedemptionStatus = (typeof HASAD_REDEMPTION_STATUSES)[number];
-
-export const SETTLEMENT_DIRECTIONS = ['BRANCH_PAYS_CUSTOMER', 'CUSTOMER_PAYS_BRANCH', 'NONE'] as const;
-export type SettlementDirection = (typeof SETTLEMENT_DIRECTIONS)[number];
-
-export const SETTLEMENT_TYPES = ['HASAD_WEIGHT_DIFFERENCE'] as const;
-export type SettlementType = (typeof SETTLEMENT_TYPES)[number];
 
 export const BRANDING_ASSET_KINDS = ['LOGO'] as const;
 export const IDEMPOTENCY_STATUSES = ['IN_PROGRESS', 'COMPLETED'] as const;
@@ -184,22 +144,11 @@ export const AUDIT_ACTIONS = [
   'INVENTORY_TRANSFER',
   'INVENTORY_TRANSFER_RECEIVED',
   'INVENTORY_ADJUSTMENT',
-  'ITEM_RESERVED',
-  'ITEM_RELEASED',
   'PURCHASE_CREATED',
   'SCRAP_PURCHASED',
   'SCRAP_RATE_CHANGED',
   'SUPPLIER_SETTLEMENT_RECORDED',
   'HASAD_RECEIVABLE_SETTLED',
-  'HASAD_WITHDRAWAL_RECEIVED',
-  'HASAD_WITHDRAWAL_OPENED',
-  'HASAD_WITHDRAWAL_COMPLETED',
-  'HASAD_WITHDRAWAL_CANCELLED',
-  'HASAD_REDEMPTION_ABORTED',
-  'HASAD_SETTLEMENT_CONFIRMED',
-  'EXPENSE_CREATED',
-  'EXPENSE_APPROVED',
-  'EXPENSE_REJECTED',
   'USER_CREATED',
   'USER_UPDATED',
   'USER_DISABLED',
@@ -210,7 +159,6 @@ export const AUDIT_ACTIONS = [
   'SETTINGS_CHANGED',
   'ALLOWED_KARATS_CONFIRMED',
   'GOLD_RATE_CHANGED',
-  'DEMO_DATA_RESET',
   'ACCOUNT_LOCKED',
   'USER_UNLOCKED',
   'REAUTHENTICATED',

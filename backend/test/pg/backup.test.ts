@@ -67,7 +67,7 @@ beforeAll(async () => {
   await c.connect();
   await c.query(`CREATE ROLE ${backupRole} LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE`);
   await c.query(`GRANT CONNECT ON DATABASE ${dbName} TO ${backupRole}`);
-  for (const schema of ['public', 'drizzle', 'hasad_mock']) {
+  for (const schema of ['public', 'drizzle']) {
     await c.query(`GRANT USAGE ON SCHEMA ${schema} TO ${backupRole}`);
     await c.query(`GRANT SELECT ON ALL TABLES IN SCHEMA ${schema} TO ${backupRole}`);
     await c.query(`GRANT SELECT ON ALL SEQUENCES IN SCHEMA ${schema} TO ${backupRole}`);

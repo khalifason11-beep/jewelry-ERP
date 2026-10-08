@@ -40,8 +40,8 @@ export async function searchItems(ctx: Ctx, actor: Actor, s: ItemSearch) {
   requireAny(actor, 'inventory.view', 'inventory.view_available');
   const scope = branchScope(actor, s.branchId);
   const fullView = can(actor, 'inventory.view');
-  // Counter staff only see sellable (and reserved) stock of their branch.
-  const statuses = fullView ? s.status : (s.status ?? ['AVAILABLE', 'RESERVED']).filter((x) => x === 'AVAILABLE' || x === 'RESERVED');
+  // Counter staff only see sellable stock of their branch.
+  const statuses = fullView ? s.status : (s.status ?? ['AVAILABLE']).filter((x) => x === 'AVAILABLE');
 
   const where: SQL[] = [];
   if (scope != null) where.push(eq(t.jewelryItems.branchId, scope));
@@ -146,7 +146,7 @@ export async function changePrice(ctx: Ctx, actor: Actor, id: number, newPrice: 
   return ctx.db.transaction(async (tx) => {
     const [item] = await lockItems(tx, [id]);
     branchScope(actor, item.branchId);
-    if (!['AVAILABLE', 'RESERVED'].includes(item.status)) throw badRequest('Cannot reprice an item with status {status}', { status: item.status });
+    if (item.status !== 'AVAILABLE') throw badRequest('Cannot reprice an item with status {status}', { status: item.status });
     // Karat restriction (D-4-1): only a karat this deployment sells can be priced for sale.
     await assertSellableKarat(ctx, item.karat);
     await tx.update(t.jewelryItems).set({ sellingPrice: newPrice, updatedAt: new Date() }).where(eq(t.jewelryItems.id, id));

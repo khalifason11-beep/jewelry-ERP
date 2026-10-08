@@ -41,7 +41,7 @@
       "frontend/src/lib/i18n-ar.ts",
       "shared/src/field-classification.ts"
     ],
-    "match": "hasadInvoice|hasadTxn|hasadInvoiceRef|hasadTransactionRef|Hasad invoice number|Hasad transaction reference|recorded for Hasad payments|Hasad \\(D-4-6\\): the Hasad invoice number|HASAD payments: the app's invoice|ck_sales_hasad_reference|doc\\.hasad|\\bhasad: (sale\\.paymentMethod|\\{ invoiceRef)|transactionRef hasad cashier|grossWeightMg hasad hasadBranchCode|the payment method is HASAD|supplier gold debt, Hasad payments$",
+    "match": "hasadInvoice|hasadTxn|hasadInvoiceRef|hasadTransactionRef|Hasad invoice number|Hasad transaction reference|recorded for Hasad payments|Hasad \\(D-4-6\\): the Hasad invoice number|HASAD payments: the app's invoice|ck_sales_hasad_reference|doc\\.hasad|\\bhasad: (sale\\.paymentMethod|\\{ invoiceRef)|transactionRef hasad cashier|grossWeightMg hasad$|the payment method is HASAD|supplier gold debt, Hasad payments$",
     "reason": "The Hasad invoice number (required) and transaction reference (optional) typed at the POS, validated, stored, printed on the invoice and classified SAFE."
   },
   {
@@ -78,14 +78,6 @@
     ],
     "match": "HASAD_REDEMPTION|HASAD_WITHDRAWAL|HASAD_EXTERNAL|HASAD_SETTLEMENT|HasadWithdrawalStatus|HasadExternalStatusValue|HasadRedemptionStatus|HASAD_WEIGHT_DIFFERENCE|hasad_withdrawals|hasad_redemptions|hasad_redemption_items|hasadWithdrawals|hasadRedemptions|hasadRedemptionItems|hasadCustomerId|hasad_customer_id|ERP-side lifecycle of a Hasad withdrawal request|hasad_branch_code|hasad_mock|Hasad Gold \\(ERP side, DEPRECATED\\)|Hasad weight-difference|Hasad withdrawal workspace was removed|Hasad Gold system reports|Hasad branch identifier of the removed integration|ERP mirror of withdrawal requests received from Hasad Gold|Hasad is only a payment method now|\"settlement\": \"تسوية حصاد\"",
     "reason": "Historical tables, columns, CHECKs, enum values, classifications and history labels kept for old rows until REM-5 drops them (BACKLOG REM-5)."
-  },
-  {
-    "category": "DEPRECATED_UNTIL_REM5",
-    "files": [
-      "database/src/deprecated-hasad-mock-schema.ts"
-    ],
-    "match": ".",
-    "reason": "Definition of the deprecated hasad_mock schema, kept only so drizzle-kit never generates an accidental DROP; deleted with the tables by REM-5."
   },
   {
     "category": "MIGRATION",

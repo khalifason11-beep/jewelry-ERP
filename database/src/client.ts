@@ -8,8 +8,6 @@ import { fileURLToPath } from 'node:url';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as erpSchema from './schema';
 
-// The deprecated mock Hasad tables (schema `hasad_mock`, src/deprecated-hasad-mock-schema.ts) are
-// included in the generated migrations (see drizzle.config.ts) but not in this typed schema (REM-2).
 export const schema = { ...erpSchema };
 export type Schema = typeof schema;
 export type DB = PgDatabase<PgQueryResultHKT, Schema>;
@@ -22,8 +20,6 @@ export interface DatabaseHandle {
   driver: 'postgres' | 'pglite';
   migrate(): Promise<void>;
   close(): Promise<void>;
-  /** Drop and recreate every table (demo reset / tests). */
-  wipe(): Promise<void>;
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -47,9 +43,6 @@ export async function createDatabase(opts: CreateDatabaseOptions = {}): Promise<
       driver: 'postgres',
       migrate: () => migrate(db as never, { migrationsFolder: MIGRATIONS_DIR }),
       close: () => pool.end(),
-      wipe: async () => {
-        await pool.query('DROP SCHEMA IF EXISTS public CASCADE; DROP SCHEMA IF EXISTS hasad_mock CASCADE; DROP SCHEMA IF EXISTS drizzle CASCADE; CREATE SCHEMA public;');
-      },
     };
   }
 
@@ -69,8 +62,5 @@ export async function createDatabase(opts: CreateDatabaseOptions = {}): Promise<
     driver: 'pglite',
     migrate: () => migrate(db as never, { migrationsFolder: MIGRATIONS_DIR }),
     close: () => client.close(),
-    wipe: async () => {
-      await client.exec('DROP SCHEMA IF EXISTS public CASCADE; DROP SCHEMA IF EXISTS hasad_mock CASCADE; DROP SCHEMA IF EXISTS drizzle CASCADE; CREATE SCHEMA public;');
-    },
   };
 }

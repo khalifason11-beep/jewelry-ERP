@@ -167,9 +167,8 @@ export async function drawer(ctx: Ctx, actor: Actor, q: { branchId?: number }) {
 /**
  * Lines of the daily reconciliation, per account (SPEC §18.10, D-rem1-5). Every ledger entry of the
  * day on that account falls into exactly one line; an event type without a line of its own for the
- * account (including retired ones: a historical EXPENSE, or a HASAD_SETTLEMENT of the removed Hasad
- * weight-difference flow) lands in OTHER, so the lines always add up to the account's movement in
- * the ledger. Nothing silently disappears.
+ * account lands in OTHER, so the lines always add up to the account's movement in the ledger.
+ * Nothing silently disappears.
  */
 export const RECONCILIATION_LINES = {
   CASH: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'MAKING_CHARGES', 'OTHER'],
@@ -190,10 +189,6 @@ export const LINE_OF_EVENT: Partial<Record<LedgerEventType, ReconciliationLine>>
  * in test/ledger.test.ts): adding an event type fails the build until someone decides where it goes.
  */
 export const OTHER_EVENT_TYPES: Readonly<Partial<Record<LedgerEventType, string>>> = {
-  // Expenses were removed (REM-1); migration 0013 refuses new EXPENSE entries. Only history remains.
-  EXPENSE: 'historical only: expenses were removed (REM-1)',
-  // Hasad weight-difference settlements were removed (REM-2); migration 0014 refuses new entries.
-  HASAD_SETTLEMENT: 'historical only: Hasad weight-difference settlements were removed (REM-2)',
   // A generic correction that reverses an earlier entry of any kind; it has no business line of its
   // own (sale voids use SALE_VOID). Shown as "Other" so the day still adds up.
   REVERSAL: 'generic correction of an earlier entry; no business line of its own',

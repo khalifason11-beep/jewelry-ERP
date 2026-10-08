@@ -193,7 +193,7 @@ export function ItemDetailPage() {
         subtitle={`${L(i.categoryName, i.categoryNameAr)} · ${karatLabel(i.karat)} · ${L(i.branchName, i.branchNameAr)}`}
         actions={
           <>
-            {can('inventory.price_edit') && ['AVAILABLE', 'RESERVED'].includes(i.status) && (
+            {can('inventory.price_edit') && i.status === 'AVAILABLE' && (
               <Button icon={<Pencil className="size-4" />} onClick={() => { setPrice(String(i.sellingPrice)); setPriceOpen(true); }}>{t('Change price')}</Button>
             )}
             {can('inventory.adjust') && i.status === 'AVAILABLE' && (

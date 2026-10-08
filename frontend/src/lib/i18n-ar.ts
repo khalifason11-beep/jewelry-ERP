@@ -1433,7 +1433,7 @@ export const AR: Record<string, string> = {
   "It cannot be sold until it is available again.": "لا يمكن بيعها حتى تصبح متاحة مرة أخرى.",
   "Reserved: not available for sale": "محجوزة: غير متاحة للبيع",
   "− Other": "− أخرى",
-  "Opening stock + purchases + transfers in − sales − transfers out − other = closing stock. Derived from the ledger.": "المخزون الافتتاحي + المشتريات + التحويلات الواردة − المبيعات − التحويلات الصادرة − أخرى = المخزون الختامي. مُستخرج من السجل.",
+  "Opening stock + purchases + transfers in − sales − transfers out − damaged = closing stock. Derived from the ledger.": "المخزون الافتتاحي + المشتريات + التحويلات الواردة − المبيعات − التحويلات الصادرة − التالف = المخزون الختامي. مُستخرج من السجل.",
   // Written by migration 0014 (pieces released when the Hasad workspace was removed).
   "{code} released back to AVAILABLE ({note}) — withdrawal {id}": "أُعيدت القطعة {code} إلى «متاح» ({note}) — طلب السحب {id}",
   // CAT-0: item types, products and suppliers created where they are needed.
@@ -1524,4 +1524,8 @@ export const AR: Record<string, string> = {
   "Select at least one karat": "اختر عياراً واحداً على الأقل",
   "Allowed karats confirmed: {karats}": "تم تأكيد الأعيرة المسموح بها: {karats}",
   "ALLOWED_KARATS_CONFIRMED": "تأكيد الأعيرة المسموح بها",
+  "Sellable pieces (available) plus the broken-scrap pool": "القطع الصالحة للبيع (المتاحة) مع رصيد الكسر",
+  "Sellable stock at cost (available pieces)": "المخزون القابل للبيع بالتكلفة (القطع المتاحة)",
+  "{code} is not available for sale": "القطعة {code} غير متاحة للبيع",
+  "Pieces (available)": "القطع (المتاحة)",
 };

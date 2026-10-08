@@ -25,22 +25,11 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
     // read time for callers without profit.view (cost-named params hidden, description re-rendered).
     safe: words('id at user_id username user_full_name role branch_id action entity_type entity_id description description_key description_params metadata session_id ip_address'),
   },
-  branches: { safe: words('id code name name_ar city address phone hasad_branch_code is_active created_at') },
+  branches: { safe: words('id code name name_ar city address phone is_active created_at') },
   branding_assets: { safe: words('id kind mime bytes sha256 size width height uploaded_by uploaded_at') },
   categories: { safe: words('id code name name_ar is_active created_at created_by name_ar_norm') },
   document_sequences: { safe: words('scope next') },
-  expenses: { safe: words('id number branch_id category amount expense_date description status created_by created_at reviewed_by reviewed_at review_note paid_from') },
   gold_rates: { safe: words('id karat price_per_gram effective_at set_by') },
-  hasad_redemption_items: { cost: ['unit_cost'], safe: words('id redemption_id item_id net_weight_mg karat active added_at released_at') },
-  hasad_redemptions: {
-    cost: ['items_cost'],
-    safe: words('id number withdrawal_id branch_id cashier_id status entitled_weight_mg delivered_weight_mg difference_mg settlement_direction settlement_amount rate_per_gram customer_verified created_at completed_at aborted_at abort_reason'),
-  },
-  hasad_withdrawals: {
-    safe: words(
-      'id external_id hasad_customer_id customer_name customer_name_ar customer_phone customer_national_id_masked entitled_weight_mg entitlement_karat branch_id status external_status pickup_code requested_at received_at opened_at opened_by completed_at completed_by cancelled_at cancelled_by cancel_reason last_synced_at',
-    ),
-  },
   // Stored responses are replayed only to the user who made the request, already filtered for them;
   // a GM's stored response can hold cost figures, hence COST.
   idempotency_keys: { cost: ['response_body'], safe: words('id user_id key route request_hash status response_status created_at completed_at') },
@@ -48,8 +37,8 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   item_status_history: { safe: words('id item_id from_status to_status branch_id ref_type ref_id ref_number user_id note at') },
   jewelry_items: {
     // Phase 2b cost model: acquisition cost, the making charge inside it, and whether it is an estimate.
-    cost: words('purchase_cost making_cost other_cost total_cost acquisition_cost making_charge cost_is_estimated'),
-    safe: words('id code barcode product_id karat gross_weight_mg net_weight_mg selling_price branch_id status purchase_id reservation_ref reserved_at reserved_by created_at updated_at origin supplier_id supplier_invoice_ref'),
+    cost: words('acquisition_cost making_charge cost_is_estimated'),
+    safe: words('id code barcode product_id karat gross_weight_mg net_weight_mg selling_price branch_id status purchase_id created_at updated_at origin supplier_id supplier_invoice_ref'),
   },
   permissions: { safe: words('code description') },
   products: { safe: words('id sku name name_ar category_id karat description created_at is_active created_by name_ar_norm') },
@@ -75,11 +64,10 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
     safe: words('id number branch_id cashier_id session_id customer_name customer_name_ar customer_phone subtotal discount_total total payment_method status voided_at voided_by void_reason created_at payment_ref_invoice payment_ref_transaction original_printed_at reprint_count'),
   },
   sessions: {
-    safe: words('id user_id branch_id login_at last_activity_at user_agent device ip_address current_module status ended_at ended_reason absolute_expires_at reauth_at csrf_token is_simulated sign_in_method passkey_reauth_at passkey_reauth_uv'),
+    safe: words('id user_id branch_id login_at last_activity_at user_agent device ip_address current_module status ended_at ended_reason absolute_expires_at reauth_at csrf_token sign_in_method passkey_reauth_at passkey_reauth_uv'),
   },
   settings: { safe: words('key value version updated_at updated_by') },
   settings_history: { safe: words('id key old_value new_value version actor_id actor_username reason at') },
-  settlements: { safe: words('id number type redemption_id branch_id direction weight_mg rate_per_gram amount payment_method confirmed_by confirmed_at') },
   suppliers: { safe: words('id name name_ar phone created_at created_by name_norm') },
   transfer_items: { safe: words('transfer_id item_id') },
   transfers: { safe: words('id number from_branch_id to_branch_id status notes created_by created_at received_by received_at') },
@@ -160,7 +148,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     descriptionKey descriptionParams device differenceMg direction discount discountTotal discounts draft driver durationMs
     effectiveAt en endedAt endedReason entityId entityType enum
     error failedLoginCount failedLogins filters finalPrice firstLogin from
-    fromBranchId fromBranchName fromStatus fullName fullNameAr goldRateScope grossWeightMg hasad hasadBranchCode
+    fromBranchId fromBranchName fromStatus fullName fullNameAr goldRateScope grossWeightMg hasad
     history hour hourly id idleMinutes inProgress
     inventory inventoryByKarat inventoryRetail invoiceFooterAr invoiceFooterEn ip ipAddress isActive isCurrent
     isSystem item itemCode itemCodes itemCount itemId items itemsSold karat key kind kpis label labelAr labelEn lastActivity
@@ -172,11 +160,11 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     period permissions phone presence pricePerGram productId productName
     productNameAr purchaseId purchasedItems purchases purchasesCount queue rank rate rateChangeMaxPct rateKarats ratePerGram
     rates reason reauthWindowMinutes receivedAt receivedBy receivedByName recent
-    ref refId refNumber refType request requestedAt requireGmApprovalForScrapOverride reservationRef
-    reservedAt reservedBy reservedCount reservedItems response responseStatus returns revenue
+    ref refId refNumber refType request requestedAt requireGmApprovalForScrapOverride
+    response responseStatus returns revenue
     reviewNote reviewedAt reviewedBy role roleCode roleName roleRank rows saleId sales salesByCategory salesCount salesTotal
     scrapPriceTolerancePct security sellingPrice session sessionAbsoluteHours sessionId sessionIdleMinutes sessionRef setBy
-    settings settlement settlementAmount settlementDirection settlementNumber severity sku
+    settings settlement severity sku
     staffCount status subtotal supplierCreditEnabled supplierId supplierInvoiceNo supplierName timeline
     timezone title to toBranchId toBranchName toStatus total totalNetWeightMg totals transferId transfers transfersIn
     transfersInTransit transfersOut trend type updatedAt user userAgent userFullName userId userName username validForMinutes
@@ -199,7 +187,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     goldOwedMgPure24 owedAfterMgPure24 goldDebtMgPure24 settledKarat settledWeightMg settledPureMg24 bankReference hasadReceivableToBank hasadReceivableBalance
     cashLines bankLines bankMovement line
     isActive categoryAr supplierNameAr productNameAr existing
-    otherOut setupSteps steps done complete
+    setupSteps steps done complete
     scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates
   `),
 );

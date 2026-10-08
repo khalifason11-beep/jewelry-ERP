@@ -76,7 +76,6 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
       grossProfit: showProfit ? m.grossProfit : null,
       availableItems: m.availableItems,
       availableWeightMg: m.availableWeightMg,
-      reservedItems: m.reservedItems,
       inventoryCost: showProfit ? m.inventoryCost : null,
     },
     mtd: {
@@ -130,7 +129,7 @@ export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: strin
   }
   const invR = await ctx.db.execute(sql`
     SELECT karat, count(*) AS items, coalesce(sum(net_weight_mg),0) AS weight, coalesce(sum(acquisition_cost),0) AS cost
-    FROM jewelry_items WHERE status IN ('AVAILABLE','RESERVED') GROUP BY karat ORDER BY karat`);
+    FROM jewelry_items WHERE status = 'AVAILABLE' GROUP BY karat ORDER BY karat`);
   const catR = await ctx.db.execute(sql`
     SELECT coalesce(nullif(btrim(c.name), ''), c.name_ar) AS category, c.name_ar AS category_ar, count(*) AS items, coalesce(sum(si.final_price),0) AS revenue, coalesce(sum(si.final_price - si.unit_cost),0) AS profit
     FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN jewelry_items i ON i.id = si.item_id

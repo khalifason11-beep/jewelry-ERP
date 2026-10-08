@@ -1,9 +1,9 @@
 import { defineConfig } from 'drizzle-kit';
 
-// Migrations are generated from the ERP schema and the deprecated mock Hasad schema (kept until REM-5).
+// Migrations are generated from the COMPLETE ERP schema (never a cut-down copy: see scripts/check-migrations.mjs).
 export default defineConfig({
   dialect: 'postgresql',
-  schema: ['./src/schema.ts', './src/deprecated-hasad-mock-schema.ts'],
+  schema: ['./src/schema.ts'],
   out: './migrations',
-  schemaFilter: ['public', 'hasad_mock'],
+  schemaFilter: ['public'],
 });

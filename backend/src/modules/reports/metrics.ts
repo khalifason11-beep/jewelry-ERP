@@ -26,7 +26,6 @@ export interface BranchMetrics {
   purchasesCost: number;
   availableItems: number;
   availableWeightMg: number;
-  reservedItems: number;
   inventoryCost: number;
   inventoryRetail: number;
 }
@@ -57,10 +56,9 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
     exec.execute(sql`
       SELECT branch_id,
              count(*) FILTER (WHERE status = 'AVAILABLE') AS available,
-             coalesce(sum(net_weight_mg) FILTER (WHERE status IN ('AVAILABLE','RESERVED')),0) AS weight,
-             count(*) FILTER (WHERE status = 'RESERVED') AS reserved,
-             coalesce(sum(acquisition_cost) FILTER (WHERE status IN ('AVAILABLE','RESERVED')),0) AS cost,
-             coalesce(sum(selling_price) FILTER (WHERE status IN ('AVAILABLE','RESERVED')),0) AS retail
+             coalesce(sum(net_weight_mg) FILTER (WHERE status = 'AVAILABLE'),0) AS weight,
+             coalesce(sum(acquisition_cost) FILTER (WHERE status = 'AVAILABLE'),0) AS cost,
+             coalesce(sum(selling_price) FILTER (WHERE status = 'AVAILABLE'),0) AS retail
       FROM jewelry_items
       WHERE true ${bFilter('branch_id')}
       GROUP BY branch_id`),
@@ -72,7 +70,7 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
       branchId: Number(b.id),
       salesCount: 0, itemsSold: 0, weightSoldMg: 0, revenue: 0, discounts: 0, costOfSales: 0, grossProfit: 0,
       purchasesCount: 0, purchasedItems: 0, purchasesCost: 0,
-      availableItems: 0, availableWeightMg: 0, reservedItems: 0, inventoryCost: 0, inventoryRetail: 0,
+      availableItems: 0, availableWeightMg: 0, inventoryCost: 0, inventoryRetail: 0,
     });
   }
   const get = (id: unknown) => out.get(Number(id));
@@ -87,7 +85,7 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
   }
   for (const r of rows<Record<string, unknown>>(invR)) {
     const m = get(r.branch_id); if (!m) continue;
-    m.availableItems = num(r.available); m.availableWeightMg = num(r.weight); m.reservedItems = num(r.reserved);
+    m.availableItems = num(r.available); m.availableWeightMg = num(r.weight);
     m.inventoryCost = num(r.cost); m.inventoryRetail = num(r.retail);
   }
   for (const m of out.values()) {
@@ -98,7 +96,7 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
 
 const ZERO_METRICS: Omit<BranchMetrics, 'branchId'> = {
   salesCount: 0, itemsSold: 0, weightSoldMg: 0, revenue: 0, discounts: 0, costOfSales: 0, grossProfit: 0, purchasesCount: 0,
-  purchasedItems: 0, purchasesCost: 0, availableItems: 0, availableWeightMg: 0, reservedItems: 0, inventoryCost: 0, inventoryRetail: 0,
+  purchasedItems: 0, purchasesCost: 0, availableItems: 0, availableWeightMg: 0, inventoryCost: 0, inventoryRetail: 0,
 };
 
 /** Totals over branches; with no branches every figure is 0 (an empty company shows zeros, not "—"). */
@@ -113,7 +111,7 @@ export interface MovementSummary {
   opening: { items: number; weightMg: number; cost: number };
   lines: Record<string, { items: number; weightMg: number }>;
   closing: { items: number; weightMg: number; cost: number };
-  /** Live count of items in AVAILABLE/RESERVED (only meaningful when the period ends now). */
+  /** Live count of items in stock, AVAILABLE (only meaningful when the period ends now). */
   actual?: { items: number; weightMg: number };
 }
 
@@ -129,7 +127,7 @@ export async function movementSummary(exec: Executor, p: Period, branchId: numbe
     exec.execute(sql`SELECT branch_id, coalesce(sum(direction),0) AS items, coalesce(sum(direction*net_weight_mg),0) AS weight, coalesce(sum(direction*cost_value),0) AS cost
                      FROM inventory_movements WHERE at < ${iso(p.end)} ${bFilter} GROUP BY branch_id`),
     exec.execute(sql`SELECT branch_id, count(*) AS items, coalesce(sum(net_weight_mg),0) AS weight FROM jewelry_items
-                     WHERE status IN ('AVAILABLE','RESERVED') ${bFilter} GROUP BY branch_id`),
+                     WHERE status = 'AVAILABLE' ${bFilter} GROUP BY branch_id`),
   ]);
   const zero = () => ({ items: 0, weightMg: 0, cost: 0 });
   const res = new Map<number, MovementSummary>();

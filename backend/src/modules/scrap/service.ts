@@ -217,11 +217,6 @@ export async function buyScrap(ctx: Ctx, actor: Actor, input: ScrapPurchaseInput
           karat: product.karat,
           grossWeightMg: input.grossWeightMg,
           netWeightMg: input.netWeightMg,
-          // Deprecated cost columns mirror the acquisition cost (D-2b-1).
-          purchaseCost: amount,
-          makingCost: 0,
-          otherCost: 0,
-          totalCost: amount,
           origin: 'SCRAP',
           acquisitionCost: amount,
           makingCharge: 0,

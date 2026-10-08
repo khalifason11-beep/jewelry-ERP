@@ -269,7 +269,8 @@ describe('database integrity constraints', () => {
     await reject(ctx.db.insert(t.jewelryItems).values({ ...base, karat: 0 }), 'ck_jewelry_items_karat_range');
     await reject(ctx.db.insert(t.jewelryItems).values({ ...base, sellingPrice: -1 }), 'ck_jewelry_items_selling_price_nonneg');
     await reject(ctx.db.insert(t.jewelryItems).values({ ...base, status: 'LOST' }), 'ck_jewelry_items_status');
-    await reject(ctx.db.insert(t.jewelryItems).values({ ...base, totalCost: base.totalCost + 1 }), 'ck_jewelry_items_total_cost_sum');
+    await reject(ctx.db.insert(t.jewelryItems).values({ ...base, status: 'RESERVED' }), 'ck_jewelry_items_status'); // removed by REM-5
+    await reject(ctx.db.insert(t.jewelryItems).values({ ...base, acquisitionCost: -1 }), 'ck_jewelry_items_acquisition_cost_nonneg');
     await reject(ctx.db.update(t.jewelryItems).set({ status: 'GONE' }).where(eq(t.jewelryItems.id, item.id)), 'ck_jewelry_items_status');
     await reject(ctx.db.insert(t.goldRates).values({ karat: 21, pricePerGram: -5 }), 'ck_gold_rates_price_per_gram_nonneg');
     await reject(ctx.db.update(t.sales).set({ total: sql`total + 1` }).where(sql`true`), 'ck_sales_total_sum');

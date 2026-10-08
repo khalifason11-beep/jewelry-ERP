@@ -28,7 +28,6 @@ export interface BranchDash {
     grossProfit: number | null;
     availableItems: number;
     availableWeightMg: number;
-    reservedItems: number;
     inventoryCost: number | null;
   };
   stockWeight: StockWeight;
@@ -97,7 +96,7 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
         <Kpi tone="dark" label={`${dayLabel} · ${t('Sales')}`} value={money(k.salesTotal, false)} sub={t('{invoices} invoices · {pieces} pieces · {currency}', { invoices: k.salesCount, pieces: k.itemsSold, currency: currencyLabel() })} icon={<Receipt className="size-4" />} onClick={() => navigate(`/reports/sales?from=${date}&to=${date}&branchId=${d.branchId}`)} />
         <Kpi label={`${dayLabel} · ${t('Purchases')}`} value={k.purchasesCost != null ? money(k.purchasesCost, false) : String(k.purchasesCount)} sub={k.purchasesCost != null ? t('{n} receipts · {currency}', { n: k.purchasesCount, currency: currencyLabel() }) : t('Receipts')} icon={<Truck className="size-4" />} onClick={() => navigate(`/reports/purchases?from=${date}&to=${date}&branchId=${d.branchId}`)} />
         <Kpi tone="gold" label={t('Gross Profit')} value={k.grossProfit != null ? money(k.grossProfit, false) : '—'} icon={<TrendingUp className="size-4" />} />
-        <Kpi label={t('Available Inventory')} value={t('{n} pcs', { n: num(k.availableItems) })} sub={`${grams(k.availableWeightMg)}${k.reservedItems ? ` · ${t('{n} reserved', { n: k.reservedItems })}` : ''}`} icon={<Gem className="size-4" />} onClick={() => navigate(`/inventory?branchId=${d.branchId}`)} />
+        <Kpi label={t('Available Inventory')} value={t('{n} pcs', { n: num(k.availableItems) })} sub={grams(k.availableWeightMg)} icon={<Gem className="size-4" />} onClick={() => navigate(`/inventory?branchId=${d.branchId}`)} />
       </div>
 
       {/* REM-3: a branch with no stock at all gets a meaningful empty state instead of tables of zeros. */}
@@ -198,8 +197,6 @@ function MovementCard({ d, isToday }: { d: BranchDash; isToday: boolean }) {
     { sign: '+', label: t('Transfers in'), v: L('TRANSFER_IN') },
     { sign: '+', label: t('Returns & restock'), v: plus(L('RETURN'), L('ADJUSTMENT_IN')) },
     { sign: '−', label: t('Normal sales'), v: L('SALE') },
-    // Deliveries of the removed Hasad workspace (historical only, REM-2) stay in the equation.
-    { sign: '−', label: t('Other'), v: L('HASAD_REDEMPTION') },
     { sign: '−', label: t('Transfers out'), v: L('TRANSFER_OUT') },
     { sign: '−', label: t('Damaged / returned to supplier'), v: plus(L('DAMAGE'), L('ADJUSTMENT_OUT')) },
     { sign: '=', label: t('Closing stock'), v: m.closing, strong: true },

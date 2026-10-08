@@ -124,7 +124,7 @@ export function PosPage() {
   }, [cart]);
 
   const add = (item: ItemRow) => {
-    if (item.status !== 'AVAILABLE') return toast.info(t('{code} is reserved', { code: item.code }), t('It cannot be sold until it is available again.'));
+    if (item.status !== 'AVAILABLE') return toast.info(t('{code} is not available for sale', { code: item.code }), t('It cannot be sold until it is available again.'));
     if (inCart.has(item.id)) return toast.info(t('{code} is already in the cart', { code: item.code }));
     setCart((c) => [...c, { item, discount: 0 }]);
   };
@@ -506,18 +506,15 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 
 function ProductCard({ item, inCart, onAdd }: { item: ItemRow; inCart: boolean; onAdd: () => void }) {
   const { t, L } = useI18n();
-  const reserved = item.status === 'RESERVED';
   return (
     <button
       onClick={onAdd}
-      disabled={reserved}
       data-testid="pos-product"
       className={clsx(
         'group flex flex-col overflow-hidden rounded-lg border bg-white text-start transition-all',
         inCart ? 'border-gold-500 ring-2 ring-gold-500/30' : 'border-line hover:border-gold-400 hover:shadow-md',
-        reserved && 'cursor-not-allowed opacity-60',
       )}
-      title={reserved ? t('Reserved: not available for sale') : t('Add {code}', { code: item.code })}
+      title={t('Add {code}', { code: item.code })}
     >
       <div className="p-2 pb-0">
         <ItemThumb category={item.categoryCode} karat={item.karat} />
@@ -531,9 +528,7 @@ function ProductCard({ item, inCart, onAdd }: { item: ItemRow; inCart: boolean; 
         </div>
         <div className="mt-auto flex items-end justify-between pt-2">
           <span className="text-[15px] font-semibold text-ink-950 num">{money(item.sellingPrice, false)}</span>
-          {reserved ? (
-            <span className="text-[11px] font-medium text-amber-700">{t('Reserved')}</span>
-          ) : inCart ? (
+          {inCart ? (
             <span className="text-[11px] font-medium text-gold-700">{t('In cart')}</span>
           ) : (
             <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-700">

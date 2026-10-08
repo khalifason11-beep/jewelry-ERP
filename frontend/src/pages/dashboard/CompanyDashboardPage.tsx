@@ -232,7 +232,7 @@ function Body({ d, onBranch, L }: { d: CompanyDash; onBranch: (id: number) => vo
         <Card padded={false}>
           <CardHeader
             title={t('Inventory valuation by karat')}
-            subtitle={t('Sellable stock at cost (available + reserved)')}
+            subtitle={t('Sellable stock at cost (available pieces)')}
             actions={<Link to="/reports/inventory" className="text-[13px] font-medium text-gold-700 hover:underline">{t('Inventory Report')}</Link>}
           />
           <table className="w-full text-[13px]">

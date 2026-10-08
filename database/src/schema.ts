@@ -37,8 +37,6 @@ export const branches = pgTable('branches', {
   city: text('city').notNull(),
   address: text('address'),
   phone: text('phone'),
-  /** DEPRECATED (REM-2): Hasad branch identifier of the removed integration; no longer written. Dropped by REM-5. */
-  hasadBranchCode: text('hasad_branch_code').unique(),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: createdAt(),
 });
@@ -125,8 +123,6 @@ export const sessions = pgTable(
     reauthAt: ts('reauth_at'),
     /** Synchronizer CSRF token for this session (sent back in the x-csrf-token header). */
     csrfToken: text('csrf_token'),
-    /** Demo-only presence rows created by the seed (clearly labelled in the UI). */
-    isSimulated: boolean('is_simulated').notNull().default(false),
     /** Phase 2fa: how this session's sign-in was completed (PASSWORD, PASSKEY, RECOVERY_CODE). */
     signInMethod: text('sign_in_method').notNull().default('PASSWORD'),
     /** Last successful passkey step-up on this session, and whether it proved user verification. */
@@ -304,11 +300,6 @@ export const jewelryItems = pgTable(
     karat: smallint('karat').notNull(),
     grossWeightMg: integer('gross_weight_mg').notNull(),
     netWeightMg: integer('net_weight_mg').notNull(),
-    // DEPRECATED (Phase 2b): kept and still written for compatibility; the cost model is below.
-    purchaseCost: money('purchase_cost').notNull(),
-    makingCost: money('making_cost').notNull().default(0),
-    otherCost: money('other_cost').notNull().default(0),
-    totalCost: money('total_cost').notNull(),
     // ── Cost model (Phase 2b, decisions Q3/Q4/Q9) ──
     /** OPENING | SUPPLIER_NEW | SCRAP */
     origin: text('origin').notNull().default('SUPPLIER_NEW'),
@@ -324,10 +315,6 @@ export const jewelryItems = pgTable(
     branchId: integer('branch_id').notNull().references(() => branches.id),
     status: text('status').notNull(),
     purchaseId: integer('purchase_id'),
-    /** Set while RESERVED: what the reservation is for (e.g. HASAD_REDEMPTION:12). */
-    reservationRef: text('reservation_ref'),
-    reservedAt: ts('reserved_at'),
-    reservedBy: integer('reserved_by'),
     createdAt: createdAt(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
@@ -412,7 +399,8 @@ export const purchases = pgTable('purchases', {
 export const purchaseItems = pgTable('purchase_items', {
   id: serial('id').primaryKey(),
   purchaseId: integer('purchase_id').notNull().references(() => purchases.id),
-  itemId: integer('item_id').notNull().references(() => jewelryItems.id),
+  /** One supplier line per piece (REM-5: UNIQUE; the item views LEFT JOIN on it). */
+  itemId: integer('item_id').notNull().unique().references(() => jewelryItems.id),
   purchaseCost: money('purchase_cost').notNull(),
   makingCost: money('making_cost').notNull(),
   otherCost: money('other_cost').notNull(),
@@ -477,32 +465,6 @@ export const saleItems = pgTable('sale_items', {
   priceRatePerGram: money('price_rate_per_gram'),
 });
 
-// ───────────────────────────── Expenses (DEPRECATED) ─────────────────────────────
-// REM-1: expenses were removed from the product. The table stays for history; migration 0013 refuses
-// new rows (trigger trg_expenses_deprecated). Dropped by REM-5 before the first production deployment.
-
-export const expenses = pgTable(
-  'expenses',
-  {
-    id: serial('id').primaryKey(),
-    number: text('number').notNull().unique(),
-    branchId: integer('branch_id').notNull().references(() => branches.id),
-    category: text('category').notNull(),
-    amount: money('amount').notNull(),
-    expenseDate: date('expense_date', { mode: 'string' }).notNull(),
-    description: text('description').notNull(),
-    status: text('status').notNull(),
-    createdBy: integer('created_by').notNull().references(() => users.id),
-    createdAt: createdAt(),
-    reviewedBy: integer('reviewed_by').references(() => users.id),
-    reviewedAt: ts('reviewed_at'),
-    reviewNote: text('review_note'),
-    /** CASH | BANK, chosen per expense (Q7). NULL only for expenses recorded before Phase 2b. */
-    paidFrom: text('paid_from'),
-  },
-  (t) => [index('exp_branch_date_idx').on(t.branchId, t.expenseDate)],
-);
-
 // ───────────────────────────── Transfers ─────────────────────────────
 
 export const transfers = pgTable('transfers', {
@@ -526,96 +488,6 @@ export const transferItems = pgTable(
   },
   (t) => [primaryKey({ columns: [t.transferId, t.itemId] })],
 );
-
-// ───────────────────────────── Hasad Gold (ERP side, DEPRECATED) ─────────────────────────────
-
-// REM-2: the Hasad withdrawal workspace was removed; Hasad is only a payment method now. These tables stay
-// for history; migration 0014 refuses new rows. Dropped by REM-5 before the first production deployment.
-/** ERP mirror of withdrawal requests received from Hasad Gold. Never touches inventory. */
-export const hasadWithdrawals = pgTable(
-  'hasad_withdrawals',
-  {
-    id: serial('id').primaryKey(),
-    externalId: text('external_id').notNull().unique(),
-    hasadCustomerId: text('hasad_customer_id').notNull(),
-    customerName: text('customer_name').notNull(),
-    customerNameAr: text('customer_name_ar'),
-    customerPhone: text('customer_phone'),
-    customerNationalIdMasked: text('customer_national_id_masked'),
-    entitledWeightMg: integer('entitled_weight_mg').notNull(),
-    entitlementKarat: smallint('entitlement_karat').notNull(),
-    branchId: integer('branch_id').notNull().references(() => branches.id),
-    status: text('status').notNull(),
-    externalStatus: text('external_status').notNull(),
-    pickupCode: text('pickup_code'),
-    requestedAt: ts('requested_at').notNull(),
-    receivedAt: ts('received_at').notNull().defaultNow(),
-    openedAt: ts('opened_at'),
-    openedBy: integer('opened_by').references(() => users.id),
-    completedAt: ts('completed_at'),
-    completedBy: integer('completed_by').references(() => users.id),
-    cancelledAt: ts('cancelled_at'),
-    cancelledBy: integer('cancelled_by').references(() => users.id),
-    cancelReason: text('cancel_reason'),
-    lastSyncedAt: ts('last_synced_at').notNull().defaultNow(),
-  },
-  (t) => [index('hw_branch_status_idx').on(t.branchId, t.status)],
-);
-
-/** A counter visit in which the customer picks pieces against a withdrawal. */
-export const hasadRedemptions = pgTable('hasad_redemptions', {
-  id: serial('id').primaryKey(),
-  number: text('number').notNull().unique(),
-  withdrawalId: integer('withdrawal_id').notNull().references(() => hasadWithdrawals.id),
-  branchId: integer('branch_id').notNull().references(() => branches.id),
-  cashierId: integer('cashier_id').notNull().references(() => users.id),
-  status: text('status').notNull(),
-  entitledWeightMg: integer('entitled_weight_mg').notNull(),
-  deliveredWeightMg: integer('delivered_weight_mg').notNull().default(0),
-  differenceMg: integer('difference_mg').notNull().default(0),
-  settlementDirection: text('settlement_direction'),
-  settlementAmount: money('settlement_amount').notNull().default(0),
-  ratePerGram: money('rate_per_gram'),
-  itemsCost: money('items_cost').notNull().default(0),
-  customerVerified: boolean('customer_verified').notNull().default(false),
-  createdAt: createdAt(),
-  completedAt: ts('completed_at'),
-  abortedAt: ts('aborted_at'),
-  abortReason: text('abort_reason'),
-});
-
-export const hasadRedemptionItems = pgTable(
-  'hasad_redemption_items',
-  {
-    id: serial('id').primaryKey(),
-    redemptionId: integer('redemption_id').notNull().references(() => hasadRedemptions.id),
-    itemId: integer('item_id').notNull().references(() => jewelryItems.id),
-    netWeightMg: integer('net_weight_mg').notNull(),
-    karat: smallint('karat').notNull(),
-    unitCost: money('unit_cost').notNull(),
-    /** false once the item was released back (customer changed their mind). */
-    active: boolean('active').notNull().default(true),
-    addedAt: ts('added_at').notNull().defaultNow(),
-    releasedAt: ts('released_at'),
-  },
-  (t) => [index('hri_redemption_idx').on(t.redemptionId)],
-);
-
-/** DEPRECATED (REM-2): Hasad weight-difference money settled at the counter; no new rows (migration 0014). */
-export const settlements = pgTable('settlements', {
-  id: serial('id').primaryKey(),
-  number: text('number').notNull().unique(),
-  type: text('type').notNull(),
-  redemptionId: integer('redemption_id').references(() => hasadRedemptions.id),
-  branchId: integer('branch_id').notNull().references(() => branches.id),
-  direction: text('direction').notNull(),
-  weightMg: integer('weight_mg').notNull(),
-  ratePerGram: money('rate_per_gram').notNull(),
-  amount: money('amount').notNull(),
-  paymentMethod: text('payment_method').notNull(),
-  confirmedBy: integer('confirmed_by').notNull().references(() => users.id),
-  confirmedAt: ts('confirmed_at').notNull().defaultNow(),
-});
 
 // ───────────────────────────── Configuration & audit ─────────────────────────────
 

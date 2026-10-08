@@ -122,10 +122,6 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
           karat: product.karat,
           grossWeightMg: l.grossWeightMg,
           netWeightMg: l.netWeightMg,
-          purchaseCost: l.purchaseCost,
-          makingCost: l.makingCost,
-          otherCost: l.otherCost,
-          totalCost: l.purchaseCost + l.makingCost + l.otherCost,
           // Cost model (Q3): a supplier piece's acquisition cost includes the making charge,
           // which is also kept on its own for reporting.
           origin: 'SUPPLIER_NEW',
