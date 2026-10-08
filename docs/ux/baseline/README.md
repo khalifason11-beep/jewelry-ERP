@@ -75,6 +75,7 @@ behind TLS, the database created by the bootstrap command. Each role's home righ
 - Visible in the new set, older than REM-3 and left for UI-A: a stray `$` after "0 invoices" on the branch dashboard,
   and the POS payment buttons showing the raw codes `CASH` / `BANK_TRANSFER` / `HASAD` in English.
 - On one of two runs, the rehearsal with screenshots enabled failed while creating the first user (the "Create user"
-  button stayed disabled after the screenshots had reloaded the page); the second run passed all 72 checks. REH-1
-  without screenshots is unaffected. If it happens, run it again. (The REM-3 recapture passed all 93 checks on the
-  first run.)
+  button stayed disabled), and once in REM-3 while creating the branch. **Root cause (fixed after REM-3):** the
+  shared Dialog focused its first field from a 30 ms timer without checking where focus already was. On a busy
+  machine the timer fired after focus had moved to another field, so the rest of the typing went into the first
+  field and the form stayed invalid. REH-1 now checks both dialogs deterministically with paused timers.

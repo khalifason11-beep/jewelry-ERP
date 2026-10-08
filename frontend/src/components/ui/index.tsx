@@ -264,8 +264,15 @@ export function Dialog({
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && openDialogs[openDialogs.length - 1] === token && closeRef.current();
     window.addEventListener('keydown', onKey);
     const prev = document.activeElement as HTMLElement | null;
-    setTimeout(() => ref.current?.querySelector<HTMLElement>('input,select,textarea,button[data-autofocus]')?.focus(), 30);
+    // Focus the first field, but never take focus away from a field the person already chose in this dialog:
+    // a late timer used to move it (and the rest of the typing) into the first field on a busy PC.
+    const focusFirst = () => {
+      if (ref.current && !ref.current.contains(document.activeElement)) ref.current.querySelector<HTMLElement>('input,select,textarea,button[data-autofocus]')?.focus();
+    };
+    focusFirst();
+    const late = setTimeout(focusFirst, 30); // content that mounts a moment later
     return () => {
+      clearTimeout(late);
       window.removeEventListener('keydown', onKey);
       openDialogs.splice(openDialogs.indexOf(token), 1);
       prev?.focus?.();

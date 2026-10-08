@@ -195,6 +195,28 @@ async function captureBaseline(page, name) {
   await page.waitForLoadState('networkidle');
 }
 
+/**
+ * Deterministic check of a dialog's autofocus (the cause of the "Save stays disabled" flake in REH-1): with the
+ * page's timers paused, the person opens the dialog, clicks the SECOND field, then every pending timer runs and
+ * they type. The text must stay in the field they chose, and the first field must stay empty. Before the fix, a
+ * 30 ms autofocus timer moved focus (and the typing) into the first field on a busy PC.
+ */
+async function dialogKeepsChosenField(page, { open, first, second, text, what }) {
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1_000); // the page's (fake) clock, not ours
+  try {
+    await page.click(`[data-testid=${open}]`);
+    const autofocus = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'));
+    await page.click(`[data-testid=${second}]`);
+    await page.clock.runFor(1_000);
+    await page.keyboard.type(text);
+    const got = { first: await page.inputValue(`[data-testid=${first}]`), second: await page.inputValue(`[data-testid=${second}]`) };
+    check(autofocus === first && got.first === '' && got.second === text, `${what}: opens with the first field focused, and a field the person chose keeps the typing (${JSON.stringify(got)})`);
+    await page.fill(`[data-testid=${second}]`, '');
+  } finally {
+    await page.clock.resume();
+  }
+}
+
 const pathIs = (page, paths) => page.waitForURL((u) => paths.includes(u.pathname), { timeout: 15_000 });
 
 const EXPENSE_WORDS = /expense|مصروف|مصاريف/i;
@@ -326,16 +348,14 @@ async function main() {
     await noWords(page, origin, ['/overview', '/settings', '/users'], 'General Manager', /prototype|نموذج أولي|demo account|حسابات تجريبية/i, 'prototype or demo-account wording');
 
     section('General Manager: branch and staff');
+    await page.clock.install(); // fake timers that flow normally; paused only inside dialogKeepsChosenField
     await page.goto(`${origin}/branches`);
-    await page.click('[data-testid=new-branch]');
+    await page.getByTestId('new-branch').waitFor();
+    await dialogKeepsChosenField(page, { open: 'new-branch', first: 'branch-code', second: 'branch-name', text: BRANCH.name, what: 'New branch dialog' });
     await page.fill('[data-testid=branch-code]', BRANCH.code);
     await page.fill('[data-testid=branch-name]', BRANCH.name);
     await page.fill('[data-testid=branch-name-ar]', BRANCH.nameAr);
     await page.fill('[data-testid=branch-city]', BRANCH.city);
-    if (await page.isDisabled('[data-testid=branch-save]')) {
-      const vals = await Promise.all(['branch-code', 'branch-name', 'branch-name-ar', 'branch-city'].map((id) => page.inputValue(`[data-testid=${id}]`).catch((e) => `ERR ${e.message.slice(0, 60)}`)));
-      console.error('branch form with Save disabled:', page.url(), JSON.stringify(vals), await page.locator('[role=dialog]').count());
-    }
     await page.click('[data-testid=branch-save]');
     await confirmIfAsked(page, GM.password);
     await waitFor(async () => (await apiGet(page, '/api/branches')).body.some((b) => b.code === BRANCH.code), 'the new branch', 15_000);
@@ -347,7 +367,9 @@ async function main() {
     const temps = {};
     for (const u of [BM, CASHIER]) {
       await page.goto(`${origin}/users`);
-      await page.click('[data-testid=new-user]');
+      await page.getByTestId('new-user').waitFor();
+      if (u === BM) await dialogKeepsChosenField(page, { open: 'new-user', first: 'user-username', second: 'user-full-name', text: u.fullName, what: 'New user dialog' });
+      else await page.click('[data-testid=new-user]');
       await page.fill('[data-testid=user-username]', u.username);
       await page.fill('[data-testid=user-full-name]', u.fullName);
       await page.selectOption('[data-testid=user-role]', u.role);
