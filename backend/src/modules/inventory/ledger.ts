@@ -16,6 +16,14 @@ export interface Ref {
 }
 
 /** Selected columns for item listings (item + product + category + branch). */
+/** Cost breakdown of a piece (GM only; redacted for other roles). Needs `purchase_items` LEFT JOINed on the item. */
+export const costBreakdown = {
+  purchaseCost: sql<number>`coalesce(${t.purchaseItems.purchaseCost}, ${t.jewelryItems.acquisitionCost})`.mapWith(Number),
+  makingCost: sql<number>`coalesce(${t.purchaseItems.makingCost}, 0)`.mapWith(Number),
+  otherCost: sql<number>`coalesce(${t.purchaseItems.otherCost}, 0)`.mapWith(Number),
+  totalCost: t.jewelryItems.acquisitionCost,
+};
+
 export const itemColumns = {
   id: t.jewelryItems.id,
   code: t.jewelryItems.code,
@@ -30,10 +38,9 @@ export const itemColumns = {
   karat: t.jewelryItems.karat,
   grossWeightMg: t.jewelryItems.grossWeightMg,
   netWeightMg: t.jewelryItems.netWeightMg,
-  purchaseCost: t.jewelryItems.purchaseCost,
-  makingCost: t.jewelryItems.makingCost,
-  otherCost: t.jewelryItems.otherCost,
-  totalCost: t.jewelryItems.totalCost,
+  // REM-5: the cost breakdown comes from the supplier line (purchase_items); a piece without one (counter scrap)
+  // cost its acquisition cost alone. `totalCost` is the acquisition cost.
+  ...costBreakdown,
   origin: t.jewelryItems.origin,
   acquisitionCost: t.jewelryItems.acquisitionCost,
   makingCharge: t.jewelryItems.makingCharge,
@@ -45,8 +52,6 @@ export const itemColumns = {
   branchName: t.branches.name,
   branchNameAr: t.branches.nameAr,
   status: t.jewelryItems.status,
-  reservationRef: t.jewelryItems.reservationRef,
-  reservedAt: t.jewelryItems.reservedAt,
   createdAt: t.jewelryItems.createdAt,
   updatedAt: t.jewelryItems.updatedAt,
 };
@@ -57,7 +62,8 @@ export function itemQuery(exec: Executor) {
     .from(t.jewelryItems)
     .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
     .innerJoin(t.categories, eq(t.categories.id, t.products.categoryId))
-    .innerJoin(t.branches, eq(t.branches.id, t.jewelryItems.branchId));
+    .innerJoin(t.branches, eq(t.branches.id, t.jewelryItems.branchId))
+    .leftJoin(t.purchaseItems, eq(t.purchaseItems.itemId, t.jewelryItems.id));
 }
 
 export async function lockItems(exec: Executor, ids: number[]): Promise<ItemRow[]> {
@@ -79,7 +85,6 @@ export interface StatusChange {
   at?: Date;
   /** Move the item to another branch as part of the change (transfers). */
   branchId?: number;
-  reservation?: { ref: string; userId: number } | null;
 }
 
 /** Atomic, guarded status transition + lifecycle history row. */
@@ -87,15 +92,6 @@ export async function changeStatus(exec: Executor, c: StatusChange): Promise<Ite
   const at = c.at ?? new Date();
   const set: Partial<ItemRow> = { status: c.to, updatedAt: at };
   if (c.branchId) set.branchId = c.branchId;
-  if (c.reservation !== undefined) {
-    set.reservationRef = c.reservation?.ref ?? null;
-    set.reservedBy = c.reservation?.userId ?? null;
-    set.reservedAt = c.reservation ? at : null;
-  } else if (c.to !== 'RESERVED') {
-    set.reservationRef = null;
-    set.reservedBy = null;
-    set.reservedAt = null;
-  }
   const updated = await exec
     .update(t.jewelryItems)
     .set(set)

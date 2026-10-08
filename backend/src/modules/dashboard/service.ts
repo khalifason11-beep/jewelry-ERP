@@ -129,7 +129,7 @@ export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: strin
     byDay.set(d, e);
   }
   const invR = await ctx.db.execute(sql`
-    SELECT karat, count(*) AS items, coalesce(sum(net_weight_mg),0) AS weight, coalesce(sum(total_cost),0) AS cost
+    SELECT karat, count(*) AS items, coalesce(sum(net_weight_mg),0) AS weight, coalesce(sum(acquisition_cost),0) AS cost
     FROM jewelry_items WHERE status IN ('AVAILABLE','RESERVED') GROUP BY karat ORDER BY karat`);
   const catR = await ctx.db.execute(sql`
     SELECT coalesce(nullif(btrim(c.name), ''), c.name_ar) AS category, c.name_ar AS category_ar, count(*) AS items, coalesce(sum(si.final_price),0) AS revenue, coalesce(sum(si.final_price - si.unit_cost),0) AS profit

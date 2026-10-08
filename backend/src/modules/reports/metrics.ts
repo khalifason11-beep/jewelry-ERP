@@ -59,7 +59,7 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
              count(*) FILTER (WHERE status = 'AVAILABLE') AS available,
              coalesce(sum(net_weight_mg) FILTER (WHERE status IN ('AVAILABLE','RESERVED')),0) AS weight,
              count(*) FILTER (WHERE status = 'RESERVED') AS reserved,
-             coalesce(sum(total_cost) FILTER (WHERE status IN ('AVAILABLE','RESERVED')),0) AS cost,
+             coalesce(sum(acquisition_cost) FILTER (WHERE status IN ('AVAILABLE','RESERVED')),0) AS cost,
              coalesce(sum(selling_price) FILTER (WHERE status IN ('AVAILABLE','RESERVED')),0) AS retail
       FROM jewelry_items
       WHERE true ${bFilter('branch_id')}

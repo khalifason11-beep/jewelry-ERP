@@ -444,7 +444,7 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
     const s = await createSession(db, { userId: a.userId, branchId: a.branchId, userAgent: l.ua, ip: l.ip, absoluteHours: DEFAULT_SETTINGS.security.sessionAbsoluteHours, at: loginAt });
     await db
       .update(t.sessions)
-      .set({ loginAt, lastActivityAt: new Date(now.getTime() - l.minutesIdle * 60_000), currentModule: l.module, isSimulated: true })
+      .set({ loginAt, lastActivityAt: new Date(now.getTime() - l.minutesIdle * 60_000), currentModule: l.module })
       .where(eq(t.sessions.id, s.id));
     await writeAudit(db, { ...a, sessionId: s.id, ip: l.ip }, { action: 'LOGIN', entityType: 'session', entityId: `S-${s.id.slice(0, 8).toUpperCase()}`, at: loginAt, key: '{name} ({username}) signed in', params: { name: ap.text(a.fullName, a.fullNameAr), username: a.username } });
   }

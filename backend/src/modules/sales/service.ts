@@ -8,7 +8,7 @@ import { writeAudit } from '../../core/audit';
 import { badRequest, forbidden, notFound } from '../../core/errors';
 import { nextNumber } from '../../core/numbering';
 import { dayRange } from '../../core/time';
-import { changeStatus, lockItems, recordMovement } from '../inventory/ledger';
+import { changeStatus, costBreakdown, lockItems, recordMovement } from '../inventory/ledger';
 import { accountKindFor, post, reverseRef } from '../ledger/service';
 import type { TxIdempotency } from '../../core/idempotency';
 import { allowedKarats } from '../../core/karats';
@@ -255,13 +255,14 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
       priceGoldValue: t.saleItems.priceGoldValue,
       priceMakingCharge: t.saleItems.priceMakingCharge,
       priceRatePerGram: t.saleItems.priceRatePerGram,
-      purchaseCost: t.jewelryItems.purchaseCost,
-      makingCost: t.jewelryItems.makingCost,
-      otherCost: t.jewelryItems.otherCost,
+      purchaseCost: costBreakdown.purchaseCost,
+      makingCost: costBreakdown.makingCost,
+      otherCost: costBreakdown.otherCost,
     })
     .from(t.saleItems)
     .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.saleItems.itemId))
     .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+    .leftJoin(t.purchaseItems, eq(t.purchaseItems.itemId, t.jewelryItems.id))
     .where(eq(t.saleItems.saleId, id));
 
   let voidedByName: string | null = null;
