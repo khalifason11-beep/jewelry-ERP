@@ -31,7 +31,7 @@ BEGIN
       ('inventory_movements of type HASAD_REDEMPTION', $q$SELECT count(*) FROM inventory_movements WHERE type = 'HASAD_REDEMPTION'$q$),
       ('item_status_history through RESERVED or REDEEMED', $q$SELECT count(*) FROM item_status_history WHERE from_status IN ('RESERVED', 'REDEEMED') OR to_status IN ('RESERVED', 'REDEEMED')$q$),
       ('jewelry_items RESERVED or REDEEMED, or with a reservation', $q$SELECT count(*) FROM jewelry_items WHERE status IN ('RESERVED', 'REDEEMED') OR reservation_ref IS NOT NULL OR reserved_at IS NOT NULL OR reserved_by IS NOT NULL$q$),
-      ('jewelry_items whose old cost columns differ from acquisition_cost or the supplier line', $q$SELECT count(*) FROM jewelry_items i LEFT JOIN purchase_items pi ON pi.item_id = i.id
+      ('jewelry_items whose old cost columns differ from acquisition_cost or the supplier line', $q$SELECT count(DISTINCT i.id) FROM jewelry_items i LEFT JOIN purchase_items pi ON pi.item_id = i.id
           WHERE i.total_cost <> i.acquisition_cost OR i.purchase_cost <> coalesce(pi.purchase_cost, i.acquisition_cost)
              OR i.making_cost <> coalesce(pi.making_cost, 0) OR i.other_cost <> coalesce(pi.other_cost, 0)$q$),
       ('audit_logs with a removed action', $q$SELECT count(*) FROM audit_logs WHERE action IN ('ITEM_RESERVED', 'ITEM_RELEASED', 'HASAD_WITHDRAWAL_RECEIVED', 'HASAD_WITHDRAWAL_OPENED', 'HASAD_WITHDRAWAL_COMPLETED', 'HASAD_WITHDRAWAL_CANCELLED', 'HASAD_REDEMPTION_ABORTED', 'HASAD_SETTLEMENT_CONFIRMED', 'EXPENSE_CREATED', 'EXPENSE_APPROVED', 'EXPENSE_REJECTED', 'DEMO_DATA_RESET')$q$),

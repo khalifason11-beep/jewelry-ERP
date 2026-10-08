@@ -12,7 +12,7 @@ import { t, type DatabaseHandle } from '@jerp/database';
 import { openDatabase, runMigrations } from '../../src/bootstrap';
 import { APPEND_ONLY_TABLES, runtimeRoleProblems } from '../../src/core/startup';
 import { rows } from '../../src/core/sql';
-import { PG_MODE } from '../helpers';
+import { dropTestDatabase, PG_MODE } from '../helpers';
 
 const base = process.env.TEST_DATABASE_URL!;
 const tag = randomBytes(4).toString('hex');
@@ -68,7 +68,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.close();
   await owner?.close();
-  await adminQuery(`DROP DATABASE IF EXISTS ${DB} WITH (FORCE)`);
+  await dropTestDatabase({ query: adminQuery }, DB);
   await adminQuery(`DROP ROLE IF EXISTS ${RUNTIME}`);
   await adminQuery(`DROP ROLE IF EXISTS ${OWNER}`);
 });

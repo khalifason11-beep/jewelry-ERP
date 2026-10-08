@@ -245,8 +245,7 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
 
 - Expenses are no longer part of the product (no screen, route, permission, setting or report). Migration 0013 deletes
   the `expenses.*` permissions and their role grants, and adds triggers that refuse new rows in `expenses` and new
-  `EXPENSE` entries in `ledger_entries`. Existing rows stay untouched (history); a historical `EXPENSE` entry appears
-  on the Cash screen under "Other movements", so the daily lines still add up to the ledger. REM-5 drops the table.
+  `EXPENSE` entries in `ledger_entries`. REM-5 (migration 0016) dropped the table and the event type.
 
 ### Types, products and suppliers (CAT-0, migration 0015)
 
@@ -268,8 +267,23 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
 - Migration 0014 releases any piece still RESERVED by an open counter session (status history and an audit entry per
   piece, actor System), deletes the `hasad.*` permissions and their grants, and adds triggers that refuse new rows in
   the Hasad tables, the `settlements` table, the `hasad_mock` schema and new `HASAD_SETTLEMENT` ledger entries.
-  History stays; a historical `HASAD_SETTLEMENT` entry appears on the Cash screen under "Other movements". REM-5 drops
-  the tables and the `hasad_mock` schema.
+  REM-5 (migration 0016) dropped the tables and the `hasad_mock` schema.
+
+### Deprecated schema dropped (REM-5, migration 0016)
+
+- 0016 drops what REM-1 and REM-2 kept for history (the expense and Hasad tables, the `hasad_mock` schema, the old
+  item cost and reservation columns, the RESERVED/REDEEMED statuses and the retired ledger and movement types), adds
+  one supplier line per piece (`UNIQUE purchase_items.item_id`) and deletes the leftover `hasad.enabledPerBranch`
+  setting. Decisions D-rem5-*.
+- **It never rewrites history.** It first counts every row that still uses a removed table or value. If there is
+  any, start-up stops with a message such as
+  `Migration 0016 (REM-5) stopped: this database still holds data from removed features: expenses (removed by REM-1): 59; …`
+  and **nothing is changed** (all pending migrations run in one transaction). This happens **by design** for old
+  demo databases (seeded demo data, pre-REM-3): they are recreated, not upgraded. Locally: stop the server, delete the
+  `PGLITE_DIR` folder (default `.data/pglite`) and run `npm run demo`.
+- **Backups taken before REM-5 restore only with pre-REM-5 code.** Their schema still has the dropped objects. Restore
+  such a backup with the version that made it; started later with REM-5 code it goes through the same check.
+- No production database existed when REM-5 shipped, so no upgrade path for real data was needed.
 
 ### Purchases, scrap and supplier settlement (Phase 4)
 

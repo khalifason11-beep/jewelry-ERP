@@ -21,7 +21,7 @@ import { collectStats } from '../../src/backup/stats';
 import { pipeline } from '../../src/backup/run';
 import { backupBaseName } from '../../src/backup/retention';
 import { backupHealth } from '../../src/modules/backups/status';
-import { openTestDatabase, PG_MODE } from '../helpers';
+import { dropTestDatabase, openTestDatabase, PG_MODE } from '../helpers';
 
 let handle: Awaited<ReturnType<typeof openTestDatabase>>;
 let ctx: Ctx;
@@ -214,7 +214,7 @@ describe('backup → off-site copy → restore drill', () => {
       expect(res.find((x) => x.name === 'append-only triggers')!.detail).toMatch(/ledger_entries: row trigger missing/);
       expect(res.find((x) => x.name === 'check constraints')!.detail).toMatch(/ck_sales_hasad_reference/);
     } finally {
-      await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
+      await dropTestDatabase(admin, dbName);
       await admin.end();
     }
   });

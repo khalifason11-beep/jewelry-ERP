@@ -1,5 +1,9 @@
 # Prototype Data Model
 
+> **Status after REM-5 (migration 0016):** the objects marked DEPRECATED below (expenses, the Hasad withdrawal tables,
+> `settlements`, `hasad_mock.*`, the old item cost and reservation columns, RESERVED/REDEEMED) no longer exist. This
+> document dates from the prototype; the schema of record is `database/src/schema.ts` (BACKLOG section G).
+
 Source of truth: [`database/src/schema.ts`](../database/src/schema.ts) (Drizzle). SQL migrations are in
 `database/migrations/`. This is a **prototype** model designed around the requirements. Items marked ⚙
 are expected to evolve once the client confirms accounting rules.

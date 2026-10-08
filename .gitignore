@@ -6,3 +6,6 @@ dist/
 .env.local
 coverage/
 .DS_Store
+
+# scripts/check-drizzle.mjs and its test (throw-away copies)
+database/.drizzle-check-*

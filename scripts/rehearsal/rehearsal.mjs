@@ -543,6 +543,27 @@ async function main() {
     check(['SUPPLIER_CREATED', 'ITEM_TYPE_CREATED', 'PRODUCT_CREATED', 'SCRAP_RATE_CHANGED'].every((a) => actions.has(a)), 'the audit log shows the supplier, type and products created and the scrap rate set');
     check(actions.has('ALLOWED_KARATS_CONFIRMED'), 'the audit log shows the confirmation of the allowed karats');
 
+    section('REM-5: no deprecated schema left');
+    const rdb = new pg.Client({ connectionString: dbUrl.toString() });
+    await rdb.connect();
+    try {
+      const one = async (q) => (await rdb.query(q)).rows;
+      const gone = await one(`SELECT
+          (SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('expenses', 'hasad_withdrawals', 'hasad_redemptions', 'hasad_redemption_items', 'settlements'))::int AS tables,
+          (SELECT count(*) FROM pg_namespace WHERE nspname = 'hasad_mock')::int AS schema,
+          (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND (
+             (table_name = 'jewelry_items' AND column_name IN ('purchase_cost', 'making_cost', 'other_cost', 'total_cost', 'reservation_ref', 'reserved_at', 'reserved_by'))
+             OR (table_name = 'sessions' AND column_name = 'is_simulated') OR (table_name = 'branches' AND column_name = 'hasad_branch_code')))::int AS columns,
+          (SELECT count(*) FROM pg_proc WHERE proname = 'jerp_refuse_deprecated_insert')::int AS fn,
+          (SELECT count(*) FROM settings WHERE key = 'hasad.enabledPerBranch')::int AS setting`);
+      check(Object.values(gone[0]).every((n) => n === 0), `the production database has none of the removed tables, schema, columns, function or settings row (${JSON.stringify(gone[0])})`);
+      const [m] = await one('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations');
+      const [u] = await one(`SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'purchase_items_item_id_unique'`);
+      check(m.n === 17 && u.n === 1, `all 17 migrations (0000–0016) applied, one supplier line per piece enforced (${m.n} migrations)`);
+    } finally {
+      await rdb.end();
+    }
+
     section('REM-3: a fresh demo-mode database');
     // `npm run demo` without a terminal: prints the bootstrap command and stops cleanly (no GM is invented).
     const demoDir = path.join(tmp, 'demo-cli');

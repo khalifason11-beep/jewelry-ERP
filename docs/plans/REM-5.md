@@ -1,6 +1,6 @@
 # REM-5 plan: drop the deprecated tables, columns and values
 
-Status: **PLAN, awaiting the owner's approval. No code has been written.**
+Status: **APPROVED and implemented** (owner answers 1–5 and additions A–C; see docs/decisions.md D-rem5-* and docs/acceptance/REM-5.md).
 Branch: `claude/hopeful-sagan-lehxyp`. Based on commit `6c2b65e` (after REM-3).
 
 REM-1 (expenses) and REM-2 (Hasad as a sales channel only) removed features but kept their tables, columns and enum

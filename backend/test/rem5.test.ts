@@ -10,7 +10,7 @@ import { randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { createDatabase, MIGRATIONS_DIR, type DatabaseHandle } from '@jerp/database';
-import { openTestDatabase, PG_MODE } from './helpers';
+import { dropTestDatabase, openTestDatabase, PG_MODE } from './helpers';
 
 const rowsOf = <T,>(r: unknown): T[] => ((r as { rows?: T[] }).rows ?? (r as T[]));
 /** Run one or more statements (separated by `;`; none of these scripts has a `;` inside a string); returns the last result's rows. */
@@ -58,7 +58,7 @@ async function openAt15(): Promise<DatabaseHandle> {
     dropAfter.push(async () => {
       const a = new pg.Client({ connectionString: base });
       await a.connect();
-      await a.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+      await dropTestDatabase(a, name);
       await a.end();
     });
   }

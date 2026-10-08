@@ -1,8 +1,10 @@
 // REM-3 gates (run by `npm run typecheck`): no destructive statement in a new migration without a written
 // reason, and no product code that imports test code. Pure functions, tested with sample SQL and sources.
 
+import fs from 'node:fs';
 import path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { PG_MODE } from './helpers';
 
 type MigrationsGate = {
   BASELINE: number;
@@ -10,12 +12,15 @@ type MigrationsGate = {
   migrationNumber: (file: string) => number | null;
   checkMigrationsDir: (dir: string) => unknown[];
 };
+type DrizzleGate = { checkDrizzle: (o?: { schema?: string }) => { ok: boolean; output: string; written: string[] } };
 type ImportsGate = { isTestImport: (from: string, spec: string, root?: string) => boolean; testImportsIn: (from: string, src: string, root?: string) => string[] };
 
 const ROOT = path.resolve(__dirname, '../..');
 let mig: MigrationsGate;
 let imp: ImportsGate;
+let drz: DrizzleGate;
 beforeAll(async () => {
+  drz = (await import(path.join(ROOT, 'scripts/check-drizzle.mjs') as string)) as DrizzleGate;
   mig = (await import(path.join(ROOT, 'scripts/check-migrations.mjs') as string)) as MigrationsGate;
   imp = (await import(path.join(ROOT, 'scripts/check-test-imports.mjs') as string)) as ImportsGate;
 });
@@ -93,4 +98,39 @@ describe('test-import gate', () => {
   it('allows ordinary imports', () => {
     expect(imp.testImportsIn(from('backend/src/a.ts'), "import { t } from '@jerp/database';\nimport { x } from './core/test-utils-not-a-folder';\nimport fs from 'node:fs';", ROOT)).toEqual([]);
   });
+});
+
+// drizzle-kit runs without a database, so once (in the PGlite project) is enough.
+describe.skipIf(PG_MODE)('drizzle snapshot gate (REM-5)', () => {
+  const fixture = (name: string, body: string) => {
+    const file = path.join(ROOT, 'database', `.drizzle-check-fixture-${name}.ts`);
+    fs.writeFileSync(file, body);
+    return { rel: `./${path.basename(file)}`, done: () => fs.rmSync(file, { force: true }) };
+  };
+  it('passes on the real schema: the snapshots match, drizzle-kit would generate nothing', () => {
+    const r = drz.checkDrizzle();
+    expect(r.written).toEqual([]);
+    expect(r.ok).toBe(true);
+  }, 120_000);
+  it('fails on a cut-down schema file (the CAT-0 incident: it would generate DROP TABLE for live tables)', () => {
+    const f = fixture('cut', "export { branches, users, roles } from './src/schema';\n");
+    try {
+      const r = drz.checkDrizzle({ schema: f.rel });
+      expect(r.ok).toBe(false);
+      expect(r.written.length).toBeGreaterThan(0);
+    } finally {
+      f.done();
+    }
+  }, 120_000);
+  it('fails on a schema change without its migration', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'database/src/schema.ts'), 'utf8').replace("  city: text('city').notNull(),", "  city: text('city').notNull(),\n  extraColumn: text('extra_column'),");
+    const f = fixture('changed', src.replace(/from '\.\//g, "from './src/"));
+    try {
+      const r = drz.checkDrizzle({ schema: f.rel });
+      expect(r.ok).toBe(false);
+      expect(r.written.length, r.output.slice(-400)).toBeGreaterThan(0);
+    } finally {
+      f.done();
+    }
+  }, 120_000);
 });

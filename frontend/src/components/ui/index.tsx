@@ -125,7 +125,6 @@ const STATUS_TONE: Record<string, string> = {
   IN_TRANSIT: 'bg-amber-50 text-amber-800 ring-amber-600/25',
   TRANSFERRED: 'bg-amber-50 text-amber-800 ring-amber-600/25',
   IDLE: 'bg-amber-50 text-amber-800 ring-amber-600/25',
-  READY_FOR_PICKUP: 'bg-sky-50 text-sky-800 ring-sky-600/25',
   SOLD: 'bg-ink-900/5 text-ink-700 ring-ink-600/20',
   SALE: 'bg-ink-900/5 text-ink-700 ring-ink-600/20',
   DAMAGED: 'bg-rose-50 text-rose-700 ring-rose-600/20',
@@ -138,8 +137,6 @@ const STATUS_TONE: Record<string, string> = {
   LOGIN_FAILED: 'bg-rose-50 text-rose-700 ring-rose-600/20',
   RETURNED: 'bg-violet-50 text-violet-700 ring-violet-600/20',
   RETURN: 'bg-violet-50 text-violet-700 ring-violet-600/20',
-  BRANCH_PAYS_CUSTOMER: 'bg-rose-50 text-rose-700 ring-rose-600/20',
-  CUSTOMER_PAYS_BRANCH: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
 };
 
 export function Badge({ children, tone, className }: { children: ReactNode; tone?: string; className?: string }) {

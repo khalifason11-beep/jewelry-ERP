@@ -64,39 +64,12 @@
     "reason": "The per-branch Hasad receivable and its settlement by Hasad's bank transfer (D-4-14), kept by REM-2 pending Q-7."
   },
   {
-    "category": "DEPRECATED_UNTIL_REM5",
-    "files": [
-      "shared/src/enums.ts",
-      "shared/src/db-checks.ts",
-      "shared/src/field-classification.ts",
-      "database/src/schema.ts",
-      "database/src/client.ts",
-      "backend/src/modules/ledger/service.ts",
-      "backend/src/modules/reports/service.ts",
-      "frontend/src/pages/dashboard/BranchDashboardPage.tsx",
-      "frontend/src/lib/i18n-ar.ts"
-    ],
-    "match": "HASAD_REDEMPTION|HASAD_WITHDRAWAL|HASAD_EXTERNAL|HASAD_SETTLEMENT|HasadWithdrawalStatus|HasadExternalStatusValue|HasadRedemptionStatus|HASAD_WEIGHT_DIFFERENCE|hasad_withdrawals|hasad_redemptions|hasad_redemption_items|hasadWithdrawals|hasadRedemptions|hasadRedemptionItems|hasadCustomerId|hasad_customer_id|ERP-side lifecycle of a Hasad withdrawal request|hasad_branch_code|hasad_mock|Hasad Gold \\(ERP side, DEPRECATED\\)|Hasad weight-difference|Hasad withdrawal workspace was removed|Hasad Gold system reports|Hasad branch identifier of the removed integration|ERP mirror of withdrawal requests received from Hasad Gold|Hasad is only a payment method now|\"settlement\": \"تسوية حصاد\"",
-    "reason": "Historical tables, columns, CHECKs, enum values, classifications and history labels kept for old rows until REM-5 drops them (BACKLOG REM-5)."
-  },
-  {
-    "category": "MIGRATION",
-    "files": [
-      "frontend/src/lib/i18n-ar.ts"
-    ],
-    "match": "Written by migration 0014 \\(pieces released when the Hasad workspace was removed\\)",
-    "reason": "Arabic for the audit key written by migration 0014 when it released reserved pieces."
-  },
-  {
     "category": "REMOVAL_COMMENT",
     "files": [
-      "backend/src/modules/ledger/service.ts",
-      "backend/src/modules/reports/service.ts",
-      "frontend/src/pages/dashboard/BranchDashboardPage.tsx",
       "frontend/src/lib/i18n-ar.ts",
       "backend/src/modules/sales/service.ts"
     ],
-    "match": "removed Hasad|Hasad weight-difference settlements were removed|REM-2: Hasad only as a payment channel|حصاد is only a payment channel \\(REM-2\\)|Hasad receivable \\(HASAD, D-4-6\\)",
+    "match": "REM-2: Hasad only as a payment channel|حصاد is only a payment channel \\(REM-2\\)|Hasad receivable \\(HASAD, D-4-6\\)",
     "reason": "Comments that explain what REM-2 removed and why historical figures still count."
   },
   {
