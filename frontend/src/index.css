@@ -3,6 +3,8 @@
 @theme {
   --font-sans: 'IBM Plex Sans', 'IBM Plex Sans Arabic', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+  /* Sign-in page only (D-ux-8, D-ui-15): self-hosted in assets/fonts/amiri, loaded by AuthFrame. */
+  --font-display: 'Amiri', 'IBM Plex Sans Arabic', serif;
 
   /* ── Design tokens (UI-A1): the values of docs/design-reference/tokens.md, whose source of truth is the CSS of
      the approved mockups (docs/ux/mockups/gm-home.html). Change a value there, here and in tokens.md together. */

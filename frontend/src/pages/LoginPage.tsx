@@ -41,7 +41,7 @@ export function LoginPage() {
   };
 
   return (
-    <AuthFrame languageSwitch>
+    <AuthFrame languageSwitch tagline>
       <Card className="p-7">
         {pending ? (
           <SecondStep pending={pending} onBack={() => { setPending(null); setError(null); }} />
@@ -52,7 +52,11 @@ export function LoginPage() {
                 <span data-testid="session-ended">{t('Your session ended. Sign in again.')}</span>
               </Alert>
             )}
-            <h1 className="text-title font-semibold text-ink">{t('Sign in')}</h1>
+            {/* D-ux-8: the display font on the sign-in page only; the form title stays "Sign in". */}
+            <p className="font-display text-[26px] leading-tight text-ink" data-testid="welcome-back">
+              {t('Welcome back')}
+            </p>
+            <h1 className="mt-1 text-title font-semibold text-ink">{t('Sign in')}</h1>
             <p className="mt-1 text-meta text-ink-3">{t('Use the account assigned to you by the General Manager.')}</p>
 
             <form onSubmit={submit} className="mt-6 space-y-4">

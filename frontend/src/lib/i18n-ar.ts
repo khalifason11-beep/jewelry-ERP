@@ -1562,4 +1562,6 @@ export const AR: Record<string, string> = {
   "Sign-in tagline (English)": "عبارة صفحة الدخول (بالإنجليزية)",
   "Optional: English shows the Arabic one when this is empty.": "اختيارية: تُعرض العبارة العربية بالإنجليزية إن تُركت فارغة.",
   "Plain text on one line only (no < >, no line breaks)": "نص عادي في سطر واحد فقط (دون < > ودون أسطر جديدة)",
+  // UI-A2: sign-in page display line (D-ux-8, D-ui-15).
+  "Welcome back": "أهلاً بعودتك",
 };

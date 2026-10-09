@@ -418,6 +418,45 @@ async function main() {
     await page.getByTestId('notices').waitFor();
     await page.getByTestId('backup-banner').waitFor({ timeout: 15_000 });
     check((await page.locator('[data-testid=notices] [data-testid=backup-banner]').count()) === 1 && (await page.getByTestId('backup-banner').count()) === 1, 'the backup notice is in the shell notice area, no longer a card on the home');
+    // UI-A2 (D-ui-14/15): the General Manager's tagline on the public sign-in page, in the self-hosted Amiri font.
+    const TAGLINE = 'ذهب سوداني منذ ١٩٨٠';
+    const saveTagline = async (v) => {
+      await page.goto(`${origin}/settings`);
+      await page.getByTestId('tagline-ar').waitFor({ timeout: 15_000 });
+      await page.fill('[data-testid=tagline-ar]', v);
+      await page.click('[data-testid=save-company]');
+      await confirmIfAsked(page, GM.password);
+      await waitFor(async () => (await (await page.request.get(`${origin}/api/meta`)).json()).branding.tagline.ar === v, 'the tagline saved', 15_000);
+    };
+    await saveTagline(TAGLINE);
+    const anon = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1366, height: 768 } });
+    const lp = await anon.newPage();
+    const foreign = [];
+    lp.on('request', (r) => !r.url().startsWith(origin) && !r.url().startsWith('data:') && foreign.push(r.url()));
+    await lp.goto(`${origin}/login`);
+    await lp.getByTestId('login-tagline').waitFor({ timeout: 15_000 });
+    const amiri = await lp.evaluate(async () => {
+      await document.fonts.ready;
+      return [...document.fonts].filter((f) => f.family.replace(/"/g, '') === 'Amiri' && f.status === 'loaded').length;
+    });
+    check((await lp.getByTestId('login-tagline').innerText()) === TAGLINE && amiri > 0 && foreign.length === 0, `signed out, the sign-in page shows the tagline in Amiri (self-hosted: ${foreign.length} requests elsewhere)`);
+    await lp.evaluate(() => localStorage.setItem('jerp.lang', 'en'));
+    await lp.reload();
+    await lp.getByTestId('welcome-back').waitFor();
+    check((await lp.getByTestId('login-tagline').innerText()) === TAGLINE && /Welcome back/.test(await lp.getByTestId('welcome-back').innerText()), 'in English, "Welcome back" and the Arabic tagline (no English one set)');
+    await page.reload();
+    await page.getByTestId('tagline-ar').waitFor();
+    const amiriInApp = await page.evaluate(async () => {
+      await document.fonts.ready;
+      return [...document.fonts].filter((f) => f.family.replace(/"/g, '') === 'Amiri' && f.status === 'loaded').length;
+    });
+    check(amiriInApp === 0, 'inside the application Amiri is never downloaded (sign-in page only)');
+    await saveTagline('');
+    await lp.reload();
+    await lp.getByTestId('welcome-back').waitFor();
+    check((await lp.getByTestId('login-tagline').count()) === 0, 'an empty tagline shows nothing on the sign-in page');
+    await anon.close();
+
     // UI-A2 (D-ui-11): every list says what is empty, in the screen's own words, in both languages; no generic
     // "Nothing to show", no "Loading…" left behind, no table of zeros.
     await emptyStates(page, origin, 'General Manager', [

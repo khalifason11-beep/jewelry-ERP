@@ -107,7 +107,8 @@ async function sweep(page, who, paths) {
   const crashed = [];
   for (const p of paths) {
     await page.goto(`${BASE}${p}`);
-    await page.waitForLoadState('networkidle');
+    // Screens that poll (POS, homes) may never be fully idle: wait for quiet, at most 8 s, then look.
+    await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {});
     if (await page.getByTestId('crash-page').count()) crashed.push(p);
   }
   await page.unroute(isApi, slow);
