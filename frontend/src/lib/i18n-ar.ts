@@ -1076,7 +1076,7 @@ export const AR: Record<string, string> = {
   "Paid": "المدفوع",
   "Paid by": "طريقة الدفع",
   "Payment methods at the counter": "طرق الدفع في نقطة البيع",
-  "Payment references are only recorded for Hasad payments": "تُسجَّل مراجع الدفع لمدفوعات حصاد فقط",
+  "A reference is recorded only for bank transfer and Hasad payments": "يُسجَّل المرجع لمدفوعات التحويل البنكي وحصاد فقط",
   "Piece {code} is now AVAILABLE for sale. Paid {amount}.": "القطعة {code} متاحة الآن للبيع. المبلغ المدفوع {amount}.",
   "Price per gram": "السعر للغرام",
   "Purchase {number} partly settled with broken scrap ({settlement})": "سُدِّد جزء من المشتريات {number} بالكسر ({settlement})",
@@ -1584,4 +1584,13 @@ export const AR: Record<string, string> = {
   "Give a reason for the price change ({code})": "اذكر سبب تغيير السعر ({code})",
   "The reason for the price change is too long": "سبب تغيير السعر أطول من المسموح",
   "Sale {number}: price changed on {codes}. Reason: {reason}": "البيع {number}: تغيّر السعر على {codes}. السبب: {reason}",
+  // FIX-2: the bank-transfer reference (D-fix-2).
+  "Bank transfer reference": "مرجع التحويل البنكي",
+  "Bank transfer reference (required)": "مرجع التحويل البنكي (إلزامي)",
+  "Enter the bank transfer reference": "أدخل مرجع التحويل البنكي",
+  "The bank transfer reference must be 4 to 40 letters or digits": "يجب أن يكون مرجع التحويل البنكي من 4 إلى 40 حرفاً أو رقماً",
+  "This reference is already on sale {number}. Record it anyway?": "هذا المرجع مسجّل على البيع {number}. هل تسجّله رغم ذلك؟",
+  "One bank transfer can pay two sales. Recording it again is noted in the audit log.": "قد يسدّد تحويل بنكي واحد بيعتين. تسجيله مرة أخرى يُدوَّن في سجل التدقيق.",
+  "Record anyway": "سجّل رغم ذلك",
+  "Bank-transfer sales ({n})": "مبيعات التحويل البنكي ({n})",
 };

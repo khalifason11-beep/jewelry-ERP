@@ -220,7 +220,7 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
   const start = dayStart(day, company.timezone);
   const end = dayStart(addDays(day, 1), company.timezone);
   const entries = await ctx.db
-    .select({ amount: t.ledgerEntries.amount, eventType: t.ledgerEntries.eventType, paymentMethod: t.ledgerEntries.paymentMethod, kind: t.ledgerAccounts.kind })
+    .select({ amount: t.ledgerEntries.amount, eventType: t.ledgerEntries.eventType, paymentMethod: t.ledgerEntries.paymentMethod, kind: t.ledgerAccounts.kind, refType: t.ledgerEntries.refType, refId: t.ledgerEntries.refId })
     .from(t.ledgerEntries)
     .innerJoin(t.ledgerAccounts, eq(t.ledgerAccounts.id, t.ledgerEntries.accountId))
     .where(and(eq(t.ledgerEntries.branchId, branchId), gte(t.ledgerEntries.at, start), lt(t.ledgerEntries.at, end)));
@@ -235,6 +235,23 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
     .where(and(eq(t.cashCounts.branchId, branchId), eq(t.cashCounts.businessDay, day)))
     .orderBy(sql`${t.cashCounts.at} DESC`, sql`${t.cashCounts.id} DESC`)
     .limit(1);
+  // FIX-2: the drill-down of the day's bank-transfer sales, one row per SALE entry (same entries as the
+  // BANK_TRANSFER line of salesByMethod, so they add up to it), with each sale's reference.
+  const bankSaleIds = entries.filter((e) => e.eventType === 'SALE' && e.paymentMethod === 'BANK_TRANSFER' && e.refType === 'sale' && e.refId != null).map((e) => e.refId!);
+  const bankSales = bankSaleIds.length
+    ? await ctx.db
+        .select({ id: t.sales.id, number: t.sales.number, at: t.sales.createdAt, reference: t.sales.paymentRefTransaction, status: t.sales.status })
+        .from(t.sales)
+        .where(inArray(t.sales.id, bankSaleIds))
+    : [];
+  const bankSaleById = new Map(bankSales.map((s) => [s.id, s]));
+  const bankTransferSales = entries
+    .filter((e) => e.eventType === 'SALE' && e.paymentMethod === 'BANK_TRANSFER')
+    .map((e) => {
+      const s = e.refId != null ? bankSaleById.get(e.refId) : undefined;
+      return { saleId: s?.id ?? null, number: s?.number ?? null, at: s?.at ?? null, amount: e.amount, reference: s?.reference ?? null, status: s?.status ?? null };
+    })
+    .sort((a, z) => (a.at?.getTime() ?? 0) - (z.at?.getTime() ?? 0));
   const countedBy = count ? (await ctx.db.select({ name: t.users.fullName }).from(t.users).where(eq(t.users.id, count.countedBy)))[0]?.name ?? null : null;
   return {
     branchId,
@@ -253,6 +270,7 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
     makingChargesBank: sum((e) => e.eventType === 'SUPPLIER_MAKING_CHARGE' && e.kind === 'BANK'),
     cashLines: reconciliationLines('CASH', entries),
     bankLines: reconciliationLines('BANK', entries),
+    bankTransferSales,
     cashMovement: cashIn,
     bankMovement: sum((e) => e.kind === 'BANK'),
     expectedCash,

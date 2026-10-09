@@ -781,6 +781,57 @@ async function main() {
     await page.click('[data-testid=use-passkey]');
     await pathIs(page, ['/overview']);
 
+    section('FIX-2: a bank transfer needs its reference; the same reference twice asks first');
+    await signOut(page);
+    await signIn(page, origin, CASHIER.username, CASHIER.password);
+    await pathIs(page, ['/pos']);
+    const bankSaleAt = async (ref) => {
+      await page.getByTestId('pos-product').first().click();
+      await page.getByTestId('pos-payment-methods').getByText('تحويل بنكي').click();
+      await page.getByTestId('bank-reference').waitFor();
+      const disabled = await page.getByTestId('pos-complete').isDisabled();
+      await page.fill('[data-testid=bank-reference]', ref);
+      return disabled;
+    };
+    const wasDisabled = await bankSaleAt('حوالة ٩٠١٢-REH');
+    check(wasDisabled, 'cashier: "Bank transfer" shows the reference field; "Complete sale" is disabled until it is filled');
+    check(await page.getByTestId('pos-complete').isDisabled(), 'Arabic letters are not a valid reference: still disabled');
+    await page.fill('[data-testid=bank-reference]', ' trf ٩٠١٢-reh ');
+    let resp = page.waitForResponse((r) => r.url().endsWith('/api/sales') && r.request().method() === 'POST');
+    await page.click('[data-testid=pos-complete]');
+    const bankSale1 = await (await resp).json();
+    check(bankSale1.paymentRefTransaction === 'TRF 9012-REH', `sale ${bankSale1.number}: the reference is stored normalized ("TRF 9012-REH", Arabic-Indic digits → ASCII)`);
+    await page.keyboard.press('Escape');
+    await bankSaleAt('TRF 9012-REH');
+    resp = page.waitForResponse((r) => r.url().endsWith('/api/sales') && r.request().method() === 'POST');
+    await page.click('[data-testid=pos-complete]');
+    check((await (await resp).json()).error?.code === 'DUPLICATE_BANK_REFERENCE', 'a second sale with the same reference is not recorded at once…');
+    await page.getByTestId('bank-reference-confirm').waitFor();
+    resp = page.waitForResponse((r) => r.url().endsWith('/api/sales') && r.request().method() === 'POST');
+    await page.click('[data-testid=bank-reference-confirm]');
+    const bankSale2 = await (await resp).json();
+    check(bankSale2.paymentRefTransaction === 'TRF 9012-REH' && bankSale2.number !== bankSale1.number, `…the cashier confirms and it is recorded (${bankSale2.number}); the audit log notes the duplicate`);
+    await page.keyboard.press('Escape');
+    await signOut(page);
+    await signIn(page, origin, BM.username, BM.password);
+    await pathIs(page, ['/dashboard']);
+    await page.goto(`${origin}/sales/${bankSale1.id}`);
+    check((await page.getByTestId('sale-bank-reference').innerText({ timeout: 15_000 })).trim() === 'TRF 9012-REH', 'branch manager: the sale detail shows the bank transfer reference');
+    await page.goto(`${origin}/cash`);
+    await page.getByTestId('bank-transfer-sales-toggle').click({ timeout: 15_000 });
+    const drill = await page.getByTestId('bank-transfer-sale').allInnerTexts();
+    const recB = (await apiGet(page, '/api/cash/reconciliation')).body;
+    const bankLine = recB.salesByMethod.find((m) => m.paymentMethod === 'BANK_TRANSFER').amount;
+    check(
+      drill.length === 2 && drill.every((x) => x.includes('TRF 9012-REH')) && recB.bankTransferSales.reduce((a, x) => a + x.amount, 0) === bankLine,
+      `Cash: "Bank-transfer sales" lists both sales with their reference; they add up to the bank-transfer sales line (${bankLine})`,
+    );
+    await signOut(page);
+    await signIn(page, origin, GM.username, GM.password);
+    await page.getByTestId('second-step').waitFor();
+    await page.click('[data-testid=use-passkey]');
+    await pathIs(page, ['/overview']);
+
     section('REM-5: no deprecated schema left');
     const rdb = new pg.Client({ connectionString: dbUrl.toString() });
     await rdb.connect();

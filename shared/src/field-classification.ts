@@ -191,6 +191,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates
     lockedAccounts lockedAt securityLockedAt
     voidReauthAboveAmount priceChangeReason
+    bankTransferSales reference bankTransfer confirmDuplicateReference
   `),
 );
 

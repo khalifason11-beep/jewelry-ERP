@@ -32,6 +32,8 @@ export interface SaleRow {
   costTotal?: number;
   grossProfit?: number;
   paymentMethod: string;
+  /** FIX-2: the bank-transfer reference (Hasad: its transaction reference). */
+  paymentRefTransaction?: string | null;
   status: string;
 }
 
@@ -71,7 +73,16 @@ export function SalesTable({ branchId, from, to, mine, toolbar }: { branchId?: n
               { key: 'grossProfit', header: t('Gross Profit'), align: 'end' as const, render: (r: SaleRow) => <span className="num text-emerald-700">{money(r.grossProfit, false)}</span>, footer: money(done.reduce((s, r) => s + (r.grossProfit ?? 0), 0), false) },
             ]
           : []),
-        { key: 'paymentMethod', header: t('Payment'), render: (r) => <span className="text-[12px] text-ink-600">{t(r.paymentMethod)}</span> },
+        {
+          key: 'paymentMethod',
+          header: t('Payment'),
+          render: (r) => (
+            <span className="text-[12px] text-ink-600">
+              {t(r.paymentMethod)}
+              {r.paymentMethod === 'BANK_TRANSFER' && <span className="block font-mono text-[11px] text-ink-500">{r.paymentRefTransaction ?? '—'}</span>}
+            </span>
+          ),
+        },
         { key: 'status', header: t('Status'), render: (r) => <StatusBadge status={r.status} /> },
       ]}
     />
@@ -255,6 +266,10 @@ export function SaleDetailPage() {
                 { label: t('Discount'), value: money(s.discountTotal) },
                 { label: t('Total'), value: <span className="text-lg">{money(s.total)}</span> },
                 { label: t('Payment'), value: t(s.paymentMethod) },
+                // FIX-2: the bank-transfer reference (a sale recorded before FIX-2 shows "—").
+                ...(s.paymentMethod === 'BANK_TRANSFER'
+                  ? [{ label: t('Bank transfer reference'), value: <span className="font-mono" data-testid="sale-bank-reference">{s.paymentRefTransaction ?? '—'}</span> }]
+                  : []),
                 ...(profit
                   ? [
                       { label: t('Cost of sale'), value: money(s.costTotal) },

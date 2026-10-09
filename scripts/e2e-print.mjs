@@ -274,6 +274,17 @@ async function main() {
     check(payload5.includes(sale5.body.number) && !payload5.includes(PRICE_REASON) && !(await printRootText(cashier)).includes(PRICE_REASON), 'SEC-2: the price-change reason is neither in the print payload nor on the A4 invoice');
     const five4 = await exportPdf(cashier, 'invoice-A4-5-lines.pdf');
     check(Math.abs(pages(five4.pdf)[0].w - 210) < 1, 'A4 PDF of the 5-line invoice exported');
+    check(!(await printRootText(cashier)).includes('مرجع التحويل البنكي'), 'FIX-2: a cash invoice has no bank-transfer reference');
+
+    // FIX-2 (D-fix-2): a bank-transfer sale prints its reference (typed with Arabic-Indic digits, stored normalized).
+    const bankSale = await api(cashier, 'POST', '/sales', { items: [{ itemId: stock[5].id }], paymentMethod: 'BANK_TRANSFER', paymentRefTransaction: ' trf ٧٧٨٨-e2e ' });
+    check(bankSale.status === 200 && bankSale.body.paymentRefTransaction === 'TRF 7788-E2E', `bank-transfer sale ${bankSale.body.number} recorded with the normalized reference "TRF 7788-E2E"`);
+    await cashier.emulateMedia({ media: 'screen' });
+    await cashier.goto(`${BASE}/sales/${bankSale.body.id}`);
+    await cashier.getByTestId('sale-print').click();
+    await cashier.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
+    const bankA4 = await printRootText(cashier);
+    check(bankA4.includes('مرجع التحويل البنكي') && bankA4.includes('TRF 7788-E2E'), 'FIX-2: the A4 invoice of a bank-transfer sale shows "Bank transfer reference: TRF 7788-E2E"');
 
     // ── GM: switch to a 72 mm receipt, reprint the same sale → COPY 1 ──
     const gm = await newPage(browser);
@@ -335,6 +346,16 @@ async function main() {
     const etext = await printRootText(gm);
     await gm.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
     check(/Bank transfer/.test(etext) && !/BANK_TRANSFER/.test(etext), 'English invoice: the payment method reads "Bank transfer", not the code');
+    // FIX-2: the real bank-transfer sale as a 72 mm receipt (reprint).
+    await gm.emulateMedia({ media: 'screen' });
+    await gm.goto(`${BASE}/sales/${bankSale.body.id}`);
+    await gm.getByTestId('sale-print').click();
+    await gm.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
+    const bankRc = await printRootText(gm);
+    check(bankRc.includes('مرجع التحويل البنكي') && bankRc.includes('TRF 7788-E2E'), 'FIX-2: the 72 mm receipt of the bank-transfer sale shows its reference');
+    const ob = await orphans(gm);
+    check(ob.length === 0, `72 mm bank-transfer receipt: no orphaned token${ob.length ? ` (found: ${ob.join(' | ')})` : ''}`);
+    await gm.emulateMedia({ media: 'screen' });
     const audit = (await api(gm, 'GET', '/audit?entityType=sale&limit=50')).body;
     check(audit.some((a) => a.action === 'INVOICE_REPRINTED' && a.entityId === sale.number), 'INVOICE_REPRINTED audit entry for the sale');
 

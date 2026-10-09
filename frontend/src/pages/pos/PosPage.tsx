@@ -19,8 +19,8 @@ import {
   Wheat,
   X,
 } from 'lucide-react';
-import type { PaymentMethod } from '@jerp/shared';
-import { get, postOnce } from '../../lib/api';
+import { validBankReference, type PaymentMethod } from '@jerp/shared';
+import { ApiError, get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { grams, karatLabel, money, relative } from '../../lib/format';
 import { useBranches, useCategories, useDebounced } from '../../lib/hooks';
@@ -85,6 +85,10 @@ export function PosPage() {
   const [hasadTxn, setHasadTxn] = useState('');
   // SEC-2 (D-sec2-2): one reason for every price change in this sale; internal, never printed.
   const [priceReason, setPriceReason] = useState('');
+  // FIX-2 (D-fix-2): the bank-transfer reference, required for a bank transfer; normalized as the server does.
+  const [bankRef, setBankRef] = useState('');
+  const bankRefOk = payment !== 'BANK_TRANSFER' || !!validBankReference(bankRef);
+  const [duplicateOf, setDuplicateOf] = useState<string | null>(null);
   const payMethods = me?.posPaymentMethods?.length ? me.posPaymentMethods : DEFAULT_POS_METHODS;
   const sellableKarats = me?.allowedKarats ?? [];
   const [invoice, setInvoice] = useState<SaleDetail | null>(null);
@@ -144,6 +148,8 @@ export function PosPage() {
     setHasadInvoice('');
     setHasadTxn('');
     setPriceReason('');
+    setBankRef('');
+    setDuplicateOf(null);
   };
 
   // Barcode scanners type the code and press Enter.
@@ -172,7 +178,7 @@ export function PosPage() {
 
   const actionKeys = useActionKeys();
   const complete = useMutation({
-    mutationFn: () =>
+    mutationFn: (opts: { confirmDuplicate?: boolean } = {}) =>
       postOnce<SaleDetail>('/sales', {
         branchId,
         items: cart.map((l) => ({ itemId: l.item.id, discount: l.discount })),
@@ -181,6 +187,7 @@ export function PosPage() {
         customerName: customerName || undefined,
         customerPhone: customerPhone || undefined,
         ...(priceChanged ? { priceChangeReason: priceReason.trim() } : {}),
+        ...(payment === 'BANK_TRANSFER' ? { paymentRefTransaction: validBankReference(bankRef) ?? bankRef, ...(opts.confirmDuplicate ? { confirmDuplicateReference: true } : {}) } : {}),
       }, actionKeys.for('sale')),
     onSuccess: (sale) => {
       actionKeys.rotate('sale');
@@ -192,6 +199,11 @@ export function PosPage() {
       qc.invalidateQueries({ queryKey: ['my-sales'] });
     },
     onError: (e) => {
+      // FIX-2: the same bank reference is already on another sale of this branch: ask before recording it.
+      if (e instanceof ApiError && e.code === 'DUPLICATE_BANK_REFERENCE') {
+        setDuplicateOf((e.details as { number?: string } | undefined)?.number ?? '—');
+        return;
+      }
       toast.fromError(e, t('Sale not completed'));
       qc.invalidateQueries({ queryKey: ['pos-items'] });
     },
@@ -398,6 +410,21 @@ export function PosPage() {
               <Input value={hasadTxn} onChange={(e) => setHasadTxn(e.target.value)} maxLength={80} placeholder={t('Transaction reference (optional)')} aria-label={t('Transaction reference (optional)')} className="h-8 text-[13px]" />
             </div>
           )}
+          {payment === 'BANK_TRANSFER' && (
+            <div className="mt-2">
+              <Input
+                value={bankRef}
+                onChange={(e) => setBankRef(e.target.value)}
+                maxLength={60}
+                placeholder={t('Bank transfer reference (required)')}
+                aria-label={t('Bank transfer reference')}
+                aria-invalid={bankRef.trim() !== '' && !bankRefOk}
+                className="h-8 font-mono text-[13px]"
+                data-testid="bank-reference"
+              />
+              {bankRef.trim() !== '' && !bankRefOk && <p className="mt-1 text-[11.5px] text-crit">{t('The bank transfer reference must be 4 to 40 letters or digits')}</p>}
+            </div>
+          )}
           {priceChanged && (
             <div className="mt-2">
               <Input
@@ -432,7 +459,7 @@ export function PosPage() {
               <dd className="text-2xl font-semibold tracking-tight num">{money(totals.total)}</dd>
             </div>
           </dl>
-          <Button variant="primary" size="lg" className="mt-3 w-full text-[15px]" disabled={!cart.length || !branchId || (payment === 'HASAD' && !hasadInvoice.trim()) || !priceReasonOk} loading={complete.isPending} onClick={() => complete.mutate()} data-testid="pos-complete">
+          <Button variant="primary" size="lg" className="mt-3 w-full text-[15px]" disabled={!cart.length || !branchId || (payment === 'HASAD' && !hasadInvoice.trim()) || !priceReasonOk || !bankRefOk} loading={complete.isPending} onClick={() => complete.mutate({})} data-testid="pos-complete">
             {t('Complete Sale')} <ArrowRight className="size-4 rtl:rotate-180" />
           </Button>
           <div className="mt-2 grid grid-cols-3 gap-2">
@@ -442,6 +469,31 @@ export function PosPage() {
           </div>
         </div>
       </aside>
+
+      <Dialog
+        open={!!duplicateOf}
+        onClose={() => setDuplicateOf(null)}
+        title={t('This reference is already on sale {number}. Record it anyway?', { number: duplicateOf ?? '' })}
+        subtitle={t('One bank transfer can pay two sales. Recording it again is noted in the audit log.')}
+        footer={
+          <>
+            <Button onClick={() => setDuplicateOf(null)}>{t('Back')}</Button>
+            <Button
+              variant="primary"
+              loading={complete.isPending}
+              data-testid="bank-reference-confirm"
+              onClick={() => {
+                setDuplicateOf(null);
+                complete.mutate({ confirmDuplicate: true });
+              }}
+            >
+              {t('Record anyway')}
+            </Button>
+          </>
+        }
+      >
+        <p className="font-mono text-[13px] text-ink-600">{validBankReference(bankRef) ?? bankRef}</p>
+      </Dialog>
 
       <Dialog
         open={confirmCancel}

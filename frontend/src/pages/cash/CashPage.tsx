@@ -5,10 +5,11 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRightLeft, Banknote, Calculator, Landmark } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowRightLeft, Banknote, Calculator, ChevronDown, ChevronUp, Landmark } from 'lucide-react';
 import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { dateTime, humanize, money, todayKey } from '../../lib/format';
+import { dateTime, humanize, money, time, todayKey } from '../../lib/format';
 import { tk, useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { useBranches } from '../../lib/hooks';
@@ -43,6 +44,8 @@ interface Reconciliation {
   makingChargesBank: number;
   cashLines: ReconciliationLine[];
   bankLines: ReconciliationLine[];
+  /** FIX-2: the day's bank-transfer sales; their amounts add up to the BANK_TRANSFER sales line. */
+  bankTransferSales: { saleId: number | null; number: string | null; at: string | null; amount: number; reference: string | null; status: string | null }[];
   cashMovement: number;
   bankMovement: number;
   expectedCash: number;
@@ -174,6 +177,7 @@ function ReconciliationView({ r, canCount }: { r: Reconciliation; canCount: bool
         <div className="grid gap-5">
           <LinesView title={t('Drawer (cash) movements')} lines={r.cashLines} total={r.cashMovement} testId="cash-lines" />
           <LinesView title={t('Bank movements')} lines={r.bankLines} total={r.bankMovement} testId="bank-lines" />
+          <BankTransferSales rows={r.bankTransferSales} />
         </div>
       </div>
 
@@ -200,6 +204,44 @@ function LinesView({ title, lines, total, testId }: { title: string; lines: Reco
           { label: <strong>{t('Total of the day')}</strong>, value: <strong className="num">{signed(total)}</strong> },
         ]}
       />
+    </div>
+  );
+}
+
+/** FIX-2: the drill-down of the bank-transfer sales of the day, with each sale's reference. */
+function BankTransferSales({ rows }: { rows: Reconciliation['bankTransferSales'] }) {
+  const { t, lang } = useI18n();
+  const [open, setOpen] = useState(false);
+  if (!rows.length) return null;
+  const total = rows.reduce((s, r) => s + r.amount, 0);
+  return (
+    <div data-testid="bank-transfer-sales">
+      <button className="flex items-center gap-1 text-[13px] font-semibold text-ink-700 hover:text-ink" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-testid="bank-transfer-sales-toggle">
+        {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+        {t('Bank-transfer sales ({n})', { n: rows.length })} · <span className="num">{money(total, false)}</span>
+      </button>
+      {open && (
+        <table className="mt-2 w-full text-[12.5px]">
+          <thead>
+            <tr className="text-start text-ink-500">
+              <th className="py-1 text-start font-medium">{t('Invoice')}</th>
+              <th className="py-1 text-start font-medium">{t('Time')}</th>
+              <th className="py-1 text-start font-medium">{t('Reference')}</th>
+              <th className="py-1 text-end font-medium">{t('Amount')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={`${r.saleId}-${i}`} className="border-t border-line" data-testid="bank-transfer-sale">
+                <td className="py-1">{r.saleId ? <Link to={`/sales/${r.saleId}`} className="font-mono underline-offset-2 hover:underline">{r.number}</Link> : '—'}</td>
+                <td className="py-1">{r.at ? time(r.at, lang) : '—'}</td>
+                <td className="py-1 font-mono">{r.reference ?? '—'}</td>
+                <td className="py-1 text-end num">{money(r.amount, false)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

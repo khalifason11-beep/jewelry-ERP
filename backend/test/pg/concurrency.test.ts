@@ -64,7 +64,7 @@ describe('parallel double-sell of the same item', () => {
       const [linesBefore, movesBefore] = [await linesOf(), await movesOf()];
       const rs = await settled([
         createSale(ctx, c1, { items: [{ itemId: item.id }], paymentMethod: 'CASH' }),
-        createSale(ctx, c2, { items: [{ itemId: item.id }], paymentMethod: 'BANK_TRANSFER' }),
+        createSale(ctx, c2, { items: [{ itemId: item.id }], paymentMethod: 'BANK_TRANSFER', paymentRefTransaction: `TRF-RACE-${item.id}` }),
         createSale(ctx, c1, { items: [{ itemId: item.id }], paymentMethod: 'CASH' }),
       ]);
       expect(winners(rs), `round ${round}: ${reasons(rs)}`).toHaveLength(1);

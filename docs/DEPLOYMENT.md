@@ -285,6 +285,19 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   such a backup with the version that made it; started later with REM-5 code it goes through the same check.
 - No production database existed when REM-5 shipped, so no upgrade path for real data was needed.
 
+### Price-change reason and bank-transfer reference (SEC-2 and FIX-2, migrations 0017 and 0018)
+
+- **0017 (SEC-2)** adds the nullable column `sales.price_change_reason` with a check (3–200 characters when present).
+  It is additive: old sales have none.
+- **0018 (FIX-2)** adds the validated check `ck_sales_bank_transfer_reference`: a bank-transfer sale carries a
+  reference of 4–40 characters. A `NOT VALID` check would still apply to every later UPDATE of an old row, so voiding
+  or reprinting an old bank sale without a reference would fail. Instead, a guard counts such sales first. If there is
+  any, start-up stops with
+  `Migration 0018 (FIX-2) stopped: N bank-transfer sale(s) have no valid bank reference …` and **nothing is changed**.
+  Sales are never rewritten. Such a database holds trial data from before FIX-2 and is recreated, not upgraded,
+  exactly as for REM-5 above. Hasad sales and their references are untouched.
+- Take a backup before upgrading (section 7), as for every release that adds a migration.
+
 ### Purchases, scrap and supplier settlement (Phase 4)
 
 - Migration 0007 adds a **HASAD_RECEIVABLE** account to every branch (and to every future branch). Sales paid with

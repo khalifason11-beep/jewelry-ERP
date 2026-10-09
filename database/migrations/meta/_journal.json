@@ -127,6 +127,13 @@
       "when": 1791580834388,
       "tag": "0017_sale_price_change_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791582532730,
+      "tag": "0018_bank_transfer_reference",
+      "breakpoints": true
     }
   ]
 }

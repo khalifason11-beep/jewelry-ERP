@@ -218,6 +218,8 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
   const salesPerDay: Record<string, [number, number]> = { KRT: [1, 3], OMD: [0, 2], BHR: [0, 2], PZU: [0, 2] };
   const purchaseDays: Record<string, number[]> = { KRT: [-25, -14, -4, 0], OMD: [-22, -9], BHR: [-18, -6], PZU: [-16, -5] };
   const saleIdsByBranch: Record<string, { id: number; offset: number }[]> = { KRT: [], OMD: [], BHR: [], PZU: [] };
+  // FIX-2: every bank-transfer sale carries its bank reference; a counter keeps the random sequence unchanged.
+  let bankRefSeq = 0;
 
   // Transfers created on a given day (from, to, count, receive offset or null = in transit).
   const transferPlan = [
@@ -282,7 +284,9 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
               const method = payment();
               return method === 'HASAD'
                 ? { paymentMethod: method, paymentRefInvoice: `HSD-INV-${int(100000, 999999)}`, ...(chance(0.7) ? { paymentRefTransaction: `HTX${int(10000000, 99999999)}` } : {}) }
-                : { paymentMethod: method };
+                : method === 'BANK_TRANSFER'
+                  ? { paymentMethod: method, paymentRefTransaction: `TRF-${code}-${String(++bankRefSeq).padStart(5, '0')}` }
+                  : { paymentMethod: method };
             })(),
             ...(chance(0.7) ? (({ en, ar }) => ({ customerName: en, customerNameAr: ar }))(pick(CUSTOMER_NAMES)) : {}),
             customerPhone: chance(0.5) ? `+249 9${int(10, 99)} ${int(100, 999)} ${int(100, 999)}` : undefined,

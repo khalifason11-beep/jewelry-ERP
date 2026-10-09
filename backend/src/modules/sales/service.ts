@@ -1,11 +1,11 @@
-import { ap, roundMoney } from '@jerp/shared';
+import { ap, roundMoney, validBankReference } from '@jerp/shared';
 import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import type { PaymentMethod } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requireAny, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
-import { badRequest, forbidden, notFound } from '../../core/errors';
+import { AppError, badRequest, forbidden, notFound } from '../../core/errors';
 import { nextNumber } from '../../core/numbering';
 import { dayRange } from '../../core/time';
 import { changeStatus, costBreakdown, lockItems, recordMovement } from '../inventory/ledger';
@@ -19,7 +19,10 @@ export interface CreateSaleInput {
   paymentMethod: PaymentMethod;
   /** Hasad (D-4-6): the Hasad invoice number (required) and transaction reference (optional). */
   paymentRefInvoice?: string;
+  /** Hasad: optional transaction reference. BANK_TRANSFER (FIX-2): the bank reference, required. */
   paymentRefTransaction?: string;
+  /** FIX-2: record a bank reference already on another unvoided sale of this branch (after the warning). */
+  confirmDuplicateReference?: boolean;
   customerName?: string;
   customerNameAr?: string;
   customerPhone?: string;
@@ -46,9 +49,17 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
     throw badRequest('{method} is not accepted at the counter', { method: input.paymentMethod });
   }
   const refInvoice = input.paymentRefInvoice?.trim() || null;
-  const refTransaction = input.paymentRefTransaction?.trim() || null;
+  let refTransaction = input.paymentRefTransaction?.trim() || null;
   if (input.paymentMethod === 'HASAD' && !refInvoice) throw badRequest('Enter the Hasad invoice number');
-  if (input.paymentMethod !== 'HASAD' && (refInvoice || refTransaction)) throw badRequest('Payment references are only recorded for Hasad payments');
+  if (input.paymentMethod === 'BANK_TRANSFER') {
+    // FIX-2 (D-fix-2): required, normalized (digits, spaces, case), then validated; stored normalized.
+    if (refInvoice) throw badRequest('A reference is recorded only for bank transfer and Hasad payments');
+    if (!refTransaction) throw badRequest('Enter the bank transfer reference');
+    refTransaction = validBankReference(refTransaction);
+    if (!refTransaction) throw badRequest('The bank transfer reference must be 4 to 40 letters or digits');
+  } else if (input.paymentMethod !== 'HASAD' && (refInvoice || refTransaction)) {
+    throw badRequest('A reference is recorded only for bank transfer and Hasad payments');
+  }
   const sellable = await allowedKarats(ctx);
   const maxPct = settings.sales.maxDiscountPercentByRole[actor.roleCode] ?? 0;
   const hasDiscount = input.items.some((i) => (i.discount ?? 0) > 0);
@@ -91,6 +102,22 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       throw badRequest('Give a reason for the price change ({code})', { code: changed.map((l) => l.item.code).join(', ') });
     }
     if (priceChangeReason.length > PRICE_CHANGE_REASON_MAX) throw badRequest('The reason for the price change is too long');
+
+    // FIX-2: the same bank reference on another unvoided sale of this branch is probably the same transfer twice.
+    // Refused until the cashier confirms (two sales can be paid by one transfer); the confirmation is audited.
+    let duplicateOf: string | null = null;
+    if (input.paymentMethod === 'BANK_TRANSFER' && refTransaction) {
+      const [dup] = await tx
+        .select({ number: t.sales.number })
+        .from(t.sales)
+        .where(and(eq(t.sales.branchId, branchId), eq(t.sales.paymentMethod, 'BANK_TRANSFER'), eq(t.sales.status, 'COMPLETED'), eq(t.sales.paymentRefTransaction, refTransaction)))
+        .orderBy(desc(t.sales.id))
+        .limit(1);
+      if (dup && !input.confirmDuplicateReference) {
+        throw new AppError(409, 'DUPLICATE_BANK_REFERENCE', 'This reference is already on sale {number}. Record it anyway?', { number: dup.number }, { number: dup.number, reference: refTransaction });
+      }
+      duplicateOf = dup?.number ?? null;
+    }
 
     const subtotal = lines.reduce((s, l) => s + l.item.sellingPrice, 0);
     const discountTotal = lines.reduce((s, l) => s + l.discount, 0);
@@ -148,7 +175,7 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       at,
       key: 'Sale {number}: {n} item(s), total {total} ({payment})',
       params: { number, n: lines.length, total: ap.money(subtotal - discountTotal), payment: ap.enum(input.paymentMethod) },
-      metadata: { items: lines.map((l) => l.item.code), total: subtotal - discountTotal, discountTotal, ...(priceChangeReason ? { priceChangeReason } : {}) },
+      metadata: { items: lines.map((l) => l.item.code), total: subtotal - discountTotal, discountTotal, ...(priceChangeReason ? { priceChangeReason } : {}), ...(input.paymentMethod === 'BANK_TRANSFER' ? { bankReference: refTransaction } : {}), ...(duplicateOf ? { duplicateBankReferenceOf: duplicateOf } : {}) },
     });
     if (changed.length) {
       // Prices only (list, discount, final): no cost figure ever enters this entry (D-sec2-2, cost redaction).
@@ -224,6 +251,8 @@ export async function listSales(ctx: Ctx, actor: Actor, q: SaleQuery) {
       total: t.sales.total,
       costTotal: t.sales.costTotal,
       paymentMethod: t.sales.paymentMethod,
+      // FIX-2: the bank-transfer reference (Hasad: its transaction reference), shown in the list.
+      paymentRefTransaction: t.sales.paymentRefTransaction,
       status: t.sales.status,
     })
     .from(t.sales)
@@ -371,7 +400,7 @@ export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: strin
       branchId: sale.branchId,
       key: 'Sale {number} cancelled ({total}): {reason}',
       params: { number: sale.number, total: ap.money(sale.total), reason },
-      metadata: { reason, items: items.map((i) => i.code), ...(opts.reauth ? { reauthenticated: true, reauthAboveAmount: opts.reauth.threshold } : {}) },
+      metadata: { reason, items: items.map((i) => i.code), ...(sale.paymentMethod === 'BANK_TRANSFER' ? { bankReference: sale.paymentRefTransaction } : {}), ...(opts.reauth ? { reauthenticated: true, reauthAboveAmount: opts.reauth.threshold } : {}) },
     });
     // Refund through the original payment method (Q6): reverse the sale's own ledger entries.
     const by = { actor, idempotencyKey: opts.idem?.key };

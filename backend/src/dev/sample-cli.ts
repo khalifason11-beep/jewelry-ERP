@@ -141,7 +141,7 @@ async function buildSample(ctx: Ctx) {
   const cashier = await actor(ctx, cashiers[0].username);
   const stock = await ctx.db.select({ id: t.jewelryItems.id }).from(t.jewelryItems).where(eq(t.jewelryItems.branchId, a.id)).orderBy(t.jewelryItems.id);
   await createSale(ctx, cashier, { items: [{ itemId: stock[0].id }], paymentMethod: 'CASH', customerNameAr: names.customers[0] });
-  await createSale(ctx, cashier, { items: [{ itemId: stock[1].id }], paymentMethod: 'BANK_TRANSFER', customerNameAr: names.customers[1 % names.customers.length] });
+  await createSale(ctx, cashier, { items: [{ itemId: stock[1].id }], paymentMethod: 'BANK_TRANSFER', paymentRefTransaction: 'TRF-000142', customerNameAr: names.customers[1 % names.customers.length] });
   await createSale(ctx, cashier, { items: [{ itemId: stock[2].id }], paymentMethod: 'HASAD', paymentRefInvoice: 'SAMPLE-0001' });
   const bmA = await actor(ctx, branchManagers[0].username);
   await buyScrap(ctx, bmA, { branchId: a.id, kind: 'BROKEN', karat: allowed[0], grossWeightMg: 4_250, netWeightMg: 4_250, paymentMethod: 'CASH' });

@@ -189,7 +189,7 @@ describe('money events post in the same transaction as the business change', () 
     const [a, b] = await freshItems('KRT', 2);
     const cashBefore = await cashBalance(ctx.db, krt);
     const s1 = await createSale(ctx, cashier, { items: [{ itemId: a.id }], paymentMethod: 'CASH' });
-    const s2 = await createSale(ctx, cashier, { items: [{ itemId: b.id }], paymentMethod: 'BANK_TRANSFER' });
+    const s2 = await createSale(ctx, cashier, { items: [{ itemId: b.id }], paymentMethod: 'BANK_TRANSFER', paymentRefTransaction: 'TRF-LEDGER-0001' });
     expect(await cashBalance(ctx.db, krt)).toBe(cashBefore + s1.total);
     const e2 = await entriesFor(ctx.db, 'sale', [s2.id]);
     expect(e2).toHaveLength(1);
@@ -361,6 +361,7 @@ describe('expected cash and daily reconciliation', () => {
     const today = dayKey(new Date(), company.timezone);
     const branches = await ctx.db.select().from(t.branches);
     let days = 0;
+    let bankDays = 0;
     for (const b of branches) {
       for (let off = -35; off <= 0; off++) {
         const day = addDays(today, off);
@@ -381,10 +382,16 @@ describe('expected cash and daily reconciliation', () => {
         expect(r.openingCash + sum(r.cashLines)).toBe(r.expectedCash);
         expect(sum(r.bankLines)).toBe(moved('BANK'));
         expect(r.bankMovement).toBe(moved('BANK'));
+        // FIX-2: the drill-down of bank-transfer sales adds up to the bank-transfer sales line; every row has its reference.
+        const bankSalesLine = r.salesByMethod.find((m) => m.paymentMethod === 'BANK_TRANSFER')!.amount;
+        expect(sum(r.bankTransferSales)).toBe(bankSalesLine);
+        for (const x of r.bankTransferSales) expect(x.reference, `${b.code} ${day} ${x.number}`).toMatch(/^[A-Z0-9 ./-]{4,40}$/);
+        if (r.bankTransferSales.length) bankDays++;
         days++;
       }
     }
     expect(days).toBeGreaterThan(100);
+    expect(bankDays).toBeGreaterThan(10);
   });
 
   it('guardrail: every ledger event type has a reconciliation line or is explicitly listed as "Other" with a reason', () => {

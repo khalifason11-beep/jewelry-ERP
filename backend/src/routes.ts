@@ -514,6 +514,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           customerPhone: zPhone.optional(),
           // SEC-2 (D-sec2-2): required by the service when a final price differs from the list price.
           priceChangeReason: zText(200).optional(),
+          // FIX-2: after the duplicate-reference warning, the cashier confirms.
+          confirmDuplicateReference: z.boolean().optional(),
         })
         .strict(),
       req.body,

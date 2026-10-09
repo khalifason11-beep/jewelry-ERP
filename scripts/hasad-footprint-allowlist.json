@@ -40,9 +40,10 @@
       "database/src/schema.ts",
       "shared/src/db-checks.ts",
       "frontend/src/lib/i18n-ar.ts",
-      "shared/src/field-classification.ts"
+      "shared/src/field-classification.ts",
+      "frontend/src/pages/sales/SalesPages.tsx"
     ],
-    "match": "hasadInvoice|hasadTxn|hasadInvoiceRef|hasadTransactionRef|Hasad invoice number|Hasad transaction reference|recorded for Hasad payments|Hasad \\(D-4-6\\): the Hasad invoice number|HASAD payments: the app's invoice|ck_sales_hasad_reference|doc\\.hasad|\\bhasad: (sale\\.paymentMethod|\\{ invoiceRef)|transactionRef hasad cashier|grossWeightMg hasad$|the payment method is HASAD|supplier gold debt, Hasad payments$",
+    "match": "hasadInvoice|hasadTxn|hasadInvoiceRef|hasadTransactionRef|Hasad invoice number|Hasad transaction reference|recorded for Hasad payments|recorded only for bank transfer and Hasad payments|لمدفوعات التحويل البنكي وحصاد فقط|Hasad: optional transaction reference|Hasad: its transaction reference|paymentMethod !== .HASAD. && \\(refInvoice|Hasad \\(D-4-6\\): the Hasad invoice number|HASAD payments: the app's invoice|ck_sales_hasad_reference|doc\\.hasad|\\bhasad: (sale\\.paymentMethod|\\{ invoiceRef)|transactionRef hasad cashier|grossWeightMg hasad$|the payment method is HASAD|supplier gold debt, Hasad payments$",
     "reason": "The Hasad invoice number (required) and transaction reference (optional) typed at the POS, validated, stored, printed on the invoice and classified SAFE."
   },
   {

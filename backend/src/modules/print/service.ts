@@ -128,6 +128,7 @@ export async function printSale(ctx: Ctx, actor: Actor, id: number): Promise<Pri
       paymentMethod: row.paymentMethod,
       hasadInvoiceRef: row.paymentRefInvoice,
       hasadTransactionRef: row.paymentRefTransaction,
+      bankTransferRef: row.paymentRefTransaction,
       lines,
     },
     copy,

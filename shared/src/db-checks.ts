@@ -172,6 +172,8 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   { name: 'ck_categories_name_ar_not_blank', table: 'categories', expr: "btrim(name_ar) <> ''" },
   { name: 'ck_products_name_ar_not_blank', table: 'products', expr: "btrim(name_ar) <> ''" },
   // ── SEC-2: the price-change reason (migration 0017)
+  // ── FIX-2: a bank-transfer sale carries its bank reference (migration 0018, validated after a guard)
+  { name: 'ck_sales_bank_transfer_reference', table: 'sales', expr: "payment_method <> 'BANK_TRANSFER' OR (payment_ref_transaction IS NOT NULL AND length(btrim(payment_ref_transaction)) BETWEEN 4 AND 40)" },
   { name: 'ck_sales_price_change_reason', table: 'sales', expr: 'price_change_reason IS NULL OR length(btrim(price_change_reason)) BETWEEN 3 AND 200' },
 ];
 
