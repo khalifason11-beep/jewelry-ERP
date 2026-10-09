@@ -1518,4 +1518,16 @@ export const AR: Record<string, string> = {
   "Could not load this information": "تعذّر تحميل هذه البيانات",
   "No users yet": "لا يوجد مستخدمون بعد",
   "No data for this period": "لا توجد بيانات لهذه الفترة",
+  // UI-A2: list screens' states and empty texts.
+  "Clear filters": "مسح عوامل التصفية",
+  "A product is one design in one karat, for example \"plain ring 21K\". Create a type first if there is none.": "المنتج تصميم واحد بعيار واحد، مثل «خاتم سادة عيار 21». أنشئ نوعاً أولاً إن لم يوجد.",
+  "A type groups pieces, for example rings or bracelets. Create the first one with New type.": "النوع يجمع القطع، مثل الخواتم أو الأساور. أنشئ أول نوع من «نوع جديد».",
+  "No pieces in stock": "لا توجد قطع في المخزون",
+  "Choose another period above.": "اختر فترة أخرى في الأعلى.",
+  "You do not have access to this report": "ليست لديك صلاحية لهذا التقرير",
+  "This report does not exist": "هذا التقرير غير موجود",
+  "Back to the reports": "العودة إلى التقارير",
+  "Choose a branch to buy scrap": "اختر فرعاً لشراء الكسر",
+  "Scrap is bought for one branch: pick it in the branch selector above.": "يُشترى الكسر لفرع واحد: اختره من قائمة الفروع في الأعلى.",
+  "No pieces available in this branch": "لا توجد قطع متاحة في هذا الفرع",
 };

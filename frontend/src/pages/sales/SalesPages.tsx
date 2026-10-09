@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, ChevronRight, FileText, Printer } from 'lucide-react';
 import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -39,20 +39,22 @@ export function SalesTable({ branchId, from, to, mine, toolbar }: { branchId?: n
   const { t, L, lang } = useI18n();
   const { can, isGlobal } = useAuth();
   const navigate = useNavigate();
-  const q = useQuery({ queryKey: ['sales', branchId, from, to, mine], queryFn: () => get<SaleRow[]>('/sales', { branchId, from, to, mine }) });
-  if (q.isLoading) return <Loading />;
-  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
-  const rows = q.data!;
+  // Filters stay on screen across reloads: the table shows the states (UI-A2) and keeps the previous rows while a
+  // new period or branch loads.
+  const q = useQuery({ queryKey: ['sales', branchId, from, to, mine], queryFn: () => get<SaleRow[]>('/sales', { branchId, from, to, mine }), placeholderData: keepPreviousData });
+  const rows = q.data ?? [];
   const done = rows.filter((r) => r.status === 'COMPLETED');
   const profit = can('profit.view');
   return (
     <DataTable
+      query={q}
       rows={rows}
       rowKey={(r) => r.id}
       onRowClick={(r) => navigate(`/sales/${r.id}`)}
       exportName="sales"
       toolbar={toolbar}
       emptyTitle={t('No sales in this period')}
+      emptyBody={t('Choose another period above.')}
       rowClassName={(r) => (r.status === 'VOIDED' ? 'opacity-60' : undefined)}
       columns={[
         { key: 'number', header: t('Invoice'), render: (r) => <Mono className="font-semibold text-ink-900">{r.number}</Mono> },

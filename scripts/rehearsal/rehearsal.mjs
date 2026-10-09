@@ -280,6 +280,24 @@ async function checkShell(page, base, who, role, home) {
   await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
 }
 
+/** Empty screens on a new database (UI-A2): the exact English text, and in Arabic no English text left in the block. */
+async function emptyStates(page, base, who, screens) {
+  for (const lang of ['en', 'ar']) {
+    await page.evaluate((l) => localStorage.setItem('jerp.lang', l), lang);
+    for (const [p, texts] of screens) {
+      await page.goto(`${base}${p}`);
+      await page.locator('main [data-state=empty], main [data-state=prompt]').first().waitFor({ timeout: 15_000 });
+      await page.waitForLoadState('networkidle');
+      const blocks = await page.locator('main [data-state=empty], main [data-state=prompt]').allInnerTexts();
+      const main = await page.locator('main').innerText();
+      const generic = /Nothing to show|Loading…|لا يوجد ما يُعرض/.test(main);
+      if (lang === 'en') check(texts.every((x) => blocks.some((b) => b.includes(x))) && !generic, `${who}: ${p} (en) says "${texts.join('" and "')}"`);
+      else check(blocks.length >= texts.length && blocks.every((b) => !/[A-Za-z]{4,}/.test(b)) && !generic, `${who}: ${p} (ar) shows its empty text in Arabic`);
+    }
+  }
+  await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
+}
+
 // ── the rehearsal ──
 async function main() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jerp-rehearsal-'));
@@ -383,6 +401,16 @@ async function main() {
     check(users0.status === 200 && users0.body.length === 1, 'the only user is the General Manager');
     const drawer0 = await apiGet(page, '/api/cash/drawer');
     check(drawer0.status === 200 && drawer0.body.branches.length === 0, 'no ledger accounts with money (no branches, no opening cash)');
+    // UI-A2 (D-ui-11): every list says what is empty, in the screen's own words, in both languages; no generic
+    // "Nothing to show", no "Loading…" left behind, no table of zeros.
+    await emptyStates(page, origin, 'General Manager', [
+      ['/sales', ['No sales in this period']],
+      ['/purchases', ['No purchases in this period']],
+      ['/inventory', ['No pieces in stock']],
+      ['/catalog', ['No products yet']],
+      ['/transfers', ['No transfers yet']],
+      ['/scrap', ['Choose a branch to buy scrap', 'No scrap bought yet']],
+    ]);
 
     section('REM-3: first steps on an empty system');
     const inv0 = (await apiGet(page, '/api/settings')).body.settings.inventory;

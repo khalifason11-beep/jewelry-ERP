@@ -1,5 +1,5 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   ArrowLeftRight,
   BarChart3,
@@ -21,7 +21,7 @@ import { date, dateTime, grams, humanize, karatLabel, money, num, pct } from '..
 import { auditText } from '../../lib/audit';
 import { tk, useI18n } from '../../lib/i18n';
 import type { Report } from '../../lib/types';
-import { Alert, Card, ErrorState, Loading, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
+import { Alert, Button, Card, Empty, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { DataTable, type Column } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
 import { Crumbs } from '../sales/SalesPages';
@@ -78,9 +78,16 @@ export function ReportPage() {
   const status = sp.get('status') ?? '';
   const group = sp.get('group') ?? 'branch';
 
+  const meta = REPORTS.find((x) => x.key === key);
+  // UI-A2: a report the role may not open shows no-access at once (the API refuses it too), never "Something went
+  // wrong"; an unknown report key shows not-found.
+  const allowed = !meta?.perm || can(meta.perm);
   const q = useQuery({
     queryKey: ['report', key, from, to, branchId, userId, status, group],
     queryFn: () => get<Report>(`/reports/${key}`, { from, to, branchId, userId, status, group: key === 'profit' ? group : undefined }),
+    // Filters, title and summary stay on screen while new filters load.
+    placeholderData: keepPreviousData,
+    enabled: allowed && !!meta,
   });
   const users = useQuery({
     queryKey: ['users', branchId],
@@ -137,7 +144,19 @@ export function ReportPage() {
     footer: r?.totals && c.key in r.totals ? fmt(c.type, r.totals[c.key]) : undefined,
   }));
 
-  const meta = REPORTS.find((x) => x.key === key);
+  if (!meta || !allowed)
+    return (
+      <div className="p-5 lg:p-6">
+        <PageHeader breadcrumbs={<Crumbs items={[{ label: t('Reports'), to: '/reports' }]} />} title={meta ? t(meta.title) : t('Report')} />
+        <Card>
+          {meta ? (
+            <Empty variant="no-access" title={t('You do not have access to this report')} body={t('Your role does not include it. Ask the General Manager if you need access.')} />
+          ) : (
+            <Empty variant="not-found" title={t('This report does not exist')} action={<Button size="sm" onClick={() => navigate('/reports')}>{t('Back to the reports')}</Button>} />
+          )}
+        </Card>
+      </div>
+    );
   return (
     <div className="p-5 lg:p-6">
       <PageHeader
@@ -181,24 +200,19 @@ export function ReportPage() {
             </Select>
           )}
         </div>
-        {q.isLoading ? (
-          <Loading />
-        ) : q.isError ? (
-          <ErrorState error={q.error} onRetry={() => q.refetch()} />
-        ) : (
-          <DataTable
-            rows={r!.rows}
-            rowKey={(_row, i) => i}
-            emptyTitle={t('No data for this period')}
-            columns={columns}
-            exportName={`report-${key}`}
-            maxHeight="calc(100vh - 330px)"
-            onRowClick={(() => {
-              const link = r!.columns.find((c) => c.link)?.link;
-              return link ? (row: Record<string, unknown>) => navigate(fillLink(link, row)) : undefined;
-            })()}
-          />
-        )}
+        <DataTable
+          query={q}
+          rows={r?.rows ?? []}
+          rowKey={(_row, i) => i}
+          emptyTitle={t('No data for this period')}
+          columns={columns}
+          exportName={`report-${key}`}
+          maxHeight="calc(100vh - 330px)"
+          onRowClick={(() => {
+            const link = r?.columns.find((c) => c.link)?.link;
+            return link ? (row: Record<string, unknown>) => navigate(fillLink(link, row)) : undefined;
+          })()}
+        />
       </Card>
       {r?.notes?.length ? (
         <Alert tone="info" icon={<Info className="size-4" />} className="mt-3">

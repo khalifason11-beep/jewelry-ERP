@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { AlertTriangle, Eye, MonitorSmartphone, PowerOff } from 'lucide-react';
 import { get, post } from '../../lib/api';
@@ -7,7 +7,7 @@ import { useAuth } from '../../lib/auth';
 import { dateTime, deviceText, humanize, relative, time } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import { Alert, Badge, Button, Card, Dialog, ErrorState, Kpi, Loading, Mono, PageHeader, StatusBadge, Tabs } from '../../components/ui';
+import { Alert, Badge, Button, Card, Dialog, Kpi, Mono, PageHeader, StatusBadge, Tabs, Skeleton } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect } from '../../components/Filters';
 
@@ -41,7 +41,7 @@ export function SessionsTable({ branchId, scope, mine }: { branchId?: number; sc
   const toast = useToast();
   const qc = useQueryClient();
   const [revoke, setRevoke] = useState<SessionRow | null>(null);
-  const q = useQuery({ queryKey: ['sessions', scope, branchId, mine], queryFn: () => get<SessionRow[]>('/sessions', { scope, branchId, mine }), refetchInterval: 15_000 });
+  const q = useQuery({ queryKey: ['sessions', scope, branchId, mine], queryFn: () => get<SessionRow[]>('/sessions', { scope, branchId, mine }), refetchInterval: 15_000, placeholderData: keepPreviousData });
   const m = useMutation({
     mutationFn: (s: SessionRow) => post(`/sessions/${s.key}/revoke`),
     onSuccess: () => {
@@ -51,12 +51,11 @@ export function SessionsTable({ branchId, scope, mine }: { branchId?: number; sc
     },
     onError: (e) => toast.fromError(e),
   });
-  if (q.isLoading) return <Loading />;
-  if (q.isError) return <ErrorState error={q.error} />;
   return (
     <>
       <DataTable
-        rows={q.data!}
+        query={q}
+        rows={q.data ?? []}
         rowKey={(r) => r.key}
         exportName="sessions"
         emptyTitle={scope === 'active' ? t('Nobody is signed in') : t('No sessions')}
@@ -141,6 +140,8 @@ export function SessionsPage() {
   const [branchId, setBranchId] = useState<number | undefined>();
   const summary = useQuery({ queryKey: ['sessions', 'active', branchId, undefined], queryFn: () => get<SessionRow[]>('/sessions', { scope: 'active', branchId }), refetchInterval: 15_000 });
   const s = summary.data ?? [];
+  // UI-A2: no false zeros: a skeleton while the first answer loads, "—" if it failed.
+  const fig = (n: number) => (summary.data ? n : summary.isError ? '—' : <Skeleton className="h-7 w-12" />);
   const concurrent = new Set(s.filter((x) => x.concurrentSessions > 1).map((x) => x.username));
   return (
     <div className="p-5 lg:p-6">
@@ -150,10 +151,10 @@ export function SessionsPage() {
         actions={<BranchSelect value={branchId} onChange={setBranchId} className="w-44" />}
       />
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Kpi label={t('Signed in now')} value={s.length} icon={<MonitorSmartphone className="size-4" />} />
-        <Kpi label={t('Active (last few min)')} value={s.filter((x) => x.presence === 'ACTIVE').length} />
-        <Kpi label={t('Idle')} value={s.filter((x) => x.presence === 'IDLE').length} />
-        <Kpi label={t('Accounts on 2+ devices')} value={concurrent.size} tone={concurrent.size ? 'gold' : 'default'} />
+        <Kpi label={t('Signed in now')} value={fig(s.length)} icon={<MonitorSmartphone className="size-4" />} />
+        <Kpi label={t('Active (last few min)')} value={fig(s.filter((x) => x.presence === 'ACTIVE').length)} />
+        <Kpi label={t('Idle')} value={fig(s.filter((x) => x.presence === 'IDLE').length)} />
+        <Kpi label={t('Accounts on 2+ devices')} value={fig(concurrent.size)} tone={concurrent.size ? 'gold' : 'default'} />
       </div>
       {concurrent.size > 0 && (
         <Alert tone="warning" icon={<AlertTriangle className="size-4" />} className="mb-4" title={t('Same account signed in on multiple devices')}>

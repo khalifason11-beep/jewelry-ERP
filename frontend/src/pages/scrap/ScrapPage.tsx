@@ -13,7 +13,7 @@ import { useBranches } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { useActionKeys } from '../../lib/idempotency';
-import { Alert, Button, Card, CardHeader, ErrorState, Field, Input, Kpi, Loading, Mono, PageHeader, Select } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, Empty, Field, Input, Kpi, Mono, PageHeader, QueryState, Select, SkeletonRows } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { NewButton, NewProductDialog } from '../../components/Catalog';
 import type { Product } from '../../lib/types';
@@ -78,40 +78,44 @@ export function ScrapPage() {
       <Card padded={false} className="mb-5">
         <CardHeader title={t('Broken-scrap pool')} subtitle={t('Weight held per karat (never an inventory item). Counted in the branch’s total stock weight.')} />
         <div className="p-5">
-          {pool.isLoading ? <Loading /> : pool.isError ? <ErrorState error={pool.error} onRetry={() => pool.refetch()} /> : <PoolSummary pool={pool.data!} />}
+          <QueryState query={pool} loading={<SkeletonRows rows={3} />}>
+            {(p) => <PoolSummary pool={p} />}
+          </QueryState>
         </div>
       </Card>
 
-      {branchId != null && <BuyForm branchId={branchId} />}
+      {branchId != null ? (
+        <BuyForm branchId={branchId} />
+      ) : (
+        // UI-A2: "All branches" cannot buy; say so instead of hiding the form without a word.
+        <Card padded={false}>
+          <Empty variant="prompt" title={t('Choose a branch to buy scrap')} body={t('Scrap is bought for one branch: pick it in the branch selector above.')} />
+        </Card>
+      )}
 
       <Card padded={false} className="mt-5">
         <CardHeader title={t('Scrap bought')} />
-        {list.isLoading ? (
-          <Loading />
-        ) : list.isError ? (
-          <ErrorState error={list.error} onRetry={() => list.refetch()} />
-        ) : (
-          <DataTable
-            rows={list.data!}
-            rowKey={(r) => r.id}
-            exportName="scrap-purchases"
-            emptyTitle={t('No scrap bought yet')}
-            columns={[
-              { key: 'number', header: t('Number'), render: (r) => <Mono className="font-semibold text-ink-900">{r.number}</Mono> },
-              { key: 'createdAt', header: t('Date'), render: (r) => dateTime(r.createdAt, lang) },
-              ...(isGlobal && branchId == null ? [{ key: 'branchName', header: t('Branch'), render: (r: ScrapRow) => t(r.branchName) }] : []),
-              { key: 'kind', header: t('Type'), value: (r) => t(r.kind), render: (r) => t(r.kind) },
-              { key: 'karat', header: t('Karat'), align: 'end', render: (r) => karatLabel(r.karat) },
-              { key: 'netWeightMg', header: t('Weight'), align: 'end', render: (r) => <span className="num">{grams(r.netWeightMg)}</span> },
-              { key: 'agreedRatePerGram', header: t('Price per gram'), align: 'end', render: (r) => <span className="num">{money(r.agreedRatePerGram, false)}</span> },
-              { key: 'deviationBp', header: t('vs scrap rate'), align: 'end', render: (r) => <span className="num">{(r.deviationBp / 100).toFixed(2)}%{r.overrideApproved ? ` · ${t('GM')}` : ''}</span> },
-              { key: 'amount', header: t('Paid'), align: 'end', render: (r) => <span className="font-medium num">{money(r.amount, false)}</span> },
-              { key: 'paymentMethod', header: t('Paid by'), value: (r) => t(r.paymentMethod), render: (r) => t(r.paymentMethod) },
-              { key: 'customerName', header: t('Customer'), render: (r) => r.customerName ?? '—' },
-              { key: 'createdByName', header: t('Bought by') },
-            ]}
-          />
-        )}
+        <DataTable
+          query={list}
+          rows={list.data ?? []}
+          rowKey={(r) => r.id}
+          exportName="scrap-purchases"
+          emptyTitle={t('No scrap bought yet')}
+          columns={[
+            { key: 'number', header: t('Number'), render: (r) => <Mono className="font-semibold text-ink-900">{r.number}</Mono> },
+            { key: 'createdAt', header: t('Date'), render: (r) => dateTime(r.createdAt, lang) },
+            ...(isGlobal && branchId == null ? [{ key: 'branchName', header: t('Branch'), render: (r: ScrapRow) => t(r.branchName) }] : []),
+            { key: 'kind', header: t('Type'), value: (r) => t(r.kind), render: (r) => t(r.kind) },
+            { key: 'karat', header: t('Karat'), align: 'end', render: (r) => karatLabel(r.karat) },
+            { key: 'netWeightMg', header: t('Weight'), align: 'end', render: (r) => <span className="num">{grams(r.netWeightMg)}</span> },
+            { key: 'agreedRatePerGram', header: t('Price per gram'), align: 'end', render: (r) => <span className="num">{money(r.agreedRatePerGram, false)}</span> },
+            { key: 'deviationBp', header: t('vs scrap rate'), align: 'end', render: (r) => <span className="num">{(r.deviationBp / 100).toFixed(2)}%{r.overrideApproved ? ` · ${t('GM')}` : ''}</span> },
+            { key: 'amount', header: t('Paid'), align: 'end', render: (r) => <span className="font-medium num">{money(r.amount, false)}</span> },
+            { key: 'paymentMethod', header: t('Paid by'), value: (r) => t(r.paymentMethod), render: (r) => t(r.paymentMethod) },
+            { key: 'customerName', header: t('Customer'), render: (r) => r.customerName ?? '—' },
+            { key: 'createdByName', header: t('Bought by') },
+          ]}
+        />
       </Card>
     </div>
   );

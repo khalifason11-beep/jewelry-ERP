@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { PackageX, Pencil, RotateCcw, Truck } from 'lucide-react';
 import { ITEM_STATUSES } from '@jerp/shared';
@@ -32,17 +32,36 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
   const query = useQuery({
     queryKey: ['inventory', branchId, status, karat, category, origin, dq],
     queryFn: () => get<{ items: ItemRow[]; total: number }>('/inventory/items', { branchId, status, karat, categoryId: category || undefined, origin: origin || undefined, q: dq, limit: 1000 }),
+    placeholderData: keepPreviousData,
   });
   const rows = query.data?.items ?? [];
   const cost = can('profit.view');
+  // UI-A2: an error is shown as an error (never as "no items"), and "nothing in stock" differs from "filters hide it".
+  const filtered = !!(karat || category || origin || dq || status !== initialStatus);
+  const clearFilters = () => {
+    setStatus(initialStatus);
+    setKarat('');
+    setCategory('');
+    setOrigin('');
+    setQ('');
+  };
   return (
     <DataTable
+      query={query}
       rows={rows}
       rowKey={(r) => r.id}
       onRowClick={(r) => navigate(`/inventory/${r.id}`)}
       exportName="inventory"
       searchable={false}
-      emptyTitle={query.isLoading ? t('Loading…') : t('No items match these filters')}
+      emptyTitle={filtered ? t('No items match these filters') : t('No pieces in stock')}
+      emptyBody={filtered ? undefined : t('Receive a supplier order or buy scrap to add stock.')}
+      emptyAction={
+        filtered ? (
+          <Button size="sm" onClick={clearFilters} data-testid="clear-filters">
+            {t('Clear filters')}
+          </Button>
+        ) : undefined
+      }
       toolbar={
         <>
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Code, barcode or product…')} className="h-8 w-56 text-[13px]" />

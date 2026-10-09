@@ -9,7 +9,7 @@ import { useBranchDirectory, useBranches } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import type { ItemRow } from '../../lib/types';
-import { Button, Card, Dialog, Empty, ErrorState, Field, Loading, Mono, PageHeader, Select, StatusBadge, Textarea } from '../../components/ui';
+import { Button, Card, Dialog, Empty, Field, Mono, PageHeader, QueryState, Select, SkeletonRows, StatusBadge, Textarea } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { useActionKeys } from '../../lib/idempotency';
 
@@ -65,39 +65,34 @@ export function TransfersPage() {
         }
       />
       <Card padded={false}>
-        {q.isLoading ? (
-          <Loading />
-        ) : q.isError ? (
-          <ErrorState error={q.error} />
-        ) : (
-          <DataTable
-            rows={q.data!}
-            rowKey={(r) => r.id}
-            exportName="transfers"
-            emptyTitle={t('No transfers yet')}
-            columns={[
-              { key: 'number', header: t('Transfer'), render: (r) => <Mono className="font-semibold text-ink-900">{r.number}</Mono> },
-              { key: 'createdAt', header: t('Sent'), render: (r) => dateTime(r.createdAt, lang) },
-              { key: 'route', header: t('Route'), value: (r) => `${r.fromBranchName} → ${r.toBranchName}`, render: (r) => <span className="inline-flex items-center gap-1.5">{t(r.fromBranchName)} <ArrowRight className="size-3.5 text-ink-400 rtl:rotate-180" /> {t(r.toBranchName)}</span> },
-              { key: 'items', header: t('Items'), value: (r) => r.items.map((i) => i.code).join(' '), render: (r) => <span className="text-[12px]"><Mono>{r.items.map((i) => i.code).join(', ')}</Mono></span> },
-              { key: 'weightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.weightMg)}</span> },
-              { key: 'createdByName', header: t('Sent by') },
-              { key: 'receivedAt', header: t('Received'), render: (r) => (r.receivedAt ? `${dateTime(r.receivedAt, lang)} · ${r.receivedByName}` : '—') },
-              {
-                key: 'status',
-                header: t('Status'),
-                render: (r) =>
-                  r.status === 'IN_TRANSIT' && (isGlobal || me?.user.branch?.id === r.toBranchId) ? (
-                    <Button size="sm" variant="primary" icon={<PackageCheck className="size-4" />} loading={receive.isPending && receive.variables === r.id} onClick={() => receive.mutate(r.id)}>
-                      {t('Confirm receipt')}
-                    </Button>
-                  ) : (
-                    <StatusBadge status={r.status} />
-                  ),
-              },
-            ]}
-          />
-        )}
+        <DataTable
+          query={q}
+          rows={q.data ?? []}
+          rowKey={(r) => r.id}
+          exportName="transfers"
+          emptyTitle={t('No transfers yet')}
+          columns={[
+            { key: 'number', header: t('Transfer'), render: (r) => <Mono className="font-semibold text-ink-900">{r.number}</Mono> },
+            { key: 'createdAt', header: t('Sent'), render: (r) => dateTime(r.createdAt, lang) },
+            { key: 'route', header: t('Route'), value: (r) => `${r.fromBranchName} → ${r.toBranchName}`, render: (r) => <span className="inline-flex items-center gap-1.5">{t(r.fromBranchName)} <ArrowRight className="size-3.5 text-ink-400 rtl:rotate-180" /> {t(r.toBranchName)}</span> },
+            { key: 'items', header: t('Items'), value: (r) => r.items.map((i) => i.code).join(' '), render: (r) => <span className="text-[12px]"><Mono>{r.items.map((i) => i.code).join(', ')}</Mono></span> },
+            { key: 'weightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.weightMg)}</span> },
+            { key: 'createdByName', header: t('Sent by') },
+            { key: 'receivedAt', header: t('Received'), render: (r) => (r.receivedAt ? `${dateTime(r.receivedAt, lang)} · ${r.receivedByName}` : '—') },
+            {
+              key: 'status',
+              header: t('Status'),
+              render: (r) =>
+                r.status === 'IN_TRANSIT' && (isGlobal || me?.user.branch?.id === r.toBranchId) ? (
+                  <Button size="sm" variant="primary" icon={<PackageCheck className="size-4" />} loading={receive.isPending && receive.variables === r.id} onClick={() => receive.mutate(r.id)}>
+                    {t('Confirm receipt')}
+                  </Button>
+                ) : (
+                  <StatusBadge status={r.status} />
+                ),
+            },
+          ]}
+        />
       </Card>
       {open && isGlobal && <NewTransferDialog onClose={() => setOpen(false)} />}
     </div>
@@ -155,12 +150,15 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
       </div>
       <div className="scroll-thin max-h-72 overflow-y-auto rounded-md border border-line">
         {!from ? (
-          <Empty title={t('Select the sending branch')} />
-        ) : items.isLoading ? (
-          <Loading />
+          <Empty variant="prompt" title={t('Select the sending branch')} />
         ) : (
+          <QueryState query={items} loading={<SkeletonRows rows={4} className="p-3" />}>
+            {(d) =>
+              d.items.length === 0 ? (
+                <Empty title={t('No pieces available in this branch')} />
+              ) : (
           <ul className="divide-y divide-line">
-            {items.data?.items.map((i) => (
+            {d.items.map((i) => (
               <li key={i.id}>
                 <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-[13px] hover:bg-canvas">
                   <input type="checkbox" className="size-4 accent-ink-900" checked={selected.has(i.id)} onChange={(e) => setSelected((s) => { const n = new Set(s); if (e.target.checked) n.add(i.id); else n.delete(i.id); return n; })} />
@@ -171,6 +169,9 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
               </li>
             ))}
           </ul>
+              )
+            }
+          </QueryState>
         )}
       </div>
       <Field label={t('Notes')} className="mt-3">

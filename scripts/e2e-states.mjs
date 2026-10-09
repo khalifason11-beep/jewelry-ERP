@@ -7,7 +7,7 @@
 //
 //   node scripts/e2e-states.mjs
 
-import { buildSalesWorld, loadModule, startEmptyServer } from './lib/e2e-world.mjs';
+import { apiClient, buildSalesWorld, loadModule, startEmptyServer } from './lib/e2e-world.mjs';
 
 const { chromium } = loadModule('playwright');
 const { AxeBuilder } = loadModule('@axe-core/playwright');
@@ -46,23 +46,65 @@ async function axe(page, what) {
   check(bad.length === 0, `axe (${what}): no serious or critical issue${bad.length ? `: ${bad.map((v) => `${v.id} ×${v.nodes.length}`).join(', ')}` : ''}`);
 }
 
-/** Answer the next matching API call(s) with `status` / `body` (or delay them) until `off()` is called. */
-async function intercept(page, pattern, { status = 200, body, delayMs = 0 } = {}) {
+/**
+ * Answer GET calls to one API path (exact pathname, any query) with `status` / `body`, or delay them, until `off()`.
+ * Only the browser's requests are affected; the server is untouched.
+ */
+async function intercept(page, pathname, { status = 200, body, delayMs = 0, times = Infinity } = {}) {
+  let n = 0;
+  const match = (url) => new URL(url).pathname === pathname;
   const handler = async (route) => {
-    if (route.request().method() !== 'GET') return route.continue();
+    if (route.request().method() !== 'GET' || n++ >= times) return route.continue();
     if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
     if (body === undefined && status === 200) return route.continue();
-    await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body ?? { error: { code: status === 403 ? 'FORBIDDEN' : 'INTERNAL', message: status === 403 ? 'Missing permission: {permission}' : 'Internal error' } }) });
+    const error = status === 403 ? { code: 'FORBIDDEN', message: 'Missing permission: {permission}', key: 'Missing permission: {permission}', params: { permission: 'sales.view' } } : { code: 'INTERNAL', message: 'Internal error' };
+    await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body ?? { error }) });
   };
-  await page.route(pattern, handler);
-  return () => page.unroute(pattern, handler);
+  await page.route(match, handler);
+  return () => page.unroute(match, handler);
+}
+
+const visible = async (page, sel) => (await page.locator(sel).count()) > 0 && (await page.locator(sel).first().isVisible());
+
+/**
+ * A dated list keeps its filters and rows while a new period loads, and shows an error in place of the rows
+ * (filters still there) with a Try again that recovers (audit bug: the filters used to vanish on every reload).
+ */
+async function listStates(page, { path, api, name, quick, rows = 'main table tbody tr' }) {
+  await page.goto(`${BASE}${path}`);
+  await page.locator(rows).first().waitFor({ timeout: 15_000 });
+  const before = await page.locator(rows).count();
+  const offSlow = await intercept(page, api, { delayMs: 2500, times: 1 });
+  await page.getByRole('button', { name: quick, exact: true }).click();
+  await page.locator('[data-state=refreshing]').waitFor({ timeout: 5_000 });
+  const during = { rows: await page.locator(rows).count(), from: await visible(page, 'input[aria-label=From]'), spinner: await visible(page, 'main [data-state=loading]') };
+  check(during.rows === before && during.from && !during.spinner, `${name}: a new period loads with the rows and the date filter kept on screen (thin bar, no full spinner)`);
+  await page.locator('[data-state=refreshing]').waitFor({ state: 'detached', timeout: 10_000 });
+  await offSlow();
+
+  const offErr = await intercept(page, api, { status: 500 });
+  await page.reload();
+  await page.locator('main [data-state=error]').waitFor({ timeout: 15_000 });
+  check(await visible(page, 'input[aria-label=From]'), `${name}: a failed load shows the error in place of the rows, the filters stay`);
+  await axe(page, `${name} error`);
+  await offErr();
+  await page.getByTestId('state-retry').click();
+  await page.locator(rows).first().waitFor({ timeout: 15_000 });
+  ok(`${name}: Try again recovers`);
 }
 
 async function main() {
   const srv = await startEmptyServer({ env: { TWO_FACTOR_REQUIRED_ROLES_INITIAL: '' } });
   BASE = srv.base;
   const world = await buildSalesWorld(srv);
-  ok('server bootstrapped and filled through the API (rates, staff, a type, a product, a supplier order)');
+  {
+    const cashier = await apiClient(BASE);
+    await cashier.login(world.cashier.username, world.cashier.password);
+    const items = (await cashier.must('GET', `/inventory/items?branchId=${world.branchId}&status=AVAILABLE`)).items;
+    await cashier.must('POST', '/sales', { items: [{ itemId: items[0].id, discount: 0 }], paymentMethod: 'CASH' }, { idempotent: true });
+    await cashier.dispose();
+  }
+  ok('server bootstrapped and filled through the API (rates, staff, a type, a product, a supplier order, one sale)');
   const browser = await chromium.launch();
   try {
     const ctx = await browser.newContext({ viewport: { width: 1366, height: 768 } });
@@ -81,7 +123,7 @@ async function main() {
     ok('"Go to my home" leads to the General Manager home');
 
     // A render crash (an answer of the wrong shape): the crash page, the shell intact.
-    const off = await intercept(page, '**/api/branches', { body: { unexpected: true } });
+    const off = await intercept(page, '/api/branches', { body: { unexpected: true } });
     await page.goto(`${BASE}/branches`);
     await page.getByTestId('crash-page').waitFor({ timeout: 10_000 });
     const crash = await page.getByTestId('crash-page').innerText();
@@ -96,12 +138,55 @@ async function main() {
     check((await page.getByTestId('crash-page').count()) === 0, 'the sidebar still navigates: the next page works');
     await signOut(page);
 
+    section('Lists: filters stay, errors are errors (General Manager)');
+    await signIn(page, world.gm);
+    await listStates(page, { path: '/sales', api: '/api/sales', name: 'Sales', quick: '30d' });
+    await listStates(page, { path: '/purchases', api: '/api/purchases', name: 'Supplier purchases', quick: '7d' });
+
+    // Inventory: a failed load is an error, never "No items match these filters" (audit bug).
+    let offInv = await intercept(page, '/api/inventory/items', { status: 500 });
+    await page.goto(`${BASE}/inventory`);
+    await page.locator('main [data-state=error]').waitFor({ timeout: 15_000 });
+    check(!/No items match|No pieces in stock/.test(await page.locator('main').innerText()), 'Inventory: a failed load shows the error, not "no items"');
+    await offInv();
+    await page.getByTestId('state-retry').click();
+    await page.locator('main table tbody tr').first().waitFor();
+    await page.fill('input[placeholder="Code, barcode or product…"]', 'zz-no-such-piece');
+    await page.getByTestId('clear-filters').waitFor({ timeout: 10_000 });
+    check(/No items match these filters/.test(await page.locator('main').innerText()), 'Inventory: filters that hide everything say so, with "Clear filters"');
+    await page.getByTestId('clear-filters').click();
+    await page.locator('main table tbody tr').first().waitFor();
+    ok('"Clear filters" brings the pieces back');
+
+    // Slow first load: skeleton in the block, title and filters already there.
+    offInv = await intercept(page, '/api/inventory/items', { delayMs: 3000, times: 1 });
+    await page.reload();
+    await page.locator('main [data-state=loading]').waitFor({ timeout: 5_000 });
+    check((await visible(page, 'main h1')) && (await visible(page, 'select[aria-label=Status]')), 'first load: a skeleton in the table, the title and filters already shown');
+    await offInv();
+
+    // An API refusal inside an allowed page: no-access in the block, the shell intact.
+    const off403 = await intercept(page, '/api/sales', { status: 403 });
+    await page.goto(`${BASE}/sales`);
+    await page.locator('main [data-state=no-access]').waitFor({ timeout: 15_000 });
+    check(!/Something went wrong|Try again/.test(await page.locator('main').innerText()) && (await page.getByTestId('sidebar').count()) === 1, 'Sales answered 403: no-access in the table, no useless "Try again", sidebar intact');
+    await axe(page, 'API no-access');
+    await off403();
+    await signOut(page);
+
     section('No access (branch manager)');
     await signIn(page, world.bm);
     await page.goto(`${BASE}/settings`);
     await page.locator('[data-state=no-access]').waitFor();
     check(/You do not have access to this page/.test(await page.locator('main').innerText()) && (await page.getByTestId('go-home').count()) === 1, 'a branch manager opening /settings: no-access with "Go to my home"');
     await axe(page, 'no access');
+    // A report the role may not open (deep link): no-access, never "Something went wrong" (audit bug).
+    await page.goto(`${BASE}/reports/profit`);
+    await page.locator('main [data-state=no-access]').waitFor({ timeout: 15_000 });
+    check(/You do not have access to this report/.test(await page.locator('main').innerText()) && !/Something went wrong/.test(await page.locator('main').innerText()), 'a branch manager opening the Profit report by its address: no-access');
+    await page.goto(`${BASE}/reports/no-such-report`);
+    await page.locator('main [data-state=not-found]').waitFor();
+    ok('an unknown report: "This report does not exist" with a way back');
     await signOut(page);
   } catch (e) {
     // Keep the screen for the person who reads the failure (outside the repository).

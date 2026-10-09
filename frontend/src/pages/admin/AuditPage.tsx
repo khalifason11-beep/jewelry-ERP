@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ScrollText } from 'lucide-react';
 import { AUDIT_ACTIONS } from '@jerp/shared';
 import { get } from '../../lib/api';
@@ -10,7 +10,7 @@ import { useDebounced } from '../../lib/hooks';
 import type { AuditParams } from '@jerp/shared';
 import { auditText } from '../../lib/audit';
 import { useI18n } from '../../lib/i18n';
-import { Card, ErrorState, Input, Loading, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
+import { Button, Card, Input, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
 
@@ -46,7 +46,14 @@ export function AuditPage() {
   const data = useQuery({
     queryKey: ['audit', from, to, branchId, action, userId, dq],
     queryFn: () => get<AuditRow[]>('/audit', { from, to, branchId, action, userId, q: dq }),
+    placeholderData: keepPreviousData,
   });
+  const filtered = !!(action || userId || dq || branchId);
+  const clearFilters = () => {
+    setAction('');
+    setQ('');
+    set({ userId: undefined, branchId: undefined });
+  };
   return (
     <div className="p-5 lg:p-6">
       <PageHeader
@@ -67,31 +74,27 @@ export function AuditPage() {
           </Select>
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Search description, ID, user…')} className="h-8 w-56 text-[13px]" />
         </div>
-        {data.isLoading ? (
-          <Loading />
-        ) : data.isError ? (
-          <ErrorState error={data.error} />
-        ) : (
-          <DataTable
-            rows={data.data!}
-            rowKey={(r) => r.id}
-            searchable={false}
-            exportName="audit-log"
-            maxHeight="calc(100vh - 290px)"
-            dense
-            emptyTitle={t('No audit events match these filters')}
-            columns={[
-              { key: 'at', header: t('Time'), render: (r) => <span className="whitespace-nowrap num">{dateTime(r.at, lang)}</span> },
-              { key: 'userFullName', header: t('User'), render: (r) => <div><div>{r.username === 'system' ? t('System') : r.userFullName}</div><div className="font-mono text-[11px] text-ink-500">{r.username}</div></div> },
-              { key: 'role', header: t('Role'), render: (r) => <span className="text-[12px] text-ink-600">{humanize(r.role)}</span> },
-              { key: 'branchName', header: t('Branch'), render: (r) => (r.branchName ? t(r.branchName) : null) ?? <span className="text-ink-400">{t('Company')}</span> },
-              { key: 'action', header: t('Action'), render: (r) => <StatusBadge status={r.action} className="font-mono !text-[10.5px]" /> },
-              { key: 'entityId', header: t('Entity'), render: (r) => (r.entityId ? <span className="text-[12px]"><span className="text-ink-500">{humanize(r.entityType)}</span> <Mono>{r.entityId}</Mono></span> : '—') },
-              { key: 'description', header: t('Description'), className: 'min-w-[320px]', value: (r) => auditText(r), render: (r) => auditText(r) },
-              { key: 'ipAddress', header: t('IP / session'), render: (r) => <div className="font-mono text-[11px] text-ink-500">{r.ipAddress ?? '—'}<br />{r.sessionRef}</div> },
-            ]}
-          />
-        )}
+        <DataTable
+          query={data}
+          rows={data.data ?? []}
+          rowKey={(r) => r.id}
+          searchable={false}
+          exportName="audit-log"
+          maxHeight="calc(100vh - 290px)"
+          dense
+          emptyTitle={t('No audit events match these filters')}
+          emptyAction={filtered ? <Button size="sm" onClick={clearFilters} data-testid="clear-filters">{t('Clear filters')}</Button> : undefined}
+          columns={[
+            { key: 'at', header: t('Time'), render: (r) => <span className="whitespace-nowrap num">{dateTime(r.at, lang)}</span> },
+            { key: 'userFullName', header: t('User'), render: (r) => <div><div>{r.username === 'system' ? t('System') : r.userFullName}</div><div className="font-mono text-[11px] text-ink-500">{r.username}</div></div> },
+            { key: 'role', header: t('Role'), render: (r) => <span className="text-[12px] text-ink-600">{humanize(r.role)}</span> },
+            { key: 'branchName', header: t('Branch'), render: (r) => (r.branchName ? t(r.branchName) : null) ?? <span className="text-ink-400">{t('Company')}</span> },
+            { key: 'action', header: t('Action'), render: (r) => <StatusBadge status={r.action} className="font-mono !text-[10.5px]" /> },
+            { key: 'entityId', header: t('Entity'), render: (r) => (r.entityId ? <span className="text-[12px]"><span className="text-ink-500">{humanize(r.entityType)}</span> <Mono>{r.entityId}</Mono></span> : '—') },
+            { key: 'description', header: t('Description'), className: 'min-w-[320px]', value: (r) => auditText(r), render: (r) => auditText(r) },
+            { key: 'ipAddress', header: t('IP / session'), render: (r) => <div className="font-mono text-[11px] text-ink-500">{r.ipAddress ?? '—'}<br />{r.sessionRef}</div> },
+          ]}
+        />
       </Card>
     </div>
   );

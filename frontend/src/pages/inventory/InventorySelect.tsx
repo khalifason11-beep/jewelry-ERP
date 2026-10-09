@@ -5,7 +5,7 @@
 
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Check, Truck, X } from 'lucide-react';
 import { postOnce, get } from '../../lib/api';
@@ -16,7 +16,7 @@ import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { useActionKeys } from '../../lib/idempotency';
 import type { ItemRow } from '../../lib/types';
-import { Button, Dialog, Empty, ErrorState, Field, Input, ItemThumb, Select, Skeleton, Textarea } from '../../components/ui';
+import { Button, Dialog, Empty, ErrorState, Field, Input, ItemThumb, RefreshBar, Select, Skeleton, Textarea } from '../../components/ui';
 
 type Origin = '' | 'SUPPLIER_NEW' | 'SCRAP';
 
@@ -56,8 +56,18 @@ export function InventorySelect() {
         limit: 500,
       }),
     enabled: !!branchId,
+    placeholderData: keepPreviousData,
   });
   const list = items.data?.items ?? [];
+  const filtered = !!(dq || origin || karat || category || dMin || dMax);
+  const clearFilters = () => {
+    setQ('');
+    setOrigin('');
+    setKarat('');
+    setCategory('');
+    setMinG('');
+    setMaxG('');
+  };
   const toggle = (i: ItemRow) =>
     setSelected((s) => {
       const n = new Map(s);
@@ -98,21 +108,26 @@ export function InventorySelect() {
           <span>–</span>
           <Input value={maxG} onChange={(e) => setMaxG(e.target.value)} inputMode="decimal" placeholder={t('Max g')} aria-label={t('Maximum weight (g)')} className="h-8 w-20 text-[13px] num" />
         </div>
-        <span className="ms-auto text-[12.5px] text-ink-500">{t('{n} available', { n: items.data?.total ?? 0 })}</span>
+        <span className="ms-auto text-[12.5px] text-ink-500">{items.data ? t('{n} available', { n: items.data.total }) : '—'}</span>
         <Button size="sm" onClick={selectAll} disabled={!list.length}>{t('Select all shown')}</Button>
       </div>
 
+      <RefreshBar active={items.isPlaceholderData && items.isFetching} />
       <div className="flex-1 p-4">
         {!branchId ? (
-          <Empty title={t('Select a branch')} />
-        ) : items.isError ? (
+          <Empty variant="prompt" title={t('Select a branch')} />
+        ) : items.data === undefined && items.isError ? (
           <ErrorState error={items.error} onRetry={() => items.refetch()} />
-        ) : items.isLoading ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3">
+        ) : items.data === undefined ? (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3" data-state="loading">
             {Array.from({ length: 12 }, (_, i) => <Skeleton key={i} className="h-56" />)}
           </div>
         ) : !list.length ? (
-          <Empty title={t('No items match these filters')} />
+          filtered ? (
+            <Empty title={t('No items match these filters')} action={<Button size="sm" onClick={clearFilters} data-testid="clear-filters">{t('Clear filters')}</Button>} />
+          ) : (
+            <Empty title={t('No pieces in stock')} body={t('Receive a supplier order or buy scrap to add stock.')} />
+          )
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3" data-testid="inventory-cards">
             {list.map((i) => (
