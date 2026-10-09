@@ -26,6 +26,7 @@ interface UserRow {
   passwordChangedAt: string | null;
   lastLoginAt: string | null;
   lockedUntil: string | null;
+  securityLockedAt: string | null;
   failedLoginCount: number;
   activeSessions: number;
 }
@@ -113,6 +114,11 @@ export function UsersPage() {
               render: (r) => (
                 <div className="flex flex-wrap items-center gap-1">
                   <StatusBadge status={r.status} />
+                  {r.securityLockedAt && (
+                    <span data-testid="security-locked-badge">
+                      <Badge tone="crit">{t('Security-locked since {date}', { date: dateTime(r.securityLockedAt, lang) })}</Badge>
+                    </span>
+                  )}
                   {isLocked(r) && <Badge tone="crit">{t('Locked until {time}', { time: time(r.lockedUntil, lang) })}</Badge>}
                 </div>
               ),

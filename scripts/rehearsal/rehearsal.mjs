@@ -695,6 +695,48 @@ async function main() {
     check(['SUPPLIER_CREATED', 'ITEM_TYPE_CREATED', 'PRODUCT_CREATED', 'SCRAP_RATE_CHANGED'].every((a) => actions.has(a)), 'the audit log shows the supplier, type and products created and the scrap rate set');
     check(actions.has('ALLOWED_KARATS_CONFIRMED'), 'the audit log shows the confirmation of the allowed karats');
 
+    section('LOCK-1: a security-locked account is shown to managers, and to nobody else');
+    // The lock is what "This wasn't me" on a recovery-code sign-in sets (D-2fa-13); set it directly here.
+    const sqlAs = async (q, params) => {
+      const c = new pg.Client({ connectionString: dbUrl.toString() });
+      await c.connect();
+      try {
+        return (await c.query(q, params)).rows;
+      } finally {
+        await c.end();
+      }
+    };
+    await sqlAs(`UPDATE users SET security_locked_at = now(), security_lock_reason = 'REH-1: reported recovery-code sign-in' WHERE username = $1`, [CASHIER.username]);
+    await page.goto(`${origin}/overview`);
+    await page.getByTestId('security-locked-banner').waitFor({ timeout: 15_000 });
+    const firstNotice = await page.locator('[data-testid=notices] > [data-level]').first().evaluate((e) => `${e.dataset.testid}:${e.dataset.level}`);
+    check(firstNotice === 'security-locked-banner:lock' && (await page.getByTestId('security-locked-banner').innerText()).includes(CASHIER.username), `General Manager: the security-locked notice comes first and names the account (${firstNotice})`);
+    await page.goto(`${origin}/users`);
+    await page.getByTestId('security-locked-badge').waitFor({ timeout: 15_000 });
+    ok('the Users list marks the account "Security-locked since …"');
+    await signOut(page);
+    await signIn(page, origin, BM.username, BM.password);
+    await pathIs(page, ['/dashboard']);
+    await page.getByTestId('security-locked-banner').waitFor({ timeout: 15_000 });
+    ok('the branch manager of that branch sees the notice too');
+    await signOut(page);
+    await signIn(page, origin, CASHIER.username, CASHIER.password);
+    await page.getByText(/تعذّر تسجيل الدخول|Sign-in failed/).first().waitFor({ timeout: 15_000 });
+    check((await page.getByTestId('account-locked-note').count()) === 0, 'the locked account with the right password gets the ordinary sign-in failure; no lock note in another browser');
+    const unlockOut = run('npx', ['tsx', 'src/ops-cli.ts', 'unlock-security-lock', '--username', CASHIER.username, '--confirm'], env, path.join(ROOT, 'backend'));
+    const otp2 = /One-time password[^:]*:\s*(\S+)/.exec(unlockOut)?.[1];
+    check(!!otp2, 'only the operator console lifts the lock (unlock-security-lock prints a new one-time password)');
+    await signIn(page, origin, CASHIER.username, otp2);
+    await changePassword(page, otp2, CASHIER.password);
+    await pathIs(page, ['/pos']);
+    check((await page.getByTestId('security-locked-banner').count()) === 0, 'the cashier is back at the POS; the notice is gone');
+    await signOut(page);
+    await signIn(page, origin, GM.username, GM.password);
+    await page.getByTestId('second-step').waitFor();
+    await page.click('[data-testid=use-passkey]');
+    await pathIs(page, ['/overview']);
+    check((await page.getByTestId('security-locked-banner').count()) === 0, 'General Manager: no security-locked notice once the lock is lifted');
+
     section('REM-5: no deprecated schema left');
     const rdb = new pg.Client({ connectionString: dbUrl.toString() });
     await rdb.connect();

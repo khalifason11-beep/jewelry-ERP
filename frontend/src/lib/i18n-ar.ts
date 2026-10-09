@@ -1564,4 +1564,10 @@ export const AR: Record<string, string> = {
   "Plain text on one line only (no < >, no line breaks)": "نص عادي في سطر واحد فقط (دون < > ودون أسطر جديدة)",
   // UI-A2: sign-in page display line (D-ux-8, D-ui-15).
   "Welcome back": "أهلاً بعودتك",
+  // LOCK-1: security-lock visibility (D-lock-1).
+  "Account {names} is security-locked. Nobody can sign in to it until the system operator unlocks it on the server (operator console: unlock-security-lock).": "الحساب {names} مقفل لدواعٍ أمنية. لا يمكن لأحد الدخول إليه حتى يفتحه مشغّل النظام على الخادم (أداة المشغّل: unlock-security-lock).",
+  "Accounts {names} are security-locked. Nobody can sign in to them until the system operator unlocks them on the server (operator console: unlock-security-lock).": "الحسابات {names} مقفلة لدواعٍ أمنية. لا يمكن لأحد الدخول إليها حتى يفتحها مشغّل النظام على الخادم (أداة المشغّل: unlock-security-lock).",
+  "Your account is locked for your safety": "حسابك مقفل حفاظاً على أمانك",
+  "Nobody can sign in to it, not even you, until the system administrator unlocks it on the server and gives you a new one-time password. Contact the General Manager.": "لا يمكن لأحد الدخول إليه، ولا أنت، حتى يفتحه مسؤول النظام على الخادم ويعطيك كلمة مرور مؤقتة جديدة. تواصل مع المدير العام.",
+  "Security-locked since {date}": "مقفل أمنياً منذ {date}",
 };

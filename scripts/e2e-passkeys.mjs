@@ -208,6 +208,7 @@ async function main() {
     await page.click('[data-testid=not-me-confirm]');
     await page.waitForURL((u) => u.pathname === '/login', { timeout: 10_000 });
     ok('"This wasn’t me" signs this browser out');
+    check(!(await page.getByTestId('account-locked-note').count()), 'LOCK-1: a passkey sign-in reported (no lock): the sign-in page shows no lock note');
     const otherStatus = await otherPage.evaluate(async () => (await fetch('/api/auth/me')).status);
     check(otherStatus === 401, 'the other browser’s session is ended too');
     await other.close();
@@ -253,6 +254,17 @@ async function main() {
     ok('recovery-code sign-in reported: the confirmation warns that the account will be locked');
     await page.click('[data-testid=not-me-confirm]');
     await page.waitForURL((u) => u.pathname === '/login', { timeout: 10_000 });
+    await page.getByTestId('account-locked-note').waitFor({ timeout: 10_000 });
+    ok('LOCK-1: the person who secured the account sees, in this tab, why they cannot sign in');
+    // Anyone else (the thief's browser, any other tab) sees the ordinary sign-in page.
+    await thiefPage.goto(`${BASE}/login`);
+    await thiefPage.locator('input[autocomplete=username]').waitFor();
+    check(!(await thiefPage.getByTestId('account-locked-note').count()), 'LOCK-1: another browser’s sign-in page reveals nothing');
+    const otherTab = await page.context().newPage();
+    await otherTab.goto(`${BASE}/login`);
+    await otherTab.locator('input[autocomplete=username]').waitFor();
+    check(!(await otherTab.getByTestId('account-locked-note').count()), 'LOCK-1: not even another tab of the same browser shows the note');
+    await otherTab.close();
     await thief.close();
     await signInPassword(page, NEW_PASSWORD);
     await page.getByText(/Sign-in failed\. Check your username|تعذّر تسجيل الدخول\. تحقّق/).first().waitFor({ timeout: 10_000 });

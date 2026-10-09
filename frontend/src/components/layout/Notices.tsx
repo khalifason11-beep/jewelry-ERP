@@ -2,16 +2,17 @@
 // and the page, on every screen. One line per notice; at most two lines show, the others fold into "+ N more",
 // which expands in place. Nothing can be dismissed while its cause remains: a notice leaves only when the person
 // acts (It was me / This wasn't me) or the cause is fixed (a second passkey, a successful backup, a setting).
-// Order: the new-sign-in alert first and most prominent (its "This wasn't me" can security-lock the account,
-// D-2fa-13), then the other critical notices, then warnings, then information. Meaning colours as in R6.
+// Order (LOCK-1, D-lock-1): the security-locked accounts first (managers), then the new-sign-in alert (its "This
+// wasn't me" can security-lock the account, D-2fa-13), both at the strongest level and never cut; then the other
+// critical notices, then warnings, then information. Meaning colours as in R6.
 
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ChevronDown, ChevronUp, DatabaseBackup, ShieldAlert, Smartphone } from 'lucide-react';
+import { ChevronDown, ChevronUp, DatabaseBackup, Lock, ShieldAlert, Smartphone } from 'lucide-react';
 import { ApiError, errorText, get, post } from '../../lib/api';
-import { useAuth } from '../../lib/auth';
+import { markAccountLocked, useAuth } from '../../lib/auth';
 import { dateTime, deviceText } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { Alert, Button, Dialog } from '../ui';
@@ -52,6 +53,28 @@ export function useNotices(onNotMe: () => void, onItWasMe: () => void): Notice[]
   const sf = me.secondFactor;
   const isGm = can('settings.manage');
   const out: Notice[] = [];
+
+  // LOCK-1: accounts under a security lock. Only the operator console lifts it; the notice stays until then.
+  if (me.lockedAccounts.length > 0) {
+    const names = me.lockedAccounts.map((a) => `${(lang === 'ar' && a.fullNameAr) || a.fullName} (${a.username})`).join('، ');
+    const plain =
+      me.lockedAccounts.length === 1
+        ? t('Account {names} is security-locked. Nobody can sign in to it until the system operator unlocks it on the server (operator console: unlock-security-lock).', { names })
+        : t('Accounts {names} are security-locked. Nobody can sign in to them until the system operator unlocks them on the server (operator console: unlock-security-lock).', { names });
+    out.push({
+      id: 'security-locked',
+      level: 'lock',
+      icon: <Lock className="size-4" />,
+      plain,
+      text: <span data-testid="locked-accounts-text">{plain}</span>,
+      action: can('users.view') ? (
+        <button className="shrink-0 font-medium underline underline-offset-2" onClick={() => navigate('/users')}>
+          {t('Users')}
+        </button>
+      ) : undefined,
+      testId: 'security-locked-banner',
+    });
+  }
 
   const alert = sf.newDeviceAlert;
   if (alert) {
@@ -163,7 +186,8 @@ export function Notices() {
     setBusy(true);
     setError(null);
     try {
-      await post(`/auth/sign-ins/${alert.id}/not-me`);
+      const r = await post<{ securityLocked?: boolean }>(`/auth/sign-ins/${alert.id}/not-me`);
+      if (r?.securityLocked) markAccountLocked();
       await logout().catch(() => undefined);
       navigate('/login', { replace: true });
     } catch (err) {

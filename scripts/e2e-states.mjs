@@ -174,6 +174,7 @@ async function main() {
       const res = await route.fetch();
       const me = await res.json();
       me.appMode = 'production';
+      me.lockedAccounts = [{ id: 999998, username: 'cashier.locked', fullName: 'Locked Cashier', fullNameAr: 'كاشير مقفل', lockedAt: new Date().toISOString() }];
       me.secondFactor = {
         ...me.secondFactor,
         required: true,
@@ -189,16 +190,17 @@ async function main() {
     await page.goto(`${BASE}/sales`);
     await page.getByTestId('notices').waitFor();
     const levels = await page.locator('[data-testid=notices] > [data-level]').evaluateAll((els) => els.map((e) => `${e.dataset.testid}:${e.dataset.level}`));
-    check(levels.length === 2 && levels[0] === 'new-device-alert:lock' && levels[1].endsWith(':critical'), `1366×768: two notices shown, the new-sign-in alert first (${levels.join(', ')})`);
+    check(levels.length === 2 && levels[0] === 'security-locked-banner:lock' && levels[1] === 'new-device-alert:lock', `1366×768: two notices shown, the security-locked account first, then the new-sign-in alert (${levels.join(', ')})`);
     const more = await page.getByTestId('notices-more').innerText();
-    check(/\+ 3 more notices/.test(more), `the others fold into "${more.trim()}"`);
+    check(/\+ 4 more notices/.test(more), `the others fold into "${more.trim()}"`);
+    check(/cashier\.locked/.test(await page.getByTestId('security-locked-banner').innerText()), 'LOCK-1: the managers\' notice names the locked account');
     const alertBox = await page.getByTestId('new-device-alert').evaluate((e) => ({ outline: getComputedStyle(e).boxShadow, bg: getComputedStyle(e).backgroundColor }));
     check(/rgb/.test(alertBox.outline) && (await page.getByTestId('it-was-me').count()) === 1 && (await page.getByTestId('not-me').count()) === 1, 'the new-sign-in alert is the most prominent (ringed, red) with "It was me" / "This wasn’t me"');
     check((await page.locator('[data-testid=notices] [aria-label*=Dismiss], [data-testid=notices] [aria-label*=Close]').count()) === 0, 'no notice has a dismiss button');
     await axe(page, 'notices folded');
     await page.getByTestId('notices-more').click();
     const all = await page.locator('[data-testid=notices] > [data-level]').evaluateAll((els) => els.map((e) => e.dataset.testid));
-    check(all.join(',') === 'new-device-alert,enforcement-off-banner,backup-banner,uv-preferred-banner,second-passkey-nag', `"+ more" expands in place, in order: ${all.join(', ')}`);
+    check(all.join(',') === 'security-locked-banner,new-device-alert,enforcement-off-banner,backup-banner,uv-preferred-banner,second-passkey-nag', `"+ more" expands in place, in order: ${all.join(', ')}`);
     check((await page.getByTestId('notice-dot').count()) === 1, 'the avatar dot is on');
     await axe(page, 'notices expanded');
     await page.unroute(isMe, meRoute);

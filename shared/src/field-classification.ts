@@ -189,6 +189,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     isActive categoryAr supplierNameAr productNameAr existing
     setupSteps steps done complete
     scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates
+    lockedAccounts lockedAt securityLockedAt
   `),
 );
 

@@ -3,7 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Fingerprint, KeyRound, LogIn, ShieldCheck } from 'lucide-react';
 import { ApiError, errorText, post } from '../lib/api';
 import { getPasskey, PasskeyError, type PublicKeyCredentialRequestOptionsJSON } from '../lib/webauthn';
-import { homePath, sessionEnded, useAuth, type Me, type PendingSignIn } from '../lib/auth';
+import { accountLockedHere, homePath, sessionEnded, useAuth, type Me, type PendingSignIn } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
 import { Alert, Button, Card, Field, Input } from '../components/ui';
 import { AuthFrame } from '../components/layout/AuthFrame';
@@ -47,7 +47,14 @@ export function LoginPage() {
           <SecondStep pending={pending} onBack={() => { setPending(null); setError(null); }} />
         ) : (
           <>
-            {sessionEnded() && (
+            {/* LOCK-1: only in the tab where the person has just secured their account (client-side, D-lock-1). */}
+            {accountLockedHere() ? (
+              <Alert tone="danger" className="mb-4" title={t('Your account is locked for your safety')}>
+                <span data-testid="account-locked-note">
+                  {t('Nobody can sign in to it, not even you, until the system administrator unlocks it on the server and gives you a new one-time password. Contact the General Manager.')}
+                </span>
+              </Alert>
+            ) : sessionEnded() && (
               <Alert tone="info" className="mb-4">
                 <span data-testid="session-ended">{t('Your session ended. Sign in again.')}</span>
               </Alert>

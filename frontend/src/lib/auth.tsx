@@ -30,6 +30,16 @@ export interface Me {
   print: { invoiceFormat: import('@jerp/shared').InvoiceFormat; receiptWidthMm: number; autoPrintAfterSale: boolean };
   /** Second factor (passkeys) for this account (Phase 2fa). */
   secondFactor: SecondFactor;
+  /** LOCK-1: security-locked accounts this viewer may see (users.view; own branch for a manager). */
+  lockedAccounts: LockedAccount[];
+}
+
+export interface LockedAccount {
+  id: number;
+  username: string;
+  fullName: string;
+  fullNameAr: string | null;
+  lockedAt: string;
 }
 
 export interface SignInAlert {
@@ -100,6 +110,34 @@ export function sessionEnded(): boolean {
   }
 }
 
+const ACCOUNT_LOCKED = 'jerp.accountLocked';
+/**
+ * LOCK-1 (D-lock-1): set only in the tab where the person has just confirmed "This wasn't me" and the server
+ * answered that the account is now security-locked. The sign-in page of THAT tab explains the lock; nothing comes
+ * from the server, so no other browser or tab can learn that an account is locked. Cleared by the next sign-in.
+ */
+export function markAccountLocked() {
+  try {
+    sessionStorage.setItem(ACCOUNT_LOCKED, '1');
+  } catch {
+    /* storage unavailable: the sign-in page shows no note */
+  }
+}
+export function accountLockedHere(): boolean {
+  try {
+    return sessionStorage.getItem(ACCOUNT_LOCKED) === '1';
+  } catch {
+    return false;
+  }
+}
+function clearAccountLocked() {
+  try {
+    sessionStorage.removeItem(ACCOUNT_LOCKED);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const q = useQuery({
@@ -137,6 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const install = (res: Me) => {
     clearSessionEnded();
+    clearAccountLocked();
     setCsrfToken(res.csrfToken);
     // Drop the previous user's cached data but keep the live `me` query observed by this provider.
     qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
