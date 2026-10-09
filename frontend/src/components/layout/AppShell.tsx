@@ -10,8 +10,6 @@ import { SecurityBanners } from '../../pages/SecurityPage';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 
-export { Logo } from './Sidebar';
-
 export function AppShell() {
   const { me, logout } = useAuth();
   const location = useLocation();

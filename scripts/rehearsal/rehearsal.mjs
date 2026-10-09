@@ -343,6 +343,18 @@ async function main() {
 
     section('General Manager: first sign-in');
     await virtualAuthenticator(page);
+    // UI-A1 (owner answer Q2): a plain centred sign-in on a white page: the logo, the company name and the form;
+    // no marketing panel (1366x768, the narrowest supported laptop size).
+    await page.goto(`${origin}/login`);
+    await page.locator('input[autocomplete=username]').waitFor();
+    const login = await page.evaluate(() => {
+      const form = document.querySelector('form').getBoundingClientRect();
+      return { text: document.body.innerText, bg: getComputedStyle(document.querySelector('[data-testid=auth-frame]')).backgroundColor, offset: Math.abs(form.left + form.width / 2 - innerWidth / 2) };
+    });
+    check(
+      !/every piece accounted|Multi-branch|متعددة الفروع|كل قطعة محسوبة|قابل للتدقيق/.test(login.text) && login.bg === 'rgb(255, 255, 255)' && login.offset < 4,
+      `the sign-in page is plain: white, the form centred (${login.offset.toFixed(1)} px off), no marketing panel`,
+    );
     await signIn(page, origin, GM.username, otp);
     await changePassword(page, otp, GM.password);
     ok('one-time password accepted, a personal password is set');

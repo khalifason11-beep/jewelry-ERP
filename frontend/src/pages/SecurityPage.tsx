@@ -12,7 +12,7 @@ import { useI18n } from '../lib/i18n';
 import { useToast } from '../lib/toast';
 import { createPasskey, hasBuiltInAuthenticator, PasskeyError, passkeyUnavailable, PROBLEM_TEXT, type PublicKeyCredentialCreationOptionsJSON } from '../lib/webauthn';
 import { Alert, Badge, Button, Card, CardHeader, Dialog, Field, Input, Loading, Mono, PageHeader } from '../components/ui';
-import { Logo } from '../components/layout/AppShell';
+import { AuthFrame } from '../components/layout/AuthFrame';
 import { printDocument } from '../lib/print';
 import { RecoveryCodesPrint } from '../print/documents';
 
@@ -136,64 +136,59 @@ export function EnrollPage() {
   };
 
   return (
-    <div className="grid min-h-screen place-items-center bg-ink-900 p-4">
-      <div className="w-full max-w-xl">
-        <div className="mb-6 flex justify-center">
-          <Logo />
-        </div>
-        <Card className="p-6" >
-          <div className="mb-4 flex items-center gap-3">
-            <div className="grid size-10 place-items-center rounded-full bg-gold-100 text-gold-700">
-              <ShieldCheck className="size-5" />
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold">{t('Protect your account with a passkey')}</h1>
-              <p className="text-[13px] text-ink-500">
-                {t('Step {n} of 2', { n: step === 'device' ? 1 : 2 })} · {step === 'device' ? t('Register this computer') : t('Save your recovery codes')}
-              </p>
-            </div>
+    <AuthFrame width="lg">
+      <Card className="p-6">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="grid size-10 place-items-center rounded-full bg-gold-100 text-gold-700">
+            <ShieldCheck className="size-5" />
           </div>
-          {step === 'device' ? (
-            <form onSubmit={register} className="grid gap-4" data-testid="enroll-device">
-              <p className="text-[13px] leading-relaxed text-ink-600">
-                {t('Your account can approve money, gold and user changes, so a password alone is not enough. From now on you will sign in with your password AND a passkey: this computer’s fingerprint, face or PIN (Windows Hello), a USB security key, or your phone.')}
-              </p>
-              <NoPasskeyHere />
-              <WhatToExpect />
-              <Field label={t('Name this device')} hint={t('So you can recognise it later, e.g. “Shop PC – office” or “My phone”.')}>
-                <Input autoFocus value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={60} required data-testid="passkey-nickname" />
-              </Field>
-              {error && <Alert tone="danger">{error}</Alert>}
-              <div className="flex items-center justify-between gap-2">
-                <Button type="button" icon={<LogOut className="size-4" />} onClick={async () => { await logout(); navigate('/login'); }}>
-                  {t('Sign out')}
-                </Button>
-                <Button type="submit" variant="primary" loading={busy} disabled={!nickname.trim()} icon={<Fingerprint className="size-4" />} data-testid="register-passkey">
-                  {t('Register this device')}
-                </Button>
-              </div>
-            </form>
-          ) : (
-            <div className="grid gap-4" data-testid="enroll-codes">
-              <Alert tone="success">{t('Passkey registered. One last step.')}</Alert>
-              <p className="text-[13px] leading-relaxed text-ink-600">
-                {t('If this device is lost or broken, a recovery code lets you sign in once. Print them or write them down and keep them somewhere safe, away from the computer. They are shown only once.')}
-              </p>
-              {codes ? (
-                <RecoveryCodesSheet codes={codes} onDone={finish} />
-              ) : (
-                <>
-                  {error && <Alert tone="danger">{error}</Alert>}
-                  <Button variant="primary" loading={busy} onClick={generate} icon={<KeyRound className="size-4" />} data-testid="generate-codes">
-                    {t('Show my recovery codes')}
-                  </Button>
-                </>
-              )}
+          <div>
+            <h1 className="text-lg font-semibold">{t('Protect your account with a passkey')}</h1>
+            <p className="text-[13px] text-ink-500">
+              {t('Step {n} of 2', { n: step === 'device' ? 1 : 2 })} · {step === 'device' ? t('Register this computer') : t('Save your recovery codes')}
+            </p>
+          </div>
+        </div>
+        {step === 'device' ? (
+          <form onSubmit={register} className="grid gap-4" data-testid="enroll-device">
+            <p className="text-[13px] leading-relaxed text-ink-600">
+              {t('Your account can approve money, gold and user changes, so a password alone is not enough. From now on you will sign in with your password AND a passkey: this computer’s fingerprint, face or PIN (Windows Hello), a USB security key, or your phone.')}
+            </p>
+            <NoPasskeyHere />
+            <WhatToExpect />
+            <Field label={t('Name this device')} hint={t('So you can recognise it later, e.g. “Shop PC – office” or “My phone”.')}>
+              <Input autoFocus value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={60} required data-testid="passkey-nickname" />
+            </Field>
+            {error && <Alert tone="danger">{error}</Alert>}
+            <div className="flex items-center justify-between gap-2">
+              <Button type="button" icon={<LogOut className="size-4" />} onClick={async () => { await logout(); navigate('/login'); }}>
+                {t('Sign out')}
+              </Button>
+              <Button type="submit" variant="primary" loading={busy} disabled={!nickname.trim()} icon={<Fingerprint className="size-4" />} data-testid="register-passkey">
+                {t('Register this device')}
+              </Button>
             </div>
-          )}
-        </Card>
-      </div>
-    </div>
+          </form>
+        ) : (
+          <div className="grid gap-4" data-testid="enroll-codes">
+            <Alert tone="success">{t('Passkey registered. One last step.')}</Alert>
+            <p className="text-[13px] leading-relaxed text-ink-600">
+              {t('If this device is lost or broken, a recovery code lets you sign in once. Print them or write them down and keep them somewhere safe, away from the computer. They are shown only once.')}
+            </p>
+            {codes ? (
+              <RecoveryCodesSheet codes={codes} onDone={finish} />
+            ) : (
+              <>
+                {error && <Alert tone="danger">{error}</Alert>}
+                <Button variant="primary" loading={busy} onClick={generate} icon={<KeyRound className="size-4" />} data-testid="generate-codes">
+                  {t('Show my recovery codes')}
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+      </Card>
+    </AuthFrame>
   );
 }
 
