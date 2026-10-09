@@ -101,8 +101,8 @@ export function SettingsPage() {
       </div>
     );
   const set = <K extends keyof SystemSettings>(k: K, v: Partial<SystemSettings[K]>) => setDraft({ ...draft, [k]: { ...draft[k], ...v } });
-  const saveBtn = (keys: SettingKey[]) => (
-    <Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={save.isPending && JSON.stringify(save.variables) === JSON.stringify(keys)} onClick={() => save.mutate(keys)}>
+  const saveBtn = (keys: SettingKey[], testId?: string) => (
+    <Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={save.isPending && JSON.stringify(save.variables) === JSON.stringify(keys)} onClick={() => save.mutate(keys)} data-testid={testId}>
       {t('Save')}
     </Button>
   );
@@ -130,7 +130,7 @@ export function SettingsPage() {
           <CardHeader
             title={t('Company & branding')}
             subtitle={t('Shown on the login page, the header, the browser title and printed invoices')}
-            actions={saveBtn(['company.nameEn', 'company.nameAr', 'company.currencyLabelEn', 'company.currencyLabelAr', 'branding.invoiceFooterEn', 'branding.invoiceFooterAr'])}
+            actions={saveBtn(['company.nameEn', 'company.nameAr', 'company.currencyLabelEn', 'company.currencyLabelAr', 'branding.invoiceFooterEn', 'branding.invoiceFooterAr', 'branding.loginTaglineAr', 'branding.loginTaglineEn'], 'save-company')}
           />
           <div className="grid gap-3 p-5 sm:grid-cols-2">
             <Field label={t('Company name (English)')}>
@@ -144,6 +144,13 @@ export function SettingsPage() {
             </Field>
             <Field label={t('Currency label (Arabic)')}>
               <Input value={draft.company.currencyLabelAr} maxLength={12} onChange={(e) => set('company', { currencyLabelAr: e.target.value })} />
+            </Field>
+            {/* UI-A2 (D-ui-14): one line under the company name on the sign-in page; public, so nothing private. */}
+            <Field label={t('Sign-in tagline (Arabic)')} hint={t('Shown to anyone who opens the sign-in page. One line, up to 120 characters. Leave empty for none.')}>
+              <Input value={draft.branding.loginTaglineAr} maxLength={120} onChange={(e) => set('branding', { loginTaglineAr: e.target.value })} data-testid="tagline-ar" />
+            </Field>
+            <Field label={t('Sign-in tagline (English)')} hint={t('Optional: English shows the Arabic one when this is empty.')}>
+              <Input value={draft.branding.loginTaglineEn} maxLength={120} onChange={(e) => set('branding', { loginTaglineEn: e.target.value })} data-testid="tagline-en" />
             </Field>
             <Field label={t('Invoice footer (English)')} className="sm:col-span-2">
               <Textarea rows={2} value={draft.branding.invoiceFooterEn} maxLength={300} onChange={(e) => set('branding', { invoiceFooterEn: e.target.value })} />

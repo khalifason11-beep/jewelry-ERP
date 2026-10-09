@@ -9,7 +9,7 @@ import { log } from '../../core/logger';
 import { burnVerification, hashPassword, needsRehash, verifyPassword } from '../../auth/password';
 import { assertPasswordPolicy } from '../../auth/policy';
 import { accountLocked, clearFailures, ipReserve, ipThrottled, reserveAttempt, type Reservation } from '../../auth/lockout';
-import { publicBranding } from '../branding/service';
+import { appBranding } from '../branding/service';
 import { createSession, csrfTokenFor, endSession, endUserSessions, markReauthenticated, sessionRef } from '../sessions/service';
 import { factorState } from '../../auth/second-factor';
 import { createPending, openSession, secondFactorSummary, type SessionOpened } from './passkeys';
@@ -250,7 +250,7 @@ export async function me(ctx: Ctx, actor: Actor) {
     session: session
       ? { ref: sessionRef(session.id), loginAt: session.loginAt, device: session.device, ipAddress: session.ipAddress }
       : null,
-    branding: publicBranding(settings),
+    branding: appBranding(settings),
     timezone: settings.company.timezone,
     appMode: config.appMode,
     csrfToken: actor.sessionId ? await csrfTokenFor(ctx.db, actor.sessionId) : null,

@@ -1556,4 +1556,10 @@ export const AR: Record<string, string> = {
   "Show fewer notices": "عرض تنبيهات أقل",
   "+ {n} more notices": "+ {n} تنبيهات أخرى",
   "{n} open notices": "{n} تنبيهات مفتوحة",
+  // UI-A2: the sign-in tagline setting (D-ui-14).
+  "Sign-in tagline (Arabic)": "عبارة صفحة الدخول (بالعربية)",
+  "Shown to anyone who opens the sign-in page. One line, up to 120 characters. Leave empty for none.": "تظهر لكل من يفتح صفحة الدخول. سطر واحد حتى 120 حرفاً. اتركها فارغة لعدم عرض شيء.",
+  "Sign-in tagline (English)": "عبارة صفحة الدخول (بالإنجليزية)",
+  "Optional: English shows the Arabic one when this is empty.": "اختيارية: تُعرض العبارة العربية بالإنجليزية إن تُركت فارغة.",
+  "Plain text on one line only (no < >, no line breaks)": "نص عادي في سطر واحد فقط (دون < > ودون أسطر جديدة)",
 };

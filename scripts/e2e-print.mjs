@@ -211,7 +211,7 @@ async function main() {
     check(p1.length >= 1 && Math.abs(p1[0].w - 210) < 1 && Math.abs(p1[0].h - 297) < 1, `A4 page: ${p1[0].w.toFixed(1)} × ${p1[0].h.toFixed(1)} mm`);
     check(await cashier.getByTestId('pos-print').isDisabled(), 'the cashier cannot print it a second time (button disabled)');
     const saleNo = (text.match(/[A-Z]{3}-[A-Z0-9-]+/) ?? [''])[0];
-    const footer = (await api(cashier, 'GET', '/meta')).body.branding.invoiceFooterAr;
+    const footer = (await api(cashier, 'GET', '/auth/me')).body.branding.invoiceFooterAr;
     check(footer === 'شكراً لتسوقكم معنا', 'configured footer is the thank-you message');
     check(footerShown === footer, 'footer area contains exactly the configured footer, nothing else');
     check(!FORBIDDEN.test(text), 'no "making charges", "prototype" or "tax invoice" text anywhere on the invoice');

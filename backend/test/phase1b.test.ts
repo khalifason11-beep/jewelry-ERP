@@ -232,8 +232,11 @@ describe('branding and logo upload', () => {
     await gm.put('/api/settings').send({ changes: { 'company.nameEn': 'Test Gold Co', 'company.nameAr': 'شركة الذهب', 'company.currencyLabelEn': 'SDG' } });
     const meta = (await request(app).get('/api/meta')).body.branding;
     expect(meta.company).toEqual({ nameEn: 'Test Gold Co', nameAr: 'شركة الذهب' });
-    expect(meta.currency.labelAr).toBe('ج.س');
-    expect((await gm.get('/api/auth/me')).body.branding.company.nameEn).toBe('Test Gold Co');
+    // UI-A2 (D-ui-14): currency labels are for signed-in screens only (/auth/me), not the public sign-in page.
+    expect(meta.currency).toBeUndefined();
+    const me = (await gm.get('/api/auth/me')).body.branding;
+    expect(me.company.nameEn).toBe('Test Gold Co');
+    expect(me.currency.labelAr).toBe('ج.س');
   });
 });
 

@@ -144,12 +144,12 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     res.json({ ok: true });
   });
 
-  /** Public, non-sensitive app metadata for the login screen (no accounts or credentials, REM-3). */
+  /**
+   * Public, before sign-in: ONLY the allow-list of publicBranding (company name, logo, sign-in tagline, both
+   * languages; UI-A2, D-ui-14). No setting, account, mode or credential (REM-3).
+   */
   route('GET', '/meta', async (_req, res) => {
-    res.json({
-      appMode: config.appMode,
-      branding: publicBranding(await ctx.settings.get()),
-    });
+    res.json({ branding: publicBranding(await ctx.settings.get()) });
   });
 
   route('GET', '/health', async (_req, res) => {

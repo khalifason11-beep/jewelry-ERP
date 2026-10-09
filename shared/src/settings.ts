@@ -27,6 +27,9 @@ export interface SystemSettings {
     logoAssetId: number | null;
     invoiceFooterEn: string;
     invoiceFooterAr: string;
+    /** One line under the company name on the sign-in page (UI-A2, D-ui-14). Public: shown before sign-in. */
+    loginTaglineEn: string;
+    loginTaglineAr: string;
   };
   sales: {
     /** Max discount % of the item price, per role code. Missing role = 0. */
@@ -117,6 +120,9 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     logoAssetId: null,
     invoiceFooterEn: 'Thank you for shopping with us',
     invoiceFooterAr: 'شكراً لتسوقكم معنا',
+    // Empty: nothing is shown until the General Manager writes one (REM-3: no invented text).
+    loginTaglineEn: '',
+    loginTaglineAr: '',
   },
   sales: {
     maxDiscountPercentByRole: { CASHIER: 3, BRANCH_MANAGER: 10, GENERAL_MANAGER: 20 },
@@ -167,6 +173,11 @@ export const DEFAULT_SETTINGS: SystemSettings = {
 
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
 const text = (min: number, max: number) => z.string().trim().min(min).max(max);
+/** One line of plain text: no markup characters (< >), no line breaks or other control characters. */
+const plainLine = (max: number) =>
+  text(0, max)
+    // eslint-disable-next-line no-control-regex
+    .refine((v) => !/[<>\u0000-\u001f\u007f]/.test(v), 'Plain text on one line only (no < >, no line breaks)');
 const roleKey = z.string().regex(/^[A-Z][A-Z0-9_]{1,39}$/);
 const karat = int(8, 24);
 const timezone = z.string().min(1).max(64).refine((tz) => {
@@ -197,6 +208,9 @@ export const SETTINGS_REGISTRY = {
   'branding.logoAssetId': { schema: z.number().int().positive().nullable() },
   'branding.invoiceFooterEn': { schema: text(0, 300) },
   'branding.invoiceFooterAr': { schema: text(0, 300) },
+  // Public on the sign-in page: one line of plain text (no markup, no line breaks), at most 120 characters.
+  'branding.loginTaglineEn': { schema: plainLine(120) },
+  'branding.loginTaglineAr': { schema: plainLine(120) },
   'sales.maxDiscountPercentByRole': { schema: z.record(roleKey, int(0, 100)) },
   'sales.posPaymentMethods': {
     schema: z

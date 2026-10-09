@@ -129,7 +129,8 @@ describe('production mode (security item 2)', () => {
   it('never exposes demo credentials in production, and minimises /health', async () => {
     const prodMeta = await request(prodApp).get('/api/meta');
     expect(prodMeta.status).toBe(200);
-    expect(prodMeta.body.appMode).toBe('production');
+    // UI-A2 (D-ui-14): the public answer is the branding allow-list only (no mode, no accounts).
+    expect(Object.keys(prodMeta.body)).toEqual(['branding']);
     expect(prodMeta.body).not.toHaveProperty('demoAccounts');
     expect(JSON.stringify(prodMeta.body)).not.toContain('demo-');
     // Minimal: ok + the backup status (ages and status only, D-2c-6); no driver, mode or versions.
@@ -140,7 +141,7 @@ describe('production mode (security item 2)', () => {
 
     // REM-3: the login page lists no accounts in demo mode either.
     const demoMeta = await request(demoApp).get('/api/meta');
-    expect(demoMeta.body.appMode).toBe('demo');
+    expect(Object.keys(demoMeta.body)).toEqual(['branding']);
     expect(demoMeta.body).not.toHaveProperty('demoAccounts');
     expect(JSON.stringify(demoMeta.body)).not.toContain('demo-');
   });

@@ -695,7 +695,8 @@ async function main() {
     const dctx = await browser.newContext({ viewport: { width: 1366, height: 768 } });
     const dpage = await dctx.newPage();
     const dmeta = await (await dpage.request.get(`${demo.base}/api/meta`)).json();
-    check(dmeta.appMode === 'demo' && dmeta.demoAccounts === undefined, 'the demo login page lists no accounts either');
+    // UI-A2 (D-ui-14): the public answer is only the branding allow-list, in demo mode too.
+    check(JSON.stringify(Object.keys(dmeta)) === '["branding"]' && dmeta.demoAccounts === undefined, 'the demo login page lists no accounts either (the public answer is the branding allow-list only)');
     await signIn(dpage, demo.base, E2E.gm.username, E2E.gm.password);
     await dpage.waitForURL((u) => u.pathname !== '/login', { timeout: 15_000 });
     await dpage.getByTestId('demo-badge').waitFor({ timeout: 15_000 });

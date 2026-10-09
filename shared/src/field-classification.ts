@@ -150,7 +150,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     error failedLoginCount failedLogins filters finalPrice firstLogin from
     fromBranchId fromBranchName fromStatus fullName fullNameAr goldRateScope grossWeightMg hasad
     history hour hourly id idleMinutes inProgress
-    inventory inventoryByKarat inventoryRetail invoiceFooterAr invoiceFooterEn ip ipAddress isActive isCurrent
+    inventory inventoryByKarat inventoryRetail invoiceFooterAr invoiceFooterEn loginTaglineAr loginTaglineEn tagline ip ipAddress isActive isCurrent
     isSystem item itemCode itemCodes itemCount itemId items itemsSold karat key kind kpis label labelAr labelEn lastActivity
     lastActivityAt lastLoginAt lines link listPrice liveSessions lockedUntil lockoutBaseMinutes
     lockoutMaxMinutes lockoutThreshold loginAt logins logoAssetId logoUrl maxDiscountPercent maxDiscountPercentByRole mg

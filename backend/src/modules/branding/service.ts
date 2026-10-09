@@ -11,12 +11,24 @@ import { writeAudit } from '../../core/audit';
 import { badRequest, notFound } from '../../core/errors';
 import { inspectLogo, LOGO_MAX_BYTES, LOGO_MAX_PX, type LogoProblem } from './image';
 
-/** What any visitor (including the login page) may know about the company. */
+/**
+ * What any visitor may know, before signing in (UI-A2, D-ui-14): an ALLOW-LIST of the company name, the logo and
+ * the sign-in tagline, in both languages. Nothing else from the settings ever reaches the public sign-in page
+ * (backend/test/ui-a2.test.ts fails if another setting key or value appears).
+ */
 export function publicBranding(s: SystemSettings) {
   return {
     company: { nameEn: s.company.nameEn, nameAr: s.company.nameAr },
-    currency: { code: s.company.currencyCode, labelEn: s.company.currencyLabelEn, labelAr: s.company.currencyLabelAr },
     logoUrl: s.branding.logoAssetId ? `/api/branding/logo?v=${s.branding.logoAssetId}` : null,
+    tagline: { en: s.branding.loginTaglineEn, ar: s.branding.loginTaglineAr },
+  };
+}
+
+/** The branding a signed-in person's screens and documents need (currency labels, invoice footer), via /auth/me. */
+export function appBranding(s: SystemSettings) {
+  return {
+    ...publicBranding(s),
+    currency: { code: s.company.currencyCode, labelEn: s.company.currencyLabelEn, labelAr: s.company.currencyLabelAr },
     invoiceFooterEn: s.branding.invoiceFooterEn,
     invoiceFooterAr: s.branding.invoiceFooterAr,
   };
