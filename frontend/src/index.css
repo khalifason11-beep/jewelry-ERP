@@ -4,34 +4,86 @@
   --font-sans: 'IBM Plex Sans', 'IBM Plex Sans Arabic', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
 
-  /* Brand: deep navy + restrained gold */
-  --color-ink-950: #0a1120;
-  --color-ink-900: #0d1526;
-  --color-ink-850: #111b30;
-  --color-ink-800: #17223a;
-  --color-ink-700: #243150;
-  --color-ink-600: #3a4768;
-  --color-ink-500: #5b6782;
-  --color-ink-400: #8691a8;
-  --color-ink-300: #b4bccb;
+  /* ── Design tokens (UI-A1): the values of docs/design-reference/tokens.md, whose source of truth is the CSS of
+     the approved mockups (docs/ux/mockups/gm-home.html). Change a value there, here and in tokens.md together. */
+  --color-navy: #0f1629; /* sidebar, primary button, the Sales card, chart series 1 */
+  --color-navy-2: #232d45; /* active sidebar item */
+  --color-navy-3: #3a4562; /* hover on navy */
+  --color-on-navy: #c8cedb; /* sidebar text (11.40:1 on navy) */
+  --color-on-navy-soft: #aeb6c8; /* sub-lines on navy (8.85:1) */
+  --color-on-navy-muted: #7f8aa5; /* sidebar group titles (5.21:1) */
+  --color-gold: #c9a24b; /* THE one accent: logo, active marker, rate dot, focus ring. Never white text on gold */
+  --color-gold-soft: #f5ecd6; /* selected row (rare) */
+  --color-ink: #0f1629; /* primary text */
+  --color-ink-2: #4b5570; /* secondary text, labels */
+  --color-ink-3: #646d82; /* meta text, table headers, hints */
+  --color-surface: #ffffff; /* page background, rows inside panels */
+  --color-panel: #f4f5f8; /* panels and cards: flat, no shadow */
+  --color-neutral-bg: #eef0f4; /* info badge, bar tracks */
+  --color-line: #e4e7ee; /* thin dividers */
+  /* Meaning (R6): only when the state applies */
+  --color-crit: #b91c1c;
+  --color-crit-bg: #fee2e2;
+  --color-warn: #b45309;
+  --color-warn-bg: #fef3c7;
+  --color-ok: #047857;
+  --color-ok-bg: #d1fae5;
+  /* Branch palette (D-5): always next to the branch name */
+  --color-b1: #0f1629;
+  --color-b2: #1e6b66;
+  --color-b3: #a2824d;
+  --color-b4: #7487cb;
+
+  /* Type scale (R16) */
+  --text-meta: 13px;
+  --text-meta--line-height: 1.45;
+  --text-body: 15px;
+  --text-body--line-height: 1.45;
+  --text-section: 17px;
+  --text-section--line-height: 1.35;
+  --text-title: 20px;
+  --text-title--line-height: 1.3;
+  --text-figure: 22px;
+  --text-figure--line-height: 1.25;
+  --text-kpi: 24px;
+  --text-kpi--line-height: 1.25;
+
+  /* Radii and shadows: panels are flat; only dialogs, menus and popovers float */
+  --radius-panel: 20px;
+  --radius-card: 16px;
+  --radius-row: 12px;
+  --radius-control: 10px;
+  --radius-badge: 6px;
+  --shadow-pop: 0 8px 28px rgba(15, 22, 41, 0.16);
+
+  /* ── Legacy names (D-ui-1), remapped to the tokens so every screen restyles consistently. Screens move to the
+     semantic names above when they are reworked (UI-B/C); then these go. */
+  --color-ink-950: #0b1020;
+  --color-ink-900: #0f1629; /* = navy */
+  --color-ink-850: #182037;
+  --color-ink-800: #232d45; /* = navy-2 */
+  --color-ink-700: #3a4562; /* = navy-3 */
+  --color-ink-600: #4b5570; /* = ink-2 */
+  --color-ink-500: #646d82; /* = ink-3 */
+  --color-ink-400: #7f8aa5; /* = on-navy-muted */
+  --color-ink-300: #aeb6c8; /* = on-navy-soft */
 
   --color-gold-700: #8a6a24;
   --color-gold-600: #a8822f;
-  --color-gold-500: #c9a24b;
-  --color-gold-400: #dcbb6c;
-  --color-gold-300: #e8d09a;
-  --color-gold-100: #f5ecd6;
+  --color-gold-500: #c9a24b; /* = gold */
+  --color-gold-400: #d6b468;
+  --color-gold-300: #e3c98f;
+  --color-gold-100: #f5ecd6; /* = gold-soft */
   --color-gold-50: #fbf7ec;
 
-  --color-canvas: #f3f4f7;
-  --color-line: #e2e5eb;
+  --color-canvas: #f4f5f8; /* = panel */
   --color-line-strong: #cfd4de;
 
-  /* Chart categorical slots (validated order) — branch identity */
-  --color-series-1: #2a78d6;
-  --color-series-2: #eb6834;
-  --color-series-3: #1baf7a;
-  --color-series-4: #eda100;
+  /* Chart categorical slots = the branch palette */
+  --color-series-1: #0f1629;
+  --color-series-2: #1e6b66;
+  --color-series-3: #a2824d;
+  --color-series-4: #7487cb;
 }
 
 @layer base {
@@ -40,19 +92,32 @@
     font-feature-settings: 'tnum' 0;
   }
   body {
-    background: var(--color-canvas);
-    color: var(--color-ink-900);
-    font-size: 14px;
+    background: var(--color-surface);
+    color: var(--color-ink);
+    font-size: var(--text-body);
+    line-height: 1.45;
   }
   [dir='rtl'] body {
     font-family: 'IBM Plex Sans Arabic', 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
   }
+  /* Focus ring (D-ui-3): gold (the accent) outside a navy ring. Gold alone is 2.4:1 on white; the navy ring gives
+     ≥ 3:1 on light surfaces and gold gives 7.5:1 on navy surfaces. */
   :focus-visible {
-    outline: 2px solid var(--color-gold-500);
+    outline: 2px solid var(--color-gold);
     outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--color-navy);
   }
   ::selection {
-    background: var(--color-gold-100);
+    background: var(--color-gold-soft);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
