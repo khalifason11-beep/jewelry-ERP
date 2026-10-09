@@ -11,7 +11,7 @@
 //        main screen and the catalog dialogs, as the General Manager, a branch manager and a cashier.
 // empty: the REH-1 rehearsal (production mode, real PostgreSQL behind TLS) with UI_BASELINE_DIR set, which
 //        photographs each role's home right after its first sign-in (scripts/rehearsal/rehearsal.mjs).
-// Each screen: Arabic (RTL) and English (LTR), at 1366x768 and 1920x1080. At 1366 wide, a screen whose
+// Each screen: Arabic (RTL) and English (LTR), at 1366x768, 1536x864 and 1920x1080. At 1366 wide, a screen whose
 // content scrolls also gets a "-full" image of the whole page. JPEG, quality 72.
 //
 // Reads only; changes no application code. The demo database lives in a temporary folder and is deleted.
@@ -31,7 +31,8 @@ const opt = (name, dflt) => argv.find((a) => a.startsWith(`--${name}=`))?.split(
 const OUT = path.resolve(ROOT, opt('out', 'docs/ux/baseline'));
 const ONLY = opt('only', 'all');
 const LANGS = ['ar', 'en'];
-const SIZES = [[1366, 768], [1920, 1080]];
+// 1536x864 = a 1920x1080 Windows laptop at its default 125 % scaling (UI-A1).
+const SIZES = [[1366, 768], [1536, 864], [1920, 1080]];
 
 function loadModule(name) {
   for (const base of [ROOT + '/', path.join(ROOT, 'backend') + '/', path.join(execSync('npm root -g').toString().trim(), '/')]) {

@@ -178,7 +178,7 @@ async function captureBaseline(page, name) {
   if (!dir) return;
   const back = new URL(page.url()).pathname;
   for (const lang of ['ar', 'en']) {
-    for (const [w, h] of [[1366, 768], [1920, 1080]]) {
+    for (const [w, h] of [[1366, 768], [1536, 864], [1920, 1080]]) {
       await page.setViewportSize({ width: w, height: h });
       await page.evaluate((l) => localStorage.setItem('jerp.lang', l), lang);
       await page.reload();
