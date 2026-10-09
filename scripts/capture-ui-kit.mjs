@@ -18,12 +18,18 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { loadModule, ROOT } from './lib/e2e-world.mjs';
+import { toWebp } from './lib/screens.mjs';
 
 const { chromium } = loadModule('playwright');
 const { AxeBuilder } = loadModule('@axe-core/playwright');
 const OUT = path.join(ROOT, 'docs/ux/ui-kit');
 const SHOTS = !process.argv.includes('--no-shots');
 const SIZES = [[1366, 768], [1536, 864], [1920, 1080]];
+let BROWSER;
+/** WebP screenshots (D-ui-10: committed images are WebP and capped by `npm run check:assets`). */
+async function shot(page, name, fullPage = false) {
+  fs.writeFileSync(path.join(OUT, `${name}.webp`), await toWebp(BROWSER, await page.screenshot({ type: 'png', fullPage })));
+}
 
 const freePort = () =>
   new Promise((resolve, reject) => {
@@ -50,12 +56,16 @@ vite.stdout.on('data', (d) => (viteLog += d));
 vite.stderr.on('data', (d) => (viteLog += d));
 const base = `http://127.0.0.1:${port}`;
 const browser = await chromium.launch();
+BROWSER = browser;
 try {
   for (let i = 0; i < 120; i++) {
     if (await fetch(`${base}/ui`).then((r) => r.ok, () => false)) break;
     await new Promise((r) => setTimeout(r, 500));
   }
-  if (SHOTS) fs.mkdirSync(OUT, { recursive: true });
+  if (SHOTS) {
+    fs.rmSync(OUT, { recursive: true, force: true });
+    fs.mkdirSync(OUT, { recursive: true });
+  }
 
   for (const lang of ['ar', 'en']) {
     console.log(`\n── ${lang === 'ar' ? 'Arabic (RTL)' : 'English (LTR)'}`);
@@ -109,10 +119,10 @@ try {
           return !!d && !!document.getElementById(d.getAttribute('aria-labelledby') ?? '')?.textContent;
         });
         check(labelled, 'the dialog is labelled by its title');
-        if (SHOTS) await page.screenshot({ path: path.join(OUT, `${lang}-${w}x${h}-dialog.jpg`), type: 'jpeg', quality: 80 });
+        if (SHOTS) await shot(page, `${lang}-${w}x${h}-dialog`);
         await page.getByTestId('kit-dialog-delete').click();
         await page.getByTestId('kit-confirm-delete').waitFor();
-        if (SHOTS) await page.screenshot({ path: path.join(OUT, `${lang}-${w}x${h}-confirm.jpg`), type: 'jpeg', quality: 80 });
+        if (SHOTS) await shot(page, `${lang}-${w}x${h}-confirm`);
         await page.keyboard.press('Escape');
         const afterOne = await page.evaluate(() => document.querySelectorAll('[role=dialog]').length);
         await page.keyboard.press('Escape');
@@ -128,7 +138,7 @@ try {
         await page.waitForTimeout(300);
         const roles = await page.evaluate(() => [...document.querySelectorAll('[aria-live] [role]')].map((e) => e.getAttribute('role')));
         check(roles.includes('alert') && roles.includes('status'), `toasts: an error is announced as an alert, the others as status (${roles.join(', ')})`);
-        if (SHOTS) await page.screenshot({ path: path.join(OUT, `${lang}-${w}x${h}-toasts.jpg`), type: 'jpeg', quality: 80 });
+        if (SHOTS) await shot(page, `${lang}-${w}x${h}-toasts`);
         await page.reload();
         await page.getByTestId('ui-kit').waitFor();
         await page.evaluate(() => document.fonts.ready);
@@ -139,7 +149,7 @@ try {
         for (const v of axe.violations) console.log(`      axe ${v.impact}: ${v.id} (${v.nodes.length}) ${v.help}`);
         check(bad.length === 0, `axe-core (WCAG 2.1 A/AA): no serious or critical violation (${axe.violations.length} minor/moderate, ${axe.passes.length} rules passed)`);
       }
-      if (SHOTS) await page.screenshot({ path: path.join(OUT, `${lang}-${w}x${h}.jpg`), type: 'jpeg', quality: 80, fullPage: true });
+      if (SHOTS) await shot(page, `${lang}-${w}x${h}`, true);
       await ctx.close();
     }
   }

@@ -5,7 +5,7 @@ below). No application code was changed for this document. Where a decision chan
 is updated and marked *(decided)*.
 Inputs: `docs/ux/BRIEF.md` (hierarchy, density, role focus), `docs/SPEC.md` (overrides the brief),
 `docs/BACKLOG.md` (UI-A, UI-B, UI-C, FIX-1, FIX-2, REM-3, PRC-1, RPT-1), the Figma mockups (see §0.2) and the
-baseline screenshots in `docs/ux/baseline/` (2026-10-06, demo and empty production databases).
+baseline screenshots in `docs/ux/baseline/` (2026-10-06, demo and empty production databases; removed from the working copy by UI-A2, D-ui-10: open them at commit `00d0f89`, e.g. `git show 00d0f89:docs/ux/baseline/demo/ar-1366x768/01-gm-home-company-overview.jpg`).
 
 Precedence used throughout: **SPEC > BRIEF**; the **approved mockups** (`docs/ux/mockups/`, tokens in
 `docs/design-reference/tokens.md`) decide the visual language; the **brief** decides hierarchy, density and role

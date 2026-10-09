@@ -31,7 +31,7 @@ New in REH-1 for UI-A1:
 - in English, the POS shows "Bank transfer", not `BANK_TRANSFER`.
 
 Screenshots of every main screen, before and after, at 1366×768, 1536×864 and 1920×1080 in Arabic and English:
-`docs/ux/baseline-ui-a1/before/` and `after/`. The component page: `docs/ux/ui-kit/`.
+`docs/ux/baseline-ui-a1/before/` and `after/` (at commit `36e4e1e`; UI-A2 removed them from the working copy and keeps the slim WebP set in `docs/ux/screens/`, D-ui-10). The component page: `docs/ux/ui-kit/`.
 
 ## B. In a Codespace, from the Windows browser (about 15 minutes)
 

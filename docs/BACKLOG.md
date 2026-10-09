@@ -207,7 +207,7 @@ Do not build. Keep permission identifiers granular and centralized.
 **Order (D-ux-13):** UI-A1 and UI-A2 come **right after REM-3** and **before** PRC-1, OPN-1 and FIX-1/FIX-2, so the new screens are built on the new design system. UI-B and UI-C follow the functional items they depend on.
 
 ### UX-0 — UX analysis · DONE
-`docs/ux/ANALYSIS.md`, baseline screenshots `docs/ux/baseline/` (`scripts/capture-ui-baseline.mjs`), static mockups `docs/ux/mockups/`. Approved with decisions D-ux-0 … D-ux-16.
+`docs/ux/ANALYSIS.md`, baseline screenshots `docs/ux/baseline/` (at commit `00d0f89`; `scripts/capture-ui-baseline.mjs`), static mockups `docs/ux/mockups/`. Approved with decisions D-ux-0 … D-ux-16.
 
 ### UI-A1 — Design system, app shell and plain login · DONE
 Done on 2026-10-09 (plan `docs/plans/UI-A1.md`, decisions D-ui-1 … D-ui-9, acceptance `docs/acceptance/UI-A1.md`). The owner moved the **shell and a plain login into UI-A1** (instruction of 2026-10-09).
@@ -216,7 +216,7 @@ Done on 2026-10-09 (plan `docs/plans/UI-A1.md`, decisions D-ui-1 … D-ui-9, acc
 - English labels for every code (`lib/i18n-en.ts`, enforced by `i18n:check`); the stray "$" on the branch dashboard.
 - App shell per role as in the mockups (`layout/nav.ts`): no POS link for the GM, Active users for the branch manager, icons only for the cashier; rate chip, Demo badge, bell, language pill, avatar menu; no clock; security banners unchanged; no cost or profit in the shell for non-GM roles (REH-1).
 - Plain centred sign-in, one frame for sign-in, password change and passkey enrolment.
-- Before/after screenshots at 1366×768, 1536×864 and 1920×1080: `docs/ux/baseline-ui-a1/`.
+- Before/after screenshots at 1366×768, 1536×864 and 1920×1080: `docs/ux/baseline-ui-a1/` at commit `36e4e1e`; the slim WebP selection in `docs/ux/screens/` (D-ui-10).
 
 ### UI-A2 — Login and first-run polish · TODO · S · P1 · after UI-A1
 **Login redesign**: logo, company name, **tagline from a new branding setting**; no image panel unless `docs/design-reference/login-background.jpg` is added with a commercial licence confirmed by the owner (then WebP under 200 KB, served locally); a script display font on the login page only. Per-screen empty states (ANALYSIS §8). **USD chip hidden** until Q-10. Still open from UI-A1, decided in UI-B: the GM branch switcher (D-ui-5) and replacing the bell with the attention list. Do not touch the print documents. Keep every e2e script and REH-1 green. Screenshots at 1366×768, 1536×864 and 1920×1080 in Arabic and English (`scripts/capture-ui-baseline.mjs`).

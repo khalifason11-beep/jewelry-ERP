@@ -13,16 +13,19 @@ type MigrationsGate = {
   checkMigrationsDir: (dir: string) => unknown[];
 };
 type DrizzleGate = { checkDrizzle: (o?: { schema?: string }) => { ok: boolean; output: string; written: string[] } };
+type AssetsGate = { assetProblems: (files: { path: string; bytes: number }[]) => { problems: string[]; count: number; total: number } };
 type ImportsGate = { isTestImport: (from: string, spec: string, root?: string) => boolean; testImportsIn: (from: string, src: string, root?: string) => string[] };
 
 const ROOT = path.resolve(__dirname, '../..');
 let mig: MigrationsGate;
 let imp: ImportsGate;
 let drz: DrizzleGate;
+let ast: AssetsGate;
 beforeAll(async () => {
   drz = (await import(path.join(ROOT, 'scripts/check-drizzle.mjs') as string)) as DrizzleGate;
   mig = (await import(path.join(ROOT, 'scripts/check-migrations.mjs') as string)) as MigrationsGate;
   imp = (await import(path.join(ROOT, 'scripts/check-test-imports.mjs') as string)) as ImportsGate;
+  ast = (await import(path.join(ROOT, 'scripts/check-assets.mjs') as string)) as AssetsGate;
 });
 
 const BREAK = '\n--> statement-breakpoint\n';
@@ -133,4 +136,27 @@ describe.skipIf(PG_MODE)('drizzle snapshot gate (REM-5)', () => {
       f.done();
     }
   }, 120_000);
+});
+
+describe('asset gate (UI-A2, D-ui-10)', () => {
+  const kb = (n: number) => n * 1024;
+  it('accepts a slim WebP set and never looks at application assets, references or PDFs', () => {
+    const r = ast.assetProblems([
+      { path: 'docs/ux/screens/demo/ar-1366x768/01-gm-home.webp', bytes: kb(40) },
+      { path: 'docs/ux/ui-kit/ar-1366x768.webp', bytes: kb(70) },
+      { path: 'frontend/public/logo.png', bytes: kb(900) },
+      { path: 'frontend/src/assets/fonts/amiri.woff2', bytes: kb(400) },
+      { path: 'docs/design-reference/login-background.jpg', bytes: kb(190) },
+      { path: 'docs/print-check/invoice-A4-original.pdf', bytes: kb(300) },
+    ]);
+    expect(r.problems).toEqual([]);
+    expect(r.count).toBe(2);
+  });
+  it('refuses a big image, a JPEG capture, a "before" set and more than 4 MB in total', () => {
+    expect(ast.assetProblems([{ path: 'docs/ux/screens/x.webp', bytes: kb(151) }]).problems[0]).toMatch(/151 KB \(limit 150 KB\)/);
+    expect(ast.assetProblems([{ path: 'docs/ux/screens/x.jpg', bytes: kb(20) }]).problems[0]).toMatch(/not WebP/);
+    expect(ast.assetProblems([{ path: 'docs/ux/baseline/before/a.webp', bytes: kb(20) }]).problems.some((p) => /before/.test(p))).toBe(true);
+    const many = Array.from({ length: 41 }, (_, i) => ({ path: `docs/ux/screens/${i}.webp`, bytes: kb(100) }));
+    expect(ast.assetProblems(many).problems[0]).toMatch(/limit 4 MB/);
+  });
 });

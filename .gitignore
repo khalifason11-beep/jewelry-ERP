@@ -9,3 +9,8 @@ coverage/
 
 # scripts/check-drizzle.mjs and its test (throw-away copies)
 database/.drizzle-check-*
+
+# Screenshot captures for local review (UI-A2, D-ui-10): only docs/ux/screens/ is committed
+.ux-shots/
+# e2e-print output (the reviewed PDFs live in docs/print-check/)
+print-check-output/

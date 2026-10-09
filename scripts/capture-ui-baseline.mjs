@@ -1,10 +1,15 @@
 #!/usr/bin/env node
-// UX baseline screenshots (UX-0). Repeatable: run it again after a UI phase to compare.
+// UX screenshots of every main screen (UX-0). Repeatable: run it again after a UI phase to compare.
 //
-//   node scripts/capture-ui-baseline.mjs                      # demo + empty production database
+//   node scripts/capture-ui-baseline.mjs                      # demo + empty production database, into .ux-shots/
 //   node scripts/capture-ui-baseline.mjs --only=demo          # demo database only
 //   node scripts/capture-ui-baseline.mjs --only=empty         # empty production database only (needs REHEARSAL_ADMIN_URL)
-//   node scripts/capture-ui-baseline.mjs --skip-build --out=docs/ux/baseline
+//   node scripts/capture-ui-baseline.mjs --publish --changed='04-gm-sales|06-gm-inventory'
+//                                                             # also write the slim WebP set to docs/ux/screens/
+//   node scripts/capture-ui-baseline.mjs --publish-only --from=<folder>   # only convert an existing capture
+//
+// The full JPEG capture goes to the git-ignored `.ux-shots/` (--out to change). Only the WebP selection of
+// scripts/lib/screens.mjs is committed, in docs/ux/screens/ (D-ui-10; `npm run check:assets` caps it).
 //
 // demo:  a fresh demo-mode database filled by `npm run dev:sample` (REM-3: no demo data ships; marked sample
 //        names from backend/src/dev/sample-names.json) and served in demo mode; every
@@ -23,12 +28,14 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { publishScreens } from './lib/screens.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
 const ARGS = new Set(argv);
 const opt = (name, dflt) => argv.find((a) => a.startsWith(`--${name}=`))?.split('=')[1] ?? dflt;
-const OUT = path.resolve(ROOT, opt('out', 'docs/ux/baseline'));
+const OUT = path.resolve(ROOT, opt('out', '.ux-shots'));
+const SCREENS_DIR = path.join(ROOT, 'docs/ux/screens');
 const ONLY = opt('only', 'all');
 const LANGS = ['ar', 'en'];
 // 1536x864 = a 1920x1080 Windows laptop at its default 125 % scaling (UI-A1).
@@ -206,6 +213,21 @@ function captureEmpty() {
   if (r.status !== 0) throw new Error('the rehearsal failed: no empty-database screenshots');
 }
 
+async function publish(from) {
+  const browser = await chromium.launch();
+  try {
+    const r = await publishScreens({ browser, from, to: SCREENS_DIR, changed: opt('changed', '') });
+    console.log(`published ${r.count} WebP screenshots (${(r.bytes / 1024 / 1024).toFixed(1)} MB) to ${path.relative(ROOT, SCREENS_DIR)}/`);
+  } finally {
+    await browser.close();
+  }
+}
+
+if (ARGS.has('--publish-only')) {
+  await publish(path.resolve(ROOT, opt('from', '.ux-shots')));
+  process.exit(0);
+}
+
 if (!ARGS.has('--skip-build') || !fs.existsSync(path.join(ROOT, 'frontend/dist/index.html'))) {
   execSync('npm run build', { cwd: ROOT, stdio: 'inherit' });
 }
@@ -223,3 +245,4 @@ if (ONLY !== 'demo') {
   captureEmpty();
 }
 console.log(`screenshots in ${path.relative(ROOT, OUT)}/`);
+if (ARGS.has('--publish')) await publish(OUT);
