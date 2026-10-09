@@ -76,6 +76,30 @@ interface AuthCtx {
 
 const Ctx = createContext<AuthCtx | null>(null);
 
+const SESSION_ENDED = 'jerp.sessionEnded';
+/** Remembered for this tab only, so the sign-in page can say why the person is there. */
+export function markSessionEnded() {
+  try {
+    sessionStorage.setItem(SESSION_ENDED, '1');
+  } catch {
+    /* storage unavailable: the sign-in page simply shows no note */
+  }
+}
+export function clearSessionEnded() {
+  try {
+    sessionStorage.removeItem(SESSION_ENDED);
+  } catch {
+    /* ignore */
+  }
+}
+export function sessionEnded(): boolean {
+  try {
+    return sessionStorage.getItem(SESSION_ENDED) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const q = useQuery({
@@ -101,6 +125,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () =>
       onAuthError((e) => {
         if (e.status === 401) {
+          // UI-A2: a session that ended while signed in (expired, revoked) is explained on the sign-in page.
+          if (qc.getQueryData(['me'])) markSessionEnded();
           setCsrfToken(null);
           qc.setQueryData(['me'], null);
         }
@@ -110,6 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const install = (res: Me) => {
+    clearSessionEnded();
     setCsrfToken(res.csrfToken);
     // Drop the previous user's cached data but keep the live `me` query observed by this provider.
     qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });

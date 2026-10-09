@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { ArrowLeftRight, ChevronRight, Gem, MonitorSmartphone, Receipt, TrendingUp } from 'lucide-react';
 import { get } from '../../lib/api';
 import { addDaysKey, date as formatDate, grams, karatLabel, money, num, pct, todayKey, currencyLabel } from '../../lib/format';
 import { branchColor } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
-import { Card, CardHeader, ErrorState, Input, Kpi, Loading, PageHeader } from '../../components/ui';
+import { Card, CardHeader, Input, Kpi, PageHeader, QueryState, SkeletonRows } from '../../components/ui';
 import { StockWeightCard, type StockWeight } from '../../components/StockWeight';
 import { BackupBanner } from '../../components/BackupBanner';
 import { FirstSteps, useSetupStatus } from '../../components/FirstSteps';
@@ -70,7 +70,8 @@ export function CompanyDashboardPage() {
             ? { from: addDaysKey(today, -29), to: today }
             : custom;
 
-  const q = useQuery({ queryKey: ['dashboard', 'company', range.from, range.to], queryFn: () => get<CompanyDash>('/dashboard/company', range), refetchInterval: 60_000 });
+  // A new period keeps the figures on screen with a thin bar until the new ones arrive (UI-A2).
+  const q = useQuery({ queryKey: ['dashboard', 'company', range.from, range.to], queryFn: () => get<CompanyDash>('/dashboard/company', range), refetchInterval: 60_000, placeholderData: keepPreviousData });
   const setup = useSetupStatus();
 
   const presets: { v: Preset; label: string }[] = [
@@ -116,13 +117,10 @@ export function CompanyDashboardPage() {
       {/* REM-3: the first-steps checklist until the system can take its first sale. */}
       {setup.data && !setup.data.complete && <FirstSteps status={setup.data} />}
 
-      {q.isLoading ? (
-        <Loading />
-      ) : q.isError ? (
-        <ErrorState error={q.error} onRetry={() => q.refetch()} />
-      ) : q.data!.branches.length === 0 ? null : (
-        <Body d={q.data!} onBranch={(id) => navigate(`/branches/${id}`)} L={L} />
-      )}
+      <QueryState query={q} loading={<SkeletonRows rows={6} />}>
+        {/* No branch yet: the first-steps checklist above says what to do (REM-3). */}
+        {(d) => (d.branches.length === 0 ? null : <Body d={d} onBranch={(id) => navigate(`/branches/${id}`)} L={L} />)}
+      </QueryState>
     </div>
   );
 }

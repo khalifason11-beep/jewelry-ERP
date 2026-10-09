@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import {
   ArrowRight,
@@ -72,6 +72,8 @@ export function PosPage() {
     queryKey: ['pos-items', branchId, dq, karat, category, sort],
     queryFn: () => get<{ items: ItemRow[]; total: number }>('/inventory/items', { branchId, q: dq, karat, categoryId: category || undefined, sort, status: 'AVAILABLE,RESERVED', limit: 300 }),
     enabled: !!branchId,
+    // Typing in the search keeps the shown pieces until the new answer arrives (no skeleton on every key).
+    placeholderData: keepPreviousData,
   });
 
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -246,13 +248,19 @@ export function PosPage() {
         </div>
 
         <div className="scroll-thin min-h-0 flex-1 overflow-y-auto p-4">
-          {items.isLoading ? (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(178px,1fr))] gap-3">
+          {/* UI-A2: before the branch is known (a global user, branches still loading) the POS never says "no pieces"
+              (audit bug): it shows the skeleton, the branches' error, or asks for a branch. */}
+          {!branchId && branches.data === undefined && branches.isError ? (
+            <ErrorState error={branches.error} onRetry={() => branches.refetch()} />
+          ) : !branchId && branches.data?.length === 0 ? (
+            <Empty variant="prompt" title={t('Choose a branch')} body={t('Create a branch first: the point of sale sells from one branch.')} />
+          ) : items.data === undefined && items.isError ? (
+            <ErrorState error={items.error} onRetry={() => items.refetch()} />
+          ) : items.data === undefined ? (
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(178px,1fr))] gap-3" data-state="loading">
               {Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="h-56" />)}
             </div>
-          ) : items.isError ? (
-            <ErrorState error={items.error} onRetry={() => items.refetch()} />
-          ) : !items.data?.items.length ? (
+          ) : !items.data.items.length ? (
             !q && karat === '' && !category ? (
               // REM-3: no filter is active, so the branch simply has no stock yet (not "no match").
               <div data-testid="pos-no-stock">

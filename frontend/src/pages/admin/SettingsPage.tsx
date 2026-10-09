@@ -12,7 +12,7 @@ import { useToast } from '../../lib/toast';
 import { printDocument } from '../../lib/print';
 import { CalibrationPrint } from '../../print/documents';
 import { errorText as apiErrorText } from '../../lib/api';
-import { Alert, Button, Card, CardHeader, Field, Input, Loading, PageHeader, Select, Textarea } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, ErrorState, Field, Input, PageHeader, Select, SkeletonRows, Textarea } from '../../components/ui';
 
 interface SettingsResponse {
   settings: SystemSettings;
@@ -90,7 +90,16 @@ export function SettingsPage() {
     onError: (e) => toast.fromError(e),
   });
 
-  if (!draft) return <Loading />;
+  // UI-A2: a failed load is an error with Try again, never a spinner that turns forever (audit bug).
+  if (!draft)
+    return (
+      <div className="p-5 lg:p-6">
+        <PageHeader title={t('Settings')} subtitle={t('Business rules the client will confirm. Configurable here, not hard-coded.')} />
+        <Card padded={false}>
+          {s.isError ? <ErrorState error={s.error} onRetry={() => s.refetch()} /> : <SkeletonRows rows={8} className="p-5" />}
+        </Card>
+      </div>
+    );
   const set = <K extends keyof SystemSettings>(k: K, v: Partial<SystemSettings[K]>) => setDraft({ ...draft, [k]: { ...draft[k], ...v } });
   const saveBtn = (keys: SettingKey[]) => (
     <Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={save.isPending && JSON.stringify(save.variables) === JSON.stringify(keys)} onClick={() => save.mutate(keys)}>
@@ -184,6 +193,8 @@ export function SettingsPage() {
             ))}
           </div>
           <div className="scroll-thin max-h-48 overflow-y-auto border-t border-line">
+            {rates.isError && <ErrorState error={rates.error} onRetry={() => rates.refetch()} />}
+            {rates.data && rates.data.history.length === 0 && <p className="px-5 py-3 text-meta text-ink-3">{t('No rate has been set yet.')}</p>}
             <table className="w-full text-[12.5px]">
               <tbody className="divide-y divide-line">
                 {rates.data?.history.slice(0, 16).map((h) => (
@@ -423,6 +434,9 @@ function ScrapRatesCard() {
           </Button>
         }
       />
+      {q.isError && <ErrorState error={q.error} onRetry={() => q.refetch()} />}
+      {q.data === undefined && !q.isError && <SkeletonRows rows={2} className="p-5" />}
+      {q.data && (
       <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
         {shown.map((k) => {
           const cur = q.data?.rates.find((r) => r.karat === k);
@@ -433,6 +447,7 @@ function ScrapRatesCard() {
           );
         })}
       </div>
+      )}
       <div className="flex items-end gap-2 border-t border-line px-5 py-3">
         <Field label={t('Add another karat (1–24)')}>
           <Input type="number" min={1} max={24} step={1} value={extra} onChange={(e) => setExtra(e.target.value)} className="w-28 num" />

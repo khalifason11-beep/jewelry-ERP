@@ -7,7 +7,7 @@ import { useAuth } from '../../lib/auth';
 import { dateTime, grams, karatLabel, money, pct } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import { Alert, Button, Card, CardHeader, Dialog, ErrorState, Field, KeyValue, Loading, Mono, PageHeader, StatusBadge, Textarea } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, DetailPending, Dialog, Field, KeyValue, Mono, PageHeader, StatusBadge, Textarea } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
 import type { SaleDetail } from '../../components/InvoiceDocument';
@@ -142,8 +142,7 @@ export function SaleDetailPage() {
     },
     onError: (e) => toast.fromError(e),
   });
-  if (q.isLoading) return <Loading />;
-  if (q.isError) return <div className="p-6"><ErrorState error={q.error} /></div>;
+  if (!q.data) return <DetailPending query={q} backTo={can('sales.view') ? '/sales' : '/me'} backLabel={can('sales.view') ? t('Back to sales') : t('Back to my activity')} notFoundTitle={t('This sale does not exist')} />;
   const s = q.data!;
   const profit = can('profit.view');
   const margin = s.grossProfit != null && s.total ? (s.grossProfit / s.total) * 100 : null;

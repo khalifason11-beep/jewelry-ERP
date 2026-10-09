@@ -13,7 +13,7 @@ import { tk, useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { useBranches } from '../../lib/hooks';
 import { useActionKeys } from '../../lib/idempotency';
-import { Alert, Button, Card, CardHeader, Dialog, ErrorState, Field, Input, Kpi, KeyValue, Loading, Mono, PageHeader, Select } from '../../components/ui';
+import { Button, Card, CardHeader, Dialog, Empty, ErrorState, Field, Input, KeyValue, Kpi, Mono, PageHeader, QueryState, Select, SkeletonRows } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 
 interface Drawer {
@@ -83,40 +83,35 @@ export function CashPage() {
 
       <Card padded={false} className="mb-5">
         <CardHeader title={t('Expected cash now')} subtitle={t('Every sale, cancellation, scrap purchase, supplier making charge and Hasad bank transfer moves these balances. Nothing is typed in by hand.')} />
-        {drawer.isLoading ? (
-          <Loading />
-        ) : drawer.isError ? (
-          <ErrorState error={drawer.error} onRetry={() => drawer.refetch()} />
-        ) : (
-          <DataTable
-            rows={drawer.data!.branches}
-            rowKey={(r) => r.branchId}
-            exportName="expected-cash"
-            emptyTitle={t('No branches')}
-            columns={[
-              { key: 'branchName', header: t('Branch'), render: (r) => L(r.branchName, r.branchNameAr) },
-              { key: 'expectedCash', header: t('Cash drawer'), align: 'end', render: (r) => <span className="font-semibold num">{money(r.expectedCash, false)}</span>, footer: money(drawer.data!.branches.reduce((s, r) => s + r.expectedCash, 0), false) },
-              { key: 'bank', header: t('Bank'), align: 'end', render: (r) => <span className="num">{money(r.bank, false)}</span>, footer: money(drawer.data!.branches.reduce((s, r) => s + r.bank, 0), false) },
-              // Sales paid through Hasad are held here until Hasad's bank transfer is recorded (D-4-14).
-              { key: 'hasadReceivable', header: t('Hasad receivable'), align: 'end', render: (r) => <span className="num">{money(r.hasadReceivable, false)}</span>, footer: money(drawer.data!.branches.reduce((s, r) => s + r.hasadReceivable, 0), false) },
-              ...(can('cash.settle_hasad')
-                ? [
-                    {
-                      key: 'settle',
-                      header: '',
-                      align: 'end' as const,
-                      render: (r: Drawer['branches'][number]) =>
-                        r.hasadReceivable > 0 ? (
-                          <Button size="sm" icon={<ArrowRightLeft className="size-4" />} onClick={() => setSettling(r)} data-testid={`settle-hasad-${r.branchCode}`}>
-                            {t('Settle Hasad receivable')}
-                          </Button>
-                        ) : null,
-                    },
-                  ]
-                : []),
-            ]}
-          />
-        )}
+        <DataTable
+          query={drawer}
+          rows={drawer.data?.branches ?? []}
+          rowKey={(r) => r.branchId}
+          exportName="expected-cash"
+          emptyTitle={t('No branches')}
+          columns={[
+            { key: 'branchName', header: t('Branch'), render: (r) => L(r.branchName, r.branchNameAr) },
+            { key: 'expectedCash', header: t('Cash drawer'), align: 'end', render: (r) => <span className="font-semibold num">{money(r.expectedCash, false)}</span>, footer: money((drawer.data?.branches ?? []).reduce((s, r) => s + r.expectedCash, 0), false) },
+            { key: 'bank', header: t('Bank'), align: 'end', render: (r) => <span className="num">{money(r.bank, false)}</span>, footer: money((drawer.data?.branches ?? []).reduce((s, r) => s + r.bank, 0), false) },
+            // Sales paid through Hasad are held here until Hasad's bank transfer is recorded (D-4-14).
+            { key: 'hasadReceivable', header: t('Hasad receivable'), align: 'end', render: (r) => <span className="num">{money(r.hasadReceivable, false)}</span>, footer: money((drawer.data?.branches ?? []).reduce((s, r) => s + r.hasadReceivable, 0), false) },
+            ...(can('cash.settle_hasad')
+              ? [
+                  {
+                    key: 'settle',
+                    header: '',
+                    align: 'end' as const,
+                    render: (r: Drawer['branches'][number]) =>
+                      r.hasadReceivable > 0 ? (
+                        <Button size="sm" icon={<ArrowRightLeft className="size-4" />} onClick={() => setSettling(r)} data-testid={`settle-hasad-${r.branchCode}`}>
+                          {t('Settle Hasad receivable')}
+                        </Button>
+                      ) : null,
+                  },
+                ]
+              : []),
+          ]}
+        />
       </Card>
 
       {settling && <HasadSettleDialog row={settling} onClose={() => setSettling(null)} />}
@@ -139,15 +134,10 @@ export function CashPage() {
           }
         />
         <div className="p-5">
-          {selected == null ? (
-            <Alert tone="info">{t('Select a branch')}</Alert>
-          ) : rec.isLoading ? (
-            <Loading />
-          ) : rec.isError ? (
-            <ErrorState error={rec.error} onRetry={() => rec.refetch()} />
-          ) : (
-            <ReconciliationView r={rec.data!} canCount={can('cash.count')} />
-          )}
+          {/* UI-A2: a neutral prompt, not a blue alert that reads like an error (ANALYSIS §10.3). */}
+          <QueryState query={rec} loading={<SkeletonRows rows={5} />} prompt={<Empty variant="prompt" title={t('Choose a branch to see its cash')} body={t('Use the branch selector above.')} />}>
+            {(r) => <ReconciliationView r={r} canCount={can('cash.count')} />}
+          </QueryState>
         </div>
       </Card>
     </div>
@@ -323,6 +313,14 @@ interface HasadTransfer {
 function HasadTransfers({ branchId }: { branchId: number }) {
   const { t, lang } = useI18n();
   const q = useQuery({ queryKey: ['hasad-transfers', branchId], queryFn: () => get<HasadTransfer[]>('/cash/hasad-settlements', { branchId }) });
+  // Shown only when there is something to list; a failed load says so instead of hiding the block.
+  if (q.data === undefined && q.isError)
+    return (
+      <Card padded={false} className="mb-5">
+        <CardHeader title={t('Hasad bank transfers received')} />
+        <ErrorState error={q.error} onRetry={() => q.refetch()} />
+      </Card>
+    );
   if (!q.data?.length) return null;
   return (
     <Card padded={false} className="mb-5">

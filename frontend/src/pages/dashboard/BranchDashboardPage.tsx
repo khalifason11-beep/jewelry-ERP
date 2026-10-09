@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { CheckCircle2, Gem, Receipt, ScaleIcon, Truck, TrendingUp, AlertTriangle } from 'lucide-react';
 import { get } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { date as formatDate, dateTime, grams, humanize, money, num, relative, todayKey, currencyLabel } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
-import { Card, CardHeader, ErrorState, Input, Kpi, Loading, PageHeader, StatusBadge } from '../../components/ui';
+import { Card, CardHeader, Input, Kpi, PageHeader, QueryState, RefreshBar, SkeletonRows, StatusBadge } from '../../components/ui';
 import { StockWeightCard, type StockWeight } from '../../components/StockWeight';
 import { MoneyLineChart } from '../../components/charts';
 
@@ -71,6 +71,8 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
     queryKey: ['dashboard', 'branch', branchId, date],
     queryFn: () => get<BranchDash>('/dashboard/branch', { branchId, date }),
     refetchInterval: 30_000,
+    // Another date keeps today's figures on screen (thin bar) until the new ones arrive (UI-A2).
+    placeholderData: keepPreviousData,
   });
   const isToday = date === todayKey();
   const dayLabel = isToday ? t('Today') : formatDate(date, lang);
@@ -83,13 +85,21 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
     />
   );
 
-  if (q.isLoading) return <>{!embedded && header}<Loading /></>;
-  if (q.isError) return <>{!embedded && header}<ErrorState error={q.error} onRetry={() => q.refetch()} /></>;
-  const d = q.data!;
+  if (!q.data)
+    return (
+      <>
+        {!embedded && header}
+        <QueryState query={q} loading={<SkeletonRows rows={6} />}>
+          {() => null}
+        </QueryState>
+      </>
+    );
+  const d = q.data;
   const k = d.kpis;
 
   return (
     <div className="space-y-5">
+      <RefreshBar active={q.isPlaceholderData && q.isFetching} />
       {embedded ? <div className="flex justify-end"><Input type="date" value={date} max={todayKey()} onChange={(e) => e.target.value && setDate(e.target.value)} className="w-40" aria-label={t('Business date')} /></div> : header}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

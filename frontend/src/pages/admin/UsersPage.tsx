@@ -7,7 +7,7 @@ import { dateTime, relative, time } from '../../lib/format';
 import { useBranches } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import { Alert, Badge, Button, Card, Dialog, Field, Input, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
+import { Alert, Badge, Button, Card, Dialog, ErrorState, Field, Input, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 
 interface UserRow {
@@ -147,6 +147,11 @@ export function UsersPage() {
         />
       </Card>
 
+      {roles.data === undefined && roles.isError && (
+        <Card padded={false} className="mt-5">
+          <ErrorState error={roles.error} onRetry={() => roles.refetch()} />
+        </Card>
+      )}
       {roles.data && (
         <Card padded={false} className="mt-5">
           <div className="border-b border-line px-5 py-3.5">

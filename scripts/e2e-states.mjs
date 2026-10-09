@@ -54,11 +54,13 @@ async function intercept(page, pathname, { status = 200, body, delayMs = 0, time
   let n = 0;
   const match = (url) => new URL(url).pathname === pathname;
   const handler = async (route) => {
-    if (route.request().method() !== 'GET' || n++ >= times) return route.continue();
+    // A request may already be answered by the time a delayed handler resumes (page left, handler removed).
+    const ignore = () => {};
+    if (route.request().method() !== 'GET' || n++ >= times) return route.continue().catch(ignore);
     if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
-    if (body === undefined && status === 200) return route.continue();
+    if (body === undefined && status === 200) return route.continue().catch(ignore);
     const error = status === 403 ? { code: 'FORBIDDEN', message: 'Missing permission: {permission}', key: 'Missing permission: {permission}', params: { permission: 'sales.view' } } : { code: 'INTERNAL', message: 'Internal error' };
-    await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body ?? { error }) });
+    await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body ?? { error }) }).catch(ignore);
   };
   await page.route(match, handler);
   return () => page.unroute(match, handler);
@@ -91,6 +93,26 @@ async function listStates(page, { path, api, name, quick, rows = 'main table tbo
   await page.getByTestId('state-retry').click();
   await page.locator(rows).first().waitFor({ timeout: 15_000 });
   ok(`${name}: Try again recovers`);
+}
+
+/** Open each screen with every API answer delayed: the first render (no data yet) must never crash. */
+async function sweep(page, who, paths) {
+  await signIn(page, who);
+  const slow = async (route) => {
+    await new Promise((r) => setTimeout(r, 700));
+    await route.continue().catch(() => {});
+  };
+  const isApi = (url) => new URL(url).pathname.startsWith('/api/') && !new URL(url).pathname.startsWith('/api/auth/');
+  await page.route(isApi, slow);
+  const crashed = [];
+  for (const p of paths) {
+    await page.goto(`${BASE}${p}`);
+    await page.waitForLoadState('networkidle');
+    if (await page.getByTestId('crash-page').count()) crashed.push(p);
+  }
+  await page.unroute(isApi, slow);
+  check(crashed.length === 0, `${who.username}: ${paths.length} screens render with slow data, no crash page${crashed.length ? ` (crashed: ${crashed.join(', ')})` : ''}`);
+  await signOut(page);
 }
 
 async function main() {
@@ -138,6 +160,11 @@ async function main() {
     check((await page.getByTestId('crash-page').count()) === 0, 'the sidebar still navigates: the next page works');
     await signOut(page);
 
+    section('Every screen renders while its data is still on the way (no crash page)');
+    await sweep(page, world.gm, ['/overview', '/branches', `/branches/${world.branchId}`, '/sales', '/inventory', '/catalog', '/purchases', '/cash', '/scrap', '/transfers', '/reports', '/reports/sales', '/reports/profit', '/users', '/sessions', '/audit', '/settings', '/security', '/me', '/pos']);
+    await sweep(page, world.bm, ['/dashboard', '/pos', '/sales', '/inventory', '/transfers', '/scrap', '/catalog', '/purchases', '/cash', '/reports', '/users', '/sessions', '/audit', '/security', '/me']);
+    await sweep(page, world.cashier, ['/pos', '/me', '/security']);
+
     section('Lists: filters stay, errors are errors (General Manager)');
     await signIn(page, world.gm);
     await listStates(page, { path: '/sales', api: '/api/sales', name: 'Sales', quick: '30d' });
@@ -172,6 +199,57 @@ async function main() {
     check(!/Something went wrong|Try again/.test(await page.locator('main').innerText()) && (await page.getByTestId('sidebar').count()) === 1, 'Sales answered 403: no-access in the table, no useless "Try again", sidebar intact');
     await axe(page, 'API no-access');
     await off403();
+    await signOut(page);
+
+    section('Other screens (General Manager)');
+    await signIn(page, world.gm);
+    // Settings: a failed load is an error with Try again, never a spinner that turns forever (audit bug).
+    const offSet = await intercept(page, '/api/settings', { status: 500 });
+    await page.goto(`${BASE}/settings`);
+    await page.locator('main [data-state=error]').waitFor({ timeout: 15_000 });
+    check((await page.locator('main [data-state=loading], main [role=status]').count()) === 0 && (await visible(page, 'main h1')), 'Settings: a failed load shows an error with Try again (title kept), no endless spinner');
+    await offSet();
+    await page.getByTestId('state-retry').click();
+    await page.getByTestId('save-gold-rates').waitFor({ timeout: 15_000 });
+    ok('Settings: Try again loads the page');
+
+    // Security: a failed passkey list is an error, never "No passkey registered yet" (audit bug).
+    const offKeys = await intercept(page, '/api/auth/passkeys', { status: 500 });
+    await page.goto(`${BASE}/security`);
+    await page.locator('main [data-state=error]').first().waitFor({ timeout: 15_000 });
+    check(!/No passkey registered yet/.test(await page.locator('main').innerText()), 'Security: a failed passkey list shows an error, not "No passkey registered yet"');
+    await axe(page, 'security error');
+    await offKeys();
+
+    // POS for a global user: while the branches load, never "No pieces in this branch yet" (audit bug).
+    const offBr = await intercept(page, '/api/branches', { delayMs: 3500, times: 1 });
+    await page.goto(`${BASE}/pos`);
+    await page.locator('main [data-state=loading]').waitFor({ timeout: 5_000 });
+    check((await page.getByTestId('pos-no-stock').count()) === 0 && !/No pieces in this branch yet|No matching pieces/.test(await page.locator('main').innerText()), 'POS before the branches load: a skeleton, not "No pieces in this branch yet"');
+    await offBr();
+    await page.locator('main [data-testid=pos-no-stock], main button:has-text("21")').first().waitFor({ timeout: 15_000 }).catch(() => {});
+
+    // Detail pages: a missing record is "does not exist" with a way back; the back link is there while loading.
+    await page.goto(`${BASE}/sales/987654`);
+    await page.locator('main [data-state=not-found]').waitFor({ timeout: 15_000 });
+    check(/This sale does not exist/.test(await page.locator('main').innerText()) && (await page.getByTestId('back-to-list').count()) === 1, 'a sale that does not exist: "This sale does not exist" with "Back to sales"');
+    await axe(page, 'detail not found');
+
+    // Cash: choosing a branch is a neutral prompt, not a blue alert (ANALYSIS §10.3).
+    await page.goto(`${BASE}/cash`);
+    await page.locator('main [data-state=prompt]').waitFor({ timeout: 15_000 });
+    check(/Choose a branch to see its cash/.test(await page.locator('main').innerText()), 'Cash for the General Manager: "Choose a branch to see its cash" as a neutral prompt');
+
+    // A session that ended while signed in: the sign-in page says why.
+    await signOut(page); // the server forgets the session; the screen does not know yet
+    await page.getByTestId('nav-sales').click();
+    await page.waitForURL((u) => u.pathname === '/login', { timeout: 15_000 });
+    await page.getByTestId('session-ended').waitFor({ timeout: 10_000 });
+    ok('a session that ended while signed in: the sign-in page says "Your session ended. Sign in again."');
+    await signIn(page, world.gm);
+    await page.goto(`${BASE}/login`);
+    check((await page.getByTestId('session-ended').count()) === 0, 'after signing in again the note is gone');
+    await page.goto(`${BASE}/overview`);
     await signOut(page);
 
     section('No access (branch manager)');

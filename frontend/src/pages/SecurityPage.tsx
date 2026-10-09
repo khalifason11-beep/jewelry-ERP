@@ -11,7 +11,7 @@ import { dateTime, deviceText } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { useToast } from '../lib/toast';
 import { createPasskey, hasBuiltInAuthenticator, PasskeyError, passkeyUnavailable, PROBLEM_TEXT, type PublicKeyCredentialCreationOptionsJSON } from '../lib/webauthn';
-import { Alert, Badge, Button, Card, CardHeader, Dialog, Field, Input, Loading, Mono, PageHeader } from '../components/ui';
+import { Alert, Badge, Button, Card, CardHeader, Dialog, ErrorState, Field, Input, Mono, PageHeader, SkeletonRows } from '../components/ui';
 import { AuthFrame } from '../components/layout/AuthFrame';
 import { printDocument } from '../lib/print';
 import { RecoveryCodesPrint } from '../print/documents';
@@ -323,8 +323,11 @@ export function SecurityPage() {
               </Button>
             }
           />
-          {keys.isLoading ? (
-            <Loading className="h-32" />
+          {/* UI-A2: a failed load is an error, never "No passkey registered yet" (audit bug). */}
+          {keys.data === undefined && keys.isError ? (
+            <ErrorState error={keys.error} onRetry={() => keys.refetch()} />
+          ) : keys.data === undefined ? (
+            <SkeletonRows rows={2} className="p-5" />
           ) : list.length === 0 ? (
             <div className="p-5 text-[13px] text-ink-500">{t('No passkey registered yet.')}</div>
           ) : (
@@ -382,6 +385,11 @@ export function SecurityPage() {
 
         <Card padded={false} className="xl:col-span-2">
           <CardHeader title={t('Recent sign-ins')} subtitle={t('The last 10 sign-ins to your account. If one is not yours, use “This wasn’t me” in the alert or tell the General Manager.')} />
+          {signIns.data === undefined ? (
+            signIns.isError ? <ErrorState error={signIns.error} onRetry={() => signIns.refetch()} /> : <SkeletonRows rows={3} className="p-5" />
+          ) : signIns.data.length === 0 ? (
+            <p className="px-5 py-4 text-meta text-ink-3">{t('No sign-ins recorded yet.')}</p>
+          ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]" data-testid="sign-ins">
               <thead className="bg-canvas text-start text-[12px] text-ink-500">
@@ -408,6 +416,7 @@ export function SecurityPage() {
               </tbody>
             </table>
           </div>
+          )}
         </Card>
 
         <Card className="xl:col-span-2">

@@ -12,7 +12,7 @@ import { noteText } from '../../lib/audit';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import type { ItemRow } from '../../lib/types';
-import { Button, Card, CardHeader, Dialog, ErrorState, Field, Input, ItemThumb, KeyValue, Loading, Mono, PageHeader, Select, StatusBadge, Textarea } from '../../components/ui';
+import { Button, Card, CardHeader, DetailPending, Dialog, Field, Input, ItemThumb, KeyValue, Mono, PageHeader, Select, StatusBadge, Textarea } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect } from '../../components/Filters';
 import { Crumbs } from '../sales/SalesPages';
@@ -186,8 +186,7 @@ export function ItemDetailPage() {
   const priceM = useMutation({ mutationFn: () => post(`/inventory/items/${id}/price`, { sellingPrice: Number(price), reason }), onSuccess: () => done(t('Price updated')), onError: (e) => toast.fromError(e) });
   const adjM = useMutation({ mutationFn: () => post(`/inventory/items/${id}/adjust`, { action: adjust, reason }), onSuccess: () => done(t('Inventory adjusted')), onError: (e) => toast.fromError(e) });
 
-  if (q.isLoading) return <Loading />;
-  if (q.isError) return <div className="p-6"><ErrorState error={q.error} /></div>;
+  if (!q.data) return <DetailPending query={q} backTo="/inventory" backLabel={t('Back to inventory')} notFoundTitle={t('This piece does not exist')} />;
   const { item: i, history, movements } = q.data!;
   const margin = i.totalCost ? ((i.sellingPrice - i.totalCost) / i.sellingPrice) * 100 : null;
   const saleRef = history.find((h) => h.toStatus === 'SOLD');
@@ -280,7 +279,7 @@ export function ItemDetailPage() {
           <Card padded={false}>
             <CardHeader title={t('Lifecycle')} subtitle={t('Every status change of this piece, with the document that caused it')} />
             {history.length === 0 ? (
-              <div className="px-5 py-6 text-[13px] text-ink-500">{t('Lifecycle is visible to managers.')}</div>
+              <div className="px-5 py-6 text-[13px] text-ink-500">{can('inventory.view') ? t('No status change recorded yet.') : t('Lifecycle is visible to managers.')}</div>
             ) : (
               <ol className="px-5 py-4">
                 {history.map((h, idx) => (

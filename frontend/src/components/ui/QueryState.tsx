@@ -8,6 +8,10 @@
 import type { ReactNode } from 'react';
 import clsx from 'clsx';
 import { useI18n } from '../../lib/i18n';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
+import { Button } from './Button';
+import { Card } from './Layout';
 import { ErrorState, SkeletonRows } from './States';
 
 /** What QueryState needs from a TanStack Query result. */
@@ -80,5 +84,34 @@ export function QueryState<T>({
       )}
       {children(query.data as T)}
     </>
+  );
+}
+
+/**
+ * A detail page (sale, purchase, piece, branch) before its record is there: the way back stays on screen, the
+ * block shows a skeleton, the error with Try again, "This … does not exist" (404) or no-access (403).
+ */
+export function DetailPending({ query, backTo, backLabel, notFoundTitle }: { query: QueryLike<unknown>; backTo: string; backLabel: string; notFoundTitle: string }) {
+  const navigate = useNavigate();
+  const back = (
+    <Button size="sm" onClick={() => navigate(backTo)} data-testid="back-to-list">
+      {backLabel}
+    </Button>
+  );
+  return (
+    <div className="p-5 lg:p-6">
+      <div className="mb-4">
+        <Button size="sm" variant="ghost" icon={<ArrowLeft className="size-4 rtl:rotate-180" />} onClick={() => navigate(backTo)}>
+          {backLabel}
+        </Button>
+      </div>
+      <Card padded={false}>
+        {viewState(query) === 'error' ? (
+          <ErrorState error={query.error} onRetry={() => query.refetch()} notFoundTitle={notFoundTitle} notFoundAction={back} />
+        ) : (
+          <SkeletonRows rows={6} className="p-5" />
+        )}
+      </Card>
+    </div>
   );
 }

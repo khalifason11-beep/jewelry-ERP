@@ -9,7 +9,7 @@ import { dateTime, grams, karatLabel, money } from '../../lib/format';
 import { useBranches, useGoldRates } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import { Alert, Button, Card, CardHeader, Dialog, ErrorState, Field, Input, KeyValue, Loading, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, DetailPending, Dialog, Field, Input, KeyValue, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
 import { Crumbs } from '../sales/SalesPages';
@@ -311,8 +311,7 @@ export function PurchaseDetailPage() {
         }
       >(`/purchases/${id}`),
   });
-  if (q.isLoading) return <Loading />;
-  if (q.isError) return <div className="p-6"><ErrorState error={q.error} /></div>;
+  if (!q.data) return <DetailPending query={q} backTo="/purchases" backLabel={t('Back to purchases')} notFoundTitle={t('This purchase does not exist')} />;
   const p = q.data!;
   return (
     <div className="p-5 lg:p-6">

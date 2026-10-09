@@ -11,4 +11,4 @@ export { Pill, PillGroup } from './Pill';
 export { Panel, PanelHeader } from './Panel';
 export { Card, CardHeader, ItemThumb, KeyValue, Kpi, Mono, PageHeader, Tabs } from './Layout';
 export { DataTable, type Column } from './DataTable';
-export { QueryState, RefreshBar, viewState, type QueryLike, type ViewState } from './QueryState';
+export { DetailPending, QueryState, RefreshBar, viewState, type QueryLike, type ViewState } from './QueryState';

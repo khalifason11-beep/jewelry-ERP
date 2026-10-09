@@ -3,7 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Fingerprint, KeyRound, LogIn, ShieldCheck } from 'lucide-react';
 import { ApiError, errorText, post } from '../lib/api';
 import { getPasskey, PasskeyError, type PublicKeyCredentialRequestOptionsJSON } from '../lib/webauthn';
-import { homePath, useAuth, type Me, type PendingSignIn } from '../lib/auth';
+import { homePath, sessionEnded, useAuth, type Me, type PendingSignIn } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
 import { Alert, Button, Card, Field, Input } from '../components/ui';
 import { AuthFrame } from '../components/layout/AuthFrame';
@@ -47,6 +47,11 @@ export function LoginPage() {
           <SecondStep pending={pending} onBack={() => { setPending(null); setError(null); }} />
         ) : (
           <>
+            {sessionEnded() && (
+              <Alert tone="info" className="mb-4">
+                <span data-testid="session-ended">{t('Your session ended. Sign in again.')}</span>
+              </Alert>
+            )}
             <h1 className="text-title font-semibold text-ink">{t('Sign in')}</h1>
             <p className="mt-1 text-meta text-ink-3">{t('Use the account assigned to you by the General Manager.')}</p>
 
