@@ -112,6 +112,7 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
 ## 8. Transfers between branches
 
 - **[OWNER] Items:** a branch manager moves items from the **POS cart** with the **"Transfer to branch" button under the pay button**. It is visible to branch managers only, never to cashiers. The manager picks the destination branch from a list and the courier's name; one transfer carries all items in the cart.
+  *Built (FIX-1, D-fix-1, D-rem4-1):* the courier's name is required and stored on the transfer; one piece no longer available refuses the whole transfer and nothing changes. The General Manager keeps "New transfer" on the Transfers screen (same rules); there is no other start point.
 - **[BUILT]** Lifecycle: items become **IN_TRANSIT** (not sellable anywhere) until the **receiving branch manager confirms**; then they join the receiving branch's stock with every attribute, **cost unchanged**. Support for partial receipt with disputed items visible to the GM, and cancellation by the sender before receipt.
 - **[OWNER]** The Transfers page is a **log** (outgoing and incoming, with status) and the place where the receiving manager confirms. **It has no "new transfer" button.**
 - **[OPEN] Money transfers between branches** (bank-based: the sender records a claim, the receiver confirms): mentioned early on, **never built** (only the `FUNDS_IN_TRANSIT` account type exists). Is it still required?

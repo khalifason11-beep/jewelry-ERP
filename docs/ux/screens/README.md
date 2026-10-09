@@ -1,7 +1,9 @@
 # Screens after the latest UI phase
 
-**Current set: UI-A2** (screen states, notice area, sign-in tagline in Amiri), taken in the UI-A2 docs commit.
-Changed screens shown at all three sizes in both languages: the sign-in page (`00-login`), Settings, Cash, Inventory.
+**Current set: POS-FIXES** (LOCK-1, SEC-2, FIX-2, FIX-1, REM-4), taken in the POS-FIXES docs commit. Changed screens
+shown at all three sizes in both languages: the sale detail (bank reference), Cash (bank-transfer sales), Transfers
+(courier, no other start point), Inventory (no card view), Settings (void amount). The POS itself is the cashier's
+home (`26-cashier-home-pos`). Screens are not restyled: UI-B and UI-C do that.
 Each UI phase replaces this folder with its own "after" set; earlier sets stay in git history
 (`git show <commit>:<path>`, or browse the repository on GitHub at that commit):
 
@@ -11,6 +13,7 @@ Each UI phase replaces this folder with its own "after" set; earlier sets stay i
 | UI-A1 before | `35c2410` | `docs/ux/baseline-ui-a1/before/` (JPEG) |
 | UI-A1 after (full set) | `36e4e1e` | `docs/ux/baseline-ui-a1/after/` (JPEG) |
 | UI-A1 after (slim WebP) | `b3ddbae` | `docs/ux/screens/` |
+| UI-A2 after | `2988ff5` | `docs/ux/screens/` |
 
 Rule (D-ui-10), applied by `scripts/lib/screens.mjs`; `npm run check:assets` enforces at most 4 MB in total,
 150 KB per image, WebP only, no "before" set:

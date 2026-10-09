@@ -89,14 +89,16 @@ Details and reasons are in `docs/decisions.md` and `docs/DEPLOYMENT.md`.
 **Acceptance:** fresh database and an upgraded copy both migrate; backup/restore drill passes; all gates pass. Every destructive statement carries its own `-- allow-destructive: <reason>` comment (`check:migrations`, D-rem3-6).
 **Done (3 commits, `348c219`, `40bee23`, step 3; plan `docs/plans/REM-5.md`, decisions D-rem5-1…7, acceptance `docs/acceptance/REM-5.md`):** migration **0016** with a guard that stops (and changes nothing) when any row still uses a removed table or value; the expense and Hasad tables, `hasad_mock`, the old item cost and reservation columns, `sessions.is_simulated`, `branches.hasad_branch_code`, RESERVED/REDEEMED, `HASAD_REDEMPTION`, `EXPENSE`/`HASAD_SETTLEMENT`, the deprecation triggers and function and the leftover `hasad.enabledPerBranch` row are gone; `UNIQUE (purchase_items.item_id)`; item cost derived from `acquisition_cost` and the supplier line. New gate `check:drizzle`. Hasad allow-list 251 → 174 allowed lines, 10 → 7 entries, none added (the 4 new lines are REH-1's REM-5 checks, under the existing GUARD entry). Tests: **1,476** = 718 on PGlite + 758 on real PostgreSQL (3 drizzle-gate tests run in the PGlite project only), 46 test files.
 
-### REM-4 — Remove duplicate transfer entry points · TODO · S · P1
+### REM-4 — Remove duplicate transfer entry points · DONE · S · P1
 After FIX-1: remove the inventory multi-select transfer bar and the Transfers page's "New transfer" dialog. **Sub-question for the owner:** keep a GM emergency override (password plus reason, audited) somewhere out of the way, or drop it?
+**Done with FIX-1 (`17300b7`, D-rem4-1).** Owner decision: the General Manager **keeps** "New transfer" on the Transfers screen as the GM's only start point, under the same rules as the POS transfer. Removed: the Inventory "Select & transfer" card view and the branch manager's "Select pieces in Inventory" button. Start points are exactly the BM's POS cart and the GM's "New transfer".
 
 ---
 
 ## C. Fix
 
-### FIX-1 — Transfer button in the POS cart · TODO · M · P0
+### FIX-1 — Transfer button in the POS cart · DONE · M · P0
+**Done (`17300b7`, D-fix-1, plan `docs/plans/POS-FIXES.md`, acceptance `docs/acceptance/POS-FIXES.md`):** "Transfer to branch" below "Complete sale" for the branch manager; courier's name required (`transfers.courier_name`, migration 0019); all or nothing with row locks (`ITEMS_UNAVAILABLE`, nothing changed); Idempotency-Key required and claimed in the transaction; races tested on PostgreSQL.
 **Misreading to correct:** the owner asked for the button **in the sales cart, below the pay button**. The earlier build put multi-select on the inventory screen and a "New transfer" button on the Transfers page.
 **Requirements (SPEC §8):**
 - Visible only to branch managers (permission `inventory.transfer`, own branch), never to cashiers.
@@ -105,7 +107,8 @@ After FIX-1: remove the inventory multi-select transfer bar and the Transfers pa
 - The Transfers page remains a log, with the confirm-receipt action for incoming transfers.
 **Acceptance:** a branch manager adds 3 items, transfers them from the cart, and the log shows one transfer with 3 items; a cashier never sees the button (role test); a double click creates one transfer; the receiving manager confirms and the items move with their data.
 
-### FIX-2 — Bank transfer reference number · TODO · M · P0
+### FIX-2 — Bank transfer reference number · DONE · M · P0
+**Done (`1a14985`, D-fix-2):** required for Bank transfer, normalized (Arabic-Indic and Persian digits, spaces, case) and validated (4–40); stored in the existing `payment_ref_transaction` (Hasad references unchanged; no per-method migration needed); duplicates in the branch warn with 409 and are audited when confirmed; shown on the invoice and receipt, sale detail and list, and the Cash drill-down "Bank-transfer sales"; validated database check after a guard (migration 0018). The list does not need a separate export: the Cash drill-down and the sales list (CSV) show the references.
 **Why:** selecting Bank transfer shows no transaction-number field; that causes trouble at review.
 **Requirements:**
 - Mandatory reference when the method is Bank transfer (trimmed, 3–40 characters). Store it on the sale; a generic `payment_reference` is preferred over per-method columns (migrate the Hasad reference fields consistently).
@@ -179,7 +182,8 @@ Re-verify every report after REM-1, REM-2 and PRC-1; add reporting by payment ch
 **No quantisation of the pure-24K debt is needed:** at milligram precision the 24K equivalent of a net weight is rounded to the nearest milligram, and every integer debt can be settled exactly: for every karat 1–24 the conversion step (`round((n+1)·k/24) − round(n·k/24)`) is at most one milligram, so every integer owed value is reached by some whole-milligram weight. REM-3 adds a property test for this.
 **PRC-1 note:** the computed price (rate per gram × net weight in mg / 1000) applies its rounding rule (Q-2) once, after the multiplication.
 
-### SEC-2 — Void re-confirmation and reasons for price changes · TODO · S · P1
+### SEC-2 — Void re-confirmation and reasons for price changes · DONE · S · P1
+**Done (`97a07f5`, D-sec2-1, D-sec2-2):** `sales.voidReauthAboveAmount` (default **0** = every void asks, owner decision; GM only); one reason per sale for any price change (`SALE_PRICE_CHANGED`, `sales.price_change_reason`, migration 0017, never printed); item price-edit reason required. **Also in this bundle, LOCK-1 (`bd478fb`, D-lock-1):** managers see security-locked accounts as the first notice; the reporter sees a note in their own tab only.
 **Owner decision D-ux-10.** (1) Voiding a sale **above an amount set in Settings** (GM setting, default to be proposed) requires the **password re-confirmation** used elsewhere (and the passkey where the role requires it). (2) Changing a piece's selling price requires a **reason** (today optional). Both audited as today. Not part of any UI phase.
 **Acceptance:** a void above the threshold without re-confirmation is refused (403 with the re-auth code), below it is unchanged; a price change without a reason is refused; tests on both projects; route matrix and permission tests updated.
 

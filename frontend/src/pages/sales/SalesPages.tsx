@@ -76,6 +76,8 @@ export function SalesTable({ branchId, from, to, mine, toolbar }: { branchId?: n
         {
           key: 'paymentMethod',
           header: t('Payment'),
+          // FIX-2: the CSV carries the bank reference too (matching against the bank statement).
+          value: (r) => (r.paymentMethod === 'BANK_TRANSFER' ? `${t(r.paymentMethod)} ${r.paymentRefTransaction ?? ''}`.trim() : t(r.paymentMethod)),
           render: (r) => (
             <span className="text-[12px] text-ink-600">
               {t(r.paymentMethod)}

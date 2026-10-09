@@ -1,6 +1,41 @@
 # Plan: FIX-1, FIX-2, REM-4, SEC-2 (POS functional fixes before UI-B)
 
-Status: **PLAN, awaiting the owner's approval. No code has been written.**
+Status: **APPROVED and BUILT** (2026-10-09). Commits: LOCK-1 `bd478fb`, SEC-2 `97a07f5`, FIX-2 `1a14985`,
+FIX-1 + REM-4 `17300b7`, docs (this update, `docs/acceptance/POS-FIXES.md`, decisions §19 D-lock-1, D-sec2-1, D-sec2-2,
+D-fix-1, D-fix-2, D-rem4-1).
+
+### Owner's answers and what changed from the text below
+
+- **Q1** yes: the security-locked notice comes first. Addition: the sign-in page reveals a lock to nobody but the person
+  who has just confirmed "This wasn't me" in that same tab; a locked account and an unknown username give identical
+  answers in the same timing class (tested). A locked General Manager account can only be unlocked by the operator
+  command. The notice is driven by `users.view` (a branch manager has `users.view`, not `users.manage`).
+- **Q2 (REM-4), owner decision:** the General Manager **keeps** "New transfer" on the Transfers screen as the GM's only
+  start point, with the same rules as the POS transfer (courier required, all or nothing, row locks, nothing changed when
+  a piece is no longer available, Idempotency-Key required, audited, route-matrix allow/deny/cross-branch tests). The
+  Inventory card-view selection and the branch manager's "Select pieces in Inventory" button are removed. Start points:
+  the BM's POS cart and the GM's "New transfer"; no other (§4 row 2 below is therefore **kept**, not removed).
+- **Q3** yes: `transfers.courier_name` (migration **0019**, additive, hand-reviewed; `check:migrations` and
+  `check:drizzle` pass). Addition: row locks, `ITEMS_UNAVAILABLE` with no change, Idempotency-Key required (now claimed
+  inside the transaction), PostgreSQL race tests (two transfers; a sale and a transfer).
+- **Q4** yes, with proof: a `NOT VALID` check would still be enforced on every later UPDATE (voids, reprints) of old
+  rows, so the check is **validated**, after a guard that counts bank sales without a reference and stops with a clear
+  message, changing nothing (migration **0018**, like 0016). Tests: the guard stops; a clean upgrade keeps Hasad and
+  allows UPDATEs of existing bank sales.
+- **Q5** yes, with normalization: Arabic-Indic and Persian digits to ASCII, trim, collapse spaces, upper case, before
+  validation and duplicate detection (same branch, unvoided sales).
+- **Q6 NO:** `sales.voidReauthAboveAmount` defaults to **0 = every void asks**; the General Manager can raise it. No
+  guessed money amount. (The 2,000,000 in §5 below is superseded.)
+- **Q7** yes. **Q8** yes, one reason per sale. Addition: a price change is any final line price different from the list
+  price, up or down; the reason goes to the audit log (`SALE_PRICE_CHANGED`) **and the sale record**
+  (`sales.price_change_reason`, migration **0017**), never to customer printouts; the audit entry carries prices only (no
+  cost). So SEC-2 did need an additive migration after all (§1 below said none).
+- **Schema summary:** three additive migrations, 0017 (SEC-2), 0018 (FIX-2 check after a guard), 0019 (FIX-1 courier).
+  LOCK-1 and REM-4 needed none.
+
+---
+
+Original plan text (kept for the record):
 Branch: `claude/hopeful-sagan-lehxyp`, based on `2988ff5` (UI-A2 done and approved).
 
 Sources: `docs/SPEC.md` §8 (transfers) and the POS section; `docs/BACKLOG.md` FIX-1, FIX-2, REM-4, SEC-2; decision D-ux-10

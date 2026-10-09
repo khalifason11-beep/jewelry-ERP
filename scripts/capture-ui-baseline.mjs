@@ -87,7 +87,9 @@ const SCREENS = [
   { role: 'gm', name: 'branches', path: '/branches' },
   { role: 'gm', name: 'branch-detail', path: async (page) => `/branches/${(await page.evaluate(async () => (await fetch('/api/branches')).json()))[0].id}` },
   { role: 'gm', name: 'sales', path: '/sales' },
-  { role: 'gm', name: 'sale-detail', path: firstId('/api/sales?limit=1') },
+  // `/api/sales` takes no `limit` (strict query: `?limit=1` was refused, so this screen used to show an error). A
+  // bank-transfer sale when there is one, so the reference shows (FIX-2).
+  { role: 'gm', name: 'sale-detail', path: firstId('/api/sales', (b) => (b.find((s) => s.paymentMethod === 'BANK_TRANSFER') ?? b[0])?.id) },
   { role: 'gm', name: 'inventory', path: '/inventory' },
   { role: 'gm', name: 'types-and-products', path: '/catalog' },
   { role: 'gm', name: 'supplier-purchases', path: '/purchases' },
