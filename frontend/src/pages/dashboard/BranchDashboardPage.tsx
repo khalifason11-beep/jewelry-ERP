@@ -113,7 +113,7 @@ export function BranchDashboard({ branchId, title, embedded }: { branchId?: numb
         <Card padded={false}>
           <CardHeader
             title={t('Sales: last 14 days')}
-            subtitle={`${t('Month to date: {amount} · {n} invoices', { amount: money(d.mtd.revenue), n: d.mtd.salesCount })}$`}
+            subtitle={t('Month to date: {amount} · {n} invoices', { amount: money(d.mtd.revenue), n: d.mtd.salesCount })}
           />
           <div className="px-3 pb-3 pt-2">
             <MoneyLineChart

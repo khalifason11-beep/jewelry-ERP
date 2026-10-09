@@ -444,6 +444,13 @@ async function main() {
     await page.getByTestId('pos-payment-methods').waitFor();
     const methods = await page.getByTestId('pos-payment-methods').innerText();
     check(/نقد/.test(methods) && /تحويل بنكي/.test(methods) && /حصاد/.test(methods), 'the POS offers Cash, Bank transfer and Hasad as payment methods');
+    // UI-A1 (D-ui-8): in English the methods read as words, never as the codes the server sends.
+    await page.evaluate(() => localStorage.setItem('jerp.lang', 'en'));
+    await page.goto(`${origin}/pos`);
+    await page.getByTestId('pos-payment-methods').waitFor();
+    const methodsEn = await page.getByTestId('pos-payment-methods').innerText();
+    await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
+    check(/Bank transfer/.test(methodsEn) && /Cash/.test(methodsEn) && !/BANK_TRANSFER|\bCASH\b|\bHASAD\b/.test(methodsEn), `in English the POS shows "Bank transfer", not the code (${methodsEn.replace(/\s+/g, ' ').trim()})`);
     const me = await apiGet(page, '/api/auth/me');
     check(!('hasadMode' in me.body) && me.body.posPaymentMethods.join(',') === 'CASH,BANK_TRANSFER,HASAD', 'no Hasad integration mode; the counter methods are Cash, Bank transfer, Hasad');
 

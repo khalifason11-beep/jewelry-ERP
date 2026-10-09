@@ -312,6 +312,22 @@ async function main() {
     check(o3.length === 0, `72 mm discounted receipt: no orphaned token${o3.length ? ` (found: ${o3.join(' | ')})` : ''}`);
     const rd = await exportPdf(gm, 'receipt-72mm-discount.pdf');
     check(pages(rd.pdf).length === 1, 'receipt PDF of the discounted 5-line sale exported');
+    // UI-A1 (D-ui-8): an English invoice names the payment method in words, never the code. The print response is
+    // rewritten to a bank-transfer sale (layout fixture, as withNames does); the server data is untouched.
+    await gm.evaluate(() => localStorage.setItem('jerp.lang', 'en'));
+    await gm.goto(`${BASE}/sales/${sale5.body.id}`);
+    await gm.route('**/api/sales/*/print', async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      body.document.paymentMethod = 'BANK_TRANSFER';
+      await route.fulfill({ response: res, json: body });
+      await gm.unroute('**/api/sales/*/print');
+    });
+    await gm.getByTestId('sale-print').click();
+    await gm.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
+    const etext = await printRootText(gm);
+    await gm.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
+    check(/Bank transfer/.test(etext) && !/BANK_TRANSFER/.test(etext), 'English invoice: the payment method reads "Bank transfer", not the code');
     const audit = (await api(gm, 'GET', '/audit?entityType=sale&limit=50')).body;
     check(audit.some((a) => a.action === 'INVOICE_REPRINTED' && a.entityId === sale.number), 'INVOICE_REPRINTED audit entry for the sale');
 

@@ -10,7 +10,9 @@
 //    user-facing key produced by the backend (error messages, report titles/columns/notes,
 //    notifications, audit-log description keys, ledger note templates) must
 //    exist in frontend/src/lib/i18n-ar.ts.
-// 3. Backend English sentences that bypass the key system: template-literal `description:`
+// 3. English labels (UI-A1): every code-like Arabic key (e.g. BANK_TRANSFER) has an English label in
+//    frontend/src/lib/i18n-en.ts, so English never shows a raw code; and that file holds nothing else.
+// 4. Backend English sentences that bypass the key system: template-literal `description:`
 //    values (audit text must use `key` + `params`) and English free text in seed data.
 
 import fs from 'node:fs';
@@ -45,6 +47,18 @@ arFile.forEachChild(function visit(n) {
   }
   n.forEachChild(visit);
 });
+
+// ───────── English labels for codes ─────────
+const enSource = fs.readFileSync(path.join(FRONTEND, 'lib/i18n-en.ts'), 'utf8');
+const enFile = ts.createSourceFile('i18n-en.ts', enSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+const EN = new Map();
+enFile.forEachChild(function visit(n) {
+  if (ts.isPropertyAssignment(n) && (ts.isStringLiteral(n.name) || ts.isIdentifier(n.name)) && ts.isStringLiteralLike(n.initializer)) {
+    EN.set(n.name.text, n.initializer.text);
+  }
+  n.forEachChild(visit);
+});
+const isCode = (k) => /^[A-Z][A-Z0-9_]*$/.test(k);
 
 // Props / object fields whose string values are shown to users.
 const UI_PROPS = new Set([
@@ -248,6 +262,8 @@ for (const file of [...BACKEND_DIRS.flatMap((d) => walk(d, ['.ts']))]) {
 // ───────── report ─────────
 const missingFront = [...usedKeys].filter(([k]) => !AR.has(k));
 const missingBack = [...backendKeys].filter(([k]) => !AR.has(k));
+const missingEn = [...AR.keys()].filter((k) => isCode(k) && !EN.get(k)?.trim());
+const strayEn = [...EN.keys()].filter((k) => !isCode(k) || !AR.has(k));
 
 const section = (title, rows, fmt) => {
   console.log(`\n${title}: ${rows.length}`);
@@ -259,9 +275,11 @@ console.log(`Backend user-facing keys: ${backendKeys.size}`);
 section('Hardcoded English in frontend/src (not wrapped in t())', hardcoded, (h) => `${h.where}  →  ${h.text}`);
 section('t() keys missing an Arabic translation', missingFront, ([k, w]) => `${w}  →  ${k}`);
 section('Backend keys missing an Arabic translation', missingBack, ([k, w]) => `${w}  →  ${k}`);
+section('Codes missing an English label (lib/i18n-en.ts)', missingEn, (k) => k);
+section('English labels for codes not in the Arabic dictionary (lib/i18n-en.ts)', strayEn, (k) => k);
 section('Backend sentences built from English templates (use key + params)', backendTemplates, (h) => `${h.where}  →  ${h.text}`);
 section('English free text in seed data (seed it in Arabic, or pair it with an Arabic field)', seedEnglish, (h) => `${h.where}  →  ${h.text}`);
 
-const total = hardcoded.length + missingFront.length + missingBack.length + backendTemplates.length + seedEnglish.length;
+const total = hardcoded.length + missingFront.length + missingBack.length + missingEn.length + strayEn.length + backendTemplates.length + seedEnglish.length;
 console.log(total ? `\n${total} item(s) need attention.` : '\nAll user-facing strings are localized.');
 if (strict && total) process.exit(1);
