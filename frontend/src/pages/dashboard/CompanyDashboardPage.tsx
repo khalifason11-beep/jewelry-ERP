@@ -9,7 +9,6 @@ import { branchColor } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { Card, CardHeader, Input, Kpi, PageHeader, QueryState, SkeletonRows } from '../../components/ui';
 import { StockWeightCard, type StockWeight } from '../../components/StockWeight';
-import { BackupBanner } from '../../components/BackupBanner';
 import { FirstSteps, useSetupStatus } from '../../components/FirstSteps';
 import { CategoryBarChart, StackedMoneyBars } from '../../components/charts';
 
@@ -111,8 +110,6 @@ export function CompanyDashboardPage() {
           </div>
         }
       />
-
-      <BackupBanner />
 
       {/* REM-3: the first-steps checklist until the system can take its first sale. */}
       {setup.data && !setup.data.complete && <FirstSteps status={setup.data} />}

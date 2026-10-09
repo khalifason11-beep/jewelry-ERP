@@ -11,6 +11,7 @@ import { get, translateParams } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { deviceText, money, relative } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
+import { useNotices } from './Notices';
 
 function useClickOutside(onOutside: () => void) {
   const ref = useRef<HTMLDivElement>(null);
@@ -117,6 +118,8 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useClickOutside(() => setOpen(false));
   const navigate = useNavigate();
+  // UI-A2: a dot on the avatar while any notice is open (they are listed above the page).
+  const notices = useNotices(() => undefined, () => undefined).length;
   if (!me) return null;
   const name = L(me.user.fullName, me.user.fullNameAr);
   // First letters of the first two words that start with a letter (skips marks such as "[Sample]").
@@ -125,12 +128,13 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="grid size-9 place-items-center rounded-full bg-panel text-meta font-semibold text-ink hover:bg-neutral-bg"
-        aria-label={t('Account menu: {name}', { name })}
+        className="relative grid size-9 place-items-center rounded-full bg-panel text-meta font-semibold text-ink hover:bg-neutral-bg"
+        aria-label={notices ? `${t('Account menu: {name}', { name })} · ${t('{n} open notices', { n: notices })}` : t('Account menu: {name}', { name })}
         aria-expanded={open}
         data-testid="user-menu"
       >
         {initials}
+        {notices > 0 && <span className="absolute -end-0.5 -top-0.5 size-2.5 rounded-full border-2 border-surface bg-crit" aria-hidden data-testid="notice-dot" />}
       </button>
       {open && (
         <div className="absolute end-0 top-11 z-40 w-72 rounded-card border border-line bg-surface p-1.5 shadow-pop">
@@ -155,7 +159,8 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
             <ClipboardList className="size-4 text-ink-3" /> {t('My Activity')}
           </button>
           <button onClick={() => { setOpen(false); navigate('/security'); }} className="flex w-full items-center gap-2 rounded-control px-3 py-2 text-[15px] hover:bg-panel" data-testid="menu-security">
-            <Fingerprint className="size-4 text-ink-3" /> {t('Sign-in security')}
+            <Fingerprint className="size-4 text-ink-3" /> <span className="flex-1 text-start">{t('Sign-in security')}</span>
+            {notices > 0 && <span className="rounded-badge bg-crit-bg px-1.5 text-[12px] font-semibold text-crit num">{notices}</span>}
           </button>
           <button onClick={onLogout} className="flex w-full items-center gap-2 rounded-control px-3 py-2 text-[15px] text-crit hover:bg-crit-bg">
             <LogOut className="size-4" /> {t('Sign out')}

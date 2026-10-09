@@ -401,6 +401,23 @@ async function main() {
     check(users0.status === 200 && users0.body.length === 1, 'the only user is the General Manager');
     const drawer0 = await apiGet(page, '/api/cash/drawer');
     check(drawer0.status === 200 && drawer0.body.branches.length === 0, 'no ledger accounts with money (no branches, no opening cash)');
+    // UI-A2 (D-ui-13): system notices live in one compact shell area on every screen, not as big banners on the home.
+    await page.goto(`${origin}/settings`);
+    await page.getByTestId('backup-banner').waitFor({ timeout: 15_000 });
+    await page.getByTestId('second-passkey-nag').waitFor({ timeout: 15_000 });
+    const noticeRows = await page.locator('[data-testid=notices] > [data-level]').evaluateAll((els) => els.map((e) => ({ id: e.dataset.testid, h: e.getBoundingClientRect().height })));
+    const mainTop = await page.locator('main').evaluate((m) => m.getBoundingClientRect().top);
+    const noticesBottom = await page.getByTestId('notices').evaluate((n) => n.getBoundingClientRect().bottom);
+    check(
+      noticeRows.map((r) => r.id).join(',') === 'backup-banner,second-passkey-nag' && noticeRows.every((r) => r.h <= 48) && noticesBottom >= mainTop,
+      `General Manager on Settings: the backup and one-passkey notices, one line each, above the page (${noticeRows.map((r) => `${r.id} ${Math.round(r.h)}px`).join(', ')})`,
+    );
+    check((await page.getByTestId('notice-dot').count()) === 1, 'the avatar carries a dot while notices are open');
+    check(!/USD|\$/.test(await page.getByTestId('topbar').innerText()), 'no USD chip in the top bar (D-ux-3, until Q-10)');
+    await page.goto(`${origin}/overview`);
+    await page.getByTestId('notices').waitFor();
+    await page.getByTestId('backup-banner').waitFor({ timeout: 15_000 });
+    check((await page.locator('[data-testid=notices] [data-testid=backup-banner]').count()) === 1 && (await page.getByTestId('backup-banner').count()) === 1, 'the backup notice is in the shell notice area, no longer a card on the home');
     // UI-A2 (D-ui-11): every list says what is empty, in the screen's own words, in both languages; no generic
     // "Nothing to show", no "Loading…" left behind, no table of zeros.
     await emptyStates(page, origin, 'General Manager', [
@@ -516,6 +533,9 @@ async function main() {
       check(r.status === 404 || r.status === 400, `branch manager: ${p} answers ${r.status} (no such route or report)`);
     }
     await noExpenseWords(page, origin, ['/dashboard', '/cash', '/reports'], 'branch manager');
+    await page.goto(`${origin}/dashboard`);
+    await page.waitForLoadState('networkidle');
+    check((await page.locator('[data-testid=backup-banner], [data-testid=uv-preferred-banner], [data-testid=enforcement-off-banner]').count()) === 0, 'branch manager: no backup or General Manager notices');
 
     section('REM-2: Hasad only as a payment channel');
     for (const p of ['/api/hasad/withdrawals', '/api/hasad/simulator/customers', '/api/reports/hasad']) {

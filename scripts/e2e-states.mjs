@@ -43,7 +43,7 @@ async function signOut(page) {
 async function axe(page, what) {
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
   const bad = r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-  check(bad.length === 0, `axe (${what}): no serious or critical issue${bad.length ? `: ${bad.map((v) => `${v.id} ×${v.nodes.length}`).join(', ')}` : ''}`);
+  check(bad.length === 0, `axe (${what}): no serious or critical issue${bad.length ? `: ${bad.map((v) => `${v.id} ×${v.nodes.length} (${v.nodes.map((n) => `${n.target.join(' ')}: ${(n.any[0]?.message ?? '').slice(0, 140)}`).join(' | ')})`).join(', ')}` : ''}`);
 }
 
 /**
@@ -164,6 +164,44 @@ async function main() {
     await sweep(page, world.gm, ['/overview', '/branches', `/branches/${world.branchId}`, '/sales', '/inventory', '/catalog', '/purchases', '/cash', '/scrap', '/transfers', '/reports', '/reports/sales', '/reports/profit', '/users', '/sessions', '/audit', '/settings', '/security', '/me', '/pos']);
     await sweep(page, world.bm, ['/dashboard', '/pos', '/sales', '/inventory', '/transfers', '/scrap', '/catalog', '/purchases', '/cash', '/reports', '/users', '/sessions', '/audit', '/security', '/me']);
     await sweep(page, world.cashier, ['/pos', '/me', '/security']);
+
+    section('Notices: two lines, the security alert first, nothing dismissible');
+    await signIn(page, world.gm);
+    // Force every notice at once by rewriting the browser's copy of /api/auth/me (the server is untouched). In
+    // production mode a database that never had a backup also shows the backup notice.
+    const meRoute = async (route) => {
+      const res = await route.fetch();
+      const me = await res.json();
+      me.appMode = 'production';
+      me.secondFactor = {
+        ...me.secondFactor,
+        required: true,
+        passkeys: 1,
+        userVerification: 'preferred',
+        requiredRoles: [],
+        newDeviceAlert: { id: 999999, at: new Date().toISOString(), browser: 'Firefox on Windows', ipApprox: '203.0.113.x', method: 'PASSWORD', credentialNickname: null },
+      };
+      await route.fulfill({ response: res, json: me });
+    };
+    const isMe = (url) => new URL(url).pathname === '/api/auth/me';
+    await page.route(isMe, meRoute);
+    await page.goto(`${BASE}/sales`);
+    await page.getByTestId('notices').waitFor();
+    const levels = await page.locator('[data-testid=notices] > [data-level]').evaluateAll((els) => els.map((e) => `${e.dataset.testid}:${e.dataset.level}`));
+    check(levels.length === 2 && levels[0] === 'new-device-alert:lock' && levels[1].endsWith(':critical'), `1366×768: two notices shown, the new-sign-in alert first (${levels.join(', ')})`);
+    const more = await page.getByTestId('notices-more').innerText();
+    check(/\+ 3 more notices/.test(more), `the others fold into "${more.trim()}"`);
+    const alertBox = await page.getByTestId('new-device-alert').evaluate((e) => ({ outline: getComputedStyle(e).boxShadow, bg: getComputedStyle(e).backgroundColor }));
+    check(/rgb/.test(alertBox.outline) && (await page.getByTestId('it-was-me').count()) === 1 && (await page.getByTestId('not-me').count()) === 1, 'the new-sign-in alert is the most prominent (ringed, red) with "It was me" / "This wasn’t me"');
+    check((await page.locator('[data-testid=notices] [aria-label*=Dismiss], [data-testid=notices] [aria-label*=Close]').count()) === 0, 'no notice has a dismiss button');
+    await axe(page, 'notices folded');
+    await page.getByTestId('notices-more').click();
+    const all = await page.locator('[data-testid=notices] > [data-level]').evaluateAll((els) => els.map((e) => e.dataset.testid));
+    check(all.join(',') === 'new-device-alert,enforcement-off-banner,backup-banner,uv-preferred-banner,second-passkey-nag', `"+ more" expands in place, in order: ${all.join(', ')}`);
+    check((await page.getByTestId('notice-dot').count()) === 1, 'the avatar dot is on');
+    await axe(page, 'notices expanded');
+    await page.unroute(isMe, meRoute);
+    await signOut(page);
 
     section('Lists: filters stay, errors are errors (General Manager)');
     await signIn(page, world.gm);

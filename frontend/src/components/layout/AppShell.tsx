@@ -1,16 +1,16 @@
 // App shell (UI-A1, mockups docs/ux/mockups/*-home.html): white page, a floating navy sidebar 16 px from the edges, a
-// 44 px top bar without background, then the page. The security banners stay exactly where they were (above the
-// page, owner answer Q5). Role-aware navigation: nav.ts; top bar: TopBar.tsx.
+// 44 px top bar without background, then the notice area (UI-A2, D-ui-13: security and system notices, one line
+// each, above the page) and the page. Role-aware navigation: nav.ts; top bar: TopBar.tsx.
 
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { post, setCurrentModule } from '../../lib/api';
 import { homePath, useAuth } from '../../lib/auth';
-import { SecurityBanners } from '../../pages/SecurityPage';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { PageErrorBoundary } from './PageErrorBoundary';
+import { Notices } from './Notices';
 
 export function AppShell() {
   const { me, logout } = useAuth();
@@ -49,7 +49,7 @@ export function AppShell() {
           />
         </div>
         <main className="scroll-thin min-h-0 flex-1 overflow-y-auto">
-          <SecurityBanners />
+          <Notices />
           <PageErrorBoundary
             key={location.pathname}
             home={homePath(me)}

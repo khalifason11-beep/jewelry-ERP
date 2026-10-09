@@ -60,7 +60,7 @@
   --color-ink-700: #3a4562; /* = navy-3 */
   --color-ink-600: #4b5570; /* = ink-2 */
   --color-ink-500: #646d82; /* = ink-3 */
-  --color-ink-400: #7f8aa5; /* = on-navy-muted */
+  --color-ink-400: #646d82; /* = ink-3 (UI-A2: was on-navy-muted, 3.45:1 on white; every use is on a light surface) */
   --color-ink-300: #aeb6c8; /* = on-navy-soft */
 
   --color-gold-700: #8a6a24;

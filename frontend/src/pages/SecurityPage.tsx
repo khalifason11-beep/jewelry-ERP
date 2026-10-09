@@ -4,7 +4,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, Fingerprint, KeyRound, Laptop, LogOut, Plus, Printer, ShieldAlert, ShieldCheck, Smartphone, Trash2 } from 'lucide-react';
+import { Check, Copy, Fingerprint, KeyRound, Laptop, LogOut, Plus, Printer, ShieldCheck, Smartphone, Trash2 } from 'lucide-react';
 import { ApiError, del, errorText, get, post } from '../lib/api';
 import { homePath, useAuth, type Me } from '../lib/auth';
 import { dateTime, deviceText } from '../lib/format';
@@ -485,112 +485,6 @@ export function SecurityPage() {
             }}
           />
         )}
-      </Dialog>
-    </div>
-  );
-}
-
-// ───────────────────────── banners (inside the app shell) ─────────────────────────
-
-/**
- * Persistent security notices: a sign-in from a new device (with "It was me" / "This wasn't me"),
- * a nag until a second passkey exists, and — for the General Manager — when touch-only keys are
- * accepted or the second factor is not enforced for the General Manager (not in demo mode).
- */
-export function SecurityBanners() {
-  const { me, can, refresh, logout } = useAuth();
-  const { t, lang } = useI18n();
-  const navigate = useNavigate();
-  const [confirmNotMe, setConfirmNotMe] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  if (!me) return null;
-  const sf = me.secondFactor;
-  const alert = sf.newDeviceAlert;
-  const isGm = can('settings.manage');
-
-  const itWasMe = async () => {
-    if (!alert) return;
-    await post(`/auth/sign-ins/${alert.id}/dismiss`).catch(() => undefined);
-    await refresh();
-  };
-  const notMe = async () => {
-    if (!alert) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await post(`/auth/sign-ins/${alert.id}/not-me`);
-      await logout().catch(() => undefined);
-      navigate('/login', { replace: true });
-    } catch (err) {
-      setError(failText(err, t('Action failed')));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="grid gap-2 px-5 pt-4 empty:hidden lg:px-6">
-      {alert && (
-        <Alert tone="danger" icon={<ShieldAlert className="size-4" />} title={t('New sign-in to your account')}>
-          <div data-testid="new-device-alert" className="grid gap-2">
-            <div>
-              {t('Signed in on {date} with {browser}, from about {ip}, using {method}. Was this you?', {
-                date: dateTime(alert.at, lang),
-                browser: alert.browser ? deviceText(alert.browser) : '—',
-                ip: alert.ipApprox ?? '—',
-                method: alert.method === 'PASSKEY' ? t('passkey “{nickname}”', { nickname: alert.credentialNickname ?? '—' }) : alert.method === 'RECOVERY_CODE' ? t('a recovery code') : t('the password only'),
-              })}
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={itWasMe} data-testid="it-was-me">{t('It was me')}</Button>
-              <Button size="sm" variant="danger" onClick={() => setConfirmNotMe(true)} data-testid="not-me">{t('This wasn’t me')}</Button>
-            </div>
-          </div>
-        </Alert>
-      )}
-      {sf.passkeys === 1 && sf.required && (
-        <Alert tone="info" icon={<Smartphone className="size-4" />}>
-          <span data-testid="second-passkey-nag">
-            {t('You have only one passkey. Register a second device (your phone is ideal) so a lost or broken computer does not lock you out.')}{' '}
-            <button className="font-medium underline underline-offset-2" onClick={() => navigate('/security')}>{t('Add a device')}</button>
-          </span>
-        </Alert>
-      )}
-      {isGm && sf.userVerification === 'preferred' && (
-        <Alert tone="warning" icon={<ShieldAlert className="size-4" />}>
-          <span data-testid="uv-preferred-banner">{t('Touch-only security keys are accepted: a passkey does not have to check a fingerprint, face or PIN (Settings › Second factor).')}</span>
-        </Alert>
-      )}
-      {isGm && me.appMode !== 'demo' && !sf.requiredRoles.includes('GENERAL_MANAGER') && (
-        <Alert tone="danger" icon={<ShieldAlert className="size-4" />}>
-          <span data-testid="enforcement-off-banner">{t('The second factor is OFF for the General Manager: a stolen password alone opens this account (Settings › Second factor).')}</span>
-        </Alert>
-      )}
-      <Dialog
-        open={confirmNotMe}
-        onClose={() => setConfirmNotMe(false)}
-        title={t('Secure your account?')}
-        footer={
-          <>
-            <Button onClick={() => setConfirmNotMe(false)}>{t('Cancel')}</Button>
-            <Button variant="danger-solid" loading={busy} onClick={notMe} data-testid="not-me-confirm">{t('Yes, secure my account')}</Button>
-          </>
-        }
-      >
-        <div className="grid gap-2 text-[13px] text-ink-600">
-          <p>{t('This signs out every session of your account (including this one), removes all your passkeys and makes you choose a new password.')}</p>
-          {alert?.method === 'RECOVERY_CODE' ? (
-            <Alert tone="danger" title={t('That sign-in used a recovery code: your account will be locked')}>
-              <span data-testid="not-me-lock-warning">
-                {t('Someone may have your recovery-code sheet. All remaining recovery codes stop working and the account is locked: nobody can sign in, not even you, until the system administrator restores it from the server and gives you a new one-time password. Then you choose a new password and register your passkeys and new recovery codes again.')}
-              </span>
-            </Alert>
-          ) : (
-            <p>{t('To get back in: sign in with your password and one of your recovery codes, set a new password, then register your passkeys again. If you also lost the recovery codes, ask the system operator to reset your second factor.')}</p>
-          )}
-          {error && <Alert tone="danger">{error}</Alert>}
-        </div>
       </Dialog>
     </div>
   );

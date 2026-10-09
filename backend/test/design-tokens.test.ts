@@ -55,6 +55,8 @@ const PAIRS: [string, string, number, string][] = [
   ['b4', 'panel', 3, 'branch colour 4 on a panel'],
   // Legacy names still used by the screens (remapped in UI-A1, D-ui-1).
   ['ink-500', 'surface', 4.5, 'legacy meta text'],
+  ['ink-400', 'surface', 4.5, 'legacy muted text (e.g. "Walk-in"), UI-A2'],
+  ['ink-400', 'panel', 4.5, 'legacy muted text on a panel, UI-A2'],
   ['ink-600', 'canvas', 4.5, 'legacy secondary text on a panel'],
   ['ink-300', 'ink-900', 4.5, 'legacy text on navy'],
 ];

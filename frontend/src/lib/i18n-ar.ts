@@ -1551,4 +1551,9 @@ export const AR: Record<string, string> = {
   "Back to sales": "العودة إلى المبيعات",
   "Back to my activity": "العودة إلى نشاطي",
   "This sale does not exist": "هذا البيع غير موجود",
+  // UI-A2: the shell notice area (D-ui-13).
+  "Notices": "التنبيهات",
+  "Show fewer notices": "عرض تنبيهات أقل",
+  "+ {n} more notices": "+ {n} تنبيهات أخرى",
+  "{n} open notices": "{n} تنبيهات مفتوحة",
 };
