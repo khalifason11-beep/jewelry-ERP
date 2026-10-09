@@ -237,6 +237,49 @@ async function noWords(page, base, paths, who, words, what, selector = 'body') {
 }
 const noExpenseWords = (page, base, paths, who) => noWords(page, base, paths, who, EXPENSE_WORDS, 'expense wording');
 
+// UI-A1: the sidebar per role equals the approved mockups (docs/ux/mockups/*-home.html; the branch manager also
+// sees Active users, owner answer Q6). Listed as the nav test ids, in order.
+const SHELL_NAV = {
+  gm: ['overview', 'sales', 'inventory', 'transfers', 'scrap', 'catalog', 'purchases', 'cash', 'branches', 'reports', 'users', 'sessions', 'audit', 'settings'],
+  bm: ['dashboard', 'pos', 'sales', 'inventory', 'transfers', 'scrap', 'catalog', 'purchases', 'cash', 'reports', 'users', 'sessions', 'audit'],
+  cashier: ['pos', 'me'],
+};
+const COST_WORDS = /cost|profit|margin|تكلفة|التكلفة|ربح|أرباح|الربح|هامش/i;
+/** A money figure: thousands separators or two or more decimals (the IP address and small counts are not). */
+const MONEY_FIGURE = /\d{1,3}(?:[,٬]\d{3})+|\d+[.٫]\d{2,}/;
+/**
+ * The app shell for one role: the sidebar items in order, and (for the branch manager and the cashier) no cost or
+ * profit word or figure anywhere in the sidebar and the top bar — the opened user menu and notifications included —
+ * in both languages. The rate chip shows the public selling rate and is the only figure allowed.
+ */
+async function checkShell(page, base, who, role, home) {
+  await page.goto(`${base}${home}`);
+  await page.getByTestId('sidebar').waitFor({ timeout: 15_000 });
+  const nav = await page.locator('[data-testid=sidebar] a[data-testid^=nav-]').evaluateAll((as) => as.map((a) => a.dataset.testid.slice(4)));
+  check(JSON.stringify(nav) === JSON.stringify(SHELL_NAV[role]), `${who}: the sidebar is ${nav.join(', ')} (as in the mockup)`);
+  if (role === 'gm') check(!nav.includes('pos'), `${who}: no Point of Sale in the sidebar`);
+  if (role === 'cashier') {
+    check((await page.getByTestId('sidebar-toggle').count()) === 0 && (await page.getByTestId('sidebar').boundingBox()).width <= 72, `${who}: icons only, no expand button`);
+    check((await page.locator('[data-testid=sidebar] nav').innerText()).trim() === '', `${who}: the icon menu shows no text (names on hover)`);
+  }
+  if (role === 'gm') return;
+  for (const lang of ['ar', 'en']) {
+    await page.evaluate((l) => localStorage.setItem('jerp.lang', l), lang);
+    await page.goto(`${base}${home}`);
+    await page.waitForLoadState('networkidle');
+    await page.getByTestId('user-menu').click();
+    const userMenu = await page.getByTestId('topbar').innerText();
+    await page.getByTestId('notifications').click();
+    await page.getByTestId('notifications-menu').waitFor();
+    const shell = [await page.getByTestId('sidebar').innerText(), userMenu, await page.getByTestId('topbar').innerText()].join('\n');
+    const rate = await page.getByTestId('rate-chip').innerText();
+    const rest = shell.split(rate).join(' ');
+    check(!COST_WORDS.test(shell) && !MONEY_FIGURE.test(rest), `${who} (${lang}): no cost or profit word or figure in the sidebar, top bar, user menu or notifications`);
+    await page.keyboard.press('Escape');
+  }
+  await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
+}
+
 // ── the rehearsal ──
 async function main() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jerp-rehearsal-'));
@@ -419,6 +462,7 @@ async function main() {
     await page.getByTestId('pos-no-stock').waitFor({ timeout: 15_000 });
     ok('the POS says "No pieces in this branch yet" (not "no matching pieces")');
     await captureBaseline(page, '03-cashier-home');
+    await checkShell(page, origin, 'cashier', 'cashier', '/pos');
     const cashierUsers = await apiGet(page, '/api/users');
     check(cashierUsers.status === 403, 'the cashier cannot open the user list (403)');
     await signOut(page);
@@ -451,6 +495,7 @@ async function main() {
     const methodsEn = await page.getByTestId('pos-payment-methods').innerText();
     await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
     check(/Bank transfer/.test(methodsEn) && /Cash/.test(methodsEn) && !/BANK_TRANSFER|\bCASH\b|\bHASAD\b/.test(methodsEn), `in English the POS shows "Bank transfer", not the code (${methodsEn.replace(/\s+/g, ' ').trim()})`);
+    await checkShell(page, origin, 'branch manager', 'bm', '/dashboard');
     const me = await apiGet(page, '/api/auth/me');
     check(!('hasadMode' in me.body) && me.body.posPaymentMethods.join(',') === 'CASH,BANK_TRANSFER,HASAD', 'no Hasad integration mode; the counter methods are Cash, Bank transfer, Hasad');
 
@@ -532,6 +577,7 @@ async function main() {
     await page.click('[data-testid=use-passkey]');
     await pathIs(page, ['/overview']);
     ok('the General Manager signs in again with password + passkey');
+    await checkShell(page, origin, 'General Manager', 'gm', '/overview');
     await noExpenseWords(page, origin, ['/overview', '/branches', '/cash', '/reports', '/settings'], 'General Manager');
     await noWords(page, origin, ['/overview', '/branches', '/reports'], 'General Manager', HASAD_WORDS, 'Hasad withdrawal wording');
     await noWords(page, origin, ['/overview'], 'General Manager (menu)', HASAD_WORDS, 'Hasad entry in the menu', 'nav');

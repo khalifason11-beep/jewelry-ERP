@@ -1,0 +1,195 @@
+// Top bar (UI-A1, mockup `.top`): 44 px, no bar background. Start side: the rate chip (navy pill with the gold dot).
+// End side: the Demo badge (demo mode only), the notification bell (kept until UI-B's attention list), the language
+// pill and the avatar menu. No clock (owner answer Q4). Shows the public selling rate only: no cost or profit figure.
+
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import clsx from 'clsx';
+import { Bell, ClipboardList, Fingerprint, LogOut } from 'lucide-react';
+import { get, translateParams } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
+import { deviceText, money, relative } from '../../lib/format';
+import { useI18n } from '../../lib/i18n';
+
+function useClickOutside(onOutside: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const h = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && onOutside();
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [onOutside]);
+  return ref;
+}
+
+/** Today's 21K selling rate (public reference price; never a cost). REM-3: "Set today's rate" when none exists. */
+export function RateChip() {
+  const { t } = useI18n();
+  const { can } = useAuth();
+  const q = useQuery({ queryKey: ['gold-rates'], queryFn: () => get<{ current: Record<string, { pricePerGram: number }> }>('/gold-rates'), refetchInterval: 120_000 });
+  const r = q.data?.current['21']?.pricePerGram;
+  const missing = q.isSuccess && !r;
+  const chip = (
+    <div className="flex h-9 items-center gap-2 rounded-full bg-navy px-3.5 text-meta text-white" title={t('Reference gold price per gram (set by the General Manager)')} data-testid="rate-chip">
+      <span className="size-2 rounded-full bg-gold" aria-hidden />
+      <span className="text-on-navy-soft">{t('Gold 21K')}</span>
+      {missing ? (
+        <span className="font-semibold">{can('settings.manage') ? t('Set today’s rate') : t('No rate set yet')}</span>
+      ) : (
+        <span className="font-semibold num">
+          {r ? money(r) : '—'}/{t('g')}
+        </span>
+      )}
+    </div>
+  );
+  return missing && can('settings.manage') ? (
+    <Link to="/settings" className="rounded-full hover:opacity-90">
+      {chip}
+    </Link>
+  ) : (
+    chip
+  );
+}
+
+interface Notif {
+  id: string;
+  kind: string;
+  /** Translation keys filled with `params`. */
+  title: string;
+  body: string;
+  params?: Record<string, string | number>;
+  link: string;
+  at: string;
+  severity: 'info' | 'warning';
+}
+
+function Notifications() {
+  const { t } = useI18n();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const ref = useClickOutside(() => setOpen(false));
+  const q = useQuery({ queryKey: ['notifications'], queryFn: () => get<Notif[]>('/notifications'), refetchInterval: 30_000 });
+  const items = q.data ?? [];
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="relative grid size-9 place-items-center rounded-full text-ink-2 hover:bg-panel hover:text-ink"
+        aria-label={t('Notifications')}
+        aria-expanded={open}
+        data-testid="notifications"
+      >
+        <Bell className="size-[18px]" />
+        {items.length > 0 && <span className="absolute -end-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-navy px-1 text-[10px] font-semibold text-white num">{items.length}</span>}
+      </button>
+      {open && (
+        <div className="absolute end-0 top-11 z-40 w-[360px] overflow-hidden rounded-card border border-line bg-surface shadow-pop" data-testid="notifications-menu">
+          <div className="border-b border-line px-4 py-2.5 text-[15px] font-semibold">{t('Notifications')}</div>
+          <div className="scroll-thin max-h-[420px] overflow-y-auto">
+            {items.length === 0 && <div className="px-4 py-8 text-center text-meta text-ink-3">{t('No notifications')}</div>}
+            {items.map((n) => (
+              <button
+                key={n.id}
+                onClick={() => {
+                  setOpen(false);
+                  navigate(n.link);
+                }}
+                className="flex w-full gap-3 border-b border-line px-4 py-3 text-start last:border-0 hover:bg-panel"
+              >
+                <span className={clsx('mt-1.5 size-2 shrink-0 rounded-full', n.severity === 'warning' ? 'bg-warn' : 'bg-ink-3')} />
+                <span className="min-w-0">
+                  <span className="block text-meta font-medium text-ink">{t(n.title, translateParams(n.params))}</span>
+                  <span className="block truncate text-meta text-ink-3">{t(n.body, translateParams(n.params))}</span>
+                  <span className="mt-0.5 block text-[12px] text-ink-3">{relative(n.at)}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UserMenu({ onLogout }: { onLogout: () => void }) {
+  const { me } = useAuth();
+  const { t, L } = useI18n();
+  const [open, setOpen] = useState(false);
+  const ref = useClickOutside(() => setOpen(false));
+  const navigate = useNavigate();
+  if (!me) return null;
+  const name = L(me.user.fullName, me.user.fullNameAr);
+  // First letters of the first two words that start with a letter (skips marks such as "[Sample]").
+  const initials = (name.match(/\p{L}\S*/gu) ?? []).map((w) => w[0]).slice(0, 2).join(' ');
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="grid size-9 place-items-center rounded-full bg-panel text-meta font-semibold text-ink hover:bg-neutral-bg"
+        aria-label={t('Account menu: {name}', { name })}
+        aria-expanded={open}
+        data-testid="user-menu"
+      >
+        {initials}
+      </button>
+      {open && (
+        <div className="absolute end-0 top-11 z-40 w-72 rounded-card border border-line bg-surface p-1.5 shadow-pop">
+          <div className="px-3 py-2.5">
+            <div className="font-medium text-ink">{name}</div>
+            <div className="text-meta text-ink-3">
+              {L(me.user.role.name, me.user.role.nameAr)}
+              {me.user.branch ? ` · ${L(me.user.branch.name, me.user.branch.nameAr)}` : ''}
+            </div>
+            <div className="font-mono text-[12px] text-ink-3">{me.user.username}</div>
+            {me.session && (
+              <div className="mt-2 rounded-row bg-panel px-2.5 py-2 text-[12px] text-ink-2">
+                {t('Session')} <span className="font-mono">{me.session.ref}</span> · {deviceText(me.session.device)}
+                <br />
+                {t('Signed in {when}', { when: relative(me.session.loginAt) })} · {t('IP')} <span className="font-mono">{me.session.ipAddress}</span>
+                <br />
+                <span className="text-ink-3">{t('Sessions are visible to your administrators.')}</span>
+              </div>
+            )}
+          </div>
+          <button onClick={() => { setOpen(false); navigate('/me'); }} className="flex w-full items-center gap-2 rounded-control px-3 py-2 text-[15px] hover:bg-panel">
+            <ClipboardList className="size-4 text-ink-3" /> {t('My Activity')}
+          </button>
+          <button onClick={() => { setOpen(false); navigate('/security'); }} className="flex w-full items-center gap-2 rounded-control px-3 py-2 text-[15px] hover:bg-panel" data-testid="menu-security">
+            <Fingerprint className="size-4 text-ink-3" /> {t('Sign-in security')}
+          </button>
+          <button onClick={onLogout} className="flex w-full items-center gap-2 rounded-control px-3 py-2 text-[15px] text-crit hover:bg-crit-bg">
+            <LogOut className="size-4" /> {t('Sign out')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function TopBar({ onLogout }: { onLogout: () => void }) {
+  const { me } = useAuth();
+  const { t, lang, setLang } = useI18n();
+  return (
+    <header className="no-print flex h-11 shrink-0 items-center gap-2.5" data-testid="topbar">
+      <RateChip />
+      <div className="flex-1" />
+      {me?.appMode === 'demo' && (
+        // REM-3: a small neutral marker so a local copy is never mistaken for production (never shown there).
+        <span className="rounded-badge border border-line-strong px-2 py-0.5 text-meta text-ink-2" title={t('Demo mode: not the production system')} data-testid="demo-badge">
+          {t('Demo')}
+        </span>
+      )}
+      <Notifications />
+      <button
+        onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}
+        className="inline-flex h-9 items-center rounded-full bg-panel px-3.5 text-meta text-ink-2 hover:text-ink"
+        aria-label={t('Switch language')}
+        lang={lang === 'en' ? 'ar' : 'en'}
+        data-testid="language-switch"
+      >
+        {lang === 'en' ? 'العربية' : 'English'}
+      </button>
+      <UserMenu onLogout={onLogout} />
+    </header>
+  );
+}
