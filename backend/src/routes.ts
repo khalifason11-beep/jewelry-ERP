@@ -662,10 +662,13 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   });
   route('POST', '/transfers', async (req, res) => {
     const body = parse(
-      z.object({ fromBranchId: zIdBody.optional(), toBranchId: zIdBody, itemIds: z.array(zIdBody).min(1).max(500), notes: zText(1000).optional() }).strict(),
+      z
+        .object({ fromBranchId: zIdBody.optional(), toBranchId: zIdBody, itemIds: z.array(zIdBody).min(1).max(500), courierName: zText(80).min(2), notes: zText(1000).optional() })
+        .strict(),
       req.body,
     );
-    res.json(await transfers.createTransfer(ctx, actorOf(req), body));
+    // FIX-1 (D-fix-1): key claimed inside the transfer's transaction; a refusal consumes none.
+    res.json(await runIdempotent(ctx, req, res, (idem) => transfers.createTransfer(ctx, actorOf(req), body, { idem })));
   });
   route('POST', '/transfers/:id/receive', async (req, res) => res.json(await transfers.receiveTransfer(ctx, actorOf(req), parse(zId, req.params.id))));
 

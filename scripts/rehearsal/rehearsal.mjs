@@ -164,6 +164,17 @@ async function confirmIfAsked(page, password) {
   if (await page.getByTestId('reauth-passkey').count()) await page.click('[data-testid=reauth-passkey]');
 }
 
+/** A write through the API as the signed-in person (CSRF token and a fresh Idempotency-Key), for data set-up only. */
+const apiSend = (page, method, url, body) =>
+  page.evaluate(
+    async ({ method, url, body }) => {
+      const me = await (await fetch('/api/auth/me')).json();
+      const r = await fetch(url, { method, headers: { 'content-type': 'application/json', 'x-csrf-token': me.csrfToken ?? '', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify(body) });
+      return { status: r.status, body: await r.json().catch(() => null) };
+    },
+    { method, url, body },
+  );
+
 const apiGet = (page, url) => page.evaluate(async (u) => {
   const r = await fetch(u);
   return { status: r.status, body: await r.json().catch(() => null) };
@@ -831,6 +842,80 @@ async function main() {
     await page.getByTestId('second-step').waitFor();
     await page.click('[data-testid=use-passkey]');
     await pathIs(page, ['/overview']);
+
+    section('FIX-1 / REM-4: the branch manager sends the POS cart; the General Manager keeps "New transfer"; no other start point');
+    const BRANCH_B = { code: 'RHB', name: 'Rehearsal Branch B', nameAr: 'فرع التجربة ب', city: 'Rehearsal City' };
+    await page.goto(`${origin}/branches`);
+    await page.click('[data-testid=new-branch]');
+    await page.fill('[data-testid=branch-code]', BRANCH_B.code);
+    await page.fill('[data-testid=branch-name]', BRANCH_B.name);
+    await page.fill('[data-testid=branch-name-ar]', BRANCH_B.nameAr);
+    await page.fill('[data-testid=branch-city]', BRANCH_B.city);
+    await page.click('[data-testid=branch-save]');
+    await confirmIfAsked(page, GM.password);
+    await waitFor(async () => (await apiGet(page, '/api/branches')).body.some((b) => b.code === BRANCH_B.code), 'the second branch', 15_000);
+    const branchB = (await apiGet(page, '/api/branches')).body.find((b) => b.code === BRANCH_B.code).id;
+    await signOut(page);
+    await signIn(page, origin, BM.username, BM.password);
+    await pathIs(page, ['/dashboard']);
+    // Stock for the cart (set-up through the API; purchases themselves are rehearsed above).
+    const productId = (await apiGet(page, '/api/products')).body[0].id;
+    const supplierId = (await apiGet(page, '/api/suppliers')).body[0].id;
+    const line = { productId, grossWeightMg: 4_200, netWeightMg: 4_000, purchaseCost: 700_000, makingCost: 0, otherCost: 0, sellingPrice: 1_100_000 };
+    const stockPo = await apiSend(page, 'POST', '/api/purchases', { supplierId, lines: [line, line, line] });
+    check(stockPo.status === 200, 'branch manager: three new pieces in stock for the transfer');
+    await page.goto(`${origin}/pos`);
+    await page.getByTestId('pos-product').first().waitFor({ timeout: 15_000 });
+    const cards = page.getByTestId('pos-product');
+    for (let i = 0; i < 3; i++) await cards.nth(i).click();
+    await page.getByTestId('pos-transfer').waitFor();
+    const order = await page.evaluate(() => {
+      const c = document.querySelector('[data-testid=pos-complete]');
+      const tr = document.querySelector('[data-testid=pos-transfer]');
+      return !!(c && tr && c.compareDocumentPosition(tr) & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    check(order, 'branch manager: "Transfer to branch" sits below "Complete sale" in the POS cart');
+    await page.click('[data-testid=pos-transfer]');
+    await page.selectOption('[data-testid=pos-transfer-to]', String(branchB));
+    check(await page.getByTestId('pos-transfer-send').isDisabled(), 'the transfer cannot be sent without the courier’s name');
+    await page.fill('[data-testid=pos-transfer-courier]', 'مندوب التجربة');
+    const trResp = page.waitForResponse((r) => r.url().endsWith('/api/transfers') && r.request().method() === 'POST');
+    await page.click('[data-testid=pos-transfer-send]');
+    const sent = await (await trResp).json();
+    check(sent.status === 'IN_TRANSIT' && sent.courierName === 'مندوب التجربة', `transfer ${sent.number} sent from the cart, courier recorded`);
+    await page.getByText(/السلة فارغة|Cart is empty/).first().waitFor({ timeout: 10_000 });
+    const log = (await apiGet(page, '/api/transfers')).body.find((x) => x.id === sent.id);
+    check(log.itemCount === 3 && log.items.length === 3, 'one transfer holds the three pieces; the cart is empty');
+    await page.goto(`${origin}/transfers`);
+    await page.getByText('مندوب التجربة').first().waitFor({ timeout: 15_000 });
+    check((await page.getByTestId('new-transfer').count()) === 0 && (await page.getByText(/حدّد القطع من المخزون|Select pieces in Inventory/).count()) === 0, 'Transfers (branch manager): the log with the courier; no other start point');
+    await page.goto(`${origin}/inventory`);
+    await page.waitForLoadState('networkidle');
+    check((await page.getByText(/تحديد وتحويل|Select & transfer|Transfer selected/).count()) === 0 && (await page.getByTestId('transfer-selected').count()) === 0, 'Inventory (branch manager): the "Select & transfer" card view is gone (REM-4)');
+    await signOut(page);
+    await signIn(page, origin, CASHIER.username, CASHIER.password);
+    await pathIs(page, ['/pos']);
+    await page.getByTestId('pos-product').first().click().catch(() => {});
+    check((await page.getByTestId('pos-transfer').count()) === 0, 'cashier: no "Transfer to branch" in the POS');
+    await signOut(page);
+    await signIn(page, origin, GM.username, GM.password);
+    await page.getByTestId('second-step').waitFor();
+    await page.click('[data-testid=use-passkey]');
+    await pathIs(page, ['/overview']);
+    await page.goto(`${origin}/transfers`);
+    await page.getByRole('button', { name: /تأكيد الاستلام|Confirm receipt/ }).first().click({ timeout: 15_000 });
+    await waitFor(async () => (await apiGet(page, '/api/transfers')).body.find((x) => x.id === sent.id).status === 'RECEIVED', 'the receipt', 15_000);
+    ok('the receipt is confirmed for the receiving branch; the pieces are AVAILABLE there');
+    await page.click('[data-testid=new-transfer]');
+    await page.locator('[role=dialog] select').first().selectOption(String(branchB));
+    await page.locator('[role=dialog] select').nth(1).selectOption(String(branchId));
+    await page.locator('[role=dialog] input[type=checkbox]').first().check({ timeout: 15_000 });
+    check(await page.getByTestId('send-transfer').isDisabled(), 'General Manager: "New transfer" also needs the courier’s name');
+    await page.fill('[data-testid=transfer-courier]', 'سائق الشركة');
+    const gmResp = page.waitForResponse((r) => r.url().endsWith('/api/transfers') && r.request().method() === 'POST');
+    await page.click('[data-testid=send-transfer]');
+    const gmSent = await (await gmResp).json();
+    check(gmSent.status === 'IN_TRANSIT' && gmSent.courierName === 'سائق الشركة', `General Manager: "New transfer" ${gmSent.number} sent with its courier (same rules)`);
 
     section('REM-5: no deprecated schema left');
     const rdb = new pg.Client({ connectionString: dbUrl.toString() });

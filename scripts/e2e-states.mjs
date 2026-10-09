@@ -166,6 +166,39 @@ async function main() {
     await sweep(page, world.bm, ['/dashboard', '/pos', '/sales', '/inventory', '/transfers', '/scrap', '/catalog', '/purchases', '/cash', '/reports', '/users', '/sessions', '/audit', '/security', '/me']);
     await sweep(page, world.cashier, ['/pos', '/me', '/security']);
 
+    section('FIX-1: "Transfer to branch" in the POS cart (branch manager only), and its refusal state');
+    await signIn(page, world.cashier);
+    await page.getByTestId('pos-product').first().click({ timeout: 15_000 });
+    check((await page.getByTestId('pos-transfer').count()) === 0, 'cashier: no "Transfer to branch" in the POS cart');
+    await signOut(page);
+    // A destination (fixture) and a refusal from the server (a piece sold meanwhile): layout states only.
+    const isDir = (url) => new URL(url).pathname === '/api/branches/directory';
+    const dir = async (route) => route.fulfill({ json: [{ id: 999_999, code: 'OTH', name: 'Other branch', nameAr: 'فرع آخر' }] }).catch(() => {});
+    await page.route(isDir, dir);
+    await signIn(page, world.bm);
+    await page.goto(`${BASE}/pos`);
+    await page.getByTestId('pos-product').first().click({ timeout: 15_000 });
+    await page.getByTestId('pos-transfer').click();
+    const code = (await page.locator('[role=dialog] li .font-mono').first().innerText()).trim();
+    const isTr = (url) => new URL(url).pathname === '/api/transfers';
+    const refuse = async (route) => {
+      const itemId = route.request().postDataJSON().itemIds[0];
+      await route.fulfill({ status: 409, json: { error: { code: 'ITEMS_UNAVAILABLE', message: `${code} no longer available`, key: '{codes} no longer available (sold or moved meanwhile). Nothing was sent: remove it and try again.', params: { codes: code }, details: { unavailable: [{ itemId, code, status: 'SOLD' }] } } } }).catch(() => {});
+    };
+    await page.route(isTr, refuse);
+    await page.selectOption('[data-testid=pos-transfer-to]', '999999');
+    await page.fill('[data-testid=pos-transfer-courier]', 'Courier');
+    await page.click('[data-testid=pos-transfer-send]');
+    await page.getByTestId('pos-transfer-unavailable').waitFor();
+    check((await page.getByTestId('pos-transfer-unavailable').innerText()).includes(code) && (await page.getByTestId('pos-transfer-send').isDisabled()), `a piece sold meanwhile: the dialog names it (${code}) and nothing can be sent until it is removed`);
+    await axe(page, 'POS transfer refused');
+    await page.click('[data-testid=pos-transfer-remove]');
+    check((await page.locator('[role=dialog] li .font-mono').count()) === 0, '"Remove from the cart" takes the piece out of the cart');
+    await page.unroute(isTr, refuse);
+    await page.unroute(isDir, dir);
+    await page.keyboard.press('Escape');
+    await signOut(page);
+
     section('Notices: two lines, the security alert first, nothing dismissible');
     await signIn(page, world.gm);
     // Force every notice at once by rewriting the browser's copy of /api/auth/me (the server is untouched). In

@@ -249,7 +249,7 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
       for (const tr of transferPlan.filter((x) => x.day === offset && x.from === code)) {
         const pool = await available(code);
         const itemIds = pool.slice(0, tr.count).map((i) => i.id);
-        const created = await createTransfer(ctx, bm[code], { fromBranchId: branch[code].id, toBranchId: branch[tr.to].id, itemIds, notes: `موازنة المخزون: ${branch[code].nameAr} ← ${branch[tr.to].nameAr}` }, { at: at(offset, 11, 15) });
+        const created = await createTransfer(ctx, bm[code], { fromBranchId: branch[code].id, toBranchId: branch[tr.to].id, itemIds, courierName: 'مندوب التوصيل', notes: `موازنة المخزون: ${branch[code].nameAr} ← ${branch[tr.to].nameAr}` }, { at: at(offset, 11, 15) });
         if (tr.receive != null) pendingReceipts.push({ day: tr.receive, id: created.id, to: tr.to });
       }
       for (const pr of pendingReceipts.filter((p) => p.day === offset && p.to === code)) {

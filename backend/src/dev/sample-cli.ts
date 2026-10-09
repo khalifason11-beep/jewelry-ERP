@@ -146,7 +146,7 @@ async function buildSample(ctx: Ctx) {
   const bmA = await actor(ctx, branchManagers[0].username);
   await buyScrap(ctx, bmA, { branchId: a.id, kind: 'BROKEN', karat: allowed[0], grossWeightMg: 4_250, netWeightMg: 4_250, paymentMethod: 'CASH' });
   await buyScrap(ctx, bmA, { branchId: a.id, kind: 'SELLABLE', karat: products[0].karat, grossWeightMg: 3_640, netWeightMg: 3_640, paymentMethod: 'CASH', productId: products[0].id, sellingPrice: 900_000 });
-  if (branches[1]) await createTransfer(ctx, bmA, { toBranchId: branches[1].id, itemIds: [stock[3].id] });
+  if (branches[1]) await createTransfer(ctx, bmA, { toBranchId: branches[1].id, itemIds: [stock[3].id], courierName: '[عينة] مندوب التوصيل' });
 
   return { gm: { username: boot.username, password: gmPw, role: 'GENERAL_MANAGER' }, branchManagers, cashiers };
 }

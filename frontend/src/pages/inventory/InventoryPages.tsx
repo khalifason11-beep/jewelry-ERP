@@ -16,7 +16,6 @@ import { Button, Card, CardHeader, DetailPending, Dialog, Field, Input, ItemThum
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect } from '../../components/Filters';
 import { Crumbs } from '../sales/SalesPages';
-import { InventorySelect } from './InventorySelect';
 
 export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarExtra }: { branchId?: number; initialStatus?: string; toolbarExtra?: React.ReactNode }) {
   const { t, L } = useI18n();
@@ -110,38 +109,17 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
 
 export function InventoryPage() {
   const { t } = useI18n();
-  const { can, isGlobal } = useAuth();
   const [sp, setSp] = useSearchParams();
   const branchId = sp.get('branchId') ? Number(sp.get('branchId')) : undefined;
-  // Branch managers get the card view with multi-select transfer (Phase 4); the table stays one click away.
-  const cardsAvailable = can('inventory.transfer') && !isGlobal;
-  const [view, setView] = useState<'cards' | 'table'>(cardsAvailable ? 'cards' : 'table');
+  // REM-4 (D-rem4-1): the "Select & transfer" card view is gone; a branch manager sends pieces from the POS cart.
   return (
     <div className="p-5 lg:p-6">
-      <PageHeader
-        title={t('Inventory')}
-        subtitle={t('Item-level inventory. Each piece has its own ID, barcode, weights, cost components and lifecycle.')}
-        actions={
-          cardsAvailable && (
-            <div className="flex rounded-md border border-line-strong p-0.5" role="radiogroup" aria-label={t('View')}>
-              {([['cards', t('Select & transfer')], ['table', t('Table')]] as const).map(([v, label]) => (
-                <button key={v} role="radio" aria-checked={view === v} onClick={() => setView(v)} className={clsx('h-8 rounded px-3 text-[13px] font-medium', view === v ? 'bg-ink-900 text-white' : 'text-ink-600 hover:bg-canvas')}>
-                  {label}
-                </button>
-              ))}
-            </div>
-          )
-        }
-      />
+      <PageHeader title={t('Inventory')} subtitle={t('Item-level inventory. Each piece has its own ID, barcode, weights, cost components and lifecycle.')} />
       <Card padded={false}>
-        {cardsAvailable && view === 'cards' ? (
-          <InventorySelect />
-        ) : (
-          <InventoryTable
-            branchId={branchId}
-            toolbarExtra={<BranchSelect value={branchId} onChange={(v) => setSp(v ? { branchId: String(v) } : {}, { replace: true })} />}
-          />
-        )}
+        <InventoryTable
+          branchId={branchId}
+          toolbarExtra={<BranchSelect value={branchId} onChange={(v) => setSp(v ? { branchId: String(v) } : {}, { replace: true })} />}
+        />
       </Card>
     </div>
   );

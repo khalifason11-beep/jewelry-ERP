@@ -134,6 +134,13 @@
       "when": 1791582532730,
       "tag": "0018_bank_transfer_reference",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791584366684,
+      "tag": "0019_transfer_courier",
+      "breakpoints": true
     }
   ]
 }

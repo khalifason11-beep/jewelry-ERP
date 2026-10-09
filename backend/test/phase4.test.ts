@@ -621,7 +621,7 @@ describe('branch manager transfer of several selected items', () => {
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
     const items = await freshItems('KRT', 3);
     const before = (await ctx.db.select({ n: count() }).from(t.transfers))[0].n;
-    const res = await bm.post('/api/transfers').send({ toBranchId: await branchId('OMD'), itemIds: items.map((i) => i.id) });
+    const res = await bm.post('/api/transfers').send({ toBranchId: await branchId('OMD'), itemIds: items.map((i) => i.id), courierName: 'مندوب الفرع' });
     expect(res.status).toBe(200);
     expect((await ctx.db.select({ n: count() }).from(t.transfers))[0].n).toBe(before + 1);
     const lines = await ctx.db.select().from(t.transferItems).where(eq(t.transferItems.transferId, res.body.id));

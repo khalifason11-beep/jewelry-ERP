@@ -162,7 +162,8 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('GET', '/cash/hasad-settlements', 'branch', { all: ['cash.view'] }),
   r('POST', '/cash/hasad-settlements', 'branch', { all: ['cash.settle_hasad'], idempotent: true, idempotencyInTx: true }),
   r('GET', '/transfers', 'branch', { all: ['inventory.transfer'] }),
-  r('POST', '/transfers', 'branch', { all: ['inventory.transfer'], idempotent: true }),
+  // FIX-1 (D-fix-1): the BM's POS cart and the GM's "New transfer"; all or nothing, key claimed in the transaction.
+  r('POST', '/transfers', 'branch', { all: ['inventory.transfer'], idempotent: true, idempotencyInTx: true }),
   r('POST', '/transfers/:id/receive', 'branch', { all: ['inventory.transfer'], idempotent: true }),
 
   // ── dashboards, reports, audit

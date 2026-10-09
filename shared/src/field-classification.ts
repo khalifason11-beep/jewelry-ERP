@@ -70,7 +70,7 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   settings_history: { safe: words('id key old_value new_value version actor_id actor_username reason at') },
   suppliers: { safe: words('id name name_ar phone created_at created_by name_norm') },
   transfer_items: { safe: words('transfer_id item_id') },
-  transfers: { safe: words('id number from_branch_id to_branch_id status notes created_by created_at received_by received_at') },
+  transfers: { safe: words('id number from_branch_id to_branch_id status notes created_by created_at received_by received_at courier_name') },
   users: {
     safe: words('id username full_name full_name_ar role_id branch_id must_change_password password_changed_at status phone last_login_at failed_login_count locked_until created_at created_by mfa_failed_count mfa_locked_until recovery_codes_generated_at recovery_codes_acknowledged_at security_locked_at security_lock_reason'),
     secret: words('password_hash webauthn_user_handle'),
@@ -192,6 +192,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     lockedAccounts lockedAt securityLockedAt
     voidReauthAboveAmount priceChangeReason
     bankTransferSales reference bankTransfer confirmDuplicateReference
+    courierName unavailable
   `),
 );
 

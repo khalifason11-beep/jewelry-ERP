@@ -422,7 +422,7 @@ const CROSS: Record<string, (f: Fixtures) => Req> = {
   'GET /purchases/:id': (f) => ({ path: `/purchases/${f.omdPurchase}` }),
   'POST /purchases': (f) => ({ path: '/purchases', body: { branchId: f.omd, lines: [{ productId: 1, grossWeightMg: 5000, netWeightMg: 4800, purchaseCost: 100, makingCost: 0, otherCost: 0, sellingPrice: 200 }] } }),
   'GET /transfers': (f) => ({ path: '/transfers', query: { branchId: f.omd } }),
-  'POST /transfers': (f) => ({ path: '/transfers', body: { fromBranchId: f.omd, toBranchId: f.krt, itemIds: [f.omdItem] } }),
+  'POST /transfers': (f) => ({ path: '/transfers', body: { fromBranchId: f.omd, toBranchId: f.krt, itemIds: [f.omdItem], courierName: 'Cross courier' } }),
   'POST /transfers/:id/receive': (f) => ({ path: `/transfers/${f.omdTransferTo}/receive` }),
   'GET /dashboard/branch': (f) => ({ path: '/dashboard/branch', query: { branchId: f.omd } }),
   'GET /reports/:key': (f) => ({ path: '/reports/sales', query: { branchId: f.omd } }),

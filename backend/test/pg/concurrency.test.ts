@@ -108,7 +108,7 @@ describe('parallel double-receive of a transfer (M-4)', () => {
     const bmKrt = await actorOf('branch.manager.kh');
     for (let round = 0; round < ROUNDS; round++) {
       const items = await freshItems('OMD', 2);
-      const tr = await createTransfer(ctx, bmOmd, { toBranchId: await branchId('KRT'), itemIds: items.map((i) => i.id) });
+      const tr = await createTransfer(ctx, bmOmd, { toBranchId: await branchId('KRT'), itemIds: items.map((i) => i.id), courierName: 'مندوب' });
       const rs = await settled([receiveTransfer(ctx, bmKrt, tr.id), receiveTransfer(ctx, bmKrt, tr.id), receiveTransfer(ctx, bmKrt, tr.id)]);
       expect(winners(rs), `round ${round}: ${reasons(rs)}`).toHaveLength(1);
       for (const r of reasons(rs)) expect(r).toMatch(/Transfer is \{status\}/);
@@ -125,6 +125,64 @@ describe('parallel double-receive of a transfer (M-4)', () => {
         .where(and(eq(t.auditLogs.action, 'INVENTORY_TRANSFER_RECEIVED'), eq(t.auditLogs.entityId, tr.number)));
       expect(audits[0].n).toBe(1);
     }
+  });
+});
+
+describe('FIX-1: racing for the same piece (transfer vs transfer, sale vs transfer)', () => {
+  it('two transfers of the same piece: exactly one wins; the loser is refused with ITEMS_UNAVAILABLE and changes nothing', async () => {
+    const bmBhr = await actorOf('branch.manager.bhr');
+    const gm = await actorOf('general.manager');
+    for (let round = 0; round < ROUNDS; round++) {
+      const [shared, ownA, ownB] = await freshItems('BHR', 3);
+      const before = (await ctx.db.select({ n: count() }).from(t.transfers))[0].n;
+      const rs = await settled([
+        createTransfer(ctx, bmBhr, { toBranchId: await branchId('OMD'), itemIds: [ownA.id, shared.id], courierName: 'مندوب أ' }),
+        createTransfer(ctx, gm, { fromBranchId: await branchId('BHR'), toBranchId: await branchId('PZU'), itemIds: [shared.id, ownB.id], courierName: 'مندوب ب' }),
+      ]);
+      expect(winners(rs), `round ${round}: ${reasons(rs)}`).toHaveLength(1);
+      for (const r of rs) if (r.status === 'rejected') expect(r.reason?.code).toBe('ITEMS_UNAVAILABLE');
+      expect((await ctx.db.select({ n: count() }).from(t.transfers))[0].n).toBe(before + 1);
+      // The loser's own piece is untouched; the shared piece moved once.
+      const winnerIds = new Set(rs[0].status === 'fulfilled' ? [ownA.id, shared.id] : [shared.id, ownB.id]);
+      const loserOwn = rs[0].status === 'fulfilled' ? ownB : ownA;
+      const [lo] = await ctx.db.select().from(t.jewelryItems).where(eq(t.jewelryItems.id, loserOwn.id));
+      expect(lo.status).toBe('AVAILABLE');
+      const outs = await ctx.db
+        .select({ n: count() })
+        .from(t.inventoryMovements)
+        .where(and(eq(t.inventoryMovements.itemId, shared.id), eq(t.inventoryMovements.type, 'TRANSFER_OUT')));
+      expect(outs[0].n).toBe(1);
+      expect(winnerIds.has(shared.id)).toBe(true);
+    }
+  });
+
+  it('a sale and a transfer of the same piece: exactly one wins; never both', async () => {
+    const bmPzu = await actorOf('branch.manager.pzu');
+    const cashier = await actorOf('cashier.pzu.01');
+    let sales = 0;
+    let transfersWon = 0;
+    for (let round = 0; round < ROUNDS; round++) {
+      const [shared, other] = await freshItems('PZU', 2);
+      const rs = await settled<unknown>([
+        createSale(ctx, cashier, { items: [{ itemId: shared.id }], paymentMethod: 'CASH' }),
+        createTransfer(ctx, bmPzu, { toBranchId: await branchId('OMD'), itemIds: [other.id, shared.id], courierName: 'مندوب' }),
+      ]);
+      expect(winners(rs), `round ${round}: ${reasons(rs)}`).toHaveLength(1);
+      const [after] = await ctx.db.select().from(t.jewelryItems).where(eq(t.jewelryItems.id, shared.id));
+      const [o] = await ctx.db.select().from(t.jewelryItems).where(eq(t.jewelryItems.id, other.id));
+      if (rs[0].status === 'fulfilled') {
+        sales++;
+        expect(after.status).toBe('SOLD');
+        expect((rs[1] as PromiseRejectedResult).reason?.code).toBe('ITEMS_UNAVAILABLE');
+        expect(o.status).toBe('AVAILABLE'); // all or nothing: the transfer's other piece stayed
+      } else {
+        transfersWon++;
+        expect(after.status).toBe('TRANSFERRED');
+        expect(o.status).toBe('TRANSFERRED');
+        expect(String((rs[0] as PromiseRejectedResult).reason?.key)).toMatch(/cannot be sold/);
+      }
+    }
+    expect(sales + transfersWon).toBe(ROUNDS);
   });
 });
 

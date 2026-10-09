@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import clsx from 'clsx';
 import {
   ArrowRight,
+  ArrowRightLeft,
   Ban,
   Banknote,
   Clock3,
@@ -23,11 +24,11 @@ import { validBankReference, type PaymentMethod } from '@jerp/shared';
 import { ApiError, get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { grams, karatLabel, money, relative } from '../../lib/format';
-import { useBranches, useCategories, useDebounced } from '../../lib/hooks';
+import { useBranchDirectory, useBranches, useCategories, useDebounced } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import type { ItemRow } from '../../lib/types';
-import { Button, Dialog, Empty, ErrorState, Input, ItemThumb, Select, Skeleton } from '../../components/ui';
+import { Alert, Button, Dialog, Empty, ErrorState, Field, Input, ItemThumb, Select, Skeleton, Textarea } from '../../components/ui';
 import { InvoiceDocument, type SaleDetail } from '../../components/InvoiceDocument';
 import { printSaleInvoice } from '../../print/actions';
 import { useActionKeys } from '../../lib/idempotency';
@@ -103,6 +104,10 @@ export function PosPage() {
     else toast.fromError(r.error, t('Printing failed. The sale is saved; a manager can reprint the invoice.'));
   };
   const [confirmCancel, setConfirmCancel] = useState(false);
+  // FIX-1 (D-fix-1, D-rem4-1): the branch manager sends the cart to another branch. Never the cashier (no
+  // inventory.transfer) and never the General Manager here (no branch of their own; their entry is Transfers).
+  const canTransfer = can('inventory.transfer') && !!me?.user.branch;
+  const [transferOpen, setTransferOpen] = useState(false);
   const [showHeld, setShowHeld] = useState(false);
 
   const heldKey = `jerp.held.${me?.user.id}`;
@@ -462,6 +467,17 @@ export function PosPage() {
           <Button variant="primary" size="lg" className="mt-3 w-full text-[15px]" disabled={!cart.length || !branchId || (payment === 'HASAD' && !hasadInvoice.trim()) || !priceReasonOk || !bankRefOk} loading={complete.isPending} onClick={() => complete.mutate({})} data-testid="pos-complete">
             {t('Complete Sale')} <ArrowRight className="size-4 rtl:rotate-180" />
           </Button>
+          {canTransfer && (
+            <Button
+              className="mt-2 w-full"
+              icon={<ArrowRightLeft className="size-4" />}
+              disabled={!cart.length || complete.isPending}
+              onClick={() => setTransferOpen(true)}
+              data-testid="pos-transfer"
+            >
+              {t('Transfer to branch')}
+            </Button>
+          )}
           <div className="mt-2 grid grid-cols-3 gap-2">
             <Button size="sm" icon={<Pause className="size-4" />} onClick={hold} disabled={!cart.length}>{t('Hold')}</Button>
             <Button size="sm" icon={<Ban className="size-4" />} onClick={() => setConfirmCancel(true)} disabled={!cart.length}>{t('Cancel')}</Button>
@@ -469,6 +485,20 @@ export function PosPage() {
           </div>
         </div>
       </aside>
+
+      {transferOpen && canTransfer && branchId && (
+        <PosTransferDialog
+          fromBranchId={branchId}
+          lines={cart}
+          onClose={() => setTransferOpen(false)}
+          onRemove={(ids) => setCart((c) => c.filter((l) => !ids.includes(l.item.id)))}
+          onSent={() => {
+            setCart([]);
+            setTransferOpen(false);
+            qc.invalidateQueries({ queryKey: ['pos-items'] });
+          }}
+        />
+      )}
 
       <Dialog
         open={!!duplicateOf}
@@ -583,6 +613,83 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
     >
       {children}
     </button>
+  );
+}
+
+/** FIX-1: the whole cart as one transfer (all or nothing); the courier's name is required (SPEC §8). */
+function PosTransferDialog({ fromBranchId, lines, onClose, onRemove, onSent }: { fromBranchId: number; lines: CartLine[]; onClose: () => void; onRemove: (ids: number[]) => void; onSent: () => void }) {
+  const { t, L } = useI18n();
+  const toast = useToast();
+  const directory = useBranchDirectory();
+  const actionKeys = useActionKeys();
+  const [to, setTo] = useState<number | ''>('');
+  const [courier, setCourier] = useState('');
+  const [notes, setNotes] = useState('');
+  const [gone, setGone] = useState<{ itemId: number; code: string }[]>([]);
+  const courierOk = courier.trim().length >= 2 && courier.trim().length <= 80;
+  const m = useMutation({
+    mutationFn: () =>
+      postOnce<{ id: number; number: string }>('/transfers', { fromBranchId, toBranchId: to, itemIds: lines.map((l) => l.item.id), courierName: courier.trim(), notes: notes.trim() || undefined }, actionKeys.for('pos-transfer')),
+    onSuccess: (r) => {
+      actionKeys.rotate('pos-transfer');
+      toast.success(t('Transfer {number} sent: {n} pieces in transit', { number: r.number, n: lines.length }), t('See it under Transfers. The receiving branch confirms receipt.'));
+      onSent();
+    },
+    onError: (e) => {
+      if (e instanceof ApiError && e.code === 'ITEMS_UNAVAILABLE') {
+        setGone((e.details as { unavailable?: { itemId: number; code: string }[] })?.unavailable ?? []);
+        return;
+      }
+      toast.fromError(e, t('Transfer not sent'));
+    },
+  });
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={t('Transfer {n} pieces to another branch', { n: lines.length })}
+      subtitle={t('One transfer for the whole cart. Nothing is sold; the pieces are in transit until the receiving branch confirms.')}
+      footer={
+        <>
+          <Button onClick={onClose}>{t('Cancel')}</Button>
+          <Button variant="primary" disabled={!to || !courierOk || gone.length > 0 || !lines.length} loading={m.isPending} onClick={() => m.mutate()} data-testid="pos-transfer-send">
+            {t('Send transfer')}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-3">
+        {gone.length > 0 && (
+          <Alert tone="danger">
+            <span data-testid="pos-transfer-unavailable">{t('{codes} no longer available (sold or moved meanwhile). Nothing was sent: remove it and try again.', { codes: gone.map((g) => g.code).join(', ') })}</span>
+            <div className="mt-2">
+              <Button size="sm" onClick={() => { onRemove(gone.map((g) => g.itemId)); setGone([]); }} data-testid="pos-transfer-remove">{t('Remove from the cart')}</Button>
+            </div>
+          </Alert>
+        )}
+        <Field label={t('To')}>
+          <Select value={to} onChange={(e) => setTo(e.target.value ? Number(e.target.value) : '')} data-testid="pos-transfer-to">
+            <option value="">{t('Select…')}</option>
+            {directory.data?.filter((b) => b.id !== fromBranchId).map((b) => <option key={b.id} value={b.id}>{L(b.name, b.nameAr)}</option>)}
+          </Select>
+        </Field>
+        <Field label={t('Courier’s name (required)')}>
+          <Input value={courier} onChange={(e) => setCourier(e.target.value)} maxLength={80} data-testid="pos-transfer-courier" />
+        </Field>
+        <Field label={t('Notes')}>
+          <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+        </Field>
+        <ul className="divide-y divide-line rounded-md border border-line text-[13px]">
+          {lines.map((l) => (
+            <li key={l.item.id} className="flex items-center gap-3 px-3 py-1.5">
+              <span className="w-24 font-mono">{l.item.code}</span>
+              <span className="min-w-0 flex-1 truncate">{L(l.item.productName, l.item.productNameAr)} · {karatLabel(l.item.karat)}</span>
+              <span className="num">{grams(l.item.netWeightMg)}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Dialog>
   );
 }
 

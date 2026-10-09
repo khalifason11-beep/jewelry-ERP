@@ -476,6 +476,8 @@ export const transfers = pgTable('transfers', {
   toBranchId: integer('to_branch_id').notNull().references(() => branches.id),
   status: text('status').notNull(),
   notes: text('notes'),
+  /** FIX-1 (D-fix-1): who carries the pieces (SPEC §8); required for new transfers, NULL on older ones. */
+  courierName: text('courier_name'),
   createdBy: integer('created_by').notNull().references(() => users.id),
   createdAt: createdAt(),
   receivedBy: integer('received_by').references(() => users.id),
