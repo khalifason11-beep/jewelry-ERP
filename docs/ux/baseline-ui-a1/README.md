@@ -6,7 +6,7 @@ Screenshots of every main screen, taken with `scripts/capture-ui-baseline.mjs` (
 
 - `before/`: the application at `a6e6828` (after REM-5), before any UI-A1 change.
 - `after/`: the same screens after UI-A1 (design tokens, base components, app shell, plain login), taken in the
-  last UI-A1 commit.
+  last UI-A1 commit (`687b6bf` plus the 32 px sidebar items of the docs commit).
 
 `demo/`: a database filled by `npm run dev:sample` (two branches, marked placeholder names), seen by the General
 Manager, a branch manager and a cashier. `empty-production/`: each role's home right after the first sign-in on a

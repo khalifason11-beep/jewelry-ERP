@@ -1,6 +1,6 @@
 # UI-A1 plan: design system and app shell
 
-Status: **PLAN, awaiting the owner's approval. No code has been written.**
+Status: **DONE** (2026-10-09). Approved with the owner's answers Q1–Q9; built in commits 35c2410 (before-baseline), cfd46a6, bb5dbf4, 977cbe8, 8c8fcbe, 687b6bf and the docs commit. Decisions D-ui-1…9 (`docs/decisions.md` §17); acceptance `docs/acceptance/UI-A1.md`. Differences from this plan: `DataTable.tsx` is kept and restyled (11 screens use it); no GM branch switcher in the shell (Q1); the bell stays and the clock goes (Q4); sidebar items are 32 px as in the mockup.
 Branch: `claude/hopeful-sagan-lehxyp`, based on `7fd60c4` (REM-5 done).
 
 **Sources of truth**, by rank where they disagree:

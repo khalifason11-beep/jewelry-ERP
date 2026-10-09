@@ -87,8 +87,15 @@ menus and popovers float: `--shadow-pop` = `0 8px 28px rgba(15,22,41,.16)`.
 Sidebar 232 px (64 px collapsed, icon only; the cashier always sees the collapsed form); top bar 44 px; level 1 of
 every home must fit 1366 × 768 without scrolling (R14).
 
+## In the code (UI-A1)
+These values live in `frontend/src/index.css` (`@theme`) as `--color-*`, `--text-*`, `--radius-*` and
+`--shadow-pop`; `backend/test/design-tokens.test.ts` keeps them equal to this file and checks the contrast pairs.
+The colour names used before UI-A1 (`ink-950…300`, `gold-*`, `canvas`, `line-strong`, `series-1..4`) are
+**remapped** to these values (D-ui-1) so every screen took the new look at once; UI-B and UI-C move each screen to
+the semantic names, then the old names are deleted. Focus ring: 2 px gold outside a 2 px navy ring (D-ui-3).
+
 ## Login page
-`docs/design-reference/login-background.jpg` does **not** exist. UI-A2 therefore builds a **plain, elegant login
-page**: company logo and name, the login tagline from settings (new branding setting), the form; no image panel. If
+`docs/design-reference/login-background.jpg` does **not** exist. UI-A1 built a **plain, centred login page**
+(logo, company name, the form; D-ui-7); UI-A2 adds the login tagline from settings (new branding setting); no image panel. If
 the owner later adds the image (with its commercial licence confirmed), it is optimised to WebP under 200 KB, served
 locally, and shown in the image panel.

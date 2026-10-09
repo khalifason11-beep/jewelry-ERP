@@ -95,7 +95,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
                 data-testid={`nav-${i.to.slice(1)}`}
                 className={({ isActive }) =>
                   clsx(
-                    'relative mt-0.5 flex h-9 items-center gap-2.5 rounded-control text-[15px] transition-colors [&_svg]:size-4 [&_svg]:shrink-0',
+                    'relative flex h-8 items-center gap-2.5 rounded-control text-[15px] transition-colors [&_svg]:size-4 [&_svg]:shrink-0',
                     iconsOnly ? 'justify-center' : 'px-2.5',
                     isActive ? 'bg-navy-2 text-white' : 'hover:bg-navy-3/60 hover:text-white',
                   )
