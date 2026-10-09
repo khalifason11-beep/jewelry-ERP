@@ -1,6 +1,6 @@
 {
   "_comment": "Names used ONLY by `npm run dev:sample` (development and screenshots; never in production). The owner replaces these marked placeholders with real names approved by the client. Do not invent names.",
-  "company": { "nameAr": "[عينة] اسم الشركة", "nameEn": "[Sample] Company name" },
+  "company": { "nameAr": "[عينة] اسم الشركة", "nameEn": "[Sample] Company name", "taglineAr": "[عينة] عبارة صفحة الدخول", "taglineEn": "[Sample] Sign-in tagline" },
   "branches": [
     { "code": "SPA", "nameAr": "[عينة] فرع أ", "nameEn": "[Sample] Branch A", "city": "[Sample] City A" },
     { "code": "SPB", "nameAr": "[عينة] فرع ب", "nameEn": "[Sample] Branch B", "city": "[Sample] City B" }

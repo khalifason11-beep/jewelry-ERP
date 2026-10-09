@@ -1,6 +1,7 @@
 # Screens after the latest UI phase
 
-**Current set: UI-A1** (design tokens, base components, app shell, plain sign-in), taken at commit `36e4e1e`.
+**Current set: UI-A2** (screen states, notice area, sign-in tagline in Amiri), taken in the UI-A2 docs commit.
+Changed screens shown at all three sizes in both languages: the sign-in page (`00-login`), Settings, Cash, Inventory.
 Each UI phase replaces this folder with its own "after" set; earlier sets stay in git history
 (`git show <commit>:<path>`, or browse the repository on GitHub at that commit):
 
@@ -9,6 +10,7 @@ Each UI phase replaces this folder with its own "after" set; earlier sets stay i
 | UX-0 (before any redesign) | `00d0f89` | `docs/ux/baseline/` (JPEG) |
 | UI-A1 before | `35c2410` | `docs/ux/baseline-ui-a1/before/` (JPEG) |
 | UI-A1 after (full set) | `36e4e1e` | `docs/ux/baseline-ui-a1/after/` (JPEG) |
+| UI-A1 after (slim WebP) | `b3ddbae` | `docs/ux/screens/` |
 
 Rule (D-ui-10), applied by `scripts/lib/screens.mjs`; `npm run check:assets` enforces at most 4 MB in total,
 150 KB per image, WebP only, no "before" set:

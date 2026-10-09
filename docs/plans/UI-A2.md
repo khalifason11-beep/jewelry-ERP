@@ -1,6 +1,6 @@
 # UI-A2 plan: screen states, notices, login tagline, and a slimmer repository
 
-Status: **PLAN, awaiting the owner's approval. No code has been written.**
+Status: **DONE** (2026-10-09). Approved with the owner's answers 1–9 and limits; built in commits 254ff09, 3a07390, c6d8007, cde8a40, 3d56aef, 96df306, b3ddbae and the docs commit. Decisions D-ui-10…16 (`docs/decisions.md` §18); acceptance `docs/acceptance/UI-A2.md`. Differences from this plan: the empty texts are only those with real content now (owner answer 3); the public `/api/meta` became an allow-list (owner limit), so the mode and currency labels moved to `/auth/me`; a crash-report endpoint `POST /api/client-errors` was added for the reference id (owner limit: details on the server); legacy `ink-400` now equals `ink-3` (axe found 3.45:1); a slow-data sweep of every screen found and fixed a Cash first-render crash.
 Branch: `claude/hopeful-sagan-lehxyp`, based on `36e4e1e` (UI-A1 done and approved).
 
 **Sources**, by rank where they disagree:

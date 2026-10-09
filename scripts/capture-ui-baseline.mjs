@@ -167,6 +167,12 @@ async function captureDemo(browser) {
           await ctx.addInitScript((l) => localStorage.setItem('jerp.lang', l), lang);
           const page = await ctx.newPage();
           await page.goto(`${base}/login`);
+          // The sign-in page (UI-A2: tagline and display font), once per language and size.
+          if (role === 'gm') {
+            await page.getByTestId('welcome-back').waitFor();
+            await settle(page);
+            await shoot(page, path.join(OUT, 'demo', `${lang}-${w}x${h}`, '00-login.jpg'), false);
+          }
           await page.fill('input[autocomplete=username]', ROLES[role].username);
           await page.fill('input[autocomplete=current-password]', ROLES[role].password);
           await page.click('button[type=submit]');

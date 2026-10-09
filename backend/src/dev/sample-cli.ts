@@ -35,7 +35,7 @@ import { buyScrap, setScrapRates } from '../modules/scrap/service';
 import { createTransfer } from '../modules/transfers/service';
 
 interface Names {
-  company: { nameAr: string; nameEn: string };
+  company: { nameAr: string; nameEn: string; taglineAr: string; taglineEn: string };
   branches: { code: string; nameAr: string; nameEn: string; city: string }[];
   types: { nameAr: string; nameEn?: string }[];
   products: { nameAr: string; nameEn?: string; type: number }[];
@@ -87,7 +87,12 @@ async function buildSample(ctx: Ctx) {
   await setPassword(ctx, boot.username, gmPw);
   const gm = await actor(ctx, boot.username);
 
-  await ctx.settings.apply(ctx.db, { 'company.nameAr': names.company.nameAr, 'company.nameEn': names.company.nameEn }, { actor: { id: gm.userId, username: gm.username }, reason: 'dev:sample' });
+  await ctx.settings.apply(
+    ctx.db,
+    // The sign-in tagline too (UI-A2), marked like every sample name.
+    { 'company.nameAr': names.company.nameAr, 'company.nameEn': names.company.nameEn, 'branding.loginTaglineAr': names.company.taglineAr, 'branding.loginTaglineEn': names.company.taglineEn },
+    { actor: { id: gm.userId, username: gm.username }, reason: 'dev:sample' },
+  );
   const allowed = (await ctx.settings.get()).inventory.allowedKarats;
   await confirmAllowedKarats(ctx, gm, allowed);
   // Rates for every allowed karat (gold sell rate only where the rate form accepts the karat).

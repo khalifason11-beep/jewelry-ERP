@@ -438,7 +438,7 @@ unprompted:
 | Phase | Content | Depends on |
 |---|---|---|
 | **UI-A1** Design system + shell *(done; owner instruction 2026-10-09 moved the shell and a plain login here, D-ui-1…9)* | Tokens from `docs/design-reference/tokens.md` (D-ux-0): colours (ink, one gold accent, meaning colours R6), type scale R16, spacing (4/8/12/16/24/32), radii (pill, 20/16/12/10/6), one shadow for pop-ups, buttons (primary/secondary/ghost/danger), inputs, tables, badges, alerts, dialogs, empty/loading/error/permission-denied states, skeletons; a `/ui` page in development only. **Shell**: grouped role-aware sidebar (§4.1), distinct icons, collapse to icons (the cashier always icons); top bar: rate chip, Demo badge, bell (until UI-B), language pill, user menu (Security inside). **Plain login page** (logo, company name, form) | REM-3 (D-ux-13) |
-| **UI-A2** Login and first-run polish | Login redesign: tagline from a new branding setting, display font, image panel only if `login-background.jpg` is added with a confirmed licence; per-screen empty states. The banners (R13) were kept as they are by the owner (UI-A1, answer Q5) | UI-A1 |
+| **UI-A2** States, notices, sign-in tagline *(done, D-ui-10…16)* | One state contract on every screen (loading, refresh, empty with next action, prompt, error, no-access, not-found, crash page); §8 empty texts with real content now (UI-C5 folded in); security and system notices in one compact shell area (R13 as decided by the owner); sign-in tagline from a new branding setting, Amiri on the sign-in page only (D-ux-8); screenshots policy (WebP, `docs/ux/screens/`). No image panel (no licensed image) | UI-A1 |
 | **UI-B1** GM home | §4.2 GM levels; attention list from BE-1 | UI-A2, BE-1 |
 | **UI-B2** BM home | §4.2 BM levels; attention from BE-1; remove the empty profit KPI; fix the "$" typo | UI-A2, BE-1 |
 | **UI-B3** Branches + sales list | Figma branches grid and sales list; filter pills; server-side pagination (backend) | UI-A2, BE-7 |
@@ -446,7 +446,7 @@ unprompted:
 | **UI-C2** Stock & gold | Inventory (7 columns + drawer), Types & products, Scrap (form first), Transfers (no horizontal overflow; receive action visible) | — |
 | **UI-C3** Suppliers & money | Supplier purchases, purchase detail, **Suppliers list** (gold owed per supplier), Cash (GM per-branch rows) | BE-3 |
 | **UI-C4** Admin | Users, Active users, Audit, Settings (sections, one save per section), Security, Reports hub | — |
-| **UI-C5** Empty states | §8 texts everywhere (first-steps flow itself is REM-3) | REM-3 |
+| ~~**UI-C5** Empty states~~ | *Folded into UI-A2 (D-ui-16).* Left: GM home with branches but no sales (UI-B1), Suppliers page (UI-C3), Transfers from the POS cart (FIX-1) | — |
 
 **Backend items (separate approval each; none is part of a UI phase):**
 
