@@ -23,7 +23,13 @@ export interface CreateSaleInput {
   customerName?: string;
   customerNameAr?: string;
   customerPhone?: string;
+  /** SEC-2 (D-sec2-2): required when any line's final price differs from its list price. Never printed. */
+  priceChangeReason?: string;
 }
+
+/** SEC-2: a "price change" is any final line price that differs from the list price, up or down. */
+export const PRICE_CHANGE_REASON_MIN = 3;
+export const PRICE_CHANGE_REASON_MAX = 200;
 
 export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput, opts: { at?: Date; idem?: TxIdempotency } = {}) {
   requirePerm(actor, 'sales.create');
@@ -78,6 +84,14 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       return { item, discount, finalPrice: item.sellingPrice - discount };
     });
 
+    // SEC-2 (D-sec2-2): one reason per sale for every changed line, required, stored on the sale and audited.
+    const changed = lines.filter((l) => l.finalPrice !== l.item.sellingPrice);
+    const priceChangeReason = changed.length ? (input.priceChangeReason ?? '').trim() : '';
+    if (changed.length && priceChangeReason.length < PRICE_CHANGE_REASON_MIN) {
+      throw badRequest('Give a reason for the price change ({code})', { code: changed.map((l) => l.item.code).join(', ') });
+    }
+    if (priceChangeReason.length > PRICE_CHANGE_REASON_MAX) throw badRequest('The reason for the price change is too long');
+
     const subtotal = lines.reduce((s, l) => s + l.item.sellingPrice, 0);
     const discountTotal = lines.reduce((s, l) => s + l.discount, 0);
     const costTotal = lines.reduce((s, l) => s + l.item.acquisitionCost, 0);
@@ -100,6 +114,7 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
         paymentMethod: input.paymentMethod,
         paymentRefInvoice: refInvoice,
         paymentRefTransaction: refTransaction,
+        priceChangeReason: priceChangeReason || null,
         createdAt: at,
       })
       .returning();
@@ -133,8 +148,24 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       at,
       key: 'Sale {number}: {n} item(s), total {total} ({payment})',
       params: { number, n: lines.length, total: ap.money(subtotal - discountTotal), payment: ap.enum(input.paymentMethod) },
-      metadata: { items: lines.map((l) => l.item.code), total: subtotal - discountTotal, discountTotal },
+      metadata: { items: lines.map((l) => l.item.code), total: subtotal - discountTotal, discountTotal, ...(priceChangeReason ? { priceChangeReason } : {}) },
     });
+    if (changed.length) {
+      // Prices only (list, discount, final): no cost figure ever enters this entry (D-sec2-2, cost redaction).
+      await writeAudit(tx, actor, {
+        action: 'SALE_PRICE_CHANGED',
+        entityType: 'sale',
+        entityId: number,
+        branchId,
+        at,
+        key: 'Sale {number}: price changed on {codes}. Reason: {reason}',
+        params: { number, codes: changed.map((l) => l.item.code).join(', '), reason: priceChangeReason },
+        metadata: {
+          reason: priceChangeReason,
+          lines: changed.map((l) => ({ code: l.item.code, listPrice: l.item.sellingPrice, discount: l.discount, finalPrice: l.finalPrice })),
+        },
+      });
+    }
     // The money: into the drawer (CASH), the bank (CARD, MOBILE_WALLET, BANK_TRANSFER) — Q5 — or the
     // branch's Hasad receivable (HASAD, D-4-6), until Hasad's bank transfer is recorded (D-4-14).
     await post(
@@ -292,7 +323,26 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
   };
 }
 
-export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: string, opts: { at?: Date; idem?: TxIdempotency } = {}) {
+/**
+ * SEC-2 (D-sec2-1): does cancelling this sale need a fresh password confirmation? Above the General Manager's
+ * amount (setting sales.voidReauthAboveAmount; 0 = every void). Answers false when the caller may not void it at
+ * all (another branch, unknown, already cancelled), so the ordinary refusal comes first, before any re-confirmation.
+ */
+export async function voidNeedsReauth(ctx: Ctx, actor: Actor, id: number): Promise<{ needed: boolean; threshold: number }> {
+  const { sales: rules } = await ctx.settings.get();
+  const threshold = rules.voidReauthAboveAmount;
+  if (!can(actor, 'sales.void')) return { needed: false, threshold };
+  const [sale] = await ctx.db.select({ branchId: t.sales.branchId, total: t.sales.total, status: t.sales.status }).from(t.sales).where(eq(t.sales.id, id));
+  if (!sale || sale.status !== 'COMPLETED') return { needed: false, threshold };
+  try {
+    branchScope(actor, sale.branchId);
+  } catch {
+    return { needed: false, threshold };
+  }
+  return { needed: threshold === 0 || sale.total > threshold, threshold };
+}
+
+export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: string, opts: { at?: Date; idem?: TxIdempotency; reauth?: { threshold: number } } = {}) {
   const at = opts.at ?? new Date();
   requirePerm(actor, 'sales.void');
   if (!reason?.trim()) throw badRequest('A reason is required to cancel a sale');
@@ -321,7 +371,7 @@ export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: strin
       branchId: sale.branchId,
       key: 'Sale {number} cancelled ({total}): {reason}',
       params: { number: sale.number, total: ap.money(sale.total), reason },
-      metadata: { reason, items: items.map((i) => i.code) },
+      metadata: { reason, items: items.map((i) => i.code), ...(opts.reauth ? { reauthenticated: true, reauthAboveAmount: opts.reauth.threshold } : {}) },
     });
     // Refund through the original payment method (Q6): reverse the sale's own ledger entries.
     const by = { actor, idempotencyKey: opts.idem?.key };

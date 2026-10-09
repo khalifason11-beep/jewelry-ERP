@@ -436,6 +436,8 @@ export const sales = pgTable(
     /** Printing (D-print-5): when the original was printed (once, by the cashier, same session) and how many reprints followed. */
     originalPrintedAt: ts('original_printed_at'),
     reprintCount: integer('reprint_count').notNull().default(0),
+    /** SEC-2 (D-sec2-2): why a line's final price differs from its list price. Internal: never printed. */
+    priceChangeReason: text('price_change_reason'),
   },
   (t) => [index('sales_branch_at_idx').on(t.branchId, t.createdAt)],
 );

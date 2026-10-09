@@ -83,6 +83,8 @@ export function PosPage() {
   // Hasad: the cashier types the Hasad invoice number (required) and transaction reference.
   const [hasadInvoice, setHasadInvoice] = useState('');
   const [hasadTxn, setHasadTxn] = useState('');
+  // SEC-2 (D-sec2-2): one reason for every price change in this sale; internal, never printed.
+  const [priceReason, setPriceReason] = useState('');
   const payMethods = me?.posPaymentMethods?.length ? me.posPaymentMethods : DEFAULT_POS_METHODS;
   const sellableKarats = me?.allowedKarats ?? [];
   const [invoice, setInvoice] = useState<SaleDetail | null>(null);
@@ -124,6 +126,9 @@ export function PosPage() {
     const discount = cart.reduce((s, l) => s + l.discount, 0);
     return { subtotal, discount, total: subtotal - discount, weight: cart.reduce((s, l) => s + l.item.netWeightMg, 0) };
   }, [cart]);
+  // SEC-2: a price change is any final line price that differs from the list price.
+  const priceChanged = cart.some((l) => l.discount !== 0);
+  const priceReasonOk = !priceChanged || priceReason.trim().length >= 3;
 
   const add = (item: ItemRow) => {
     if (item.status !== 'AVAILABLE') return toast.info(t('{code} is not available for sale', { code: item.code }), t('It cannot be sold until it is available again.'));
@@ -138,6 +143,7 @@ export function PosPage() {
     setPayment('CASH');
     setHasadInvoice('');
     setHasadTxn('');
+    setPriceReason('');
   };
 
   // Barcode scanners type the code and press Enter.
@@ -174,6 +180,7 @@ export function PosPage() {
         ...(payment === 'HASAD' ? { paymentRefInvoice: hasadInvoice.trim(), paymentRefTransaction: hasadTxn.trim() || undefined } : {}),
         customerName: customerName || undefined,
         customerPhone: customerPhone || undefined,
+        ...(priceChanged ? { priceChangeReason: priceReason.trim() } : {}),
       }, actionKeys.for('sale')),
     onSuccess: (sale) => {
       actionKeys.rotate('sale');
@@ -340,6 +347,7 @@ export function PosPage() {
                               }}
                               className="h-7 w-24 px-2 text-xs num"
                               aria-label={t('Discount for {code}', { code: l.item.code })}
+                              data-testid="pos-discount"
                             />
                             <span className="text-[11px]">{t('max {pct}%', { pct: maxPct })}</span>
                           </label>
@@ -390,6 +398,20 @@ export function PosPage() {
               <Input value={hasadTxn} onChange={(e) => setHasadTxn(e.target.value)} maxLength={80} placeholder={t('Transaction reference (optional)')} aria-label={t('Transaction reference (optional)')} className="h-8 text-[13px]" />
             </div>
           )}
+          {priceChanged && (
+            <div className="mt-2">
+              <Input
+                value={priceReason}
+                onChange={(e) => setPriceReason(e.target.value)}
+                maxLength={200}
+                placeholder={t('Reason for the price change (required)')}
+                aria-label={t('Reason for the price change')}
+                className="h-8 text-[13px]"
+                data-testid="price-change-reason"
+              />
+              <p className="mt-1 text-[11.5px] text-ink-500">{t('Kept in the audit log for managers. Never printed on the invoice.')}</p>
+            </div>
+          )}
           <dl className="mt-3 space-y-1 text-[13px]">
             <div className="flex justify-between text-ink-600">
               <dt>{t('{n} pieces', { n: cart.length })} · {t('Net weight')}</dt>
@@ -410,7 +432,7 @@ export function PosPage() {
               <dd className="text-2xl font-semibold tracking-tight num">{money(totals.total)}</dd>
             </div>
           </dl>
-          <Button variant="primary" size="lg" className="mt-3 w-full text-[15px]" disabled={!cart.length || !branchId || (payment === 'HASAD' && !hasadInvoice.trim())} loading={complete.isPending} onClick={() => complete.mutate()}>
+          <Button variant="primary" size="lg" className="mt-3 w-full text-[15px]" disabled={!cart.length || !branchId || (payment === 'HASAD' && !hasadInvoice.trim()) || !priceReasonOk} loading={complete.isPending} onClick={() => complete.mutate()} data-testid="pos-complete">
             {t('Complete Sale')} <ArrowRight className="size-4 rtl:rotate-180" />
           </Button>
           <div className="mt-2 grid grid-cols-3 gap-2">

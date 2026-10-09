@@ -120,6 +120,13 @@
       "when": 1791454945910,
       "tag": "0016_rem5_drop_deprecated",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791580834388,
+      "tag": "0017_sale_price_change_reason",
+      "breakpoints": true
     }
   ]
 }

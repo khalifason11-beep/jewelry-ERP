@@ -737,6 +737,50 @@ async function main() {
     await pathIs(page, ['/overview']);
     check((await page.getByTestId('security-locked-banner').count()) === 0, 'General Manager: no security-locked notice once the lock is lifted');
 
+    section('SEC-2: a changed price needs a reason; every void asks for the password (default 0)');
+    await page.goto(`${origin}/settings`);
+    await page.getByTestId('void-reauth-amount').waitFor({ timeout: 15_000 });
+    check((await page.locator('[data-testid=void-reauth-amount] input').inputValue()) === '0', 'Settings › Sales: "Ask for the password to cancel a sale above" is 0 by default (every void asks)');
+    await signOut(page);
+    const PRICE_REASON = 'خصم متفق عليه مع العميل (REH-1)';
+    await signIn(page, origin, CASHIER.username, CASHIER.password);
+    await pathIs(page, ['/pos']);
+    await page.getByTestId('pos-product').first().click();
+    const disc = page.getByTestId('pos-discount').first();
+    await disc.fill('1000');
+    await page.getByTestId('price-change-reason').waitFor();
+    check(await page.getByTestId('pos-complete').isDisabled(), 'cashier: a discounted line asks for the reason; "Complete sale" stays disabled without it');
+    await page.fill('[data-testid=price-change-reason]', PRICE_REASON);
+    const saleResp = page.waitForResponse((r) => r.url().endsWith('/api/sales') && r.request().method() === 'POST');
+    await page.click('[data-testid=pos-complete]');
+    const discSale = await (await saleResp).json();
+    check(discSale.priceChangeReason === PRICE_REASON && discSale.discountTotal === 1000, `the sale ${discSale.number} is recorded with its reason for the price change`);
+    await page.keyboard.press('Escape');
+    await signOut(page);
+    await signIn(page, origin, BM.username, BM.password);
+    await pathIs(page, ['/dashboard']);
+    await page.goto(`${origin}/sales/${discSale.id}`);
+    await page.getByTestId('sale-price-change-reason').waitFor({ timeout: 15_000 });
+    ok('branch manager: the sale detail shows the reason (marked internal, not printed)');
+    const pc = await apiGet(page, '/api/audit?action=SALE_PRICE_CHANGED&limit=5');
+    const pcRows = Array.isArray(pc.body) ? pc.body : (pc.body?.rows ?? pc.body?.items ?? []);
+    check(pcRows.some((r) => r.entityId === discSale.number) && !/cost|profit/i.test(JSON.stringify(pcRows)), 'the audit log has SALE_PRICE_CHANGED for it, with prices only (no cost)');
+    await page.click('[data-testid=sale-void]');
+    await page.getByTestId('void-reauth-hint').waitFor();
+    await page.fill('[data-testid=void-reason]', 'العميل أعاد القطعة (REH-1)');
+    await page.click('[data-testid=void-confirm]');
+    await page.locator('#reauth-form').waitFor({ timeout: 15_000 });
+    ok('branch manager: cancelling the sale asks for the password again');
+    await page.fill('#reauth-form input[type=password]', BM.password);
+    await page.click('button[form=reauth-form]');
+    await waitFor(async () => (await apiGet(page, `/api/sales/${discSale.id}`)).body.status === 'VOIDED', 'the void', 15_000);
+    ok('after the password the sale is cancelled and the piece is back in stock');
+    await signOut(page);
+    await signIn(page, origin, GM.username, GM.password);
+    await page.getByTestId('second-step').waitFor();
+    await page.click('[data-testid=use-passkey]');
+    await pathIs(page, ['/overview']);
+
     section('REM-5: no deprecated schema left');
     const rdb = new pg.Client({ connectionString: dbUrl.toString() });
     await rdb.connect();
@@ -753,7 +797,8 @@ async function main() {
       check(Object.values(gone[0]).every((n) => n === 0), `the production database has none of the removed tables, schema, columns, function or settings row (${JSON.stringify(gone[0])})`);
       const [m] = await one('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations');
       const [u] = await one(`SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'purchase_items_item_id_unique'`);
-      check(m.n === 17 && u.n === 1, `all 17 migrations (0000–0016) applied, one supplier line per piece enforced (${m.n} migrations)`);
+      const expected = JSON.parse(fs.readFileSync(path.join(ROOT, 'database/migrations/meta/_journal.json'), 'utf8')).entries.length;
+      check(m.n === expected && expected >= 18 && u.n === 1, `all ${expected} migrations applied (0000–${String(expected - 1).padStart(4, '0')}), one supplier line per piece enforced (${m.n} migrations)`);
     } finally {
       await rdb.end();
     }

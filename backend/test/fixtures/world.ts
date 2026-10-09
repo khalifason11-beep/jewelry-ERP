@@ -266,15 +266,18 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
         const chosen = Array.from({ length: count }, () => pool.splice(Math.floor(rand() * pool.length), 1)[0]);
         const seller = chance(0.12) ? bm[code] : pick(cashiers[code]);
         const maxPct = DEFAULT_SETTINGS.sales.maxDiscountPercentByRole[seller.roleCode] ?? 0;
+        const items = chosen.map((i) => ({
+          itemId: i.id,
+          discount: chance(0.25) ? Math.floor((i.sellingPrice * between(0.4, maxPct)) / 100 / 1000) * 1000 : 0,
+        }));
         const sale = await createSale(
           ctx,
           seller,
           {
             branchId: branch[code].id,
-            items: chosen.map((i) => ({
-              itemId: i.id,
-              discount: chance(0.25) ? Math.floor((i.sellingPrice * between(0.4, maxPct)) / 100 / 1000) * 1000 : 0,
-            })),
+            items,
+            // SEC-2: a changed price needs a reason (fixed text: the random sequence of the world is unchanged).
+            ...(items.some((i) => i.discount !== 0) ? { priceChangeReason: 'خصم للعميل الدائم' } : {}),
             ...(() => {
               const method = payment();
               return method === 'HASAD'

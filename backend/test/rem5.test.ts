@@ -233,7 +233,8 @@ describe('REM-5 upgrade from 0015', () => {
       );
       expect((await run(h, `SELECT count(*) AS n FROM settings WHERE key = 'hasad.enabledPerBranch'`))[0].n).toBe(PG_MODE ? '1' : 1);
       await h.migrate();
-      expect(await appliedMigrations(h)).toBe(17);
+      // Every migration of the repository (0016 and the later ones) applies on top of the clean 0015 database.
+      expect(await appliedMigrations(h)).toBe(JSON.parse(fs.readFileSync(path.join(MIGRATIONS_DIR, 'meta', '_journal.json'), 'utf8')).entries.length);
       const [sale] = await run(h, `SELECT payment_method, payment_ref_invoice, payment_ref_transaction FROM sales WHERE number = 'S-1'`);
       expect(sale).toEqual({ payment_method: 'HASAD', payment_ref_invoice: 'HS-INV-1', payment_ref_transaction: 'HS-TX-1' });
       const events = (await run(h, `SELECT event_type FROM ledger_entries ORDER BY id`)).map((r) => r.event_type);

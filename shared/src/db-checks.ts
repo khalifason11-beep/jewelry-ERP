@@ -171,6 +171,8 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   { name: 'ck_suppliers_has_name', table: 'suppliers', expr: "coalesce(nullif(btrim(name_ar), ''), nullif(btrim(name), '')) IS NOT NULL" },
   { name: 'ck_categories_name_ar_not_blank', table: 'categories', expr: "btrim(name_ar) <> ''" },
   { name: 'ck_products_name_ar_not_blank', table: 'products', expr: "btrim(name_ar) <> ''" },
+  // ── SEC-2: the price-change reason (migration 0017)
+  { name: 'ck_sales_price_change_reason', table: 'sales', expr: 'price_change_reason IS NULL OR length(btrim(price_change_reason)) BETWEEN 3 AND 200' },
 ];
 
 /** The SQL expression for an enum check. */

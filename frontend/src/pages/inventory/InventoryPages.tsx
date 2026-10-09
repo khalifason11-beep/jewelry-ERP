@@ -339,14 +339,14 @@ export function ItemDetailPage() {
         onClose={() => setPriceOpen(false)}
         title={t('Change selling price · {code}', { code: i.code })}
         subtitle={t('Recorded as PRICE_CHANGED in the audit log. Past sales keep their original price.')}
-        footer={<><Button onClick={() => setPriceOpen(false)}>{t('Cancel')}</Button><Button variant="primary" loading={priceM.isPending} disabled={!Number(price)} onClick={() => priceM.mutate()}>{t('Save')}</Button></>}
+        footer={<><Button onClick={() => setPriceOpen(false)}>{t('Cancel')}</Button><Button variant="primary" loading={priceM.isPending} disabled={!Number(price) || reason.trim().length < 3} onClick={() => priceM.mutate()} data-testid="price-save">{t('Save')}</Button></>}
       >
         <div className="space-y-3">
           <Field label={t('New selling price ({currency})', { currency: currencyLabel() })} hint={i.totalCost != null ? t('Total cost {cost} · current price {price}', { cost: money(i.totalCost), price: money(i.sellingPrice) }) : undefined}>
             <Input type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="num" />
           </Field>
-          <Field label={t('Reason')}>
-            <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('e.g. Gold rate increase')} />
+          <Field label={t('Reason (required)')}>
+            <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('e.g. Gold rate increase')} data-testid="price-reason" />
           </Field>
         </div>
       </Dialog>

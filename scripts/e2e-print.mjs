@@ -28,6 +28,8 @@ function loadPlaywright() {
   }
   throw new Error('Playwright not found: npm i -g playwright');
 }
+// SEC-2: a distinctive reason, searched for on every printed document of the discounted sale.
+const PRICE_REASON = 'سبب-داخلي-لا-يطبع-SEC2';
 const { chromium } = loadPlaywright();
 let BASE = '';
 const OUT = process.env.OUT_DIR ?? 'print-check-output';
@@ -221,10 +223,11 @@ async function main() {
     const stock = (await api(cashier, 'GET', `/inventory/items?branchId=${me.user.branch.id}&status=AVAILABLE&limit=20`)).body.items;
     const five = stock.slice(0, 5);
     const disc = Math.floor((five[2].sellingPrice * Math.max(1, me.maxDiscountPercent)) / 100 / 1000) * 1000 || 1000;
-    const sale5 = await api(cashier, 'POST', '/sales', { items: five.map((it, i) => ({ itemId: it.id, discount: i === 2 ? disc : 0 })), paymentMethod: 'CASH', customerName: 'عميل اختبار الطباعة' });
+    const sale5 = await api(cashier, 'POST', '/sales', { items: five.map((it, i) => ({ itemId: it.id, discount: i === 2 ? disc : 0 })), paymentMethod: 'CASH', customerName: 'عميل اختبار الطباعة', priceChangeReason: PRICE_REASON });
     check(sale5.status === 200 && sale5.body.items.length === 5 && sale5.body.discountTotal > 0, `5-line sale ${sale5.body.number} with a discounted line`);
     await withNames(cashier, [null, 'سوار ذهب عيار 21 مشغول يدوياً بنقشة سودانية تقليدية مع فصوص زركون وحجر كريم في الوسط — وصف طويل يجب أن يلتف داخل خانته']);
     await cashier.goto(`${BASE}/sales/${sale5.body.id}`);
+    const printResp5 = cashier.waitForResponse((r) => r.url().endsWith(`/api/sales/${sale5.body.id}/print`));
     await cashier.getByTestId('sale-print').click();
     await cashier.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
     await cashier.emulateMedia({ media: 'print' });
@@ -266,6 +269,9 @@ async function main() {
     check(s0.count >= 2 && s0.bad.length === 0, `A4: every negative amount reads "−32,000" (${s0.count} checked: table and summary)`);
     const o0 = await orphans(cashier);
     check(o0.length === 0, `A4 invoice: no code, karat, date or digit broken onto its own line${o0.length ? ` (found: ${o0.join(' | ')})` : ''}`);
+    // SEC-2 (D-sec2-2): the reason for the price change is internal: never in the print payload or on the paper.
+    const payload5 = await (await printResp5).text();
+    check(payload5.includes(sale5.body.number) && !payload5.includes(PRICE_REASON) && !(await printRootText(cashier)).includes(PRICE_REASON), 'SEC-2: the price-change reason is neither in the print payload nor on the A4 invoice');
     const five4 = await exportPdf(cashier, 'invoice-A4-5-lines.pdf');
     check(Math.abs(pages(five4.pdf)[0].w - 210) < 1, 'A4 PDF of the 5-line invoice exported');
 
@@ -308,6 +314,7 @@ async function main() {
     await gm.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
     const s1 = await misplacedSigns(gm);
     check(s1.count >= 2 && s1.bad.length === 0, `72 mm receipt: every negative amount reads "−32,000" (${s1.count} checked: line and summary)`);
+    check(!(await printRootText(gm)).includes(PRICE_REASON), 'SEC-2: the price-change reason is not on the 72 mm receipt either');
     const o3 = await orphans(gm);
     check(o3.length === 0, `72 mm discounted receipt: no orphaned token${o3.length ? ` (found: ${o3.join(' | ')})` : ''}`);
     const rd = await exportPdf(gm, 'receipt-72mm-discount.pdf');

@@ -33,6 +33,8 @@ export interface SaleDetail {
   voidedAt: string | null;
   voidReason: string | null;
   voidedByName: string | null;
+  /** SEC-2: internal, shown to staff on the sale detail; never on the invoice. */
+  priceChangeReason?: string | null;
   items: {
     id: number;
     itemId: number;

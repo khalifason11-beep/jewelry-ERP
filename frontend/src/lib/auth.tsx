@@ -22,6 +22,8 @@ export interface Me {
   csrfToken: string | null;
   allowSelfPasswordChange: boolean;
   maxDiscountPercent: number;
+  /** SEC-2: voids above this total ask for the password again (0 = every void). */
+  voidReauthAboveAmount: number;
   /** Payment methods offered at the counter (setting sales.posPaymentMethods). */
   posPaymentMethods: import('@jerp/shared').PaymentMethod[];
   /** Karats this deployment sells (setting inventory.allowedKarats). */

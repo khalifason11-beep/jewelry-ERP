@@ -490,7 +490,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   });
   route('GET', '/inventory/items/:id', async (req, res) => res.json(await inventory.getItemDetail(ctx, actorOf(req), parse(zId, req.params.id))));
   route('POST', '/inventory/items/:id/price', async (req, res) => {
-    const body = parse(z.object({ sellingPrice: zPositiveMoney, reason: zText(500).default('') }).strict(), req.body);
+    // SEC-2 (Q7): the reason is required.
+    const body = parse(z.object({ sellingPrice: zPositiveMoney, reason: zText(500).min(3) }).strict(), req.body);
     res.json(await inventory.changePrice(ctx, actorOf(req), parse(zId, req.params.id), body.sellingPrice, body.reason));
   });
   route('POST', '/inventory/items/:id/adjust', async (req, res) => {
@@ -511,6 +512,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           paymentRefTransaction: zText(80).min(1).optional(),
           customerName: zText(120).optional(),
           customerPhone: zPhone.optional(),
+          // SEC-2 (D-sec2-2): required by the service when a final price differs from the list price.
+          priceChangeReason: zText(200).optional(),
         })
         .strict(),
       req.body,
@@ -535,7 +538,11 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('POST', '/sales/:id/void', async (req, res) => {
     const body = parse(z.object({ reason: zText(500).min(3) }).strict(), req.body);
     const id = parse(zId, req.params.id);
-    res.json(await runIdempotent(ctx, req, res, (idem) => sales.voidSale(ctx, actorOf(req), id, body.reason, { idem })));
+    // SEC-2 (D-sec2-1): above the General Manager's amount (0 = always), a fresh password confirmation first. The
+    // refusal happens before the idempotency key is claimed, so the retry after the dialog uses the same key.
+    const gate = await sales.voidNeedsReauth(ctx, actorOf(req), id);
+    if (gate.needed) await requireRecentReauth(ctx, req);
+    res.json(await runIdempotent(ctx, req, res, (idem) => sales.voidSale(ctx, actorOf(req), id, body.reason, { idem, ...(gate.needed ? { reauth: { threshold: gate.threshold } } : {}) })));
   });
 
   // ─────────── purchases / transfers ───────────

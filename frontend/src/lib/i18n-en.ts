@@ -66,6 +66,7 @@ export const EN: Record<string, string> = {
   SESSION_REVOKED: 'Session ended by an administrator',
   SALE_CREATED: 'Sale created',
   SALE_CANCELLED: 'Sale cancelled',
+  SALE_PRICE_CHANGED: 'Price changed at sale',
   INVENTORY_TRANSFER: 'Inventory transfer',
   INVENTORY_TRANSFER_RECEIVED: 'Inventory transfer received',
   INVENTORY_ADJUSTMENT: 'Inventory adjustment',

@@ -36,6 +36,11 @@ export interface SystemSettings {
     maxDiscountPercentByRole: Record<string, number>;
     /** Payment methods the cashier's checkout offers (D-4-6); the others stay valid but hidden. */
     posPaymentMethods: PaymentMethod[];
+    /**
+     * SEC-2 (D-sec2-1): cancelling a sale whose total is above this amount needs a fresh password (and passkey)
+     * confirmation. 0 = every void. General Manager only (settings.manage).
+     */
+    voidReauthAboveAmount: number;
   };
   purchases: {
     /** Supplier purchases on CREDIT (creates a supplier payable). */
@@ -127,6 +132,8 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   sales: {
     maxDiscountPercentByRole: { CASHIER: 3, BRANCH_MANAGER: 10, GENERAL_MANAGER: 20 },
     posPaymentMethods: ['CASH', 'BANK_TRANSFER', 'HASAD'],
+    // The owner's rule: no guessed money amount. Every void asks; the General Manager may raise it.
+    voidReauthAboveAmount: 0,
   },
   purchases: {
     // Phase 4 (D-4-4): supplier purchases are gold-for-gold debts settled later with broken scrap.
@@ -219,6 +226,7 @@ export const SETTINGS_REGISTRY = {
       .max(PAYMENT_METHODS.length)
       .refine((a) => new Set(a).size === a.length, 'Duplicate payment method'),
   },
+  'sales.voidReauthAboveAmount': { schema: int(0, 1_000_000_000_000) },
   'purchases.supplierCreditEnabled': { schema: z.boolean() },
   'purchases.scrapPriceTolerancePct': { schema: z.number().min(0).max(50) },
   'purchases.requireGmApprovalForScrapOverride': { schema: z.boolean() },

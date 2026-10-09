@@ -124,7 +124,7 @@ export function Crumbs({ items }: { items: { label: React.ReactNode; to?: string
 export function SaleDetailPage() {
   const id = Number(useParams().id);
   const { t, L, lang } = useI18n();
-  const { can, isGlobal } = useAuth();
+  const { can, isGlobal, me } = useAuth();
   const toast = useToast();
   const qc = useQueryClient();
   const [voidOpen, setVoidOpen] = useState(false);
@@ -183,7 +183,7 @@ export function SaleDetailPage() {
               {can('sales.reprint') && (s.originalPrintedAt || s.reprintCount) ? t('Reprint') : t('Print')}
             </Button>
             {can('sales.void') && s.status === 'COMPLETED' && (
-              <Button variant="danger" icon={<Ban className="size-4" />} onClick={() => setVoidOpen(true)}>{t('Cancel sale')}</Button>
+              <Button variant="danger" icon={<Ban className="size-4" />} onClick={() => setVoidOpen(true)} data-testid="sale-void">{t('Cancel sale')}</Button>
             )}
           </>
         }
@@ -191,6 +191,12 @@ export function SaleDetailPage() {
       {s.status === 'VOIDED' && (
         <Alert tone="danger" className="mb-4" title={t('Cancelled {when} by {name}', { when: dateTime(s.voidedAt, lang), name: s.voidedByName ?? '' })}>
           {t('{reason}. The items were returned to stock.', { reason: s.voidReason ?? '' })}
+        </Alert>
+      )}
+      {s.priceChangeReason && (
+        <Alert tone="info" className="mb-4" title={t('Price changed at sale')}>
+          <span data-testid="sale-price-change-reason">{t('Reason: {reason}', { reason: s.priceChangeReason })}</span>{' '}
+          <span className="text-ink-500">{t('(internal: not printed on the invoice)')}</span>
         </Alert>
       )}
       <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
@@ -280,13 +286,17 @@ export function SaleDetailPage() {
         footer={
           <>
             <Button onClick={() => setVoidOpen(false)}>{t('Back')}</Button>
-            <Button variant="danger-solid" disabled={reason.trim().length < 3} loading={voidM.isPending} onClick={() => voidM.mutate()}>{t('Cancel sale')}</Button>
+            <Button variant="danger-solid" disabled={reason.trim().length < 3} loading={voidM.isPending} onClick={() => voidM.mutate()} data-testid="void-confirm">{t('Cancel sale')}</Button>
           </>
         }
       >
         <Field label={t('Reason (recorded in the audit log)')}>
-          <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('e.g. Customer returned the item the same day')} />
+          <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('e.g. Customer returned the item the same day')} data-testid="void-reason" />
         </Field>
+        {/* SEC-2 (D-sec2-1): the server asks; this only says so in advance. */}
+        {me && (me.voidReauthAboveAmount === 0 || s.total > me.voidReauthAboveAmount) && (
+          <p className="mt-2 text-meta text-ink-500" data-testid="void-reauth-hint">{t('You will be asked for your password to confirm.')}</p>
+        )}
       </Dialog>
     </div>
   );

@@ -61,7 +61,7 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   },
   sales: {
     cost: ['cost_total'],
-    safe: words('id number branch_id cashier_id session_id customer_name customer_name_ar customer_phone subtotal discount_total total payment_method status voided_at voided_by void_reason created_at payment_ref_invoice payment_ref_transaction original_printed_at reprint_count'),
+    safe: words('id number branch_id cashier_id session_id customer_name customer_name_ar customer_phone subtotal discount_total total payment_method status voided_at voided_by void_reason created_at payment_ref_invoice payment_ref_transaction original_printed_at reprint_count price_change_reason'),
   },
   sessions: {
     safe: words('id user_id branch_id login_at last_activity_at user_agent device ip_address current_module status ended_at ended_reason absolute_expires_at reauth_at csrf_token sign_in_method passkey_reauth_at passkey_reauth_uv'),
@@ -190,6 +190,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     setupSteps steps done complete
     scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates
     lockedAccounts lockedAt securityLockedAt
+    voidReauthAboveAmount priceChangeReason
   `),
 );
 
