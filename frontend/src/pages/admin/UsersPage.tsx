@@ -93,6 +93,7 @@ export function UsersPage() {
           <DataTable
             rows={users.data!}
             rowKey={(r) => r.id}
+            emptyTitle={t('No users yet')}
             exportName="users"
             columns={[
               {

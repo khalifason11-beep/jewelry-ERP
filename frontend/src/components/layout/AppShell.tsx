@@ -4,14 +4,17 @@
 
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { post, setCurrentModule } from '../../lib/api';
-import { useAuth } from '../../lib/auth';
+import { homePath, useAuth } from '../../lib/auth';
 import { SecurityBanners } from '../../pages/SecurityPage';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
+import { PageErrorBoundary } from './PageErrorBoundary';
 
 export function AppShell() {
   const { me, logout } = useAuth();
+  const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
   const focusMode = location.pathname.startsWith('/pos');
@@ -47,7 +50,14 @@ export function AppShell() {
         </div>
         <main className="scroll-thin min-h-0 flex-1 overflow-y-auto">
           <SecurityBanners />
-          <Outlet />
+          <PageErrorBoundary
+            key={location.pathname}
+            home={homePath(me)}
+            // Data no screen still shows may be what broke the page: the next page loads it fresh.
+            onCrash={() => queryClient.removeQueries({ type: 'inactive' })}
+          >
+            <Outlet />
+          </PageErrorBoundary>
         </main>
       </div>
     </div>

@@ -148,6 +148,14 @@ try {
         const bad = axe.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
         for (const v of axe.violations) console.log(`      axe ${v.impact}: ${v.id} (${v.nodes.length}) ${v.help}`);
         check(bad.length === 0, `axe-core (WCAG 2.1 A/AA): no serious or critical violation (${axe.violations.length} minor/moderate, ${axe.passes.length} rules passed)`);
+        // Crash page (D-ui-12): a short message and a reference id, never the error text.
+        await page.getByTestId('kit-crash').click();
+        await page.getByTestId('crash-page').waitFor();
+        const crash = await page.getByTestId('crash-page').innerText();
+        check(/ERR-[A-Z0-9]{4,12}/.test(crash) && !/Kit crash demo|Error:/.test(crash), 'a crashed block shows only a short message and a reference id');
+        await page.reload();
+        await page.getByTestId('ui-kit').waitFor();
+        await page.evaluate(() => document.fonts.ready);
       }
       if (SHOTS) await shot(page, `${lang}-${w}x${h}`, true);
       await ctx.close();

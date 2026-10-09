@@ -41,6 +41,7 @@ import * as backups from './modules/backups/status';
 import * as scrap from './modules/scrap/service';
 import * as supplierSettlements from './modules/supplier-settlements/service';
 import { runIdempotent } from './core/idempotency';
+import { log } from './core/logger';
 import { defineRoutes } from './core/guard';
 import { costRedaction } from './core/cost-redaction';
 import { notificationsFor } from './modules/notifications/service';
@@ -62,6 +63,21 @@ const zStatusList = z.preprocess((v) => (typeof v === 'string' && v ? v.split(',
 const zBool = z.preprocess((v) => v === 'true' || v === '1' || v === true, z.boolean());
 const zQ = zText(100).optional();
 const zPhone = zText(30).regex(/^[+\d\s()-]*$/);
+
+/** At most 20 crash reports per session per hour reach the log (a looping crash cannot flood it). */
+const clientErrors = new Map<string, { n: number; since: number }>();
+function clientErrorBudget(sessionId: string | number | null | undefined): boolean {
+  const key = String(sessionId ?? 'none');
+  const now = Date.now();
+  const e = clientErrors.get(key);
+  if (!e || now - e.since > 3600_000) {
+    if (clientErrors.size > 5000) clientErrors.clear();
+    clientErrors.set(key, { n: 1, since: now });
+    return true;
+  }
+  e.n += 1;
+  return e.n <= 20;
+}
 
 export function apiRouter(ctx: Ctx, config: Config): Router & { registered: RouteRule[] } {
   const r = Router();
@@ -383,6 +399,17 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
 
   // ─────────── sessions ───────────
   route('POST', '/sessions/heartbeat', async (_req, res) => res.json({ ok: true }));
+  // UI-A2 (D-ui-12): the crash page shows the person only a reference id; the details go to the server log
+  // (never to the database, never back to the browser). Capped in size and in number per session.
+  route('POST', '/client-errors', async (req, res) => {
+    const body = parse(
+      z.object({ ref: z.string().regex(/^ERR-[A-Z0-9]{4,12}$/), path: zText(200), message: zText(500), stack: zText(4000).optional() }).strict(),
+      req.body,
+    );
+    const actor = actorOf(req);
+    if (clientErrorBudget(actor.sessionId)) log.warn('client render error', { ...body, userId: actor.userId, username: actor.username });
+    res.json({ ok: true });
+  });
   route('GET', '/sessions', async (req, res) => {
     const q = parse(z.object({ scope: z.enum(['active', 'recent']).default('active'), branchId: zOptId, mine: zBool.optional() }).strict(), req.query);
     res.json(await sessions.listSessions(ctx, actorOf(req), q));

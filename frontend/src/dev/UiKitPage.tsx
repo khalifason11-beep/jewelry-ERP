@@ -35,7 +35,32 @@ import {
   Textarea,
 } from '../components/ui';
 import { useI18n } from '../lib/i18n';
+import { ApiError } from '../lib/api';
+import { RefreshBar } from '../components/ui/QueryState';
+import { PageErrorBoundary } from '../components/layout/PageErrorBoundary';
 import { useToast } from '../lib/toast';
+
+function Boom(): never {
+  throw new Error('Kit crash demo');
+}
+
+/** The crash page inside a card: what a page shows when it fails to render (D-ui-12). */
+function CrashDemo({ tx }: { tx: (en: string, ar: string) => string }) {
+  const [crash, setCrash] = useState(false);
+  return (
+    <PageErrorBoundary home="/ui">
+      {crash ? (
+        <Boom />
+      ) : (
+        <div className="p-6 text-center">
+          <Button variant="secondary" onClick={() => setCrash(true)} data-testid="kit-crash">
+            {tx('Simulate a page crash', 'محاكاة تعطل صفحة')}
+          </Button>
+        </div>
+      )}
+    </PageErrorBoundary>
+  );
+}
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
   return (
@@ -262,6 +287,22 @@ export default function UiKitPage() {
           </Card>
           <Card className="lg:col-span-2">
             <SkeletonRows rows={4} />
+          </Card>
+          <Card>
+            <Empty variant="prompt" title={tx('Choose a branch to see its cash', 'اختر فرعاً لعرض نقديته')} body={tx('Use the branch selector above.', 'استخدم اختيار الفرع في الأعلى.')} />
+          </Card>
+          <Card>
+            <Empty variant="not-found" title={tx('This sale does not exist', 'هذا البيع غير موجود')} action={<Button size="sm">{tx('Back to the list', 'العودة إلى القائمة')}</Button>} />
+          </Card>
+          <Card>
+            <ErrorState error={new ApiError(403, 'FORBIDDEN', 'Missing permission')} onRetry={() => undefined} />
+          </Card>
+          <Card className="lg:col-span-2">
+            <div className="p-4 text-meta text-ink-3">{tx('A filter changed: the rows stay, a thin bar runs on top.', 'تغيّر عامل التصفية: تبقى الصفوف ويظهر شريط رفيع في الأعلى.')}</div>
+            <RefreshBar active />
+          </Card>
+          <Card>
+            <CrashDemo tx={tx} />
           </Card>
         </div>
         <div className="mt-4 grid gap-2 lg:grid-cols-2">

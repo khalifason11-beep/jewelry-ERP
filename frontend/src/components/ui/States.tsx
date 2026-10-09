@@ -1,10 +1,12 @@
-// Loading, empty, no-access and error states, and inline alerts (UI-A1). Alerts use the R6 meaning colours only.
+// Loading, empty, prompt, no-access, not-found and error states, and inline alerts (UI-A1, UI-A2 D-ui-11).
+// Alerts use the R6 meaning colours only. Screens get these through QueryState / DataTable, so every screen shows
+// the same state the same way.
 
 import type { ReactNode } from 'react';
 import clsx from 'clsx';
-import { AlertTriangle, Inbox, Loader2, ShieldX } from 'lucide-react';
+import { AlertTriangle, Inbox, ListFilter, Loader2, SearchX, ShieldX } from 'lucide-react';
 import { useI18n } from '../../lib/i18n';
-import { errorText } from '../../lib/api';
+import { ApiError, errorText } from '../../lib/api';
 import { Button } from './Button';
 
 export function Spinner({ className }: { className?: string }) {
@@ -29,7 +31,7 @@ export function Skeleton({ className }: { className?: string }) {
 export function SkeletonRows({ rows = 5, className }: { rows?: number; className?: string }) {
   const { t } = useI18n();
   return (
-    <div className={clsx('space-y-1.5', className)} role="status" aria-label={t('Loading…')}>
+    <div className={clsx('space-y-1.5', className)} role="status" aria-label={t('Loading…')} data-state="loading">
       {Array.from({ length: rows }, (_, i) => (
         <Skeleton key={i} className="h-9" />
       ))}
@@ -37,7 +39,10 @@ export function SkeletonRows({ rows = 5, className }: { rows?: number; className
   );
 }
 
-/** Says what is empty and offers the next action (R15). `no-access` is the permission-denied variant. */
+/**
+ * Says what is empty and offers the next action (R15). `no-access`: permission denied; `prompt`: a choice is needed
+ * first (e.g. "Choose a branch"), neutral, never an alert; `not-found`: the record or page does not exist.
+ */
 export function Empty({
   title,
   body,
@@ -51,11 +56,12 @@ export function Empty({
   icon?: ReactNode;
   action?: ReactNode;
   className?: string;
-  variant?: 'empty' | 'no-access';
+  variant?: 'empty' | 'no-access' | 'prompt' | 'not-found';
 }) {
+  const icons = { empty: <Inbox className="size-5" />, 'no-access': <ShieldX className="size-5" />, prompt: <ListFilter className="size-5" />, 'not-found': <SearchX className="size-5" /> };
   return (
-    <div className={clsx('flex flex-col items-center justify-center px-6 py-12 text-center', className)}>
-      <div className="mb-3 grid size-11 place-items-center rounded-full bg-panel text-ink-3">{icon ?? (variant === 'no-access' ? <ShieldX className="size-5" /> : <Inbox className="size-5" />)}</div>
+    <div className={clsx('flex flex-col items-center justify-center px-6 py-12 text-center', className)} data-state={variant}>
+      <div className="mb-3 grid size-11 place-items-center rounded-full bg-panel text-ink-3">{icon ?? icons[variant]}</div>
       <div className="text-[15px] font-medium text-ink">{title}</div>
       {body && <div className="mt-1 max-w-sm text-meta text-ink-3">{body}</div>}
       {action && <div className="mt-4">{action}</div>}
@@ -63,18 +69,48 @@ export function Empty({
   );
 }
 
-export function ErrorState({ error, onRetry, className }: { error: unknown; onRetry?: () => void; className?: string }) {
+/**
+ * A failed load, in the block that failed (the page title, filters and shell stay). An API refusal (403) is shown
+ * as no-access and a missing record (404) as not-found: neither is "something went wrong", and retrying cannot
+ * help them. Every other error offers Try again.
+ */
+export function ErrorState({
+  error,
+  onRetry,
+  className,
+  notFoundTitle,
+  notFoundAction,
+}: {
+  error: unknown;
+  onRetry?: () => void;
+  className?: string;
+  /** Title when the server answers 404, e.g. "This sale does not exist". */
+  notFoundTitle?: string;
+  notFoundAction?: ReactNode;
+}) {
   const { t } = useI18n();
-  const msg = errorText(error);
+  if (error instanceof ApiError && error.status === 403 && error.code === 'FORBIDDEN') {
+    return (
+      <Empty
+        className={className}
+        variant="no-access"
+        title={t('You do not have access to this')}
+        body={t('Your role does not include it. Ask the General Manager if you need access.')}
+      />
+    );
+  }
+  if (error instanceof ApiError && error.status === 404) {
+    return <Empty className={className} variant="not-found" title={notFoundTitle ?? t('Not found')} action={notFoundAction} />;
+  }
   return (
-    <div className={clsx('flex flex-col items-center justify-center px-6 py-12 text-center', className)} role="alert">
+    <div className={clsx('flex flex-col items-center justify-center px-6 py-12 text-center', className)} role="alert" data-state="error">
       <div className="mb-3 grid size-11 place-items-center rounded-full bg-crit-bg text-crit">
         <AlertTriangle className="size-5" />
       </div>
-      <div className="text-[15px] font-medium text-ink">{t('Something went wrong')}</div>
-      <div className="mt-1 max-w-md text-meta text-ink-3">{msg}</div>
+      <div className="text-[15px] font-medium text-ink">{t('Could not load this information')}</div>
+      <div className="mt-1 max-w-md text-meta text-ink-3">{errorText(error)}</div>
       {onRetry && (
-        <Button className="mt-4" size="sm" onClick={onRetry}>
+        <Button className="mt-4" size="sm" onClick={onRetry} data-testid="state-retry">
           {t('Try again')}
         </Button>
       )}

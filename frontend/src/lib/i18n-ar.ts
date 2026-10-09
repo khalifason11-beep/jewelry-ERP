@@ -1504,4 +1504,18 @@ export const AR: Record<string, string> = {
   "Team": "الفريق",
   "Expand menu": "توسيع القائمة",
   "Account menu: {name}": "قائمة الحساب: {name}",
+  // UI-A2: screen states (D-ui-11) and the crash page (D-ui-12).
+  "Go to my home": "الذهاب إلى صفحتي الرئيسية",
+  "The address may be mistyped, or the page was moved.": "قد يكون العنوان مكتوباً بشكل خاطئ، أو نُقلت الصفحة.",
+  "This page stopped working": "توقفت هذه الصفحة عن العمل",
+  "Reload the page. If it happens again, give this reference to your administrator.": "أعد تحميل الصفحة. إذا تكرر ذلك، أعطِ هذا الرقم المرجعي لمسؤول النظام.",
+  "Reload page": "إعادة تحميل الصفحة",
+  "Updating…": "جارٍ التحديث…",
+  "Could not refresh; showing the last data loaded.": "تعذّر التحديث؛ تُعرض آخر بيانات محمّلة.",
+  "You do not have access to this": "ليست لديك صلاحية لهذا",
+  "Your role does not include it. Ask the General Manager if you need access.": "دورك لا يشمل ذلك. اطلب الصلاحية من المدير العام إن احتجت إليها.",
+  "Not found": "غير موجود",
+  "Could not load this information": "تعذّر تحميل هذه البيانات",
+  "No users yet": "لا يوجد مستخدمون بعد",
+  "No data for this period": "لا توجد بيانات لهذه الفترة",
 };

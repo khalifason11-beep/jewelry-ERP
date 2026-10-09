@@ -189,6 +189,7 @@ export function ReportPage() {
           <DataTable
             rows={r!.rows}
             rowKey={(_row, i) => i}
+            emptyTitle={t('No data for this period')}
             columns={columns}
             exportName={`report-${key}`}
             maxHeight="calc(100vh - 330px)"

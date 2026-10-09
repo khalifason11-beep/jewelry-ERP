@@ -326,6 +326,7 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'PUT /security/second-factor': () => ({ path: '/security/second-factor', body: {} }),
   'POST /sessions/heartbeat': () => ({ path: '/sessions/heartbeat' }),
   'GET /notifications': () => ({ path: '/notifications' }),
+  'POST /client-errors': () => ({ path: '/client-errors', body: { ref: 'ERR-MATRIX01', path: '/x', message: 'TypeError: matrix sample' } }),
   'GET /branches': () => ({ path: '/branches' }),
   'GET /branches/directory': () => ({ path: '/branches/directory' }),
   'GET /categories': () => ({ path: '/categories' }),

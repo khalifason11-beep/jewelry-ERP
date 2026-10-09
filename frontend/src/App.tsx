@@ -1,12 +1,13 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import type { Permission } from '@jerp/shared';
 import { homePath, useAuth } from './lib/auth';
 import { ReauthDialog } from './components/ReauthDialog';
 import { PrintHost } from './lib/print';
 import { BrandingSync } from './lib/branding';
 import { useI18n } from './lib/i18n';
-import { Empty, Loading } from './components/ui';
+import { Button, Empty, Loading } from './components/ui';
+import { PageErrorBoundary } from './components/layout/PageErrorBoundary';
 import { AppShell } from './components/layout/AppShell';
 import { LoginPage } from './pages/LoginPage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
@@ -41,6 +42,18 @@ function RequireAuth({ children }: { children: ReactNode }) {
 }
 
 /** Route-level guard. The API enforces the same rule; this only avoids dead ends. */
+/** "Go to my home": the way out of a no-access or not-found page. */
+function HomeLink() {
+  const { me } = useAuth();
+  const { t } = useI18n();
+  const navigate = useNavigate();
+  return (
+    <Button size="sm" variant="secondary" onClick={() => navigate(me ? homePath(me) : '/login')} data-testid="go-home">
+      {t('Go to my home')}
+    </Button>
+  );
+}
+
 function Guard({ perm, any, children }: { perm?: Permission; any?: Permission[]; children: ReactNode }) {
   const { can } = useAuth();
   const { t } = useI18n();
@@ -52,6 +65,7 @@ function Guard({ perm, any, children }: { perm?: Permission; any?: Permission[];
         variant="no-access"
         title={t('You do not have access to this page')}
         body={t('Your role does not include this module. Ask the General Manager if you need access.')}
+        action={<HomeLink />}
       />
     );
   return <>{children}</>;
@@ -63,7 +77,7 @@ const UiKitPage = import.meta.env.DEV ? lazy(() => import('./dev/UiKitPage')) : 
 
 function NotFound() {
   const { t } = useI18n();
-  return <Empty className="h-full" title={t('Page not found')} />;
+  return <Empty className="h-full" variant="not-found" title={t('Page not found')} body={t('The address may be mistyped, or the page was moved.')} action={<HomeLink />} />;
 }
 
 function Home() {
@@ -74,54 +88,57 @@ function Home() {
 export function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        {UiKitPage && (
+      {/* Last resort: a crash in the shell itself. Pages have their own boundary inside the shell (AppShell). */}
+      <PageErrorBoundary home="/" fullScreen>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          {UiKitPage && (
+            <Route
+              path="/ui"
+              element={
+                <Suspense fallback={<Loading />}>
+                  <UiKitPage />
+                </Suspense>
+              }
+            />
+          )}
+          <Route path="/change-password" element={<ChangePasswordPage />} />
+          <Route path="/security/setup" element={<EnrollPage />} />
           <Route
-            path="/ui"
             element={
-              <Suspense fallback={<Loading />}>
-                <UiKitPage />
-              </Suspense>
+              <RequireAuth>
+                <AppShell />
+              </RequireAuth>
             }
-          />
-        )}
-        <Route path="/change-password" element={<ChangePasswordPage />} />
-        <Route path="/security/setup" element={<EnrollPage />} />
-        <Route
-          element={
-            <RequireAuth>
-              <AppShell />
-            </RequireAuth>
-          }
-        >
-          <Route index element={<Home />} />
-          <Route path="pos" element={<Guard perm="pos.access"><PosPage /></Guard>} />
-          <Route path="me" element={<MyActivityPage />} />
-          <Route path="security" element={<SecurityPage />} />
-          <Route path="overview" element={<Guard perm="dashboard.company"><CompanyDashboardPage /></Guard>} />
-          <Route path="dashboard" element={<Guard perm="dashboard.branch"><BranchDashboardPage /></Guard>} />
-          <Route path="branches" element={<Guard perm="scope.all_branches"><BranchesPage /></Guard>} />
-          <Route path="branches/:id" element={<Guard perm="dashboard.branch"><BranchDetailPage /></Guard>} />
-          <Route path="sales" element={<Guard perm="sales.view"><SalesPage /></Guard>} />
-          <Route path="sales/:id" element={<Guard any={['sales.view', 'sales.view_own']}><SaleDetailPage /></Guard>} />
-          <Route path="inventory" element={<Guard perm="inventory.view"><InventoryPage /></Guard>} />
-          <Route path="inventory/:id" element={<Guard any={['inventory.view', 'inventory.view_available']}><ItemDetailPage /></Guard>} />
-          <Route path="catalog" element={<Guard perm="catalog.create"><CatalogPage /></Guard>} />
-          <Route path="purchases" element={<Guard perm="purchases.view"><PurchasesPage /></Guard>} />
-          <Route path="purchases/:id" element={<Guard perm="purchases.view"><PurchaseDetailPage /></Guard>} />
-          <Route path="cash" element={<Guard perm="cash.view"><CashPage /></Guard>} />
-          <Route path="scrap" element={<Guard perm="scrap.buy"><ScrapPage /></Guard>} />
-          <Route path="transfers" element={<Guard perm="inventory.transfer"><TransfersPage /></Guard>} />
-          <Route path="reports" element={<Guard perm="reports.view"><ReportsHubPage /></Guard>} />
-          <Route path="reports/:key" element={<Guard perm="reports.view"><ReportPage /></Guard>} />
-          <Route path="users" element={<Guard perm="users.view"><UsersPage /></Guard>} />
-          <Route path="sessions" element={<Guard perm="sessions.view"><SessionsPage /></Guard>} />
-          <Route path="audit" element={<Guard perm="audit.view"><AuditPage /></Guard>} />
-          <Route path="settings" element={<Guard perm="settings.manage"><SettingsPage /></Guard>} />
-          <Route path="*" element={<NotFound />} />
-        </Route>
-      </Routes>
+          >
+            <Route index element={<Home />} />
+            <Route path="pos" element={<Guard perm="pos.access"><PosPage /></Guard>} />
+            <Route path="me" element={<MyActivityPage />} />
+            <Route path="security" element={<SecurityPage />} />
+            <Route path="overview" element={<Guard perm="dashboard.company"><CompanyDashboardPage /></Guard>} />
+            <Route path="dashboard" element={<Guard perm="dashboard.branch"><BranchDashboardPage /></Guard>} />
+            <Route path="branches" element={<Guard perm="scope.all_branches"><BranchesPage /></Guard>} />
+            <Route path="branches/:id" element={<Guard perm="dashboard.branch"><BranchDetailPage /></Guard>} />
+            <Route path="sales" element={<Guard perm="sales.view"><SalesPage /></Guard>} />
+            <Route path="sales/:id" element={<Guard any={['sales.view', 'sales.view_own']}><SaleDetailPage /></Guard>} />
+            <Route path="inventory" element={<Guard perm="inventory.view"><InventoryPage /></Guard>} />
+            <Route path="inventory/:id" element={<Guard any={['inventory.view', 'inventory.view_available']}><ItemDetailPage /></Guard>} />
+            <Route path="catalog" element={<Guard perm="catalog.create"><CatalogPage /></Guard>} />
+            <Route path="purchases" element={<Guard perm="purchases.view"><PurchasesPage /></Guard>} />
+            <Route path="purchases/:id" element={<Guard perm="purchases.view"><PurchaseDetailPage /></Guard>} />
+            <Route path="cash" element={<Guard perm="cash.view"><CashPage /></Guard>} />
+            <Route path="scrap" element={<Guard perm="scrap.buy"><ScrapPage /></Guard>} />
+            <Route path="transfers" element={<Guard perm="inventory.transfer"><TransfersPage /></Guard>} />
+            <Route path="reports" element={<Guard perm="reports.view"><ReportsHubPage /></Guard>} />
+            <Route path="reports/:key" element={<Guard perm="reports.view"><ReportPage /></Guard>} />
+            <Route path="users" element={<Guard perm="users.view"><UsersPage /></Guard>} />
+            <Route path="sessions" element={<Guard perm="sessions.view"><SessionsPage /></Guard>} />
+            <Route path="audit" element={<Guard perm="audit.view"><AuditPage /></Guard>} />
+            <Route path="settings" element={<Guard perm="settings.manage"><SettingsPage /></Guard>} />
+            <Route path="*" element={<NotFound />} />
+          </Route>
+        </Routes>
+      </PageErrorBoundary>
       <ReauthDialog />
       <PrintHost />
       <BrandingSync />

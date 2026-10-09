@@ -90,6 +90,16 @@
   --color-b4: #7487cb;
 }
 
+/* The thin "updating" bar of a list whose filter changed (UI-A2, QueryState.RefreshBar). */
+@keyframes refresh {
+  from {
+    inset-inline-start: -33%;
+  }
+  to {
+    inset-inline-start: 100%;
+  }
+}
+
 @layer base {
   html {
     -webkit-font-smoothing: antialiased;

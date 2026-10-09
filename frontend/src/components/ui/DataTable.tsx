@@ -1,12 +1,17 @@
 // Data table used by the list screens (sort, search, CSV, totals). Restyled with the UI-A1 tokens: white table on
 // the grey card (mockup: white rows inside panels), 13 px headers, 15 px cells (R16).
+// UI-A2 (D-ui-11): pass the list's `query` and the table shows its states itself, below a toolbar that never
+// disappears: skeleton rows on the first load, the previous rows with a thin bar while a filter change reloads,
+// the error (with Try again, no access or not found) in place of the rows, the `prompt` while the query waits
+// for a choice, and the screen's own empty text with its next action.
 import { useMemo, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { ArrowDown, ArrowUp, ChevronsUpDown, Download, Search } from 'lucide-react';
 import { useI18n } from '../../lib/i18n';
 import { Button } from './Button';
 import { Input } from './Field';
-import { Empty } from './States';
+import { Empty, ErrorState, SkeletonRows } from './States';
+import { RefreshBar, viewState, type QueryLike } from './QueryState';
 
 export interface Column<T> {
   key: string;
@@ -30,8 +35,11 @@ export function DataTable<T>({
   searchable = true,
   searchPlaceholder,
   initialSort,
-  emptyTitle = 'Nothing to show',
+  emptyTitle,
   emptyBody,
+  emptyAction,
+  query,
+  prompt,
   exportName,
   toolbar,
   dense,
@@ -45,8 +53,15 @@ export function DataTable<T>({
   searchable?: boolean;
   searchPlaceholder?: string;
   initialSort?: { key: string; dir: 'asc' | 'desc' };
-  emptyTitle?: string;
+  /** What is empty, in the screen's words (ANALYSIS §8). Required: there is no generic "Nothing to show". */
+  emptyTitle: string;
   emptyBody?: ReactNode;
+  /** The next action offered when the list is empty (only actions the person may take). */
+  emptyAction?: ReactNode;
+  /** The list's query: the table then shows loading, refresh, error and idle states itself. */
+  query?: QueryLike<unknown>;
+  /** Shown while `query` waits for a choice (a disabled query), e.g. "Choose a branch". */
+  prompt?: ReactNode;
   exportName?: string;
   toolbar?: ReactNode;
   dense?: boolean;
@@ -54,6 +69,7 @@ export function DataTable<T>({
   rowClassName?: (row: T) => string | undefined;
 }) {
   const { t } = useI18n();
+  const state = query ? viewState(query) : 'ready';
   const [q, setQ] = useState('');
   const [sort, setSort] = useState(initialSort ?? null);
 
@@ -112,7 +128,7 @@ export function DataTable<T>({
             </div>
           )}
           <div className="flex flex-1 flex-wrap items-center gap-2">{toolbar}</div>
-          <span className="text-meta text-ink-3 num">{t(filtered.length === 1 ? '{n} row' : '{n} rows', { n: filtered.length.toLocaleString('en-US') })}</span>
+          {state === 'ready' && <span className="text-meta text-ink-3 num">{t(filtered.length === 1 ? '{n} row' : '{n} rows', { n: filtered.length.toLocaleString('en-US') })}</span>}
           {exportName && (
             <Button size="sm" variant="ghost" icon={<Download className="size-4" />} onClick={exportCsv}>
               {t('Export CSV')}
@@ -120,8 +136,15 @@ export function DataTable<T>({
           )}
         </div>
       )}
-      {filtered.length === 0 ? (
-        <Empty title={q ? t('No results for “{q}”', { q }) : t(emptyTitle)} body={q ? t('Try a different search term.') : emptyBody} />
+      {query && <RefreshBar active={!!query.isPlaceholderData && query.isFetching} />}
+      {state === 'loading' ? (
+        <SkeletonRows rows={6} className="p-4" />
+      ) : state === 'error' ? (
+        <ErrorState error={query!.error} onRetry={() => query!.refetch()} />
+      ) : state === 'idle' ? (
+        <>{prompt ?? null}</>
+      ) : filtered.length === 0 ? (
+        <Empty title={q ? t('No results for “{q}”', { q }) : t(emptyTitle)} body={q ? t('Try a different search term.') : emptyBody} action={q ? undefined : emptyAction} />
       ) : (
         <div className="scroll-thin overflow-auto bg-surface" style={{ maxHeight }}>
           <table className="w-full border-collapse text-[15px]">

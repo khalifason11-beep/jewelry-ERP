@@ -83,6 +83,8 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('PUT', '/security/second-factor', 'global', { all: ['settings.manage'], reauth: true }),
   r('POST', '/sessions/heartbeat', 'self'),
   r('GET', '/notifications', 'self'),
+  // A screen that crashed in the browser (UI-A2 crash page): reference id + details, written to the server log only.
+  r('POST', '/client-errors', 'self'),
 
   // ── reference data
   r('GET', '/branches', 'none'),
