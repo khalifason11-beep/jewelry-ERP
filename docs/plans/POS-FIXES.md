@@ -458,7 +458,7 @@ Suite green after each commit; push after each; REH-1 and the e2e scripts where 
   - REH-1 and e2e-print run after each;
   - the visual redesign of the POS remains UI-C1 (built on these behaviours, so styled once).
 - **A sale above the threshold voided at a busy counter** now needs a password. Mitigations: the window (default
-  15 minutes) covers several voids; the GM can tune the amount.
+  5 minutes, `security.reauthWindowMinutes`, 1–30) covers several voids; the GM can tune both.
 - **The duplicate-reference check** could annoy if references repeat legitimately (two sales paid by one
   transfer). Mitigation: it warns and accepts with confirmation, and it is audited.
 - **Removing the GM's transfer dialog** leaves the GM without a way to move stock urgently (Q2).
