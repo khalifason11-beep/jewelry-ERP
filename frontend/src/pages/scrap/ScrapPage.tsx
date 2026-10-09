@@ -340,7 +340,7 @@ function BuyForm({ branchId }: { branchId: number }) {
           <span className="text-[13.5px] text-ink-600">
             {t('To pay the customer')}: <b className="text-lg text-ink-950 num">{money(amount)}</b>
           </span>
-          <Button variant="gold" className="ms-auto" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()} data-testid="scrap-buy">
+          <Button variant="primary" className="ms-auto" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()} data-testid="scrap-buy">
             {t('Buy and pay')}
           </Button>
         </div>

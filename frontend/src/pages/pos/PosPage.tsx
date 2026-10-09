@@ -402,7 +402,7 @@ export function PosPage() {
               <dd className="text-2xl font-semibold tracking-tight num">{money(totals.total)}</dd>
             </div>
           </dl>
-          <Button variant="gold" size="lg" className="mt-3 w-full text-[15px]" disabled={!cart.length || !branchId || (payment === 'HASAD' && !hasadInvoice.trim())} loading={complete.isPending} onClick={() => complete.mutate()}>
+          <Button variant="primary" size="lg" className="mt-3 w-full text-[15px]" disabled={!cart.length || !branchId || (payment === 'HASAD' && !hasadInvoice.trim())} loading={complete.isPending} onClick={() => complete.mutate()}>
             {t('Complete Sale')} <ArrowRight className="size-4 rtl:rotate-180" />
           </Button>
           <div className="mt-2 grid grid-cols-3 gap-2">
@@ -421,7 +421,7 @@ export function PosPage() {
         footer={
           <>
             <Button onClick={() => setConfirmCancel(false)}>{t('Keep sale')}</Button>
-            <Button variant="danger" data-autofocus onClick={() => { reset(); setConfirmCancel(false); }}>{t('Clear cart')}</Button>
+            <Button variant="danger-solid" data-autofocus onClick={() => { reset(); setConfirmCancel(false); }}>{t('Clear cart')}</Button>
           </>
         }
       >

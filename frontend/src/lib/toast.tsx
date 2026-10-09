@@ -43,26 +43,27 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((t) => (
           <div
             key={t.id}
-            role="status"
+            // An error interrupts (alert); success and info wait their turn (status). UI-A1 tokens, R6 colours.
+            role={t.kind === 'error' ? 'alert' : 'status'}
             className={clsx(
-              'pointer-events-auto flex items-start gap-3 rounded-lg border bg-white p-3.5 shadow-lg',
-              t.kind === 'success' && 'border-emerald-200',
-              t.kind === 'error' && 'border-rose-200',
+              'pointer-events-auto flex items-start gap-3 rounded-card border bg-surface p-3.5 shadow-pop',
+              t.kind === 'success' && 'border-ok/30',
+              t.kind === 'error' && 'border-crit/30',
               t.kind === 'info' && 'border-line',
             )}
           >
             {t.kind === 'success' ? (
-              <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" />
+              <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-ok" />
             ) : t.kind === 'error' ? (
-              <AlertTriangle className="mt-0.5 size-5 shrink-0 text-rose-600" />
+              <AlertTriangle className="mt-0.5 size-5 shrink-0 text-crit" />
             ) : (
-              <Info className="mt-0.5 size-5 shrink-0 text-ink-500" />
+              <Info className="mt-0.5 size-5 shrink-0 text-ink-3" />
             )}
             <div className="min-w-0 flex-1">
-              <div className="font-medium text-ink-900">{t.title}</div>
-              {t.body && <div className="mt-0.5 text-[13px] text-ink-500">{t.body}</div>}
+              <div className="font-medium text-ink">{t.title}</div>
+              {t.body && <div className="mt-0.5 text-meta text-ink-2">{t.body}</div>}
             </div>
-            <button className="text-ink-400 hover:text-ink-700" onClick={() => setToasts((ts) => ts.filter((x) => x.id !== t.id))} aria-label={translate('Dismiss')}>
+            <button className="rounded-control p-0.5 text-ink-3 hover:text-ink" onClick={() => setToasts((ts) => ts.filter((x) => x.id !== t.id))} aria-label={translate('Dismiss')}>
               <X className="size-4" />
             </button>
           </div>

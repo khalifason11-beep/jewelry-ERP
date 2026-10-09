@@ -88,7 +88,7 @@ export function TransfersPage() {
                 header: t('Status'),
                 render: (r) =>
                   r.status === 'IN_TRANSIT' && (isGlobal || me?.user.branch?.id === r.toBranchId) ? (
-                    <Button size="sm" variant="success" icon={<PackageCheck className="size-4" />} loading={receive.isPending && receive.variables === r.id} onClick={() => receive.mutate(r.id)}>
+                    <Button size="sm" variant="primary" icon={<PackageCheck className="size-4" />} loading={receive.isPending && receive.variables === r.id} onClick={() => receive.mutate(r.id)}>
                       {t('Confirm receipt')}
                     </Button>
                   ) : (

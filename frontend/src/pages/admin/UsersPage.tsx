@@ -109,14 +109,14 @@ export function UsersPage() {
               { key: 'branchName', header: t('Branch'), render: (r) => (r.branchName ? t(r.branchName) : null) ?? <span className="text-ink-500">{t('All branches')}</span> },
               { key: 'lastLoginAt', header: t('Last sign-in'), render: (r) => <span title={dateTime(r.lastLoginAt, lang)}>{relative(r.lastLoginAt)}</span> },
               { key: 'activeSessions', header: t('Live sessions'), align: 'end', render: (r) => (Number(r.activeSessions) > 0 ? <span className="font-medium text-emerald-700 num">{r.activeSessions}</span> : <span className="text-ink-400">0</span>) },
-              { key: 'password', header: t('Password'), sortable: false, value: (r) => (r.mustChangePassword ? t('Must change') : t('Set')), render: (r) => (r.mustChangePassword ? <Badge tone="bg-amber-50 text-amber-800 ring-amber-600/25">{t('Must change')}</Badge> : <span className="text-[12px] text-ink-500">{t('Set {when}', { when: relative(r.passwordChangedAt) })}</span>) },
+              { key: 'password', header: t('Password'), sortable: false, value: (r) => (r.mustChangePassword ? t('Must change') : t('Set')), render: (r) => (r.mustChangePassword ? <Badge tone="warn">{t('Must change')}</Badge> : <span className="text-[12px] text-ink-500">{t('Set {when}', { when: relative(r.passwordChangedAt) })}</span>) },
               {
                 key: 'status',
                 header: t('Status'),
                 render: (r) => (
                   <div className="flex flex-wrap items-center gap-1">
                     <StatusBadge status={r.status} />
-                    {isLocked(r) && <Badge tone="bg-rose-50 text-rose-800 ring-rose-600/25">{t('Locked until {time}', { time: time(r.lockedUntil, lang) })}</Badge>}
+                    {isLocked(r) && <Badge tone="crit">{t('Locked until {time}', { time: time(r.lockedUntil, lang) })}</Badge>}
                   </div>
                 ),
               },
@@ -195,7 +195,7 @@ export function UsersPage() {
         footer={
           <>
             <Button onClick={() => setConfirm(null)}>{t('Cancel')}</Button>
-            <Button variant={confirm?.action === 'disable' ? 'danger' : 'primary'} loading={act.isPending} onClick={() => confirm && act.mutate(confirm)}>{t('Confirm')}</Button>
+            <Button variant={confirm?.action === 'disable' ? 'danger-solid' : 'primary'} loading={act.isPending} onClick={() => confirm && act.mutate(confirm)}>{t('Confirm')}</Button>
           </>
         }
       >

@@ -127,7 +127,7 @@ export function SessionsTable({ branchId, scope, mine }: { branchId?: number; sc
         onClose={() => setRevoke(null)}
         title={t('End session of {user}?', { user: revoke?.username ?? '' })}
         subtitle={t('{device} · {ip}. The user will be signed out on that device.', { device: deviceText(revoke?.device), ip: revoke?.ipAddress ?? '' })}
-        footer={<><Button onClick={() => setRevoke(null)}>{t('Cancel')}</Button><Button variant="danger" loading={m.isPending} onClick={() => revoke && m.mutate(revoke)}>{t('End session')}</Button></>}
+        footer={<><Button onClick={() => setRevoke(null)}>{t('Cancel')}</Button><Button variant="danger-solid" loading={m.isPending} onClick={() => revoke && m.mutate(revoke)}>{t('End session')}</Button></>}
       >
         <p className="text-[13px] text-ink-600">{t('Recorded as SESSION_REVOKED in the audit log.')}</p>
       </Dialog>

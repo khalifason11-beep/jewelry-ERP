@@ -44,9 +44,9 @@ export function UvLabel({ uv }: { uv: boolean | null }) {
   const { t } = useI18n();
   if (uv === null) return <span className="text-ink-400">—</span>;
   return uv ? (
-    <Badge tone="bg-emerald-50 text-emerald-700 ring-emerald-600/20">{t('Verified you (fingerprint, face or PIN)')}</Badge>
+    <Badge tone="ok">{t('Verified you (fingerprint, face or PIN)')}</Badge>
   ) : (
-    <Badge tone="bg-amber-50 text-amber-800 ring-amber-600/20">{t('Touch only (did not check who you are)')}</Badge>
+    <Badge tone="warn">{t('Touch only (did not check who you are)')}</Badge>
   );
 }
 
@@ -402,7 +402,7 @@ export function SecurityPage() {
                 {(signIns.data ?? []).map((s) => (
                   <tr key={s.id}>
                     <td className="px-5 py-2">
-                      {dateTime(s.at, lang)} {s.newDevice && <Badge tone="bg-amber-50 text-amber-800 ring-amber-600/20">{t('New device')}</Badge>}
+                      {dateTime(s.at, lang)} {s.newDevice && <Badge tone="warn">{t('New device')}</Badge>}
                     </td>
                     <td className="px-3 py-2">{s.method === 'PASSKEY' ? t('Passkey “{nickname}”', { nickname: s.credentialNickname ?? '—' }) : s.method === 'RECOVERY_CODE' ? t('Recovery code') : t('Password only')}</td>
                     <td className="px-3 py-2">{s.browser ? deviceText(s.browser) : '—'}</td>
@@ -458,7 +458,7 @@ export function SecurityPage() {
         footer={
           <>
             <Button onClick={() => setRemoving(null)}>{t('Cancel')}</Button>
-            <Button variant="danger" loading={busy} onClick={remove} data-testid="remove-passkey-confirm">
+            <Button variant="danger-solid" loading={busy} onClick={remove} data-testid="remove-passkey-confirm">
               {t('Remove')}
             </Button>
           </>
@@ -570,7 +570,7 @@ export function SecurityBanners() {
         footer={
           <>
             <Button onClick={() => setConfirmNotMe(false)}>{t('Cancel')}</Button>
-            <Button variant="danger" loading={busy} onClick={notMe} data-testid="not-me-confirm">{t('Yes, secure my account')}</Button>
+            <Button variant="danger-solid" loading={busy} onClick={notMe} data-testid="not-me-confirm">{t('Yes, secure my account')}</Button>
           </>
         }
       >

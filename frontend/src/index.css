@@ -28,11 +28,6 @@
   --color-warn-bg: #fef3c7;
   --color-ok: #047857;
   --color-ok-bg: #d1fae5;
-  /* Branch palette (D-5): always next to the branch name */
-  --color-b1: #0f1629;
-  --color-b2: #1e6b66;
-  --color-b3: #a2824d;
-  --color-b4: #7487cb;
 
   /* Type scale (R16) */
   --text-meta: 13px;
@@ -84,6 +79,15 @@
   --color-series-2: #1e6b66;
   --color-series-3: #a2824d;
   --color-series-4: #7487cb;
+}
+
+/* Branch palette (D-5): always next to the branch name. `static` keeps the variables in the stylesheet even when no
+   utility class uses them yet, because charts and swatches read them with var() (UI-B). */
+@theme static {
+  --color-b1: #0f1629;
+  --color-b2: #1e6b66;
+  --color-b3: #a2824d;
+  --color-b4: #7487cb;
 }
 
 @layer base {

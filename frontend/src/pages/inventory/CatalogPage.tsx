@@ -29,7 +29,7 @@ export function CatalogPage() {
   const types = useQuery({ queryKey: ['categories', 'all', manage], queryFn: () => get<Category[]>('/categories', manage ? { includeInactive: 'true' } : {}) });
   const products = useQuery({ queryKey: ['products', 'all', manage], queryFn: () => get<Product[]>('/products', manage ? { includeInactive: 'true' } : {}) });
 
-  const state = (active: boolean) => (active ? <Badge tone="bg-emerald-50 text-emerald-700 ring-emerald-600/20">{t('Active')}</Badge> : <Badge>{t('Deactivated')}</Badge>);
+  const state = (active: boolean) => (active ? <Badge tone="ok">{t('Active')}</Badge> : <Badge>{t('Deactivated')}</Badge>);
   const toggle = (r: Target) =>
     manage && (
       <Button size="sm" variant="ghost" onClick={() => setTarget(r)} data-testid={`toggle-${r.kind}-${r.id}`}>
@@ -131,7 +131,7 @@ function ActiveDialog({ target, onClose }: { target: Target; onClose: () => void
       footer={
         <>
           <Button onClick={onClose}>{t('Cancel')}</Button>
-          <Button variant={target.active ? 'danger' : 'primary'} disabled={reason.trim().length < 3} loading={m.isPending} onClick={() => m.mutate()} data-testid="confirm-toggle">
+          <Button variant={target.active ? 'danger-solid' : 'primary'} disabled={reason.trim().length < 3} loading={m.isPending} onClick={() => m.mutate()} data-testid="confirm-toggle">
             {target.active ? t('Deactivate') : t('Reactivate')}
           </Button>
         </>

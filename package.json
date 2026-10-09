@@ -30,6 +30,7 @@
     "check:test-imports": "node scripts/check-test-imports.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "concurrently": "^9.2.1",
     "typescript": "^5.9.3"
   },

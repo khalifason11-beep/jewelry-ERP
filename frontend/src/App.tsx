@@ -1,6 +1,5 @@
-import type { ReactNode } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { ShieldX } from 'lucide-react';
 import type { Permission } from '@jerp/shared';
 import { homePath, useAuth } from './lib/auth';
 import { ReauthDialog } from './components/ReauthDialog';
@@ -50,13 +49,17 @@ function Guard({ perm, any, children }: { perm?: Permission; any?: Permission[];
     return (
       <Empty
         className="h-full"
-        icon={<ShieldX className="size-5" />}
+        variant="no-access"
         title={t('You do not have access to this page')}
         body={t('Your role does not include this module. Ask the General Manager if you need access.')}
       />
     );
   return <>{children}</>;
 }
+
+// Development-only design-system page (UI-A1): the condition is false in a production build, so the page and its
+// dynamic import are dropped from the bundle.
+const UiKitPage = import.meta.env.DEV ? lazy(() => import('./dev/UiKitPage')) : null;
 
 function NotFound() {
   const { t } = useI18n();
@@ -73,6 +76,16 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        {UiKitPage && (
+          <Route
+            path="/ui"
+            element={
+              <Suspense fallback={<Loading />}>
+                <UiKitPage />
+              </Suspense>
+            }
+          />
+        )}
         <Route path="/change-password" element={<ChangePasswordPage />} />
         <Route path="/security/setup" element={<EnrollPage />} />
         <Route

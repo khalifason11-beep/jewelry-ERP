@@ -279,7 +279,7 @@ export function SaleDetailPage() {
         footer={
           <>
             <Button onClick={() => setVoidOpen(false)}>{t('Back')}</Button>
-            <Button variant="danger" disabled={reason.trim().length < 3} loading={voidM.isPending} onClick={() => voidM.mutate()}>{t('Cancel sale')}</Button>
+            <Button variant="danger-solid" disabled={reason.trim().length < 3} loading={voidM.isPending} onClick={() => voidM.mutate()}>{t('Cancel sale')}</Button>
           </>
         }
       >

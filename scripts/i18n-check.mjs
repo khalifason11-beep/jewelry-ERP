@@ -79,6 +79,9 @@ function insideTCall(node) {
 }
 
 for (const file of walk(FRONTEND, ['.tsx', '.ts'])) {
+  // src/dev/: development-only pages (the UI-A1 design-system kit), never in the production bundle; their sample
+  // text carries its own Arabic and English.
+  if (file.includes(`${path.sep}src${path.sep}dev${path.sep}`)) continue;
   if (file.endsWith('i18n-ar.ts')) continue;
   const rel = path.relative(root, file);
   const src = fs.readFileSync(file, 'utf8');
