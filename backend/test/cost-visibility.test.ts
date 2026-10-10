@@ -136,6 +136,7 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /transfers': ['/transfers'],
       'GET /dashboard/branch': [`/dashboard/branch?branchId=${krt.id}`],
       'GET /dashboard/company': ['/dashboard/company'],
+      'GET /attention': ['/attention', `/attention?branchId=${krt.id}`],
       'GET /reports/:key': reportPaths,
       'GET /audit': ['/audit', '/audit?limit=5000'],
       'GET /backups/status': ['/backups/status'],

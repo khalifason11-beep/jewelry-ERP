@@ -1605,4 +1605,9 @@ export const AR: Record<string, string> = {
   "Enter the courier’s name (2 to 80 characters)": "أدخل اسم المندوب (من 2 إلى 80 حرفاً)",
   "The same item appears twice in the transfer": "القطعة نفسها مكررة في التحويل",
   "Transfer {number}: {n} item(s) sent {from} → {to}, courier {courier}": "التحويل {number}: أُرسلت {n} قطعة {from} ← {to}، المندوب {courier}",
+  // UI-B: thresholds of the attention list (D-ux-12).
+  "Cash count: accepted difference ({currency})": "عدّ النقدية: الفرق المقبول ({currency})",
+  "A count that differs from the expected cash by more than this appears under Needs attention. 0 = any difference.": "يظهر العدّ الذي يختلف عن النقدية المتوقعة بأكثر من هذا ضمن «يحتاج إلى متابعة». 0 = أي فرق.",
+  "Gold owed to a supplier: warn after (days)": "ذهب مستحق لمورّد: التنبيه بعد (أيام)",
+  "Older supplier gold debts appear as a warning under Needs attention.": "تظهر ديون الذهب الأقدم للموردين كتنبيه ضمن «يحتاج إلى متابعة».",
 };

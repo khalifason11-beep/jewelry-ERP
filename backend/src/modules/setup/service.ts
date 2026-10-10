@@ -17,6 +17,16 @@ import { rows } from '../../core/sql';
 
 export type SetupStepKey = 'karats' | 'rates' | 'branch' | 'staff';
 
+/** Every sellable karat has a gold selling rate and every allowed karat a scrap rate (first step "rates"; A16). */
+export async function setupRatesDone(ctx: Ctx): Promise<boolean> {
+  const { inventory } = await ctx.settings.get();
+  const allowed = inventory.allowedKarats;
+  const goldKarats = allowed.filter((k) => (KARATS as readonly number[]).includes(k));
+  const gold = new Set(rows<{ karat: number }>(await ctx.db.execute(sql`SELECT DISTINCT karat FROM gold_rates`)).map((r) => Number(r.karat)));
+  const scrap = new Set(rows<{ karat: number }>(await ctx.db.execute(sql`SELECT DISTINCT karat FROM scrap_rates`)).map((r) => Number(r.karat)));
+  return goldKarats.length > 0 && goldKarats.every((k) => gold.has(k)) && allowed.every((k) => scrap.has(k));
+}
+
 export async function setupStatus(ctx: Ctx, actor: Actor) {
   requirePerm(actor, 'settings.manage');
   const { inventory } = await ctx.settings.get();

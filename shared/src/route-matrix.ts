@@ -169,6 +169,8 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   // ── dashboards, reports, audit
   r('GET', '/dashboard/branch', 'branch', { all: ['dashboard.branch'] }),
   r('GET', '/dashboard/company', 'global', { all: ['dashboard.company'] }),
+  // UI-B (BE-1): the attention list; GM all branches (or one), BM own branch, cashier refused.
+  r('GET', '/attention', 'branch', { any: ['dashboard.company', 'dashboard.branch'] }),
   r('GET', '/reports/:key', 'branch', { all: ['reports.view'] }),
   r('GET', '/audit', 'branch', { all: ['audit.view'] }),
 

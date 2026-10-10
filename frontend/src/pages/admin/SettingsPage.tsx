@@ -185,7 +185,8 @@ export function SettingsPage() {
           </div>
         </Card>
 
-        {/* ── Gold rates ── */}
+        {/* ── Gold rates ── (anchor: the attention list's "no rate" line links here, UI-B) */}
+        <span id="rates" className="-mb-5 block scroll-mt-4" />
         <Card padded={false}>
           <CardHeader
             title={t('Gold rates ({currency} per gram)', { currency: currencyLabel() })}
@@ -225,7 +226,7 @@ export function SettingsPage() {
           <CardHeader
             title={t('Business rules')}
             subtitle={t('Purchases, scrap, rates and transfers')}
-            actions={saveBtn(['purchases.supplierCreditEnabled', 'purchases.scrapPriceTolerancePct', 'purchases.requireGmApprovalForScrapOverride', 'rates.goldRateScope', 'rates.rateChangeMaxPct', 'transfers.pendingClaimStaleHours', 'inventory.allowedKarats'])}
+            actions={saveBtn(['purchases.supplierCreditEnabled', 'purchases.scrapPriceTolerancePct', 'purchases.requireGmApprovalForScrapOverride', 'rates.goldRateScope', 'rates.rateChangeMaxPct', 'transfers.pendingClaimStaleHours', 'inventory.allowedKarats', 'cash.countDifferenceTolerance', 'purchases.supplierDebtMaxAgeDays'], 'save-business-rules')}
           />
           <div className="grid gap-3 p-5 sm:grid-cols-2">
             <div className="sm:col-span-2">{checkbox(draft.purchases.supplierCreditEnabled, (v) => set('purchases', { supplierCreditEnabled: v }), t('Allow supplier purchases on credit (creates a supplier payable)'))}</div>
@@ -244,6 +245,13 @@ export function SettingsPage() {
             </Field>
             <Field label={t('Flag pending transfers/claims after (hours)')}>
               {numberInput(draft.transfers.pendingClaimStaleHours, (n) => set('transfers', { pendingClaimStaleHours: n }), { min: 1, max: 720 })}
+            </Field>
+            {/* UI-B (D-ux-12): thresholds of the attention list. */}
+            <Field label={t('Cash count: accepted difference ({currency})', { currency: currencyLabel() })} hint={t('A count that differs from the expected cash by more than this appears under Needs attention. 0 = any difference.')}>
+              <span data-testid="count-tolerance" className="block">{numberInput(draft.cash.countDifferenceTolerance, (n) => set('cash', { countDifferenceTolerance: n }), { min: 0, step: 1000 })}</span>
+            </Field>
+            <Field label={t('Gold owed to a supplier: warn after (days)')} hint={t('Older supplier gold debts appear as a warning under Needs attention.')}>
+              <span data-testid="supplier-debt-days" className="block">{numberInput(draft.purchases.supplierDebtMaxAgeDays, (n) => set('purchases', { supplierDebtMaxAgeDays: n }), { min: 1, max: 3650 })}</span>
             </Field>
             <Field label={t('Allowed karats')} className="sm:col-span-2">
               <div className="flex flex-wrap gap-3">
@@ -297,7 +305,8 @@ export function SettingsPage() {
           </div>
         </Card>
 
-        {/* ── Backups (Phase 2c) ── */}
+        {/* ── Backups (Phase 2c) ── (anchor: the attention list's backup line links here, UI-B) */}
+        <span id="backups" className="-mb-5 block scroll-mt-4" />
         <Card padded={false}>
           <CardHeader title={t('Backups')} subtitle={t('The dashboard warns the General Manager when backups or restore drills are older than this.')} actions={saveBtn(['backup.maxAgeHours', 'backup.maxVerifyAgeDays'])} />
           <div className="grid gap-3 p-5 sm:grid-cols-2">
@@ -398,6 +407,7 @@ export function SettingsPage() {
           </div>
         </Card>
 
+        <span id="second-factor" className="-mb-5 block scroll-mt-4" />
         <SecondFactorCard />
       </div>
     </div>

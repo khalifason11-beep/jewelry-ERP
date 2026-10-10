@@ -28,6 +28,7 @@ import * as purchases from './modules/purchases/service';
 import * as catalog from './modules/catalog/service';
 import * as setup from './modules/setup/service';
 import * as transfers from './modules/transfers/service';
+import { attentionFor } from './modules/attention/service';
 import * as dashboard from './modules/dashboard/service';
 import * as reports from './modules/reports/service';
 import * as branding from './modules/branding/service';
@@ -676,6 +677,11 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('GET', '/dashboard/branch', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId, date: zDay.optional() }).strict(), req.query);
     res.json(await dashboard.branchDashboard(ctx, actorOf(req), q));
+  });
+  // UI-B (BE-1, D-ui-17): the attention list; a branch manager only for their own branch, a cashier not at all.
+  route('GET', '/attention', async (req, res) => {
+    const q = parse(z.object({ branchId: zOptId }).strict(), req.query);
+    res.json(await attentionFor(ctx, actorOf(req), q));
   });
   route('GET', '/dashboard/company', async (req, res) => {
     const q = parse(z.object({ from: zDay.optional(), to: zDay.optional() }).strict(), req.query);

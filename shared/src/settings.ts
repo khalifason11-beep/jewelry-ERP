@@ -49,6 +49,12 @@ export interface SystemSettings {
     scrapPriceTolerancePct: number;
     /** Deviations beyond the tolerance need a reason AND General Manager approval. */
     requireGmApprovalForScrapOverride: boolean;
+    /** UI-B (A6, D-ux-12): supplier gold owed for longer than this many days raises a warning. */
+    supplierDebtMaxAgeDays: number;
+  };
+  cash: {
+    /** UI-B (A4, D-ux-12): a cash count may differ from the expected cash by at most this amount (0 = any difference). */
+    countDifferenceTolerance: number;
   };
   rates: {
     /** One rate table for the company, or one per branch. */
@@ -140,6 +146,10 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     supplierCreditEnabled: true,
     scrapPriceTolerancePct: 2,
     requireGmApprovalForScrapOverride: true,
+    supplierDebtMaxAgeDays: 30,
+  },
+  cash: {
+    countDifferenceTolerance: 0,
   },
   rates: {
     goldRateScope: 'GLOBAL',
@@ -230,6 +240,8 @@ export const SETTINGS_REGISTRY = {
   'purchases.supplierCreditEnabled': { schema: z.boolean() },
   'purchases.scrapPriceTolerancePct': { schema: z.number().min(0).max(50) },
   'purchases.requireGmApprovalForScrapOverride': { schema: z.boolean() },
+  'purchases.supplierDebtMaxAgeDays': { schema: int(1, 3650) },
+  'cash.countDifferenceTolerance': { schema: int(0, 1_000_000_000_000) },
   'rates.goldRateScope': { schema: z.enum(['GLOBAL', 'BRANCH']) },
   'rates.rateChangeMaxPct': { schema: z.number().min(0.1).max(100) },
   'transfers.pendingClaimStaleHours': { schema: int(1, 24 * 30) },
