@@ -340,6 +340,43 @@ async function homeChecks(page, base, branchId) {
   check(fixed.status === 200 && (await a4()).length === 0, 'a corrected count clears it');
 }
 
+/**
+ * UI-B (§5.3): the branch manager's home after the rehearsal sale. The dark card and the expected cash equal the API
+ * (and Cash); the gold owed is the supplier order's 24K grams; level 1 (down to "Team today") fits 1366×768; no
+ * cost or profit word, and no profit or stock-value figure, in Arabic or English.
+ */
+async function bmHomeChecks(page, base, branchId) {
+  const api = (await apiGet(page, '/api/dashboard/branch')).body;
+  const drawer = (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId);
+  const signedDigits = (s) => Number(s.replace(/[^\d−-]/g, '').replace('−', '-'));
+  for (const lang of ['ar', 'en']) {
+    await page.evaluate((l) => localStorage.setItem('jerp.lang', l), lang);
+    await page.goto(`${base}/dashboard`);
+    await page.getByTestId('home-team-row').first().waitFor({ timeout: 15_000 });
+    await page.locator('[data-testid=home-attention-line], [data-testid=attention-none]').first().waitFor({ timeout: 15_000 });
+    const bottom = await page.getByTestId('home-team').evaluate((e) => e.getBoundingClientRect().bottom + window.scrollY);
+    check(bottom <= 768, `branch manager (${lang}): level 1 fits 1366×768, "Team today" ends at ${Math.round(bottom)} px`);
+    const text = await page.locator('main').innerText();
+    check(!COST_WORDS.test(text) && (await page.locator('[data-testid=home-profit], [data-testid=home-stock-value]').count()) === 0, `branch manager (${lang}): no cost or profit word or figure on the home`);
+  }
+  await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
+  const sales = signedDigits(await page.getByTestId('home-sales-value').innerText());
+  check(sales === api.kpis.salesTotal && api.kpis.salesTotal > 0, `branch manager: the dark card equals the API (${sales})`);
+  const cash = signedDigits(await page.locator('[data-testid=home-expected-cash] .text-kpi').innerText());
+  check(cash === drawer.expectedCash && api.expectedCash === drawer.expectedCash, `branch manager: expected cash = Cash (${cash})`);
+  const owedMg = Number((await page.locator('[data-testid=home-gold-owed] .text-kpi').innerText()).replace(/\D/g, ''));
+  const purchases = (await apiGet(page, '/api/purchases')).body;
+  const list = Array.isArray(purchases) ? purchases : (purchases.rows ?? purchases.items ?? []);
+  const details = await Promise.all(list.map(async (p) => (await apiGet(page, `/api/purchases/${p.id}`)).body));
+  const owed = details.map((p) => p.goldOwedMgPure24 ?? p.purchase?.goldOwedMgPure24 ?? 0).filter((w) => w > 0);
+  check(
+    owedMg === api.goldOwed.pureMg24 && owedMg === owed.reduce((a, w) => a + w, 0) && api.goldOwed.orders === owed.length,
+    `branch manager: gold owed = the supplier orders still owed (${owedMg} mg of 24K, ${api.goldOwed.orders} order(s))`,
+  );
+  const attention = (await apiGet(page, '/api/attention')).body.signals;
+  check(attention.every((x) => !Object.keys(x.params).some((k) => /cost|profit|price|amountOwed|money/i.test(k))), 'branch manager: no attention line carries a cost, profit or supplier money amount');
+}
+
 /** Empty screens on a new database (UI-A2): the exact English text, and in Arabic no English text left in the block. */
 async function emptyStates(page, base, who, screens) {
   for (const lang of ['en', 'ar']) {
@@ -929,6 +966,7 @@ async function main() {
     await signOut(page);
     await signIn(page, origin, BM.username, BM.password);
     await pathIs(page, ['/dashboard']);
+    await bmHomeChecks(page, origin, branchId);
     // Stock for the cart (set-up through the API; purchases themselves are rehearsed above).
     const productId = (await apiGet(page, '/api/products')).body[0].id;
     const supplierId = (await apiGet(page, '/api/suppliers')).body[0].id;
@@ -993,6 +1031,17 @@ async function main() {
 
     section('UI-B: the General Manager home after the rehearsal sales and transfers');
     await homeChecks(page, origin, branchId);
+    // The General Manager's view of one branch: the branch layout plus profit and stock value.
+    await page.goto(`${origin}/overview?branchId=${branchId}`);
+    await page.getByTestId('home-expected-cash').waitFor({ timeout: 15_000 });
+    check((await page.getByTestId('home-profit').count()) === 1 && (await page.getByTestId('home-stock-value').count()) === 1 && (await page.getByTestId('home-team').count()) === 1, 'the GM’s branch view (/overview?branchId=): the branch layout plus gross profit and stock value at cost');
+    // The incoming transfer is an attention line for the receiving branch's manager.
+    await signOut(page);
+    await signIn(page, origin, BM.username, BM.password);
+    await pathIs(page, ['/dashboard']);
+    await page.locator('[data-testid=home-attention-line][data-code=A1]').waitFor({ timeout: 15_000 });
+    ok(`branch manager: the incoming transfer ${gmSent.number} is an attention line (A1) on the home`);
+    await signOut(page);
 
     section('REM-5: no deprecated schema left');
     const rdb = new pg.Client({ connectionString: dbUrl.toString() });

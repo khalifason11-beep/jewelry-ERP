@@ -1,15 +1,22 @@
+// The branch manager's home (UI-B, mockup bm-home.html; docs/plans/UI-B.md §5; D-ui-19), also the General Manager's
+// view of one branch (`/overview?branchId=` and the branch page's overview tab), which adds gross profit and stock
+// value at cost to the surface (the server sends them only with `profit.view`).
+// Level 1: Sales of the day on the dark card; one surface with the expected cash in the drawer (and the last count),
+// the available stock and the gold owed to suppliers (24K grams, never money); then "Needs attention" beside
+// "Team today". Level 2: the 14-day sales line with month-to-date, and the stock movement of the day.
+// No cost or profit for the branch manager anywhere: the server leaves them out and REH-1 checks the page.
+
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { CheckCircle2, Gem, Receipt, ScaleIcon, Truck, TrendingUp, AlertTriangle } from 'lucide-react';
 import { get } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { date as formatDate, dateTime, grams, humanize, money, num, relative, todayKey, currencyLabel } from '../../lib/format';
+import { currencyLabel, date as formatDate, grams, money, num, pct, todayKey } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
-import { Card, CardHeader, Input, Kpi, PageHeader, QueryState, RefreshBar, SkeletonRows, StatusBadge } from '../../components/ui';
-import { StockWeightCard, type StockWeight } from '../../components/StockWeight';
-import { MoneyLineChart } from '../../components/charts';
+import { ErrorState, Input, Panel, PanelHeader, Pill, RefreshBar } from '../../components/ui';
+import type { StockWeight } from '../../components/StockWeight';
+import { AttentionPanel, FigureSurface, FiguresSkeleton, KvRow, SalesCard, SalesLinePanel, type Figure } from '../../components/Home';
 
 interface MovementLine {
   items: number;
@@ -22,8 +29,6 @@ export interface BranchDash {
     salesTotal: number;
     salesCount: number;
     itemsSold: number;
-    /** Omitted for users without profit.view (cost is General Manager only). */
-    purchasesCost?: number;
     purchasesCount: number;
     grossProfit: number | null;
     availableItems: number;
@@ -33,148 +38,233 @@ export interface BranchDash {
   stockWeight: StockWeight;
   mtd: { revenue: number; grossProfit: number | null; salesCount: number };
   movement: {
-    opening: { items: number; weightMg: number; cost: number };
+    opening: { items: number; weightMg: number };
     lines: Record<string, MovementLine>;
-    closing: { items: number; weightMg: number; cost: number };
+    closing: { items: number; weightMg: number };
     actual?: { items: number; weightMg: number };
   };
-  trend: { day: string; sales: number; revenue: number; profit: number | null }[];
+  trend: { day: string; sales: number; revenue: number }[];
   cashiers: {
     userId: number;
     fullName: string;
+    fullNameAr: string | null;
     username: string;
     role: string;
     salesCount: number;
     salesTotal: number;
     voided: number;
-    lastActivity: string | null;
     liveSessions: number;
-    firstLogin: string | null;
   }[];
+  expectedCash: number;
+  lastCount: { day: string; countedAmount: number; expectedAmount: number; difference: number; at: string } | null;
+  goldOwed: { pureMg24: number; orders: number };
 }
 
 export function BranchDashboardPage() {
   const { me } = useAuth();
-  const { t, L } = useI18n();
+  const { L } = useI18n();
   return (
     <div className="p-5 lg:p-6">
-      <BranchDashboard branchId={me?.user.branch?.id} title={`${L(me?.user.branch?.name, me?.user.branch?.nameAr)} · ${t('Dashboard')}`} />
+      <BranchDashboard branchId={me?.user.branch?.id} branchName={L(me?.user.branch?.name, me?.user.branch?.nameAr)} />
     </div>
   );
 }
 
-export function BranchDashboard({ branchId, title, embedded }: { branchId?: number; title?: string; embedded?: boolean }) {
+/** The branch home. `embedded`: inside the GM's home or the branch page (their own header is above it). */
+export function BranchDashboard({ branchId, branchName, embedded }: { branchId?: number; branchName?: string; embedded?: boolean }) {
   const { t, lang } = useI18n();
-  const navigate = useNavigate();
-  const [date, setDate] = useState(todayKey());
+  const today = todayKey();
+  const [date, setDate] = useState(today);
+  const [picking, setPicking] = useState(false);
   const q = useQuery({
     queryKey: ['dashboard', 'branch', branchId, date],
     queryFn: () => get<BranchDash>('/dashboard/branch', { branchId, date }),
-    refetchInterval: 30_000,
-    // Another date keeps today's figures on screen (thin bar) until the new ones arrive (UI-A2).
+    refetchInterval: 60_000,
+    // Another day keeps today's figures on screen (thin bar) until the new ones arrive (UI-A2).
     placeholderData: keepPreviousData,
   });
-  const isToday = date === todayKey();
-  const dayLabel = isToday ? t('Today') : formatDate(date, lang);
+  const isToday = date === today;
+  const d = q.data;
 
-  const header = (
-    <PageHeader
-      title={title ?? t('Dashboard')}
-      subtitle={t('Operational view for {day}. All figures are calculated from transactions and the inventory ledger.', { day: isToday ? t('today') : formatDate(date, lang) })}
-      actions={<Input type="date" value={date} max={todayKey()} onChange={(e) => e.target.value && setDate(e.target.value)} className="w-40" aria-label={t('Business date')} />}
-    />
+  const dayChoice = (
+    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={t('Business date')}>
+      <Pill selected={isToday && !picking} onClick={() => { setDate(today); setPicking(false); }} data-testid="day-today">
+        {t('Today')}
+      </Pill>
+      {picking || !isToday ? (
+        <Input type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)} className="h-8 w-40" aria-label={t('Business date')} autoFocus={picking} data-testid="day-input" />
+      ) : (
+        <Pill onClick={() => setPicking(true)} data-testid="day-other">
+          {t('Another day…')}
+        </Pill>
+      )}
+    </div>
   );
 
-  if (!q.data)
-    return (
-      <>
-        {!embedded && header}
-        <QueryState query={q} loading={<SkeletonRows rows={6} />}>
-          {() => null}
-        </QueryState>
-      </>
-    );
-  const d = q.data;
-  const k = d.kpis;
-
   return (
-    <div className="space-y-5">
-      <RefreshBar active={q.isPlaceholderData && q.isFetching} />
-      {embedded ? <div className="flex justify-end"><Input type="date" value={date} max={todayKey()} onChange={(e) => e.target.value && setDate(e.target.value)} className="w-40" aria-label={t('Business date')} /></div> : header}
-
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Kpi tone="dark" label={`${dayLabel} · ${t('Sales')}`} value={money(k.salesTotal, false)} sub={t('{invoices} invoices · {pieces} pieces · {currency}', { invoices: k.salesCount, pieces: k.itemsSold, currency: currencyLabel() })} icon={<Receipt className="size-4" />} onClick={() => navigate(`/reports/sales?from=${date}&to=${date}&branchId=${d.branchId}`)} />
-        <Kpi label={`${dayLabel} · ${t('Purchases')}`} value={k.purchasesCost != null ? money(k.purchasesCost, false) : String(k.purchasesCount)} sub={k.purchasesCost != null ? t('{n} receipts · {currency}', { n: k.purchasesCount, currency: currencyLabel() }) : t('Receipts')} icon={<Truck className="size-4" />} onClick={() => navigate(`/reports/purchases?from=${date}&to=${date}&branchId=${d.branchId}`)} />
-        <Kpi tone="gold" label={t('Gross Profit')} value={k.grossProfit != null ? money(k.grossProfit, false) : '—'} icon={<TrendingUp className="size-4" />} />
-        <Kpi label={t('Available Inventory')} value={t('{n} pcs', { n: num(k.availableItems) })} sub={grams(k.availableWeightMg)} icon={<Gem className="size-4" />} onClick={() => navigate(`/inventory?branchId=${d.branchId}`)} />
-      </div>
-
-      {/* REM-3: a branch with no stock at all gets a meaningful empty state instead of tables of zeros. */}
-      {k.availableItems === 0 && d.stockWeight.totalWeightMg === 0 && k.salesCount === 0 ? (
-        <NoStockYet />
+    <div className="space-y-4">
+      {embedded ? (
+        <div className="flex justify-end">{dayChoice}</div>
       ) : (
-        <>
-          <StockWeightCard s={d.stockWeight} reportQuery={`?branchId=${d.branchId}`} />
-          <MovementCard d={d} isToday={isToday} />
-        </>
-      )}
-
-      <div className="grid gap-5">
-        <Card padded={false}>
-          <CardHeader
-            title={t('Sales: last 14 days')}
-            subtitle={t('Month to date: {amount} · {n} invoices', { amount: money(d.mtd.revenue), n: d.mtd.salesCount })}
-          />
-          <div className="px-3 pb-3 pt-2">
-            <MoneyLineChart
-              data={d.trend}
-              series={[
-                { key: 'revenue', label: t('Revenue'), color: 'var(--color-ink-800)' },
-                ...(d.trend[0]?.profit != null ? [{ key: 'profit', label: t('Gross profit'), color: 'var(--color-gold-500)' }] : []),
-              ]}
-            />
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-title font-semibold text-ink">
+              {branchName} · {isToday ? t('Today') : formatDate(date, lang)}
+            </h1>
+            <div className="mt-0.5 text-meta text-ink-3">{formatDate(today, lang)}</div>
           </div>
-        </Card>
-      </div>
-
-      <Card padded={false}>
-        <CardHeader
-          title={t('Cashier activity')}
-          subtitle={t('{day}: sales and sessions per team member', { day: dayLabel })}
-          actions={<Link to="/sessions" className="text-[13px] font-medium text-gold-700 hover:underline">{t('Active Sessions')}</Link>}
-        />
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead className="bg-[#f7f8fa] text-ink-500">
-              <tr>
-                <th className="px-5 py-2 text-start font-medium">{t('User')}</th>
-                <th className="px-3 py-2 text-end font-medium">{t('Invoices')}</th>
-                <th className="px-3 py-2 text-end font-medium">{t('Sales value')}</th>
-                <th className="px-3 py-2 text-end font-medium">{t('Cancelled')}</th>
-                <th className="px-3 py-2 text-start font-medium">{t('First sign-in')}</th>
-                <th className="px-3 py-2 text-start font-medium">{t('Last activity')}</th>
-                <th className="px-5 py-2 text-start font-medium">{t('Session')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {d.cashiers.map((c) => (
-                <tr key={c.userId}>
-                  <td className="px-5 py-2.5">
-                    <div className="font-medium">{c.fullName}</div>
-                    <div className="font-mono text-[11px] text-ink-500">{c.username} · {humanize(c.role)}</div>
-                  </td>
-                  <td className="px-3 py-2.5 text-end num">{c.salesCount}</td>
-                  <td className="px-3 py-2.5 text-end font-medium num">{money(c.salesTotal)}</td>
-                  <td className={clsx('px-3 py-2.5 text-end num', c.voided > 0 && 'text-rose-700')}>{c.voided}</td>
-                  <td className="px-3 py-2.5">{c.firstLogin ? dateTime(c.firstLogin, lang) : '—'}</td>
-                  <td className="px-3 py-2.5 text-ink-600">{relative(c.lastActivity)}</td>
-                  <td className="px-5 py-2.5">{c.liveSessions > 0 ? <StatusBadge status="ACTIVE" /> : <span className="text-ink-400">{t('Signed out')}</span>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {dayChoice}
         </div>
-      </Card>
+      )}
+      <RefreshBar active={!!q.isPlaceholderData && q.isFetching} />
+      {q.isLoading ? <FiguresSkeleton /> : q.isError && !d ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : d ? <Figures d={d} isToday={isToday} /> : null}
+      <div className="grid gap-4 xl:grid-cols-2">
+        <AttentionPanel branchId={embedded ? branchId : undefined} />
+        {d && <Team d={d} isToday={isToday} />}
+      </div>
+      {d && (d.kpis.availableItems === 0 && d.stockWeight.totalWeightMg === 0 && d.kpis.salesCount === 0 ? <NoStockYet /> : <Level2 d={d} isToday={isToday} />)}
+    </div>
+  );
+}
+
+function Figures({ d, isToday }: { d: BranchDash; isToday: boolean }) {
+  const { t, lang } = useI18n();
+  const k = d.kpis;
+  const c = d.lastCount;
+  const countDay = (day: string) => (day === todayKey() ? t('today') : formatDate(day, lang));
+  const countText = !c
+    ? t('No count recorded yet')
+    : c.difference === 0
+      ? t('Last count: {day}, matches', { day: countDay(c.day) })
+      : c.difference < 0
+        ? t('Last count: {day}, short {amount}', { day: countDay(c.day), amount: money(-c.difference, false) })
+        : t('Last count: {day}, over {amount}', { day: countDay(c.day), amount: money(c.difference, false) });
+  const figures: Figure[] = [
+    { testId: 'home-expected-cash', label: t('Expected cash in the drawer'), value: money(d.expectedCash, false), sub: countText },
+    {
+      testId: 'home-stock',
+      label: t('Available stock'),
+      value: grams(k.availableWeightMg),
+      sub: t('{n} pcs · scrap {scrap}', { n: num(k.availableItems), scrap: grams(d.stockWeight.brokenScrap.weightMg) }),
+    },
+    {
+      testId: 'home-gold-owed',
+      label: t('Gold owed to suppliers'),
+      value: grams(d.goldOwed.pureMg24),
+      sub: t('24K · {n} order(s)', { n: d.goldOwed.orders }),
+    },
+  ];
+  // The General Manager's view of the branch adds profit and stock value (never sent to a branch manager).
+  if (k.grossProfit != null) figures.splice(1, 0, { testId: 'home-profit', label: t('Gross profit'), value: money(k.grossProfit, false), sub: t('Margin {pct}', { pct: pct(k.salesTotal ? (k.grossProfit / k.salesTotal) * 100 : 0) }) });
+  if (k.inventoryCost != null) figures.push({ testId: 'home-stock-value', label: t('Stock at cost'), value: money(k.inventoryCost, false), sub: t('{n} pcs', { n: num(k.availableItems) }) });
+  return (
+    <section className={clsx('grid gap-4', figures.length > 3 ? 'xl:grid-cols-[1fr_5fr]' : 'lg:grid-cols-[1fr_3fr]')} aria-label={t('Key figures')}>
+      <SalesCard
+        label={isToday ? t('Sales today') : t('Sales · {period}', { period: formatDate(d.date, lang) })}
+        value={money(k.salesTotal, false)}
+        sub={
+          k.salesCount === 0
+            ? isToday
+              ? t('No sales yet today')
+              : t('No sales on this day')
+            : t('{invoices} invoices · {pieces} pieces · {currency}', { invoices: k.salesCount, pieces: k.itemsSold, currency: currencyLabel() })
+        }
+      />
+      <FigureSurface figures={figures} />
+    </section>
+  );
+}
+
+/** Team of the day: seller, invoices, sales, voids (a count, no colour: voids are normal work) and presence. */
+function Team({ d, isToday }: { d: BranchDash; isToday: boolean }) {
+  const { t, L } = useI18n();
+  const cols = 'grid grid-cols-[1.6fr_.8fr_1.1fr_.7fr_1fr] items-center gap-2.5';
+  return (
+    <Panel label={isToday ? t('Team today') : t('Team')}>
+      <div data-testid="home-team">
+        <PanelHeader
+          title={isToday ? t('Team today') : t('Team')}
+          action={
+            <Link to="/sessions" className="hover:text-ink">
+              {t('Active Sessions')}
+            </Link>
+          }
+        />
+        <div className={clsx(cols, 'px-3 text-meta text-ink-3')} aria-hidden>
+          <span>{t('Seller')}</span>
+          <span className="text-end">{t('Invoices')}</span>
+          <span className="text-end">{t('Sales')}</span>
+          <span className="text-end">{t('Voids')}</span>
+          <span>{t('Status')}</span>
+        </div>
+        <ul className="mt-1 grid gap-1.5">
+          {d.cashiers.map((c) => (
+            <li key={c.userId} className={clsx(cols, 'rounded-row bg-surface px-3 py-2 text-meta')} data-testid="home-team-row">
+              <span className="min-w-0">
+                <span className="block truncate font-semibold text-ink">{L(c.fullName, c.fullNameAr)}</span>
+                <span className="block truncate text-ink-3">{t(c.role)}</span>
+              </span>
+              <span className="text-end num">{c.salesCount}</span>
+              <span className="text-end num">{money(c.salesTotal, false)}</span>
+              <span className="text-end num">{c.voided}</span>
+              <span>
+                {c.liveSessions > 0 ? (
+                  <span className="rounded-badge bg-ok-bg px-1.5 font-semibold text-ok">{t('Online')}</span>
+                ) : (
+                  <span className="text-ink-3">{t('Offline')}</span>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Panel>
+  );
+}
+
+function Level2({ d, isToday }: { d: BranchDash; isToday: boolean }) {
+  const { t } = useI18n();
+  const m = d.movement;
+  const line = (k: string) => m.lines[k] ?? { items: 0, weightMg: 0 };
+  const sum = (...ks: string[]) => ks.map(line).reduce((a, b) => ({ items: a.items + b.items, weightMg: a.weightMg + b.weightMg }), { items: 0, weightMg: 0 });
+  const inn = sum('PURCHASE', 'TRANSFER_IN', 'RETURN', 'ADJUSTMENT_IN');
+  const out = sum('SALE', 'TRANSFER_OUT', 'DAMAGE', 'ADJUSTMENT_OUT');
+  const reconciled = !m.actual || (m.actual.items === m.closing.items && m.actual.weightMg === m.closing.weightMg);
+  return (
+    <div className="grid gap-4 pt-4 xl:grid-cols-[1.4fr_1fr]">
+      <SalesLinePanel
+        title={t('Sales: last 14 days')}
+        data={d.trend}
+        action={
+          <Link to={`/reports/sales?branchId=${d.branchId}&from=${d.trend[0]?.day ?? d.date}&to=${d.date}`} className="hover:text-ink">
+            {t('Sales report')}
+          </Link>
+        }
+        footer={t('Month to date: {amount} · {n} invoices', { amount: money(d.mtd.revenue), n: d.mtd.salesCount })}
+      />
+      <Panel label={isToday ? t('Stock today') : t('Stock movement')}>
+        <div data-testid="home-stock-today">
+          <PanelHeader
+            title={isToday ? t('Stock today') : t('Stock movement')}
+            action={
+              <Link to={`/reports/inventory-movement?branchId=${d.branchId}&from=${d.date}&to=${d.date}`} className="hover:text-ink">
+                {t('Details')}
+              </Link>
+            }
+          />
+          <KvRow label={t('In (purchases, transfers, returns)')} value={t('+{n} pcs · {weight}', { n: num(inn.items), weight: grams(inn.weightMg) })} />
+          <KvRow label={t('Out (sales, transfers, damaged)')} value={t('−{n} pcs · {weight}', { n: num(out.items), weight: grams(out.weightMg) })} />
+          <KvRow label={isToday ? t('Stock now') : t('Closing stock')} value={t('{n} pcs · {weight}', { n: num(m.closing.items), weight: grams(m.closing.weightMg) })} className="font-semibold" />
+          {isToday && m.actual && (
+            <KvRow
+              label={reconciled ? `✓ ${t('Matches the pieces’ statuses')}` : `⚠ ${t('Does not match the pieces’ statuses')}`}
+              value=""
+              className={reconciled ? '[&>span:first-child]:text-ok' : '[&>span:first-child]:text-crit'}
+              testId="home-stock-check"
+            />
+          )}
+        </div>
+      </Panel>
     </div>
   );
 }
@@ -183,71 +273,23 @@ function NoStockYet() {
   const { t } = useI18n();
   const { can } = useAuth();
   return (
-    <Card>
-      <div className="flex flex-wrap items-center gap-4" data-testid="no-stock-yet">
+    <Panel label={t('Your branch has no stock yet')} className="mt-4">
+      <div className="flex flex-wrap items-center gap-4 px-1 py-1" data-testid="no-stock-yet">
         <div className="min-w-0 flex-1">
-          <div className="font-semibold text-ink-900">{t('Your branch has no stock yet')}</div>
-          <div className="text-[13px] text-ink-500">{t('Receive a supplier order or buy scrap to start. Types and products can be created on the same screens.')}</div>
+          <div className="font-semibold text-ink">{t('Your branch has no stock yet')}</div>
+          <div className="text-meta text-ink-3">{t('Receive a supplier order or buy scrap to start. Types and products can be created on the same screens.')}</div>
         </div>
-        {can('purchases.create') && <Link to="/purchases" className="rounded-md bg-ink-900 px-3 py-2 text-[13px] font-medium text-white hover:bg-ink-800">{t('New purchase')}</Link>}
-        {can('scrap.buy') && <Link to="/scrap" className="rounded-md border border-line-strong px-3 py-2 text-[13px] font-medium text-ink-800 hover:bg-canvas">{t('Buy scrap')}</Link>}
+        {can('purchases.create') && (
+          <Link to="/purchases" className="inline-flex h-8 items-center rounded-control bg-navy px-3 text-meta font-medium text-white hover:bg-navy-2">
+            {t('New purchase')}
+          </Link>
+        )}
+        {can('scrap.buy') && (
+          <Link to="/scrap" className="inline-flex h-8 items-center rounded-control border border-line bg-surface px-3 text-meta font-medium text-ink hover:bg-neutral-bg">
+            {t('Buy scrap')}
+          </Link>
+        )}
       </div>
-    </Card>
-  );
-}
-
-function MovementCard({ d, isToday }: { d: BranchDash; isToday: boolean }) {
-  const { t } = useI18n();
-  const m = d.movement;
-  const L = (k: string) => m.lines[k] ?? { items: 0, weightMg: 0 };
-  const plus = (a: MovementLine, b: MovementLine) => ({ items: a.items + b.items, weightMg: a.weightMg + b.weightMg });
-  const rows: { sign: string; label: string; v: MovementLine; strong?: boolean }[] = [
-    { sign: '', label: t('Opening stock'), v: m.opening, strong: true },
-    { sign: '+', label: t('Purchases'), v: L('PURCHASE') },
-    { sign: '+', label: t('Transfers in'), v: L('TRANSFER_IN') },
-    { sign: '+', label: t('Returns & restock'), v: plus(L('RETURN'), L('ADJUSTMENT_IN')) },
-    { sign: '−', label: t('Normal sales'), v: L('SALE') },
-    { sign: '−', label: t('Transfers out'), v: L('TRANSFER_OUT') },
-    { sign: '−', label: t('Damaged / returned to supplier'), v: plus(L('DAMAGE'), L('ADJUSTMENT_OUT')) },
-    { sign: '=', label: t('Closing stock'), v: m.closing, strong: true },
-  ];
-  const reconciled = !isToday || !m.actual || (m.actual.items === m.closing.items && m.actual.weightMg === m.closing.weightMg);
-  return (
-    <Card padded={false}>
-      <CardHeader
-        title={t('Inventory movement')}
-        subtitle={t('Derived from the inventory ledger (pieces and net gold weight)')}
-        actions={
-          isToday && m.actual ? (
-            <span className={clsx('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-medium', reconciled ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700')}>
-              {reconciled ? <CheckCircle2 className="size-3.5" /> : <AlertTriangle className="size-3.5" />}
-              {reconciled ? t('Reconciled with item statuses') : t('Mismatch with item statuses')}
-            </span>
-          ) : undefined
-        }
-      />
-      <table className="w-full text-[13px]">
-        <thead className="text-ink-500">
-          <tr className="border-b border-line">
-            <th className="w-8 py-2" />
-            <th className="py-2 text-start font-medium" />
-            <th className="px-5 py-2 text-end font-medium">{t('Pieces')}</th>
-            <th className="px-5 py-2 text-end font-medium">
-              <span className="inline-flex items-center gap-1"><ScaleIcon className="size-3.5" /> {t('Net gold')}</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.label} className={clsx(r.strong ? 'bg-canvas/70 font-semibold' : 'text-ink-700', r.sign === '=' && 'border-t-2 border-ink-900/80')}>
-              <td className={clsx('py-2 text-center font-mono', r.sign === '+' && 'text-emerald-700', r.sign === '−' && 'text-rose-700')}>{r.sign}</td>
-              <td className="py-2">{r.label}</td>
-              <td className={clsx('px-5 py-2 text-end num', !r.strong && r.v.items === 0 && 'text-ink-300')}>{num(r.v.items)}</td>
-              <td className={clsx('px-5 py-2 text-end num', !r.strong && r.v.items === 0 && 'text-ink-300')}>{grams(r.v.weightMg)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </Card>
+    </Panel>
   );
 }

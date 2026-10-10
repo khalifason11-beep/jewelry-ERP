@@ -327,6 +327,32 @@ async function main() {
     check(/branchId=/.test(page.url()) && (await page.getByTestId('home-subtitle').innerText()).includes('·'), 'the scope pill turns the home into one branch’s view (/overview?branchId=)');
     await signOut(page);
 
+    section('Branch manager home: blocks load and fail on their own; no cost (UI-B)');
+    await signIn(page, world.bm);
+    await page.goto(`${BASE}/dashboard`);
+    await page.getByTestId('home-expected-cash').waitFor({ timeout: 15_000 });
+    check((await page.locator('[data-testid=home-profit], [data-testid=home-stock-value]').count()) === 0 && !/cost|profit|margin/i.test(await page.locator('main').innerText()), 'the branch manager home has no cost or profit figure or word');
+    check((await page.getByTestId('home-team-row').count()) > 0 && (await page.getByTestId('home-stock-today').count()) === 1, 'Team today and the stock of the day are there');
+    await axe(page, 'BM home');
+    let offBranch = await intercept(page, '/api/dashboard/branch', { delayMs: 2500 });
+    await page.reload();
+    await page.locator('main [data-state=loading]').first().waitFor({ timeout: 10_000 });
+    await page.getByTestId('home-attention').waitFor();
+    ok('BM home: the figures show their skeleton while the attention list is already there');
+    await page.getByTestId('home-sales').waitFor({ timeout: 15_000 });
+    await offBranch();
+    offBranch = await intercept(page, '/api/dashboard/branch', { status: 500 });
+    await page.reload();
+    await page.locator('main [data-state=error]').first().waitFor({ timeout: 20_000 });
+    check((await page.getByTestId('home-attention').count()) === 1, 'BM home: failed figures show an error in their block; the attention list stays');
+    await offBranch();
+    await page.reload();
+    await page.getByTestId('home-sales').waitFor({ timeout: 15_000 });
+    await page.click('[data-testid=day-other]');
+    await page.getByTestId('day-input').waitFor();
+    ok('"Another day…" opens the date choice');
+    await signOut(page);
+
     section('Lists: filters stay, errors are errors (General Manager)');
     await signIn(page, world.gm);
     await listStates(page, { path: '/sales', api: '/api/sales', name: 'Sales', quick: '30d' });
