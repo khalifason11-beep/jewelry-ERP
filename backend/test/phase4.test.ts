@@ -202,7 +202,7 @@ describe('broken-scrap weight pool', () => {
     const before = await pool(omd, 22);
     const bal = async () => Object.fromEntries((await balances(ctx.db, omd)).map((a) => [a.kind, a.balance]));
     const money = await bal();
-    const r = await buyScrap(ctx, bm, { branchId: omd, kind: 'BROKEN', karat: 22, grossWeightMg: 4120, netWeightMg: 4100, paymentMethod: 'BANK_TRANSFER' });
+    const r = await buyScrap(ctx, bm, { branchId: omd, kind: 'BROKEN', karat: 22, grossWeightMg: 4120, netWeightMg: 4100, paymentMethod: 'BANK_TRANSFER', bankReference: 'TRF-SCR-0205' });
     expect(await pool(omd, 22)).toBe(before + 4100);
     const after = await bal();
     expect(after.BANK).toBe(money.BANK - r.amount);

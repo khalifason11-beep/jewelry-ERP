@@ -9,7 +9,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, KARATS, PAYMENT_METHODS, SCRAP_KINDS, SCRAP_PAYMENT_METHODS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
+import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, KARATS, PAYMENT_METHODS, SCRAP_KINDS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
@@ -612,7 +612,11 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           grossWeightMg: zWeightMg,
           netWeightMg: zWeightMg,
           agreedRatePerGram: zPositiveMoney.optional(),
-          paymentMethod: z.enum(SCRAP_PAYMENT_METHODS),
+          // CSH-2 (D-csh-7): the cash and bank parts, or one method for the whole amount; a bank part needs its reference.
+          paymentMethod: z.enum(['CASH', 'BANK_TRANSFER']).optional(),
+          cashAmount: z.number().int().min(0).max(MAX_MONEY).optional(),
+          bankAmount: z.number().int().min(0).max(MAX_MONEY).optional(),
+          bankReference: zText(80).optional(),
           productId: zIdBody.optional(),
           sellingPrice: zPositiveMoney.optional(),
           customerName: zText(120).optional(),

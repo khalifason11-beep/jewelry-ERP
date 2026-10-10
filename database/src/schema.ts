@@ -598,7 +598,13 @@ export const scrapPurchases = pgTable(
     overrideApproved: boolean('override_approved').notNull().default(false),
     /** Paid to the customer: round(net mg × agreed rate / 1000). */
     amount: money('amount').notNull(),
+    /** CASH | BANK_TRANSFER | SPLIT: derived from the two parts below (check). */
     paymentMethod: text('payment_method').notNull(),
+    /** CSH-2 (D-csh-7): the part paid from the drawer and the part paid by bank transfer; they add up to `amount`. */
+    cashAmount: money('cash_amount').notNull(),
+    bankAmount: money('bank_amount').notNull(),
+    /** The bank's reference of the transfer to the customer (FIX-2 rules); required when the bank part is > 0. */
+    bankReference: text('bank_reference'),
     /** The jewelry item created for a SELLABLE purchase. */
     itemId: integer('item_id').references(() => jewelryItems.id),
     customerName: text('customer_name'),

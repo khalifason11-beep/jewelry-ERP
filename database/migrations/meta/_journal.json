@@ -148,6 +148,13 @@
       "when": 1791668674013,
       "tag": "0020_csh2_gm_funding",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791672353558,
+      "tag": "0021_csh2_scrap_split_payment",
+      "breakpoints": true
     }
   ]
 }

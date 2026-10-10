@@ -1750,4 +1750,8 @@ export const AR: Record<string, string> = {
   "Correct {number}": "تصحيح {number}",
   "A correction reverses the event in the drawer or bank and in what the branch owes. Nothing is deleted; both stay in the history.": "التصحيح يعكس القيد في الدرج أو البنك وفيما يدين به الفرع. لا يُحذف شيء، ويبقى الاثنان في السجل.",
   "Record correction": "تسجيل التصحيح",
+  "Give either the payment method or the cash and bank parts, not both": "أدخل طريقة الدفع أو الجزأين النقدي والبنكي، لا الاثنين معاً",
+  "Say how the customer is paid": "حدّد كيف يُدفع للعميل",
+  "The cash and bank parts must add up to the amount paid ({amount}); they add up to {sum}": "يجب أن يساوي مجموع الجزأين النقدي والبنكي المبلغ المدفوع (⁦{amount}⁩)؛ مجموعهما الآن ⁦{sum}⁩",
+  "SPLIT": "نقداً وتحويلاً",
 };

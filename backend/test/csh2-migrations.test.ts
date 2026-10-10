@@ -2,6 +2,9 @@
 // checks of 0021 run on real PostgreSQL too). Hand-written SQL is proven here, statement by statement:
 //   0020: existing branches receive an EMPTY OWED_TO_GM account (no ledger entry invented, D-2b-8), new branches get
 //         one from the trigger, the two event types are allowed, the checks are validated, the GM gets the permissions.
+//   0021: two guards stop the migration, changing nothing (a: a purchase that disagrees with its ledger entries; b: a
+//         bank-paid purchase, which has no reference); otherwise the parts are backfilled from each row's own method,
+//         the checks are validated and the append-only trigger is enabled again (an UPDATE is refused afterwards).
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -118,6 +121,85 @@ describe('migration 0020 (CSH-2 piece B)', () => {
            SELECT 'TRL-GMX-000001', b.id, 'REVERSAL', 'CASH', 999, 'Wrong amount', u.id, (SELECT id FROM gm_funding_events WHERE number = 'TRL-GMA-000001') FROM branches b, users u WHERE b.code = 'TRL' AND u.username = 'trial.person'`,
       ).then(() => null, (e: unknown) => e);
       expect(String((bad as { cause?: Error })?.cause?.message ?? (bad as Error)?.message)).toMatch(/same branch, account and amount/);
+    } finally {
+      await h.close();
+    }
+  });
+});
+
+// ── 0021: split payment on scrap purchases, on a database at 0020 ──
+const scrapRow = (number: string, method: string, amount: number) => `
+  INSERT INTO scrap_purchases (number, branch_id, kind, karat, gross_weight_mg, net_weight_mg, scrap_rate_per_gram, agreed_rate_per_gram, deviation_bp, amount, payment_method, created_by)
+    SELECT '${number}', b.id, 'BROKEN', 21, 1000, 1000, ${amount}, ${amount}, 0, ${amount}, '${method}', u.id FROM branches b, users u WHERE b.code = 'TRL' AND u.username = 'trial.person'`;
+const scrapEntry = (number: string, kind: string, amount: number) => `
+  INSERT INTO ledger_entries (account_id, branch_id, amount, event_type, payment_method, ref_type, ref_id, ref_number)
+    SELECT a.id, a.branch_id, ${amount}, 'SCRAP_PURCHASE', '${kind === 'CASH' ? 'CASH' : 'BANK_TRANSFER'}', 'scrap_purchase', p.id, p.number
+    FROM scrap_purchases p JOIN ledger_accounts a ON a.branch_id = p.branch_id AND a.kind = '${kind}' WHERE p.number = '${number}'`;
+const applied = async (h: DatabaseHandle) => Number((await one(h, 'SELECT count(*) AS n FROM drizzle.__drizzle_migrations')).n);
+const stopsWith = async (h: DatabaseHandle, text: string) => {
+  const before = await applied(h);
+  const e = await h.migrate().then(() => null, (x: unknown) => x);
+  expect(e, 'migration 0021 must stop').not.toBeNull();
+  const message = String((e as { cause?: Error }).cause?.message ?? (e as Error).message);
+  expect(message).toContain(text);
+  expect(message).toContain('Nothing was changed.');
+  expect(await applied(h)).toBe(before);
+  expect(Number((await one(h, `SELECT count(*) AS n FROM information_schema.columns WHERE table_name = 'scrap_purchases' AND column_name = 'cash_amount'`)).n)).toBe(0);
+};
+
+describe('migration 0021 (CSH-2 piece A)', () => {
+  beforeAll(() => {
+    upTo(20);
+  });
+
+  it('guard (a): stops, changing nothing, when a purchase does not match its ledger entries', async () => {
+    const h = await openAt(20);
+    try {
+      await run(h, BASE);
+      await run(h, scrapRow('TRL-SCR-1', 'CASH', 95_000));
+      await run(h, scrapEntry('TRL-SCR-1', 'BANK', -95_000)); // recorded as cash, but the money left the bank
+      await stopsWith(h, 'do not match their entries in the money ledger');
+    } finally {
+      await h.close();
+    }
+  });
+
+  it('guard (b): stops, changing nothing, on a bank-paid purchase (it has no bank reference)', async () => {
+    const h = await openAt(20);
+    try {
+      await run(h, BASE);
+      await run(h, scrapRow('TRL-SCR-2', 'BANK_TRANSFER', 80_000));
+      await run(h, scrapEntry('TRL-SCR-2', 'BANK', -80_000));
+      await stopsWith(h, 'paid by bank transfer have no bank reference');
+    } finally {
+      await h.close();
+    }
+  });
+
+  it('upgrades a clean database: parts backfilled from the method, checks validated, the append-only trigger enabled again', async () => {
+    const h = await openAt(20);
+    try {
+      await run(h, BASE);
+      await run(h, scrapRow('TRL-SCR-3', 'CASH', 120_000));
+      await run(h, scrapEntry('TRL-SCR-3', 'CASH', -120_000));
+      await h.migrate();
+      expect(await one(h, `SELECT cash_amount::int AS c, bank_amount::int AS b, bank_reference AS r, payment_method AS m FROM scrap_purchases WHERE number = 'TRL-SCR-3'`)).toEqual({ c: 120_000, b: 0, r: null, m: 'CASH' });
+      for (const c of ['ck_scrap_purchases_payment_parts', 'ck_scrap_purchases_payment_label', 'ck_scrap_purchases_bank_reference', 'ck_scrap_purchases_payment_method']) {
+        expect((await one(h, `SELECT convalidated AS v FROM pg_constraint WHERE conname = '${c}'`))?.v, c).toBe(true);
+      }
+      // The trigger is enabled again ('O' = fires on origin): an UPDATE of the append-only table is refused.
+      expect((await one(h, `SELECT tgenabled AS e FROM pg_trigger WHERE tgname = 'scrap_purchases_append_only'`))?.e).toBe('O');
+      const e = await run(h, `UPDATE scrap_purchases SET cash_amount = 0 WHERE number = 'TRL-SCR-3'`).then(() => null, (x: unknown) => x);
+      expect(e, 'an UPDATE after the migration must be refused').not.toBeNull();
+      expect(String((e as { cause?: Error })?.cause?.message ?? (e as Error)?.message)).toMatch(/append-only|permission denied/);
+      // On real PostgreSQL the migrating role (not a superuser) holds no UPDATE privilege on the table again.
+      if (PG_MODE) expect((await one(h, `SELECT has_table_privilege(current_user, 'scrap_purchases', 'UPDATE') AS u`))?.u).toBe(false);
+      // A split row goes in; an inconsistent one does not.
+      await run(h, `INSERT INTO scrap_purchases (number, branch_id, kind, karat, gross_weight_mg, net_weight_mg, scrap_rate_per_gram, agreed_rate_per_gram, deviation_bp, amount, payment_method, cash_amount, bank_amount, bank_reference, created_by)
+        SELECT 'TRL-SCR-4', b.id, 'BROKEN', 21, 1000, 1000, 100000, 100000, 0, 100000, 'SPLIT', 60000, 40000, 'TRF-4', u.id FROM branches b, users u WHERE b.code = 'TRL' AND u.username = 'trial.person'`);
+      const bad = await run(h, `INSERT INTO scrap_purchases (number, branch_id, kind, karat, gross_weight_mg, net_weight_mg, scrap_rate_per_gram, agreed_rate_per_gram, deviation_bp, amount, payment_method, cash_amount, bank_amount, created_by)
+        SELECT 'TRL-SCR-5', b.id, 'BROKEN', 21, 1000, 1000, 100000, 100000, 0, 100000, 'SPLIT', 60000, 40000, u.id FROM branches b, users u WHERE b.code = 'TRL' AND u.username = 'trial.person'`).then(() => null, (x: unknown) => x);
+      expect(bad, 'a bank part without its reference is refused').not.toBeNull();
     } finally {
       await h.close();
     }

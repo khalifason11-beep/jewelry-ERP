@@ -181,6 +181,14 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   // ── FIX-2: a bank-transfer sale carries its bank reference (migration 0018, validated after a guard)
   { name: 'ck_sales_bank_transfer_reference', table: 'sales', expr: "payment_method <> 'BANK_TRANSFER' OR (payment_ref_transaction IS NOT NULL AND length(btrim(payment_ref_transaction)) BETWEEN 4 AND 40)" },
   { name: 'ck_sales_price_change_reason', table: 'sales', expr: 'price_change_reason IS NULL OR length(btrim(price_change_reason)) BETWEEN 3 AND 200' },
+  // ── CSH-2 piece A: split payment on counter scrap purchases (migration 0021, validated after two guards)
+  { name: 'ck_scrap_purchases_payment_parts', table: 'scrap_purchases', expr: 'cash_amount >= 0 AND bank_amount >= 0 AND cash_amount + bank_amount = amount' },
+  {
+    name: 'ck_scrap_purchases_payment_label',
+    table: 'scrap_purchases',
+    expr: "(payment_method = 'CASH' AND bank_amount = 0) OR (payment_method = 'BANK_TRANSFER' AND cash_amount = 0) OR (payment_method = 'SPLIT' AND cash_amount > 0 AND bank_amount > 0)",
+  },
+  { name: 'ck_scrap_purchases_bank_reference', table: 'scrap_purchases', expr: 'bank_amount = 0 OR (bank_reference IS NOT NULL AND length(btrim(bank_reference)) BETWEEN 4 AND 40)' },
   // ── CSH-2: GM funding events (migration 0020)
   { name: 'ck_gm_funding_events_amount_positive', table: 'gm_funding_events', expr: 'amount > 0' },
   { name: 'ck_gm_funding_events_reason', table: 'gm_funding_events', expr: 'length(btrim(reason)) BETWEEN 3 AND 300' },

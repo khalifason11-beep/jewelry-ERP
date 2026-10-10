@@ -13,6 +13,7 @@ import {
   DEFAULT_SETTINGS,
   type PaymentMethod,
   ap,
+  valueOfWeight,
 } from '@jerp/shared';
 import type { Actor, Ctx } from '../../src/core/context';
 import { writeAudit } from '../../src/core/audit';
@@ -24,7 +25,7 @@ import { createSale, voidSale } from '../../src/modules/sales/service';
 import { settleHasadReceivable, balances as ledgerBalances } from '../../src/modules/ledger/service';
 import { createTransfer, receiveTransfer } from '../../src/modules/transfers/service';
 import { adjustItem } from '../../src/modules/inventory/service';
-import { buyScrap } from '../../src/modules/scrap/service';
+import { buyScrap, scrapRates } from '../../src/modules/scrap/service';
 import { recordAdvance } from '../../src/modules/funding/service';
 import { settleWithScrap } from '../../src/modules/supplier-settlements/service';
 import { seedRolesAndPermissions } from '../../src/seed/reference';
@@ -347,7 +348,7 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
     }
   };
   type ScrapEvent =
-    | { day: number; code: string; kind: 'BROKEN'; karat: number; g: number; pay: 'CASH' | 'BANK_TRANSFER' }
+    | { day: number; code: string; kind: 'BROKEN'; karat: number; g: number; pay: 'CASH' | 'BANK_TRANSFER' | 'SPLIT' }
     | { day: number; code: string; kind: 'SELLABLE'; sku: string; g: number; pay: 'CASH' | 'BANK_TRANSFER' }
     | { day: number; code: string; kind: 'SETTLE'; purchase: number; karat: number; g: number | 'REST' };
   const krtPO = purchaseLog.find((p) => p.code === 'KRT' && p.offset === -25)!;
@@ -369,6 +370,7 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
     { day: -8, code: 'BHR', kind: 'BROKEN', karat: 18, g: 11.1, pay: 'CASH' },
     { day: -7, code: 'KRT', kind: 'SETTLE', purchase: krtPO.id, karat: 18, g: 14.2 },
     { day: -6, code: 'BHR', kind: 'SETTLE', purchase: bhrPO.id, karat: 21, g: 15 },
+    { day: -5, code: 'KRT', kind: 'BROKEN', karat: 21, g: 23.8, pay: 'SPLIT' }, // CSH-2: part cash, part bank transfer
     { day: -4, code: 'PZU', kind: 'BROKEN', karat: 21, g: 19.4, pay: 'CASH' },
     { day: -3, code: 'KRT', kind: 'BROKEN', karat: 21, g: 64.2, pay: 'BANK_TRANSFER' },
     { day: -2, code: 'KRT', kind: 'SETTLE', purchase: krtPO.id, karat: 21, g: 'REST' },
@@ -390,15 +392,24 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
       continue;
     }
     const mg = Math.round(ev.g * 100) * 10;
+    // CSH-2 (D-csh-7): a bank part carries the bank's reference; a SPLIT pays about 60% cash and the rest by transfer.
+    const payOf = async (karat: number) => {
+      if (ev.pay === 'CASH') return { paymentMethod: 'CASH' as const };
+      const bankReference = `BOK-SCR${-ev.day}${ev.code}`;
+      if (ev.pay === 'BANK_TRANSFER') return { paymentMethod: 'BANK_TRANSFER' as const, bankReference };
+      const amount = valueOfWeight(mg, (await scrapRates(db))[karat].pricePerGram);
+      const cashAmount = Math.floor((amount * 0.6) / 1000) * 1000;
+      return { cashAmount, bankAmount: amount - cashAmount, bankReference };
+    };
     if (ev.kind === 'BROKEN') {
-      await buyScrap(ctx, bm[ev.code], { branchId: branch[ev.code].id, kind: 'BROKEN', karat: ev.karat, grossWeightMg: mg, netWeightMg: mg, paymentMethod: ev.pay, customerName: customer.ar, note: 'كسر ذهب من عميل' }, { at: when });
+      await buyScrap(ctx, bm[ev.code], { branchId: branch[ev.code].id, kind: 'BROKEN', karat: ev.karat, grossWeightMg: mg, netWeightMg: mg, ...(await payOf(ev.karat)), customerName: customer.ar, note: 'كسر ذهب من عميل' }, { at: when });
     } else {
       const p = productBySku[ev.sku];
       const sellingPrice = Math.round((mg / 1000) * rateFor(21, ev.day) * 1.12 / 5_000) * 5_000;
       await buyScrap(
         ctx,
         bm[ev.code],
-        { branchId: branch[ev.code].id, kind: 'SELLABLE', karat: 21, grossWeightMg: mg, netWeightMg: mg, paymentMethod: ev.pay, productId: p.id, sellingPrice, customerName: customer.ar, note: 'قطعة سليمة صالحة للبيع' },
+        { branchId: branch[ev.code].id, kind: 'SELLABLE', karat: 21, grossWeightMg: mg, netWeightMg: mg, ...(await payOf(21)), productId: p.id, sellingPrice, customerName: customer.ar, note: 'قطعة سليمة صالحة للبيع' },
         { at: when },
       );
     }

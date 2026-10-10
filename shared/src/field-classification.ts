@@ -92,7 +92,7 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   scrap_rates: { safe: words('id karat price_per_gram effective_at set_by') },
   scrap_purchases: {
     safe: words(
-      'id number branch_id kind karat gross_weight_mg net_weight_mg scrap_rate_per_gram agreed_rate_per_gram deviation_bp override_approved amount payment_method item_id customer_name customer_phone customer_id_ref note created_by created_at',
+      'id number branch_id kind karat gross_weight_mg net_weight_mg scrap_rate_per_gram agreed_rate_per_gram deviation_bp override_approved amount payment_method cash_amount bank_amount bank_reference item_id customer_name customer_phone customer_id_ref note created_by created_at',
     ),
   },
   scrap_weight_entries: { safe: words('id branch_id karat weight_mg event_type ref_type ref_id ref_number actor_id session_id idempotency_key note at') },
@@ -198,7 +198,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     voidReauthAboveAmount priceChangeReason
     bankTransferSales reference bankTransfer confirmDuplicateReference
     courierName unavailable
-    supplierDebtMaxAgeDays countDifferenceTolerance account paidDirectlyToSeller linkedRef reversesEventId offset owedToGm totalOwedToGm events hasMore corrected gmAdvancesCash gmAdvancesBank gmRepaymentsCash gmRepaymentsBank cash signals severity critical warning info generatedAt counts since
+    supplierDebtMaxAgeDays countDifferenceTolerance cashAmount bankAmount account paidDirectlyToSeller linkedRef reversesEventId offset owedToGm totalOwedToGm events hasMore corrected gmAdvancesCash gmAdvancesBank gmRepaymentsCash gmRepaymentsBank cash signals severity critical warning info generatedAt counts since
     inTransit goldOwed salesLine lastCount orders fullNameAr
   `),
 );

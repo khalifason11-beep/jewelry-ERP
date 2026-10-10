@@ -97,8 +97,11 @@ export type BackupRunStatus = (typeof BACKUP_RUN_STATUSES)[number];
 
 export type ScrapKind = (typeof SCRAP_KINDS)[number];
 
-/** Payment to the customer for scrap: from the drawer or the bank. */
-export const SCRAP_PAYMENT_METHODS = ['CASH', 'BANK_TRANSFER'] as const;
+/**
+ * Payment to the customer for scrap: from the drawer, by bank transfer, or SPLIT (CSH-2 piece A, D-csh-7): part cash
+ * and part transfer. The label is derived from the two parts (cash_amount, bank_amount) and tied to them by a check.
+ */
+export const SCRAP_PAYMENT_METHODS = ['CASH', 'BANK_TRANSFER', 'SPLIT'] as const;
 export type ScrapPaymentMethod = (typeof SCRAP_PAYMENT_METHODS)[number];
 
 /** Movements of the broken-scrap weight pool. */

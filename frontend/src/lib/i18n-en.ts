@@ -140,4 +140,5 @@ export const EN: Record<string, string> = {
   REPAYMENT: "Repayment",
   BANK: "Bank",
   OWED_TO_GM: "Owed to the General Manager",
+  SPLIT: "Cash + bank transfer",
 };
