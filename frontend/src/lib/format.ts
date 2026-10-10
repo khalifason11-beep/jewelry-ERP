@@ -18,6 +18,9 @@ export const gramUnit = () => (getLang() === 'ar' ? 'جم' : 'g');
 export const money = (n: number | null | undefined, withCurrency = true) =>
   n == null ? '—' : `${Math.round(n).toLocaleString('en-US')}${withCurrency ? ` ${currency()}` : ''}`;
 
+/** A money amount that can be negative, isolated left-to-right so Arabic shows "-647,810", not "647,810-". */
+export const signedMoney = (n: number | null | undefined, withCurrency = false) => (n == null ? '—' : `\u2066${money(n, withCurrency)}\u2069`);
+
 export const compactMoney = (n: number | null | undefined) => {
   if (n == null) return '—';
   const abs = Math.abs(n);

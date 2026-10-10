@@ -12,7 +12,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { get } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { currencyLabel, date as formatDate, grams, money, num, pct, todayKey } from '../../lib/format';
+import { currencyLabel, date as formatDate, grams, money, num, pct, signedMoney, todayKey } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { ErrorState, Input, Panel, PanelHeader, Pill, RefreshBar } from '../../components/ui';
 import type { StockWeight } from '../../components/StockWeight';
@@ -140,7 +140,7 @@ function Figures({ d, isToday }: { d: BranchDash; isToday: boolean }) {
         ? t('Last count: {day}, short {amount}', { day: countDay(c.day), amount: money(-c.difference, false) })
         : t('Last count: {day}, over {amount}', { day: countDay(c.day), amount: money(c.difference, false) });
   const figures: Figure[] = [
-    { testId: 'home-expected-cash', label: t('Expected cash in the drawer'), value: money(d.expectedCash, false), sub: countText },
+    { testId: 'home-expected-cash', label: t('Expected cash in the drawer'), value: signedMoney(d.expectedCash), sub: countText },
     {
       testId: 'home-stock',
       label: t('Available stock'),
@@ -158,7 +158,7 @@ function Figures({ d, isToday }: { d: BranchDash; isToday: boolean }) {
   if (k.grossProfit != null) figures.splice(1, 0, { testId: 'home-profit', label: t('Gross profit'), value: money(k.grossProfit, false), sub: t('Margin {pct}', { pct: pct(k.salesTotal ? (k.grossProfit / k.salesTotal) * 100 : 0) }) });
   if (k.inventoryCost != null) figures.push({ testId: 'home-stock-value', label: t('Stock at cost'), value: money(k.inventoryCost, false), sub: t('{n} pcs', { n: num(k.availableItems) }) });
   return (
-    <section className={clsx('grid gap-4', figures.length > 3 ? 'xl:grid-cols-[1fr_5fr]' : 'lg:grid-cols-[1fr_3fr]')} aria-label={t('Key figures')}>
+    <section className={clsx('grid gap-4', figures.length > 3 ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,3fr)] 2xl:grid-cols-[minmax(0,1fr)_minmax(0,5fr)]' : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]')} aria-label={t('Key figures')}>
       <SalesCard
         label={isToday ? t('Sales today') : t('Sales · {period}', { period: formatDate(d.date, lang) })}
         value={money(k.salesTotal, false)}
@@ -197,7 +197,7 @@ function Team({ d, isToday }: { d: BranchDash; isToday: boolean }) {
           <span className="text-end">{t('Voids')}</span>
           <span>{t('Status')}</span>
         </div>
-        <ul className="mt-1 grid gap-1.5">
+        <ul className="mt-1 grid grid-cols-1 gap-1.5">
           {d.cashiers.map((c) => (
             <li key={c.userId} className={clsx(cols, 'rounded-row bg-surface px-3 py-2 text-meta')} data-testid="home-team-row">
               <span className="min-w-0">
@@ -231,7 +231,7 @@ function Level2({ d, isToday }: { d: BranchDash; isToday: boolean }) {
   const out = sum('SALE', 'TRANSFER_OUT', 'DAMAGE', 'ADJUSTMENT_OUT');
   const reconciled = !m.actual || (m.actual.items === m.closing.items && m.actual.weightMg === m.closing.weightMg);
   return (
-    <div className="grid gap-4 pt-4 xl:grid-cols-[1.4fr_1fr]">
+    <div className="grid gap-4 pt-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <SalesLinePanel
         title={t('Sales: last 14 days')}
         data={d.trend}

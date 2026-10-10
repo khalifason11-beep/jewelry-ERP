@@ -58,12 +58,16 @@ export interface Figure {
 /** The other level-1 figures on one light surface, divided by thin lines (mockup `.group`). */
 export function FigureSurface({ figures }: { figures: Figure[] }) {
   return (
-    <div className={clsx('grid rounded-card bg-panel sm:grid-cols-3', figures.length === 5 && 'xl:grid-cols-5')} data-testid="home-figures">
+    <div className={clsx('grid rounded-card bg-panel sm:grid-cols-3', figures.length === 5 && '2xl:grid-cols-5')} data-testid="home-figures">
       {figures.map((f, i) => (
-        <div key={f.testId} className={clsx('min-w-0 px-[18px] py-3.5', i > 0 && 'border-t border-line sm:border-t-0 sm:border-s', i === 3 && 'sm:border-s-0 xl:border-s', i >= 3 && 'sm:border-t xl:border-t-0')} data-testid={f.testId}>
+        <div key={f.testId} className={clsx('min-w-0 px-[18px] py-3.5', i > 0 && 'border-t border-line sm:border-t-0 sm:border-s', i === 3 && 'sm:border-s-0 2xl:border-s', i >= 3 && 'sm:border-t 2xl:border-t-0')} data-testid={f.testId}>
           <div className="truncate text-meta text-ink-2">{f.label}</div>
           <div className="mt-0.5 truncate text-kpi font-semibold text-ink num">{f.value}</div>
-          {f.sub && <div className="mt-0.5 truncate text-meta text-ink-3">{f.sub}</div>}
+          {f.sub && (
+            <div className="mt-0.5 truncate text-meta text-ink-3" title={typeof f.sub === 'string' ? f.sub : undefined}>
+              {f.sub}
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -73,7 +77,7 @@ export function FigureSurface({ figures }: { figures: Figure[] }) {
 /** Level 1's figures while they load: the same shapes, so nothing jumps. */
 export function FiguresSkeleton() {
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_3fr]" data-state="loading">
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]" data-state="loading">
       <Skeleton className="h-[92px] rounded-card" />
       <Skeleton className="h-[92px] rounded-card" />
     </div>

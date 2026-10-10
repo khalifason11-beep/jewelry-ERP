@@ -107,8 +107,9 @@ async function main() {
     await page.click('[data-testid=codes-done]');
     await atHome(page);
     ok('enrollment complete: the dashboard opens');
-    await page.getByTestId('second-passkey-nag').waitFor({ timeout: 10_000 });
-    ok('non-blocking banner asks for a second passkey');
+    // UI-B (D-ui-18): the reminder is an information line of the attention list on the home, not a notice above it.
+    await page.locator('[data-testid=home-attention-line][data-code=S1]').waitFor({ timeout: 10_000 });
+    check((await page.getByTestId('second-passkey-nag').count()) === 0, 'non-blocking: the attention list asks for a second passkey (no notice above the page)');
 
     // ── two-step sign-in ──
     await signOut(page);
@@ -168,7 +169,8 @@ async function main() {
     const rows = await page.getByTestId('passkey-list').locator('li').count();
     check(rows === 2, 'second device registered (within the step-up window): 2 passkeys listed');
     await page.waitForTimeout(300);
-    check(!(await page.getByTestId('second-passkey-nag').count()), 'second-passkey banner gone');
+    const s1 = await page.evaluate(async () => (await (await fetch('/api/attention')).json()).signals.filter((x) => x.code === 'S1').length);
+    check(s1 === 0, 'the second-passkey line left the attention list');
     const phoneCreds = (await phone.cdp.send('WebAuthn.getCredentials', { authenticatorId: phone.id })).credentials;
     await phone.cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId: phone.id });
     auth = await virtualAuthenticator(page);

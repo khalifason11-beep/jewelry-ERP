@@ -96,7 +96,7 @@ export function CompanyDashboardPage() {
           <h1 className="text-title font-semibold text-ink">{t('Welcome. Let’s get started')}</h1>
           <div className="mt-0.5 text-meta text-ink-3">{t('The system is new and empty. A few steps before the first sale.')}</div>
         </div>
-        <div className="grid items-start gap-4 lg:grid-cols-[1.4fr_1fr]" data-testid="home-first-run">
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]" data-testid="home-first-run">
           <FirstSteps status={setup.data!} />
           <AttentionPanel />
         </div>
@@ -160,7 +160,7 @@ function CompanyHome({ range, isToday }: { range: { from: string; to: string }; 
       ) : d ? (
         <Figures d={d} isToday={isToday} />
       ) : null}
-      <div className="grid gap-4 xl:grid-cols-[1fr_1.25fr]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
         <AttentionPanel />
         <BranchStrips d={d} loading={q.isLoading} signals={attention.data?.signals ?? []} />
       </div>
@@ -176,7 +176,7 @@ function Figures({ d, isToday }: { d: CompanyDash; isToday: boolean }) {
   const margin = T.revenue ? (T.grossProfit / T.revenue) * 100 : 0;
   const period = d.period.from === d.period.to ? formatDate(d.period.from) : `${formatDate(d.period.from)} – ${formatDate(d.period.to)}`;
   return (
-    <section className="grid gap-4 lg:grid-cols-[1fr_3fr]" aria-label={t('Key figures')}>
+    <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]" aria-label={t('Key figures')}>
       <SalesCard
         label={isToday ? t('Sales today') : t('Sales · {period}', { period })}
         value={money(T.revenue, false)}
@@ -233,7 +233,7 @@ function BranchStrips({ d, loading, signals }: { d?: CompanyDash; loading: boole
               <span className="text-end">{t('Gold (g)')}</span>
               <span />
             </div>
-            <ul className="mt-1 grid gap-1.5">
+            <ul className="mt-1 grid grid-cols-1 gap-1.5">
               {rows.map((b) => {
                 const w = worst(b.branchId);
                 return (
@@ -274,7 +274,7 @@ function Level2({ d }: { d: CompanyDash }) {
   const sw = d.stockWeight;
   const piecesPct = sw.totalWeightMg ? (sw.items.weightMg / sw.totalWeightMg) * 100 : 0;
   return (
-    <div className="grid gap-4 pt-4 xl:grid-cols-[1.4fr_1fr]">
+    <div className="grid gap-4 pt-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <SalesLinePanel
         title={t('Sales: last 14 days')}
         data={d.salesLine}

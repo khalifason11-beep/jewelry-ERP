@@ -138,6 +138,7 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
 - **[INVARIANT]** Cost, inventory value at cost and profit appear for the GM only; the branch manager's dashboard is designed without them.
 - **[OPEN]** The header shows the current **21K sell rate**; a **USD per gram chip** needs an exchange-rate setting entered by the GM. Does the client want it? **Hidden until Q-10 is answered** (D-ux-3).
 - **[OWNER]** Dashboards follow `docs/ux/ANALYSIS.md` as decided (D-ux-*): three levels, level 1 of every home fits 1366×768; an **attention list** (BACKLOG BE-1, pilot set A1, A2, A4, A5, A6, A9, A10, A11, A12, A15, A16) with GM-set thresholds; lists paginate on the server (BE-7).
+- **[BUILT, UI-B]** The GM and branch-manager homes and the attention list (`/api/attention`, D-ui-17…22). **Home sales = the sales made in the period that are still valid**, as in the Sales list and report, so **a void on a later day changes an earlier day's home figure**; the ledger keeps its history, and the tie between the two is tested by **ledger entry date** (D-ui-19). The GM's level 2 shows a 14-day sales line instead of the mockup's branch bars (D-ui-20, owner review).
 
 ## 12. Printing [BUILT]
 

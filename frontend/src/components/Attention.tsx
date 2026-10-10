@@ -68,14 +68,17 @@ export function useSignalText() {
       case 'A4':
         return {
           title: t('Cash count difference at {branch}', { branch }),
-          detail: t('Count of {day}: {amount} against the expected cash', { day: String(p.day ?? ''), amount: `${n('amount') > 0 ? '+' : ''}${money(n('amount'))}` }),
+          detail: t('Count of {day}: {amount} against the expected cash', { day: String(p.day ?? ''), amount: `\u2066${n('amount') > 0 ? '+' : ''}${money(n('amount'))}\u2069` }),
         };
       case 'A5':
         return { title: t('No cash count at {branch} yesterday', { branch }), detail: t('Count the drawer for {day}', { day: String(p.day ?? '') }) };
       case 'A6':
         return {
           title: t('Gold owed to {supplier}', { supplier: L(p.supplier as string | null, p.supplierAr as string | null) || t('Supplier') }),
-          detail: t('{weight} of 24K over {orders} order(s) · oldest {days} days', { weight: grams(n('pureMg24')), orders: n('orders'), days: n('days') }),
+          detail:
+            n('days') > 0
+              ? t('{weight} of 24K over {orders} order(s) · oldest {days} days', { weight: grams(n('pureMg24')), orders: n('orders'), days: n('days') })
+              : t('{weight} of 24K over {orders} order(s) · since today', { weight: grams(n('pureMg24')), orders: n('orders') }),
         };
       case 'A9': {
         const reasons = String(p.reasons ?? '').split(',').filter(Boolean);
@@ -130,7 +133,7 @@ export function SeverityChip({ severity }: { severity: Severity }) {
 export function AttentionLines({ signals, onOpen, tone = 'plain', testId = 'attention-line' }: { signals: Signal[]; onOpen: (s: Signal) => void; tone?: 'plain' | 'panel'; testId?: string }) {
   const text = useSignalText();
   return (
-    <ul className={clsx(tone === 'plain' ? 'divide-y divide-line' : 'grid gap-1.5')}>
+    <ul className={clsx(tone === 'plain' ? 'divide-y divide-line' : 'grid grid-cols-1 gap-1.5')}>
       {signals.map((s) => {
         const { title, detail } = text(s);
         return (

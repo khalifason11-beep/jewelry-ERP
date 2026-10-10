@@ -1685,4 +1685,5 @@ export const AR: Record<string, string> = {
   "Does not match the pieces’ statuses": "غير مطابق لحالات القطع",
   "Online": "متصل",
   "Offline": "غير متصل",
+  "{weight} of 24K over {orders} order(s) · since today": "{weight} عيار 24 في {orders} طلبية · منذ اليوم",
 };

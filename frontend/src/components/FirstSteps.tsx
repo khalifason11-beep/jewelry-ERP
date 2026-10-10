@@ -58,7 +58,7 @@ export function FirstSteps({ status }: { status: SetupStatus }) {
       <div className="mx-1 mb-2 h-1.5 overflow-hidden rounded-full bg-line" aria-hidden>
         <div className="h-full bg-navy" style={{ width: `${(done / status.steps.length) * 100}%` }} />
       </div>
-      <ol className="grid gap-1.5">
+      <ol className="grid grid-cols-1 gap-1.5">
         {status.steps.map((s, i) => (
           <li key={s.key} className="flex items-center gap-4 rounded-row bg-surface px-3 py-2.5" data-testid={`step-${s.key}`} data-done={s.done ? 'true' : 'false'}>
             <span className={clsx('grid size-7 shrink-0 place-items-center rounded-full border text-[13px] font-semibold', s.done ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'border-line-strong text-ink-600')}>

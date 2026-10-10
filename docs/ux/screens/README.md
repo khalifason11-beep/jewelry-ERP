@@ -1,9 +1,10 @@
 # Screens after the latest UI phase
 
-**Current set: POS-FIXES** (LOCK-1, SEC-2, FIX-2, FIX-1, REM-4), taken in the POS-FIXES docs commit. Changed screens
-shown at all three sizes in both languages: the sale detail (bank reference), Cash (bank-transfer sales), Transfers
-(courier, no other start point), Inventory (no card view), Settings (void amount). The POS itself is the cashier's
-home (`26-cashier-home-pos`). Screens are not restyled: UI-B and UI-C do that.
+**Current set: UI-B** (role homes, the attention list, the shell's attention control), taken in the UI-B docs commit.
+At all three sizes in both languages: the three role homes (the GM home `01-gm-home-company-overview`, the branch
+manager's home `18-bm-home-branch-dashboard`, the cashier's POS `26-cashier-home-pos`, unchanged until UI-C1), the GM's
+view of a branch (`03-gm-branch-detail`) and Settings (Business rules: the two attention thresholds). The
+empty-production homes show the first steps beside the attention list (GM) and the branch manager's zeros.
 Each UI phase replaces this folder with its own "after" set; earlier sets stay in git history
 (`git show <commit>:<path>`, or browse the repository on GitHub at that commit):
 
@@ -14,6 +15,7 @@ Each UI phase replaces this folder with its own "after" set; earlier sets stay i
 | UI-A1 after (full set) | `36e4e1e` | `docs/ux/baseline-ui-a1/after/` (JPEG) |
 | UI-A1 after (slim WebP) | `b3ddbae` | `docs/ux/screens/` |
 | UI-A2 after | `2988ff5` | `docs/ux/screens/` |
+| POS-FIXES after | `121bb9a` | `docs/ux/screens/` |
 
 Rule (D-ui-10), applied by `scripts/lib/screens.mjs`; `npm run check:assets` enforces at most 4 MB in total,
 150 KB per image, WebP only, no "before" set:
