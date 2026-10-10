@@ -298,6 +298,32 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
       return { saleId: s?.id ?? null, number: s?.number ?? null, at: s?.at ?? null, amount: e.amount, reference: s?.reference ?? null, status: s?.status ?? null };
     })
     .sort((a, z) => (a.at?.getTime() ?? 0) - (z.at?.getTime() ?? 0));
+  // CSH-2 piece A: the drill-down of the day's scrap purchases per account, one row per SCRAP_PURCHASE entry (the same
+  // entries as the SCRAP_PURCHASES line of the drawer and of the bank, so each account's rows add up to its line); a split
+  // purchase shows once under each account with its own part, the bank row with the transfer reference.
+  const scrapEntries = entries.filter((e) => e.type === 'SCRAP_PURCHASE' && (e.kind === 'CASH' || e.kind === 'BANK'));
+  const scrapIds = [...new Set(scrapEntries.filter((e) => e.refType === 'scrap_purchase' && e.refId != null).map((e) => e.refId!))];
+  const scrapRows = scrapIds.length
+    ? await ctx.db
+        .select({ id: t.scrapPurchases.id, number: t.scrapPurchases.number, at: t.scrapPurchases.createdAt, paymentMethod: t.scrapPurchases.paymentMethod, bankReference: t.scrapPurchases.bankReference })
+        .from(t.scrapPurchases)
+        .where(inArray(t.scrapPurchases.id, scrapIds))
+    : [];
+  const scrapById = new Map(scrapRows.map((s) => [s.id, s]));
+  const scrapPurchases = scrapEntries
+    .map((e) => {
+      const s = e.refType === 'scrap_purchase' && e.refId != null ? scrapById.get(e.refId) : undefined;
+      return {
+        scrapPurchaseId: s?.id ?? null,
+        number: s?.number ?? null,
+        at: s?.at ?? null,
+        account: e.kind as 'CASH' | 'BANK',
+        amount: e.amount,
+        paymentMethod: s?.paymentMethod ?? null,
+        reference: e.kind === 'BANK' ? s?.bankReference ?? null : null,
+      };
+    })
+    .sort((a, z) => (a.at?.getTime() ?? 0) - (z.at?.getTime() ?? 0));
   const countedBy = count ? (await ctx.db.select({ name: t.users.fullName }).from(t.users).where(eq(t.users.id, count.countedBy)))[0]?.name ?? null : null;
   return {
     branchId,
@@ -322,6 +348,7 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
     cashLines: reconciliationLines('CASH', entries),
     bankLines: reconciliationLines('BANK', entries),
     bankTransferSales,
+    scrapPurchases,
     cashMovement: cashIn,
     bankMovement: sum((e) => e.kind === 'BANK'),
     expectedCash,

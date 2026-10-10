@@ -1,11 +1,11 @@
 // Scrap gold (Phase 4): buy gold from a customer at today's scrap rate (any karat for broken scrap,
-// only sold karats for a sellable piece), paid in cash or by bank transfer; and the branch's
+// only sold karats for a sellable piece), paid from the drawer, by bank transfer, or part of each (CSH-2); and the branch's
 // broken-scrap pool (raw weight by karat and its 24K equivalent), which settles supplier gold.
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Recycle, Scale } from 'lucide-react';
-import { gramsToMg, valueOfWeight, type ScrapKind, type ScrapPaymentMethod } from '@jerp/shared';
+import { gramsToMg, normalizeBankReference, validBankReference, valueOfWeight, type ScrapKind, type ScrapPaymentMethod } from '@jerp/shared';
 import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, karatLabel, money } from '../../lib/format';
@@ -47,9 +47,30 @@ interface ScrapRow {
   overrideApproved: boolean;
   amount: number;
   paymentMethod: ScrapPaymentMethod;
+  cashAmount: number;
+  bankAmount: number;
+  bankReference: string | null;
   customerName: string | null;
   createdAt: string;
   createdByName: string;
+}
+
+/** Money and references read left to right inside Arabic text (no sign flipping). */
+const ltr = (s: string) => `\u2066${s}\u2069`;
+
+/** CSH-2: how a purchase was paid — Cash, Bank transfer, or both parts — with the transfer reference. */
+function PaidBy({ r }: { r: ScrapRow }) {
+  const { t } = useI18n();
+  const label =
+    r.paymentMethod === 'SPLIT'
+      ? t('Cash {cash} + bank {bank}', { cash: ltr(money(r.cashAmount, false)), bank: ltr(money(r.bankAmount, false)) })
+      : t(r.paymentMethod);
+  return (
+    <span data-testid={`scrap-paid-by-${r.number}`}>
+      {label}
+      {r.bankReference && <span className="block font-mono text-[12px] text-ink-500">{ltr(r.bankReference)}</span>}
+    </span>
+  );
 }
 
 export function ScrapPage() {
@@ -111,7 +132,7 @@ export function ScrapPage() {
             { key: 'agreedRatePerGram', header: t('Price per gram'), align: 'end', render: (r) => <span className="num">{money(r.agreedRatePerGram, false)}</span> },
             { key: 'deviationBp', header: t('vs scrap rate'), align: 'end', render: (r) => <span className="num">{(r.deviationBp / 100).toFixed(2)}%{r.overrideApproved ? ` · ${t('GM')}` : ''}</span> },
             { key: 'amount', header: t('Paid'), align: 'end', render: (r) => <span className="font-medium num">{money(r.amount, false)}</span> },
-            { key: 'paymentMethod', header: t('Paid by'), value: (r) => t(r.paymentMethod), render: (r) => t(r.paymentMethod) },
+            { key: 'paymentMethod', header: t('Paid by'), value: (r) => (r.paymentMethod === 'SPLIT' ? `${t('CASH')} ${r.cashAmount} + ${t('BANK_TRANSFER')} ${r.bankAmount}` : t(r.paymentMethod)) + (r.bankReference ? ` ${r.bankReference}` : ''), render: (r) => <PaidBy r={r} /> },
             { key: 'customerName', header: t('Customer'), render: (r) => r.customerName ?? '—' },
             { key: 'createdByName', header: t('Bought by') },
           ]}
@@ -169,7 +190,10 @@ function BuyForm({ branchId }: { branchId: number }) {
   const [gross, setGross] = useState('');
   const [net, setNet] = useState('');
   const [agreed, setAgreed] = useState('');
-  const [payment, setPayment] = useState<ScrapPaymentMethod>('CASH');
+  // CSH-2: the cash part is typed (empty = all in cash); the bank part fills itself with the rest unless edited.
+  const [cashPart, setCashPart] = useState('');
+  const [bankPart, setBankPart] = useState<string | null>(null);
+  const [bankRef, setBankRef] = useState('');
   const [productId, setProductId] = useState<number | ''>('');
   const [sellingPrice, setSellingPrice] = useState('');
   const [customerName, setCustomerName] = useState('');
@@ -187,9 +211,13 @@ function BuyForm({ branchId }: { branchId: number }) {
   const tolerance = rates.data?.tolerancePct ?? 0;
   const beyond = rate > 0 && deviationPct > tolerance;
   const needsGm = beyond && !!rates.data?.requireGmApproval && !can('scrap.override');
+  const cash = cashPart === '' ? amount : Math.max(0, Math.floor(Number(cashPart)));
+  const bank = bankPart == null ? Math.max(0, amount - cash) : Math.max(0, Math.floor(Number(bankPart)));
+  const partsOk = amount > 0 && cash + bank === amount;
+  const refOk = bank === 0 || !!validBankReference(bankRef);
   const piecesProducts = useMemo(() => products.data?.filter((p) => p.karat === karat) ?? [], [products.data, karat]);
   const valid =
-    karat !== '' && rate > 0 && netMg > 0 && (!gross || gramsToMg(gross) >= netMg) && agreedRate > 0 && !needsGm &&
+    karat !== '' && rate > 0 && netMg > 0 && (!gross || gramsToMg(gross) >= netMg) && agreedRate > 0 && !needsGm && partsOk && refOk &&
     (kind === 'BROKEN' || (productId !== '' && Number(sellingPrice) > 0));
 
   const reset = () => {
@@ -202,6 +230,9 @@ function BuyForm({ branchId }: { branchId: number }) {
     setCustomerPhone('');
     setCustomerIdRef('');
     setNote('');
+    setCashPart('');
+    setBankPart(null);
+    setBankRef('');
   };
   const m = useMutation({
     mutationFn: () =>
@@ -214,7 +245,9 @@ function BuyForm({ branchId }: { branchId: number }) {
           grossWeightMg: gross ? gramsToMg(gross) : netMg,
           netWeightMg: netMg,
           agreedRatePerGram: agreed ? Number(agreed) : undefined,
-          paymentMethod: payment,
+          cashAmount: cash,
+          bankAmount: bank,
+          ...(bank > 0 ? { bankReference: validBankReference(bankRef) ?? bankRef } : {}),
           ...(kind === 'SELLABLE' ? { productId, sellingPrice: Number(sellingPrice) } : {}),
           customerName: customerName.trim() || undefined,
           customerPhone: customerPhone.trim() || undefined,
@@ -237,7 +270,7 @@ function BuyForm({ branchId }: { branchId: number }) {
 
   return (
     <Card padded={false}>
-      <CardHeader title={t('Buy scrap from a customer')} subtitle={t('The customer is paid now, from the drawer or by bank transfer.')} />
+      <CardHeader title={t('Buy scrap from a customer')} subtitle={t('The customer is paid now: from the drawer, by bank transfer, or part of each.')} />
       <div className="space-y-4 p-5">
         <div className="flex rounded-md border border-line-strong p-0.5 sm:w-fit" role="radiogroup" aria-label={t('Type')}>
           {(['BROKEN', 'SELLABLE'] as const).map((k) => (
@@ -269,6 +302,7 @@ function BuyForm({ branchId }: { branchId: number }) {
                 }}
                 className="num"
                 aria-label={t('Karat')}
+                data-testid="scrap-karat-any"
               />
             ) : (
               <Select value={karat} onChange={(e) => { setKarat(e.target.value ? Number(e.target.value) : ''); setAgreed(''); setProductId(''); }} data-testid="scrap-karat">
@@ -282,12 +316,6 @@ function BuyForm({ branchId }: { branchId: number }) {
           </Field>
           <Field label={t('Net weight (g)')}>
             <Input type="number" min={0} step="0.001" value={net} onChange={(e) => setNet(e.target.value)} className="num" data-testid="scrap-net" />
-          </Field>
-          <Field label={t('Paid by')}>
-            <Select value={payment} onChange={(e) => setPayment(e.target.value as ScrapPaymentMethod)}>
-              <option value="CASH">{t('CASH')}</option>
-              <option value="BANK_TRANSFER">{t('BANK_TRANSFER')}</option>
-            </Select>
           </Field>
           <Field label={t('Today’s scrap rate')} hint={karat !== '' && !rate ? t('No scrap buying rate is set for this karat') : undefined}>
             <Input value={rate ? money(rate, false) : '—'} readOnly className="num bg-canvas" />
@@ -333,6 +361,35 @@ function BuyForm({ branchId }: { branchId: number }) {
             <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
           </Field>
         </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="scrap-payment">
+          <Field label={t('Paid from the drawer')} hint={t('Leave empty to pay it all in cash')}>
+            <Input
+              type="number"
+              min={0}
+              step={1}
+              value={cashPart}
+              placeholder={amount ? String(amount) : ''}
+              onChange={(e) => { setCashPart(e.target.value); setBankPart(null); }}
+              className="num"
+              data-testid="scrap-cash-part"
+            />
+          </Field>
+          <Field label={t('Paid by bank transfer')} hint={bankPart == null ? t('The rest of the amount') : undefined}>
+            <Input type="number" min={0} step={1} value={bankPart ?? String(bank)} onChange={(e) => setBankPart(e.target.value)} className="num" data-testid="scrap-bank-part" />
+          </Field>
+          {bank > 0 && (
+            <Field label={t('Bank transfer reference')} hint={bankRef && !refOk ? t('4 to 40 letters or digits') : bankRef ? ltr(normalizeBankReference(bankRef)) : undefined}>
+              <Input value={bankRef} onChange={(e) => setBankRef(e.target.value)} maxLength={60} className="font-mono" data-testid="scrap-bank-ref" />
+            </Field>
+          )}
+        </div>
+        {amount > 0 && !partsOk && (
+          <Alert tone="warning">
+            <span data-testid="scrap-parts-mismatch">
+              {t('The cash and bank parts must add up to the amount paid ({amount}); they add up to {sum}', { amount: ltr(money(amount, false)), sum: ltr(money(cash + bank, false)) })}
+            </span>
+          </Alert>
+        )}
         {beyond && (
           <Alert tone={needsGm ? 'warning' : 'gold'}>
             {needsGm

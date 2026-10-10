@@ -47,6 +47,8 @@ interface Reconciliation {
   bankLines: ReconciliationLine[];
   /** FIX-2: the day's bank-transfer sales; their amounts add up to the BANK_TRANSFER sales line. */
   bankTransferSales: { saleId: number | null; number: string | null; at: string | null; amount: number; reference: string | null; status: string | null }[];
+  /** CSH-2: the day's scrap purchases, one row per account part; each account's rows add up to its scrap line. */
+  scrapPurchases: { scrapPurchaseId: number | null; number: string | null; at: string | null; account: 'CASH' | 'BANK'; amount: number; paymentMethod: string | null; reference: string | null }[];
   cashMovement: number;
   bankMovement: number;
   expectedCash: number;
@@ -182,7 +184,9 @@ function ReconciliationView({ r, canCount }: { r: Reconciliation; canCount: bool
         </div>
         <div className="grid gap-5">
           <LinesView title={t('Drawer (cash) movements')} lines={r.cashLines} total={r.cashMovement} testId="cash-lines" />
+          <ScrapPurchases rows={r.scrapPurchases} account="CASH" />
           <LinesView title={t('Bank movements')} lines={r.bankLines} total={r.bankMovement} testId="bank-lines" />
+          <ScrapPurchases rows={r.scrapPurchases} account="BANK" />
           <BankTransferSales rows={r.bankTransferSales} />
         </div>
       </div>
@@ -243,6 +247,48 @@ function BankTransferSales({ rows }: { rows: Reconciliation['bankTransferSales']
                 <td className="py-1">{r.at ? time(r.at, lang) : '—'}</td>
                 <td className="py-1 font-mono">{r.reference ?? '—'}</td>
                 <td className="py-1 text-end num">{money(r.amount, false)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+/** CSH-2: the drill-down of the day's scrap purchases paid from one account (a split purchase shows under both). */
+function ScrapPurchases({ rows: all, account }: { rows: Reconciliation['scrapPurchases']; account: 'CASH' | 'BANK' }) {
+  const { t, lang } = useI18n();
+  const [open, setOpen] = useState(false);
+  const rows = all.filter((r) => r.account === account);
+  if (!rows.length) return null;
+  const total = rows.reduce((s, r) => s + r.amount, 0);
+  const id = `scrap-purchases-${account.toLowerCase()}`;
+  return (
+    <div data-testid={id}>
+      <button className="flex items-center gap-1 text-[13px] font-semibold text-ink-700 hover:text-ink" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-testid={`${id}-toggle`}>
+        {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+        {t('Scrap purchases ({n})', { n: rows.length })} · <span className="num">{signed(total)}</span>
+      </button>
+      {open && (
+        <table className="mt-2 w-full text-[12.5px]">
+          <thead>
+            <tr className="text-start text-ink-500">
+              <th className="py-1 text-start font-medium">{t('Number')}</th>
+              <th className="py-1 text-start font-medium">{t('Time')}</th>
+              <th className="py-1 text-start font-medium">{t('Paid by')}</th>
+              {account === 'BANK' && <th className="py-1 text-start font-medium">{t('Reference')}</th>}
+              <th className="py-1 text-end font-medium">{t('Amount')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={`${r.scrapPurchaseId}-${i}`} className="border-t border-line" data-testid="scrap-purchase-row">
+                <td className="py-1 font-mono">{r.number ?? '—'}</td>
+                <td className="py-1">{r.at ? time(r.at, lang) : '—'}</td>
+                <td className="py-1">{r.paymentMethod ? t(r.paymentMethod) : '—'}</td>
+                {account === 'BANK' && <td className="py-1 font-mono">{r.reference ?? '—'}</td>}
+                <td className="py-1 text-end num">{signed(r.amount)}</td>
               </tr>
             ))}
           </tbody>

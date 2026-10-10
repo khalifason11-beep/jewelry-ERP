@@ -67,6 +67,20 @@ describe('split payment', () => {
     expect(listed).toMatchObject({ paymentMethod: 'SPLIT', cashAmount, bankAmount: amount - cashAmount, bankReference: 'TRF 5551' });
   });
 
+  it('the Cash drill-down lists each purchase under each account with its own part, adding up to the line', async () => {
+    const rec = await reconciliation(ctx, bm, { branchId: krt });
+    for (const [account, lines] of [['CASH', rec.cashLines], ['BANK', rec.bankLines]] as const) {
+      const rows = rec.scrapPurchases.filter((x) => x.account === account);
+      expect(rows.reduce((s, x) => s + x.amount, 0), account).toBe(lines.find((l) => l.line === 'SCRAP_PURCHASES')!.amount);
+    }
+    const split = rec.scrapPurchases.filter((x) => x.reference === 'TRF 5551');
+    expect(split).toHaveLength(1);
+    const both = rec.scrapPurchases.filter((x) => x.number === split[0].number);
+    expect(both.map((x) => x.account).sort()).toEqual(['BANK', 'CASH']);
+    expect(both.every((x) => x.paymentMethod === 'SPLIT')).toBe(true);
+    expect(both.find((x) => x.account === 'CASH')!.reference).toBeNull();
+  });
+
   it('a part of 0 posts nothing; the label follows the parts', async () => {
     const amount = await amountFor(2_000);
     const allCash = await buyScrap(ctx, bm, { ...broken(2_000), cashAmount: amount, bankAmount: 0 });

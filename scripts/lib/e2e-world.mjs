@@ -185,6 +185,8 @@ export async function buildSalesWorld(srv, { pieces = 8 } = {}) {
   await gm.must('POST', '/funding/advances', { branchId, account: 'CASH', amount: 2_000_000, reason: '[اختبار] رصيد الدرج' }, { idempotent: true });
   await gm.must('POST', '/funding/advances', { branchId, account: 'BANK', amount: 1_000_000, reason: '[اختبار] تمويل البنك', bankReference: 'E2E-FUND-1' }, { idempotent: true });
   await gm.must('POST', '/purchases', { branchId, supplierId: supplier.id, lines, makingChargePaidFrom: 'CASH' }, { idempotent: true });
+  // CSH-2 piece A: one broken-scrap purchase paid part cash, part bank (2 g × 150,000 = 300,000), for the Cash drill-down.
+  await gm.must('POST', '/scrap-purchases', { branchId, kind: 'BROKEN', karat: 21, grossWeightMg: 2_000, netWeightMg: 2_000, cashAmount: 200_000, bankAmount: 100_000, bankReference: 'E2E-SCR-1' }, { idempotent: true });
   await gm.dispose();
   return { gm: PEOPLE.gm, bm: people.bm, cashier: people.cashier, branchId, typeId: type.id, productId: product.id, supplierId: supplier.id };
 }

@@ -831,6 +831,34 @@ async function main() {
     await waitFor(async () => (await apiGet(page, `/api/inventory/items?branchId=${branchId}&categoryId=${typeId}`)).body.items.length === 2, 'two pieces of the new type', 15_000);
     ok(`a sellable scrap piece is bought with product "${CAT.scrapProduct}" created inline (karat fixed to 21K); filtering stock by the new type finds both pieces`);
 
+    // CSH-2 piece A: broken scrap paid part from the drawer, part by bank transfer (2 g × 95,000 = 190,000; test values).
+    await page.goto(`${origin}/scrap`);
+    await page.click('[data-testid=scrap-kind-BROKEN]');
+    await page.fill('[data-testid=scrap-karat-any]', '21');
+    await page.fill('[data-testid=scrap-net]', '2');
+    await page.fill('[data-testid=scrap-cash-part]', '120000');
+    check((await page.inputValue('[data-testid=scrap-bank-part]')) === '70000', 'the scrap form fills the bank part with the rest of the amount (190,000 − 120,000 = 70,000)');
+    check(await page.getByTestId('scrap-buy').isDisabled(), 'a bank part without its transfer reference cannot be saved');
+    await page.fill('[data-testid=scrap-bank-ref]', 'reh scr ٢');
+    const scrapBefore = (await apiGet(page, '/api/scrap-purchases')).body.length;
+    await page.click('[data-testid=scrap-buy]');
+    await waitFor(async () => (await apiGet(page, '/api/scrap-purchases')).body.length > scrapBefore, 'the split scrap purchase', 15_000);
+    const split = (await apiGet(page, '/api/scrap-purchases')).body.find((x) => x.paymentMethod === 'SPLIT');
+    check(split && split.cashAmount === 120_000 && split.bankAmount === 70_000 && split.bankReference === 'REH SCR 2', `split scrap purchase ${split?.number}: 120,000 from the drawer + 70,000 by bank transfer (reference normalized to "REH SCR 2")`);
+    const paidBy = await page.getByTestId(`scrap-paid-by-${split.number}`).innerText({ timeout: 15_000 });
+    check(/120,000/.test(paidBy) && /70,000/.test(paidBy) && /REH SCR 2/.test(paidBy), `the "Paid by" column shows both parts and the reference ("${paidBy.replace(/\s+/g, ' ')}")`);
+    const recSplit = (await apiGet(page, `/api/cash/reconciliation?branchId=${branchId}`)).body;
+    const scrapLine = (lines) => lines.find((x) => x.line === 'SCRAP_PURCHASES').amount;
+    const partsOf = (account) => recSplit.scrapPurchases.filter((x) => x.account === account).reduce((s, x) => s + x.amount, 0);
+    check(
+      partsOf('CASH') === scrapLine(recSplit.cashLines) && partsOf('BANK') === scrapLine(recSplit.bankLines) && scrapLine(recSplit.bankLines) === -70_000,
+      `Cash: the drawer's scrap line (${scrapLine(recSplit.cashLines)}) counts only the cash parts, the bank's (${scrapLine(recSplit.bankLines)}) only the bank part; each drill-down adds up to its line`,
+    );
+    await page.goto(`${origin}/cash`);
+    await page.click('[data-testid=scrap-purchases-bank-toggle]', { timeout: 15_000 });
+    const bankDrill = await page.getByTestId('scrap-purchases-bank').innerText();
+    check(bankDrill.includes(split.number) && /REH SCR 2/.test(bankDrill), 'the Cash drill-down "Scrap purchases" under the bank lists the purchase with its transfer reference');
+
     await page.evaluate(() => localStorage.setItem('jerp.lang', 'en'));
     await page.goto(`${origin}/catalog`);
     await page.waitForLoadState('networkidle');

@@ -354,6 +354,27 @@ async function main() {
     await page.keyboard.press('Escape');
     await signOut(page);
 
+    section('Scrap paid part cash, part bank (CSH-2): the form and the Cash drill-down');
+    await signIn(page, world.bm);
+    await page.goto(`${BASE}/scrap`);
+    await page.getByTestId('scrap-paid-by-' + (await (await page.request.get(`${BASE}/api/scrap-purchases`)).json()).find((x) => x.paymentMethod === 'SPLIT').number).waitFor({ timeout: 15_000 });
+    ok('the list shows the split purchase in its "Paid by" column');
+    await page.fill('[data-testid=scrap-karat-any]', '21');
+    await page.fill('[data-testid=scrap-net]', '1');
+    check((await page.getByTestId('scrap-bank-ref').count()) === 0 && (await page.inputValue('[data-testid=scrap-bank-part]')) === '0', 'empty cash part: all in cash, bank part 0, no reference asked');
+    await page.fill('[data-testid=scrap-cash-part]', '100000');
+    await page.getByTestId('scrap-bank-ref').waitFor();
+    check((await page.inputValue('[data-testid=scrap-bank-part]')) === '50000' && (await page.getByTestId('scrap-buy').isDisabled()), 'a cash part fills the bank part with the rest and asks for the reference');
+    await page.fill('[data-testid=scrap-bank-part]', '40000');
+    await page.getByTestId('scrap-parts-mismatch').waitFor();
+    ok('parts that do not add up to the amount are said inline');
+    await axe(page, 'scrap split form');
+    await page.goto(`${BASE}/cash`);
+    await page.click('[data-testid=scrap-purchases-bank-toggle]', { timeout: 15_000 });
+    check((await page.getByTestId('scrap-purchases-bank').innerText()).includes('E2E-SCR-1'), 'Cash: the bank drill-down "Scrap purchases" lists the bank part with its reference');
+    await axe(page, 'cash scrap drill-down');
+    await signOut(page);
+
     section('Branch manager home: blocks load and fail on their own; no cost (UI-B)');
     await signIn(page, world.bm);
     await page.goto(`${BASE}/dashboard`);
