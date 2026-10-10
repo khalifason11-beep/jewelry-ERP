@@ -262,9 +262,6 @@ describe('English name optional: displays fall back to the Arabic name', () => {
     const moves = (await gm.get(`/api/reports/inventory-ledger?q=${encodeURIComponent(item.code)}`)).body;
     expect(moves.rows.length).toBeGreaterThan(0);
     expect(moves.rows.every((r: { productName: string }) => r.productName === 'كف مشغول')).toBe(true);
-    // Sales by type on the company dashboard: one row per type, with both names.
-    const dash = (await gm.get('/api/dashboard/company')).body;
-    expect(dash.salesByCategory.find((c: { categoryAr: string }) => c.categoryAr === 'كفوف')).toMatchObject({ category: 'كفوف' });
     // Profit by type groups by the type itself and carries the Arabic companion for the report table.
     const profit = (await gm.get('/api/reports/profit?group=category')).body;
     expect(profit.rows.filter((r: { labelAr: string }) => r.labelAr === 'كفوف')).toEqual([expect.objectContaining({ label: 'كفوف', labelAr: 'كفوف' })]);

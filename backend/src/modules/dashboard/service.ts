@@ -152,7 +152,11 @@ function team(staff: Record<string, unknown>[], sellers: Record<string, unknown>
     }));
 }
 
-/** Executive dashboard across all branches. */
+/**
+ * The General Manager's home across all branches (UI-B, D-ui-19/20): the period's totals and branch strips, gold
+ * held (+ in transit), gold owed to suppliers and the 14-day sales line. The old blocks (daily trend per branch,
+ * sales by category, stock by karat, users signed in) left the home; they live in the reports.
+ */
 export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: string; to?: string }) {
   requirePerm(actor, 'dashboard.company', 'scope.all_branches');
   const { company } = await ctx.settings.get();
@@ -169,29 +173,6 @@ export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: strin
 
   const tz = company.timezone;
   const iso = (d: Date) => d.toISOString();
-  const trendR = await ctx.db.execute(sql`
-    SELECT to_char(created_at AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS day, branch_id, coalesce(sum(total),0) AS revenue, coalesce(sum(total-cost_total),0) AS profit
-    FROM sales WHERE status='COMPLETED' AND created_at >= ${iso(period.start)} AND created_at < ${iso(period.end)}
-    GROUP BY 1, 2`);
-  const byDay = new Map<string, Record<string, number>>();
-  for (const r of rows<Record<string, unknown>>(trendR)) {
-    const d = String(r.day);
-    const e = byDay.get(d) ?? {};
-    e[`b${r.branch_id}`] = num(r.revenue);
-    e.total = (e.total ?? 0) + num(r.revenue);
-    e.profit = (e.profit ?? 0) + num(r.profit);
-    byDay.set(d, e);
-  }
-  const invR = await ctx.db.execute(sql`
-    SELECT karat, count(*) AS items, coalesce(sum(net_weight_mg),0) AS weight, coalesce(sum(acquisition_cost),0) AS cost
-    FROM jewelry_items WHERE status = 'AVAILABLE' GROUP BY karat ORDER BY karat`);
-  const catR = await ctx.db.execute(sql`
-    SELECT coalesce(nullif(btrim(c.name), ''), c.name_ar) AS category, c.name_ar AS category_ar, count(*) AS items, coalesce(sum(si.final_price),0) AS revenue, coalesce(sum(si.final_price - si.unit_cost),0) AS profit
-    FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN jewelry_items i ON i.id = si.item_id
-    JOIN products p ON p.id = i.product_id JOIN categories c ON c.id = p.category_id
-    WHERE s.status='COMPLETED' AND s.created_at >= ${iso(period.start)} AND s.created_at < ${iso(period.end)}
-    GROUP BY c.id, c.name, c.name_ar ORDER BY 4 DESC`);
-  const transitR = await ctx.db.execute(sql`SELECT count(*) AS n FROM transfers WHERE status='IN_TRANSIT'`);
   // UI-B (D-ui-19): pieces in transit belong to the company but to no branch: a sub-line of the company's gold.
   const inTransitR = await ctx.db.execute(sql`SELECT count(*) AS items, coalesce(sum(net_weight_mg), 0) AS weight FROM jewelry_items WHERE status = 'TRANSFERRED'`);
   const owedR = await ctx.db.execute(sql`SELECT coalesce(sum(gold_owed_mg_pure24), 0) AS owed, count(*) AS orders FROM purchases WHERE gold_owed_mg_pure24 > 0`);
@@ -205,7 +186,6 @@ export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: strin
   const lineMap = new Map(rows<Record<string, unknown>>(lineR).map((r) => [String(r.day), r]));
   const [inTransit] = rows<Record<string, unknown>>(inTransitR);
   const [owed] = rows<Record<string, unknown>>(owedR);
-  const sessionsR = await ctx.db.execute(sql`SELECT count(*) AS n FROM sessions WHERE status='ACTIVE'`);
 
   return {
     period: { from: period.fromKey, to: period.toKey },
@@ -226,12 +206,5 @@ export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: strin
       discounts: totals.discounts,
     },
     branches: list,
-    trend: eachDay(period.fromKey, period.toKey).map((d) => ({ day: d, ...(byDay.get(d) ?? {}) })),
-    inventoryByKarat: rows<Record<string, unknown>>(invR).map((r) => ({ karat: num(r.karat), items: num(r.items), weightMg: num(r.weight), cost: num(r.cost) })),
-    salesByCategory: rows<Record<string, unknown>>(catR).map((r) => ({ category: String(r.category), categoryAr: String(r.category_ar), items: num(r.items), revenue: num(r.revenue), profit: num(r.profit) })),
-    attention: {
-      transfersInTransit: num(rows<Record<string, unknown>>(transitR)[0]?.n),
-      activeSessions: num(rows<Record<string, unknown>>(sessionsR)[0]?.n),
-    },
   };
 }

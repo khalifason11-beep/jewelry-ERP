@@ -304,6 +304,42 @@ async function checkShell(page, base, who, role, home) {
   await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
 }
 
+/**
+ * UI-B (docs/plans/UI-B.md §4.4): the GM home after real sales. The dark card equals the API for the same period;
+ * level 1 (down to the branch strips) fits the 1366×768 window in Arabic and English; a cash count with a difference
+ * raises A4 and a corrected count clears it.
+ */
+async function homeChecks(page, base, branchId) {
+  for (const lang of ['ar', 'en']) {
+    await page.evaluate((l) => { localStorage.setItem('jerp.lang', l); Object.keys(localStorage).filter((k) => k.startsWith('jerp.home.period')).forEach((k) => localStorage.removeItem(k)); }, lang);
+    await page.goto(`${base}/overview`);
+    await page.getByTestId('home-branch-strip').first().waitFor({ timeout: 15_000 });
+    await page.locator('[data-testid=home-attention-line], [data-testid=attention-none]').first().waitFor({ timeout: 15_000 });
+    const bottom = await page.getByTestId('home-branches').evaluate((e) => e.getBoundingClientRect().bottom + window.scrollY);
+    check(bottom <= 768, `level 1 fits 1366×768 (${lang}): the branch strips end at ${Math.round(bottom)} px`);
+  }
+  await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
+  const today = (await apiGet(page, '/api/dashboard/company')).body.period.to;
+  const api = (await apiGet(page, `/api/dashboard/company?from=${today}&to=${today}`)).body;
+  await page.goto(`${base}/overview`);
+  await waitFor(async () => (await page.getByTestId('home-sales-value').innerText()).replace(/\D/g, '') === String(api.totals.revenue), 'the dark card', 15_000);
+  check(api.totals.revenue > 0 && api.totals.salesCount > 0, `the dark card equals the API for today (${api.totals.revenue}, ${api.totals.salesCount} invoices)`);
+  // A4: a count 35,000 over the expected cash, then a corrected count. A counted amount cannot be negative, so the
+  // check uses a branch whose expected cash is not below zero (the rehearsal's main drawer paid out more than it took).
+  const drawers = (await apiGet(page, '/api/cash/drawer')).body.branches;
+  const target = drawers.filter((b) => b.expectedCash >= 0).sort((a, z) => (a.branchId === branchId ? -1 : 0) - (z.branchId === branchId ? -1 : 0))[0];
+  check(!!target, `a branch drawer to count (${drawers.map((b) => `${b.branchCode} ${b.expectedCash}`).join(', ')})`);
+  const a4 = async () => (await apiGet(page, '/api/attention')).body.signals.filter((x) => x.code === 'A4' && x.branchId === target.branchId);
+  const over = await apiSend(page, 'POST', '/api/cash/counts', { branchId: target.branchId, day: today, countedAmount: target.expectedCash + 35_000 });
+  const raised = await a4();
+  check(over.status === 200 && raised.length === 1 && raised[0].params.amount === 35_000, `a cash count 35,000 over the expected cash raises the A4 line with the difference (${over.status} ${JSON.stringify(raised.map((x) => x.params))})`);
+  await page.goto(`${base}/overview`);
+  await page.locator('[data-testid=home-attention-line][data-code=A4]').waitFor({ timeout: 15_000 });
+  ok('the A4 line shows on the GM home');
+  const fixed = await apiSend(page, 'POST', '/api/cash/counts', { branchId: target.branchId, day: today, countedAmount: target.expectedCash });
+  check(fixed.status === 200 && (await a4()).length === 0, 'a corrected count clears it');
+}
+
 /** Empty screens on a new database (UI-A2): the exact English text, and in Arabic no English text left in the block. */
 async function emptyStates(page, base, who, screens) {
   for (const lang of ['en', 'ar']) {
@@ -448,6 +484,14 @@ async function main() {
     await page.goto(`${origin}/overview`);
     await page.getByTestId('attention-button').waitFor();
     check((await page.locator('[data-testid=backup-banner], [data-testid=second-passkey-nag], [data-testid=uv-preferred-banner]').count()) === 0, 'no backup, one-passkey or touch-only notice anywhere above the page');
+    // UI-B (§4.3): no branch and no staff yet → the home is the first steps and the attention list, nothing else.
+    await page.getByTestId('home-first-run').waitFor({ timeout: 15_000 });
+    await page.locator('[data-testid=home-attention-line][data-code=A9]').waitFor({ timeout: 15_000 });
+    const emptyHome = await page.locator('main').innerText();
+    check(
+      (await page.getByTestId('first-steps').count()) === 1 && (await page.locator('[data-testid=home-figures], [data-testid=home-sales], [data-testid=home-branches]').count()) === 0 && !/—/.test(emptyHome),
+      'empty production database: the GM home is the first steps and the attention list only (backup line in it), no figures and no "—"',
+    );
     // UI-A2 (D-ui-14/15): the General Manager's tagline on the public sign-in page, in the self-hosted Amiri font.
     const TAGLINE = 'ذهب سوداني منذ ١٩٨٠';
     const saveTagline = async (v) => {
@@ -567,6 +611,12 @@ async function main() {
     await page.goto(`${origin}/overview`);
     await page.waitForLoadState('networkidle');
     check((await page.getByTestId('first-steps').count()) === 0 && /190,000/.test(await page.getByTestId('rate-chip').innerText()), 'gold rate set: all four first steps done, the checklist disappears and the rate chip shows the rate');
+    await page.getByTestId('home-sales').waitFor({ timeout: 15_000 });
+    const zeroHome = await page.locator('main').innerText();
+    check(
+      (await page.getByTestId('home-sales-value').innerText()).trim() === '0' && /لا مبيعات بعد في هذه الفترة/.test(zeroHome) && (await page.getByTestId('home-branch-strip').count()) >= 1 && !/—/.test(zeroHome),
+      'branches, no sales: the GM home shows 0 with "No sales yet in this period", the branch strips with zeros, never "—"',
+    );
     await signOut(page);
 
     section('Staff: first sign-in');
@@ -923,10 +973,13 @@ async function main() {
     await page.getByTestId('second-step').waitFor();
     await page.click('[data-testid=use-passkey]');
     await pathIs(page, ['/overview']);
+    const a1 = async () => (await apiGet(page, '/api/attention')).body.signals.filter((x) => x.code === 'A1' && x.branchId === branchB);
+    check((await a1()).length === 1 && (await a1())[0].count >= 1, 'UI-B: the transfer in transit is an attention line (A1) for the receiving branch');
     await page.goto(`${origin}/transfers`);
     await page.getByRole('button', { name: /تأكيد الاستلام|Confirm receipt/ }).first().click({ timeout: 15_000 });
     await waitFor(async () => (await apiGet(page, '/api/transfers')).body.find((x) => x.id === sent.id).status === 'RECEIVED', 'the receipt', 15_000);
     ok('the receipt is confirmed for the receiving branch; the pieces are AVAILABLE there');
+    check((await a1()).length === 0, 'UI-B: the A1 line leaves on receipt');
     await page.click('[data-testid=new-transfer]');
     await page.locator('[role=dialog] select').first().selectOption(String(branchB));
     await page.locator('[role=dialog] select').nth(1).selectOption(String(branchId));
@@ -937,6 +990,9 @@ async function main() {
     await page.click('[data-testid=send-transfer]');
     const gmSent = await (await gmResp).json();
     check(gmSent.status === 'IN_TRANSIT' && gmSent.courierName === 'سائق الشركة', `General Manager: "New transfer" ${gmSent.number} sent with its courier (same rules)`);
+
+    section('UI-B: the General Manager home after the rehearsal sales and transfers');
+    await homeChecks(page, origin, branchId);
 
     section('REM-5: no deprecated schema left');
     const rdb = new pg.Client({ connectionString: dbUrl.toString() });

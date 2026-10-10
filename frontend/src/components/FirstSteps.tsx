@@ -1,6 +1,6 @@
 // First steps on an empty system (REM-3, docs/ux/ANALYSIS.md §8): four steps before the first sale, shown
 // on the General Manager's home until every step is really done (the server derives each one from data).
-// Current design; the restyle comes with UI-A/UI-B.
+// Restyled in UI-B as a home panel (mockup empty-gm-home.html); four steps, not the mockup's three (REM-3 added karats).
 
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -13,7 +13,7 @@ import { useAuth } from '../lib/auth';
 import { karatLabel } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { useToast } from '../lib/toast';
-import { Button, Card, CardHeader, Dialog } from './ui';
+import { Button, Dialog, Panel, PanelHeader } from './ui';
 
 export interface SetupStatus {
   complete: boolean;
@@ -52,15 +52,15 @@ export function FirstSteps({ status }: { status: SetupStatus }) {
     },
   };
   return (
-    <div className="mb-5" data-testid="first-steps">
-    <Card padded={false}>
-      <CardHeader
-        title={t('Welcome. Four steps before the first sale')}
-        subtitle={t('{done} of {total} done', { done, total: status.steps.length })}
-      />
-      <ol className="divide-y divide-line">
+    <div className="mb-4" data-testid="first-steps">
+    <Panel label={t('First steps')}>
+      <PanelHeader title={t('Welcome. Four steps before the first sale')} action={<span className="num">{t('{done} of {total} done', { done, total: status.steps.length })}</span>} />
+      <div className="mx-1 mb-2 h-1.5 overflow-hidden rounded-full bg-line" aria-hidden>
+        <div className="h-full bg-navy" style={{ width: `${(done / status.steps.length) * 100}%` }} />
+      </div>
+      <ol className="grid gap-1.5">
         {status.steps.map((s, i) => (
-          <li key={s.key} className="flex items-center gap-4 px-5 py-3.5" data-testid={`step-${s.key}`} data-done={s.done ? 'true' : 'false'}>
+          <li key={s.key} className="flex items-center gap-4 rounded-row bg-surface px-3 py-2.5" data-testid={`step-${s.key}`} data-done={s.done ? 'true' : 'false'}>
             <span className={clsx('grid size-7 shrink-0 place-items-center rounded-full border text-[13px] font-semibold', s.done ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'border-line-strong text-ink-600')}>
               {s.done ? <CheckCircle2 className="size-4" /> : i + 1}
             </span>
@@ -72,11 +72,11 @@ export function FirstSteps({ status }: { status: SetupStatus }) {
           </li>
         ))}
       </ol>
-      <div className="border-t border-line px-5 py-3 text-[12.5px] text-ink-500">
+      <div className="px-1 pt-3 text-meta text-ink-3">
         {t('Then the branch manager records the first supplier order (types and products can be created on the same screen), and selling can start.')}
       </div>
       {karats && <KaratsDialog current={status.allowedKarats} onClose={() => setKarats(false)} />}
-    </Card>
+    </Panel>
     </div>
   );
 }
