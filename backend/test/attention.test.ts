@@ -191,6 +191,14 @@ describe('A10 / A11 / A12 security', () => {
     expect(of(await list('branch.manager.pzu'), 'A11')).toHaveLength(0);
   });
 
+  it('the old bell endpoint is gone; its failed sign-ins line lives on in A11, a branch manager seeing the own branch (UI-B §3)', async () => {
+    const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
+    expect((await bm.get('/api/notifications')).status).toBe(404);
+    await request(app).post('/api/auth/login').send({ username: 'cashier.kh.01', password: 'wrong-password-2' });
+    const res = await bm.get('/api/attention');
+    expect(res.body.signals.find((x: Signal) => x.code === 'A11')).toMatchObject({ link: '/audit?action=LOGIN_FAILED' });
+  });
+
   it('A12 temporarily locked accounts, own branch for a manager; a security-locked one is left to the shell notice', async () => {
     await ctx.db.update(t.users).set({ lockedUntil: new Date(Date.now() + 3_600_000) }).where(eq(t.users.username, 'cashier.pzu.01'));
     expect(of(await list('branch.manager.pzu'), 'A12')[0]?.count).toBe(1);

@@ -1,17 +1,18 @@
-// Shell notice area (UI-A2, D-ui-13): every security and system notice in one compact place between the top bar
-// and the page, on every screen. One line per notice; at most two lines show, the others fold into "+ N more",
-// which expands in place. Nothing can be dismissed while its cause remains: a notice leaves only when the person
-// acts (It was me / This wasn't me) or the cause is fixed (a second passkey, a successful backup, a setting).
+// Shell notice area (UI-A2, D-ui-13; narrowed in UI-B, D-ui-18): only what must interrupt, between the top bar and
+// the page, on every screen: the security-locked accounts, the new-sign-in "Was this you?" alert and the second factor
+// switched off for the General Manager. The minor notices (backups, touch-only keys, only one passkey) moved into the
+// attention list (`components/Attention.tsx`), whose top-bar count shows on every page. One line per notice; at most
+// two lines show, the others fold into "+ N more", which expands in place. Nothing can be dismissed while its cause
+// remains: a notice leaves only when the person acts (It was me / This wasn't me) or the cause is fixed.
 // Order (LOCK-1, D-lock-1): the security-locked accounts first (managers), then the new-sign-in alert (its "This
 // wasn't me" can security-lock the account, D-2fa-13), both at the strongest level and never cut; then the other
 // critical notices, then warnings, then information. Meaning colours as in R6.
 
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ChevronDown, ChevronUp, DatabaseBackup, Lock, ShieldAlert, Smartphone } from 'lucide-react';
-import { ApiError, errorText, get, post } from '../../lib/api';
+import { ChevronDown, ChevronUp, Lock, ShieldAlert } from 'lucide-react';
+import { ApiError, errorText, post } from '../../lib/api';
 import { markAccountLocked, useAuth } from '../../lib/auth';
 import { dateTime, deviceText } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
@@ -33,22 +34,11 @@ export interface Notice {
 export const VISIBLE_NOTICES = 2;
 const ORDER: Record<Level, number> = { lock: 0, critical: 1, warning: 2, info: 3 };
 
-interface BackupStatus {
-  status: 'OK' | 'WARNING';
-  backupAgeHours: number | null;
-  verifyAgeHours: number | null;
-  reasons: ('BACKUP_NEVER' | 'BACKUP_STALE' | 'VERIFY_NEVER' | 'VERIFY_STALE')[];
-  maxAgeHours: number;
-  maxVerifyAgeDays: number;
-}
-
 /** The notices that apply to the signed-in person right now (also used for the dot on the avatar). */
 export function useNotices(onNotMe: () => void, onItWasMe: () => void): Notice[] {
   const { me, can } = useAuth();
   const { t, lang } = useI18n();
   const navigate = useNavigate();
-  // Backups (GM, D-2c-6): ages and status only.
-  const backup = useQuery({ queryKey: ['backup-status'], queryFn: () => get<BackupStatus>('/backups/status'), enabled: !!me && can('backups.view'), refetchInterval: 300_000 });
   if (!me) return [];
   const sf = me.secondFactor;
   const isGm = can('settings.manage');
@@ -109,52 +99,6 @@ export function useNotices(onNotMe: () => void, onItWasMe: () => void): Notice[]
   if (isGm && me.appMode !== 'demo' && !sf.requiredRoles.includes('GENERAL_MANAGER')) {
     const plain = t('The second factor is OFF for the General Manager: a stolen password alone opens this account (Settings › Second factor).');
     out.push({ id: 'enforcement-off', level: 'critical', icon: <ShieldAlert className="size-4" />, plain, text: plain, testId: 'enforcement-off-banner' });
-  }
-  const b = backup.data;
-  // Demo databases are disposable: no notice until a backup has ever been made there (D-2c-6).
-  if (b && b.status !== 'OK' && !(me.appMode === 'demo' && b.reasons.every((r) => r.endsWith('_NEVER')))) {
-    const lines = b.reasons.map((r) =>
-      r === 'BACKUP_NEVER'
-        ? t('No successful backup has been recorded.')
-        : r === 'BACKUP_STALE'
-          ? t('The last successful backup is {hours} hours old (limit: {max} hours).', { hours: Math.floor(b.backupAgeHours ?? 0), max: b.maxAgeHours })
-          : r === 'VERIFY_NEVER'
-            ? t('No restore drill has succeeded yet.')
-            : t('The last successful restore drill is {days} days old (limit: {max} days).', { days: Math.floor((b.verifyAgeHours ?? 0) / 24), max: b.maxVerifyAgeDays }),
-    );
-    const plain = `${t('Backups need attention')}: ${lines.join(' ')}`;
-    out.push({
-      id: 'backup',
-      level: 'warning',
-      icon: <DatabaseBackup className="size-4" />,
-      plain,
-      text: (
-        <>
-          <span className="font-semibold">{t('Backups need attention')}</span> · {lines.join(' ')}
-        </>
-      ),
-      testId: 'backup-banner',
-    });
-  }
-  if (isGm && sf.userVerification === 'preferred') {
-    const plain = t('Touch-only security keys are accepted: a passkey does not have to check a fingerprint, face or PIN (Settings › Second factor).');
-    out.push({ id: 'uv-preferred', level: 'warning', icon: <ShieldAlert className="size-4" />, plain, text: plain, testId: 'uv-preferred-banner' });
-  }
-  if (sf.passkeys === 1 && sf.required) {
-    const plain = t('You have only one passkey. Register a second device (your phone is ideal) so a lost or broken computer does not lock you out.');
-    out.push({
-      id: 'second-passkey',
-      level: 'info',
-      icon: <Smartphone className="size-4" />,
-      plain,
-      text: plain,
-      action: (
-        <button className="shrink-0 font-medium underline underline-offset-2" onClick={() => navigate('/security')}>
-          {t('Add a device')}
-        </button>
-      ),
-      testId: 'second-passkey-nag',
-    });
   }
   return out.sort((a, z) => ORDER[a.level] - ORDER[z.level]);
 }

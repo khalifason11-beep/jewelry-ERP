@@ -45,7 +45,6 @@ import { runIdempotent } from './core/idempotency';
 import { log } from './core/logger';
 import { defineRoutes } from './core/guard';
 import { costRedaction } from './core/cost-redaction';
-import { notificationsFor } from './modules/notifications/service';
 
 // ───────── shared validators ─────────
 /** 1 trillion SDG: far above any real amount, far below JS/bigint limits. */
@@ -673,7 +672,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   });
   route('POST', '/transfers/:id/receive', async (req, res) => res.json(await transfers.receiveTransfer(ctx, actorOf(req), parse(zId, req.params.id))));
 
-  // ─────────── dashboards, reports, audit, notifications ───────────
+  // ─────────── dashboards, reports, audit, attention ───────────
   route('GET', '/dashboard/branch', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId, date: zDay.optional() }).strict(), req.query);
     res.json(await dashboard.branchDashboard(ctx, actorOf(req), q));
@@ -708,7 +707,6 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     const data = await reports.listAudit(ctx, actorOf(req), q);
     res.json(data.map(({ sessionId, ...a }) => ({ ...a, sessionRef: sessionId ? sessions.sessionRef(sessionId) : null })));
   });
-  route('GET', '/notifications', async (req, res) => res.json(await notificationsFor(ctx, actorOf(req))));
 
   // First steps on an empty system (REM-3).
   route('GET', '/setup/status', async (req, res) => res.json(await setup.setupStatus(ctx, actorOf(req))));

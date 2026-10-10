@@ -110,7 +110,6 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /health': ['/health'],
       'GET /branding/logo': [], // binary image, not JSON
       'GET /auth/me': ['/auth/me'],
-      'GET /notifications': ['/notifications'],
       'GET /branches': ['/branches'],
       'GET /branches/directory': ['/branches/directory'],
       'GET /categories': ['/categories'],

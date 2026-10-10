@@ -379,11 +379,11 @@ describe('sessions: timeouts and rotation', () => {
     const s = await sessionOf(cashier);
     const old = new Date(Date.now() - 10 * 60_000);
     await ctx.db.update(t.sessions).set({ lastActivityAt: old }).where(eq(t.sessions.id, s.id));
-    await cashier.get('/api/notifications').set('x-client-idle-ms', String(10 * 60_000));
+    await cashier.get('/api/gold-rates').set('x-client-idle-ms', String(10 * 60_000));
     const [after] = await ctx.db.select().from(t.sessions).where(eq(t.sessions.id, s.id));
     expect(Math.abs(after.lastActivityAt.getTime() - old.getTime())).toBeLessThan(20_000);
     // Real input moves it forward.
-    await cashier.get('/api/notifications').set('x-client-idle-ms', '500');
+    await cashier.get('/api/gold-rates').set('x-client-idle-ms', '500');
     const [touched] = await ctx.db.select().from(t.sessions).where(eq(t.sessions.id, s.id));
     expect(Date.now() - touched.lastActivityAt.getTime()).toBeLessThan(5_000);
   });

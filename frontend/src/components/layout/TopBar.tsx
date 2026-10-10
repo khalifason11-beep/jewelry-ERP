@@ -1,14 +1,15 @@
 // Top bar (UI-A1, mockup `.top`): 44 px, no bar background. Start side: the rate chip (navy pill with the gold dot).
-// End side: the Demo badge (demo mode only), the notification bell (kept until UI-B's attention list), the language
-// pill and the avatar menu. No clock (owner answer Q4). Shows the public selling rate only: no cost or profit figure.
+// End side: the Demo badge (demo mode only), the attention control (UI-B; it replaced the bell), the language pill
+// and the avatar menu. No clock (owner answer Q4). Shows the public selling rate only: no cost or profit figure.
 
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Bell, ClipboardList, Fingerprint, LogOut } from 'lucide-react';
-import { get, translateParams } from '../../lib/api';
-import { useAuth } from '../../lib/auth';
+import { CircleAlert, ClipboardList, Fingerprint, LogOut } from 'lucide-react';
+import { get } from '../../lib/api';
+import { homePath, useAuth } from '../../lib/auth';
+import { AttentionLines, topSeverity, urgentCount, useAttention } from '../Attention';
 import { deviceText, money, relative } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { useNotices } from './Notices';
@@ -52,60 +53,84 @@ export function RateChip() {
   );
 }
 
-interface Notif {
-  id: string;
-  kind: string;
-  /** Translation keys filled with `params`. */
-  title: string;
-  body: string;
-  params?: Record<string, string | number>;
-  link: string;
-  at: string;
-  severity: 'info' | 'warning';
-}
-
-function Notifications() {
+/**
+ * The attention control (UI-B §3, D-ui-18), in the bell's old place: the badge counts the warning and critical lines
+ * of `/api/attention` and takes the colour of the highest one (a missing or old backup is critical for the GM, so it
+ * shows on every page). The popover lists up to five lines, then "Open the list on my home". On the home itself the
+ * list is on the page, so the control only shows the count and scrolls to it. A cashier has no control (D-ux-14).
+ */
+function AttentionControl() {
   const { t } = useI18n();
+  const { me, can } = useAuth();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [open, setOpen] = useState(false);
   const ref = useClickOutside(() => setOpen(false));
-  const q = useQuery({ queryKey: ['notifications'], queryFn: () => get<Notif[]>('/notifications'), refetchInterval: 30_000 });
-  const items = q.data ?? [];
+  const q = useAttention();
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [open]);
+  if (!me || !(can('dashboard.company') || can('dashboard.branch'))) return null;
+  const home = homePath(me);
+  const onHome = pathname === home;
+  const urgent = urgentCount(q.data);
+  const top = topSeverity(q.data);
+  const signals = q.data?.signals ?? [];
+  const label = urgent ? t('Needs attention: {n} items', { n: urgent }) : t('Needs attention');
   return (
     <div className="relative" ref={ref}>
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => (onHome ? document.getElementById('attention')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) : setOpen((o) => !o))}
         className="relative grid size-9 place-items-center rounded-full text-ink-2 hover:bg-panel hover:text-ink"
-        aria-label={t('Notifications')}
-        aria-expanded={open}
-        data-testid="notifications"
+        aria-label={label}
+        aria-expanded={onHome ? undefined : open}
+        data-testid="attention-button"
+        data-count={urgent}
+        data-severity={top ?? 'none'}
       >
-        <Bell className="size-[18px]" />
-        {items.length > 0 && <span className="absolute -end-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-navy px-1 text-[10px] font-semibold text-white num">{items.length}</span>}
+        <CircleAlert className="size-[18px]" />
+        {urgent > 0 && (
+          <span
+            className={clsx('absolute -end-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] font-semibold text-white num', top === 'critical' ? 'bg-crit' : 'bg-warn')}
+            data-testid="attention-count"
+          >
+            {urgent}
+          </span>
+        )}
       </button>
-      {open && (
-        <div className="absolute end-0 top-11 z-40 w-[360px] overflow-hidden rounded-card border border-line bg-surface shadow-pop" data-testid="notifications-menu">
-          <div className="border-b border-line px-4 py-2.5 text-[15px] font-semibold">{t('Notifications')}</div>
+      {open && !onHome && (
+        <div className="absolute end-0 top-11 z-40 w-[360px] max-w-[calc(100vw-32px)] overflow-hidden rounded-card border border-line bg-surface shadow-pop" data-testid="attention-menu">
+          <div className="border-b border-line px-4 py-2.5 text-[15px] font-semibold">{t('Needs attention')}</div>
           <div className="scroll-thin max-h-[420px] overflow-y-auto">
-            {items.length === 0 && <div className="px-4 py-8 text-center text-meta text-ink-3">{t('No notifications')}</div>}
-            {items.map((n) => (
-              <button
-                key={n.id}
-                onClick={() => {
+            {q.isError ? (
+              <div className="px-4 py-6 text-center text-meta text-crit" role="alert" data-testid="attention-error">{t('The list could not be loaded. It retries by itself.')}</div>
+            ) : q.isLoading ? (
+              <div className="px-4 py-6 text-center text-meta text-ink-3">{t('Loading…')}</div>
+            ) : signals.length === 0 ? (
+              <div className="px-4 py-8 text-center text-meta text-ink-3" data-testid="attention-empty">{t('No urgent actions.')}</div>
+            ) : (
+              <AttentionLines
+                signals={signals.slice(0, 5)}
+                onOpen={(s) => {
                   setOpen(false);
-                  navigate(n.link);
+                  navigate(s.link);
                 }}
-                className="flex w-full gap-3 border-b border-line px-4 py-3 text-start last:border-0 hover:bg-panel"
-              >
-                <span className={clsx('mt-1.5 size-2 shrink-0 rounded-full', n.severity === 'warning' ? 'bg-warn' : 'bg-ink-3')} />
-                <span className="min-w-0">
-                  <span className="block text-meta font-medium text-ink">{t(n.title, translateParams(n.params))}</span>
-                  <span className="block truncate text-meta text-ink-3">{t(n.body, translateParams(n.params))}</span>
-                  <span className="mt-0.5 block text-[12px] text-ink-3">{relative(n.at)}</span>
-                </span>
-              </button>
-            ))}
+              />
+            )}
           </div>
+          <button
+            onClick={() => {
+              setOpen(false);
+              navigate(`${home}#attention`);
+            }}
+            className="block w-full border-t border-line px-4 py-2.5 text-start text-meta font-medium text-ink-2 hover:bg-panel hover:text-ink"
+            data-testid="attention-open-home"
+          >
+            {signals.length > 5 ? t('Open the full list on my home ({n})', { n: signals.length }) : t('Open the list on my home')}
+          </button>
         </div>
       )}
     </div>
@@ -184,7 +209,7 @@ export function TopBar({ onLogout }: { onLogout: () => void }) {
           {t('Demo')}
         </span>
       )}
-      <Notifications />
+      <AttentionControl />
       <button
         onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}
         className="inline-flex h-9 items-center rounded-full bg-panel px-3.5 text-meta text-ink-2 hover:text-ink"

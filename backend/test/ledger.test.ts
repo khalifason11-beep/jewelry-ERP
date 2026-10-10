@@ -230,7 +230,7 @@ describe('money events post in the same transaction as the business change', () 
     expect(await ctx.db.select().from(t.rolePermissions).where(sql`permission_code LIKE 'expenses.%'`)).toHaveLength(0);
     const settings = (await gm.get('/api/settings')).body;
     expect(settings.settings.expenses).toBeUndefined();
-    for (const path of ['/api/dashboard/company', '/api/notifications', '/api/reports/branch-performance', '/api/reports/profit']) {
+    for (const path of ['/api/dashboard/company', '/api/attention', '/api/reports/branch-performance', '/api/reports/profit']) {
       const res = await gm.get(path);
       expect(res.status, path).toBe(200);
       expect(JSON.stringify(res.body), path).not.toMatch(/expense|contribution/i);

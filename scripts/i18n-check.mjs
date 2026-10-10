@@ -173,7 +173,6 @@ for (const file of BACKEND_DIRS.flatMap((d) => walk(d, ['.ts']))) {
     for (const m of src.matchAll(/\b(?:title|description):\s*'((?:[^'\\]|\\.)+)'/g)) addKey(m[1].replace(/\\'/g, "'"), rel);
     for (const m of src.matchAll(/notes:\s*\[([^\]]+)\]/g)) for (const n of m[1].matchAll(/'((?:[^'\\]|\\.)+)'/g)) addKey(n[1].replace(/\\'/g, "'"), rel);
   }
-  if (rel.endsWith('notifications/service.ts')) for (const m of src.matchAll(/\b(?:title|body):\s*'([^']+)'/g)) addKey(m[1], rel);
 }
 for (const k of ['Authentication required', 'You do not have permission to perform this action', 'Unexpected server error', 'Unknown API endpoint']) addKey(k, 'backend defaults');
 

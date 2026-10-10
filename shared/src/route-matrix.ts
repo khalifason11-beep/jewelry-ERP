@@ -82,7 +82,6 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   // Second-factor policy (user verification, required roles): password + passkey step-up.
   r('PUT', '/security/second-factor', 'global', { all: ['settings.manage'], reauth: true }),
   r('POST', '/sessions/heartbeat', 'self'),
-  r('GET', '/notifications', 'self'),
   // A screen that crashed in the browser (UI-A2 crash page): reference id + details, written to the server log only.
   r('POST', '/client-errors', 'self'),
 

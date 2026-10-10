@@ -199,10 +199,11 @@ async function main() {
     await page.keyboard.press('Escape');
     await signOut(page);
 
-    section('Notices: two lines, the security alert first, nothing dismissible');
+    section('Notices: only what must interrupt stays above the page; the rest is in the attention list (UI-B)');
     await signIn(page, world.gm);
-    // Force every notice at once by rewriting the browser's copy of /api/auth/me (the server is untouched). In
-    // production mode a database that never had a backup also shows the backup notice.
+    // Force every cause at once by rewriting the browser's copies of /api/auth/me and /api/attention (the server is
+    // untouched): above the page only the security lock, "Was this you?" and second-factor-off remain (UI-A2 rules);
+    // the backup, touch-only and one-passkey causes are lines of the attention list (D-ui-18, owner condition Q2).
     const meRoute = async (route) => {
       const res = await route.fetch();
       const me = await res.json();
@@ -218,14 +219,29 @@ async function main() {
       };
       await route.fulfill({ response: res, json: me });
     };
+    const forced = [
+      { id: 'A9', code: 'A9', severity: 'critical', branchId: null, count: 1, link: '/settings#backups', params: { reasons: 'BACKUP_NEVER', backupAgeHours: null, verifyAgeHours: null, maxAgeHours: 26, maxVerifyAgeDays: 35 }, since: null },
+      { id: 'S2', code: 'S2', severity: 'warning', branchId: null, count: 1, link: '/settings#second-factor', params: {}, since: null },
+      { id: 'S1', code: 'S1', severity: 'info', branchId: null, count: 1, link: '/security', params: {}, since: null },
+    ];
+    const attRoute = async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      const signals = [...forced, ...body.signals.filter((x) => !['A9', 'S1', 'S2'].includes(x.code))];
+      const counts = { critical: 0, warning: 0, info: 0 };
+      for (const x of signals) counts[x.severity]++;
+      await route.fulfill({ response: res, json: { ...body, signals, counts } });
+    };
     const isMe = (url) => new URL(url).pathname === '/api/auth/me';
+    const isAtt = (url) => new URL(url).pathname === '/api/attention';
     await page.route(isMe, meRoute);
+    await page.route(isAtt, attRoute);
     await page.goto(`${BASE}/sales`);
     await page.getByTestId('notices').waitFor();
     const levels = await page.locator('[data-testid=notices] > [data-level]').evaluateAll((els) => els.map((e) => `${e.dataset.testid}:${e.dataset.level}`));
     check(levels.length === 2 && levels[0] === 'security-locked-banner:lock' && levels[1] === 'new-device-alert:lock', `1366×768: two notices shown, the security-locked account first, then the new-sign-in alert (${levels.join(', ')})`);
     const more = await page.getByTestId('notices-more').innerText();
-    check(/\+ 4 more notices/.test(more), `the others fold into "${more.trim()}"`);
+    check(/\+ 1 more notices/.test(more), `the third folds into "${more.trim()}"`);
     check(/cashier\.locked/.test(await page.getByTestId('security-locked-banner').innerText()), 'LOCK-1: the managers\' notice names the locked account');
     const alertBox = await page.getByTestId('new-device-alert').evaluate((e) => ({ outline: getComputedStyle(e).boxShadow, bg: getComputedStyle(e).backgroundColor }));
     check(/rgb/.test(alertBox.outline) && (await page.getByTestId('it-was-me').count()) === 1 && (await page.getByTestId('not-me').count()) === 1, 'the new-sign-in alert is the most prominent (ringed, red) with "It was me" / "This wasn’t me"');
@@ -233,10 +249,43 @@ async function main() {
     await axe(page, 'notices folded');
     await page.getByTestId('notices-more').click();
     const all = await page.locator('[data-testid=notices] > [data-level]').evaluateAll((els) => els.map((e) => e.dataset.testid));
-    check(all.join(',') === 'security-locked-banner,new-device-alert,enforcement-off-banner,backup-banner,uv-preferred-banner,second-passkey-nag', `"+ more" expands in place, in order: ${all.join(', ')}`);
+    check(all.join(',') === 'security-locked-banner,new-device-alert,enforcement-off-banner', `"+ more" expands in place, in order: lock, new sign-in, then critical (${all.join(', ')})`);
+    check((await page.locator('[data-testid=backup-banner], [data-testid=uv-preferred-banner], [data-testid=second-passkey-nag]').count()) === 0, 'the backup, touch-only and one-passkey notices are not above the page');
     check((await page.getByTestId('notice-dot').count()) === 1, 'the avatar dot is on');
     await axe(page, 'notices expanded');
+    // The attention control: the count of warning and critical lines, in the colour of the highest (critical here).
+    const btn = page.getByTestId('attention-button');
+    await page.waitForFunction(() => document.querySelector('[data-testid=attention-button]')?.getAttribute('data-severity') === 'critical', null, { timeout: 15_000 });
+    const n = Number(await page.getByTestId('attention-count').innerText());
+    check(n >= 2 && /\bbg-crit\b/.test((await page.getByTestId('attention-count').getAttribute('class')) ?? ''), `the attention count (${n}) counts the critical backup and the touch-only warning, in the critical colour`);
+    await btn.click();
+    await page.getByTestId('attention-menu').waitFor();
+    const lines = await page.locator('[data-testid=attention-menu] [data-testid=attention-line]').evaluateAll((els) => els.map((e) => `${e.dataset.code}:${e.dataset.severity}`));
+    check(lines[0] === 'A9:critical' && lines.includes('S2:warning') && lines.includes('S1:info') && lines.length <= 5, `the attention list: the backup first (critical), then touch-only keys and only one passkey, at most 5 lines (${lines.join(', ')})`);
+    const menuText = await page.getByTestId('attention-menu').innerText();
+    check(/Backups need attention/.test(menuText) && /only one passkey/.test(menuText) && /Touch-only security keys/.test(menuText), 'each line says what is wrong');
+    check((await page.getByTestId('attention-open-home').count()) === 1, '"Open the list on my home" closes the list');
+    await axe(page, 'attention list');
+    await page.locator('[data-testid=attention-menu] [data-code=A9]').click();
+    await page.waitForURL(/\/settings/);
+    ok('the backup line opens Settings (the screen that fixes it)');
+    await page.unroute(isAtt, attRoute);
+    // A failed /attention: the list says so; the rest of the page still works.
+    const offAtt = await intercept(page, '/api/attention', { status: 500 });
+    await page.goto(`${BASE}/sales`);
+    await page.locator('main table tbody tr, main [data-state]').first().waitFor({ timeout: 15_000 });
+    await page.getByTestId('attention-button').click();
+    await page.getByTestId('attention-error').waitFor({ timeout: 20_000 });
+    check((await page.locator('main table tbody tr').count()) > 0, 'a failed attention list shows an error in its panel; the page itself still renders');
+    await axe(page, 'attention error');
+    await offAtt();
+    await page.keyboard.press('Escape');
     await page.unroute(isMe, meRoute);
+    await signOut(page);
+
+    section('Cashier: no attention control');
+    await signIn(page, world.cashier);
+    check((await page.getByTestId('attention-button').count()) === 0, 'the cashier\'s top bar has no attention control (D-ux-14)');
     await signOut(page);
 
     section('Lists: filters stay, errors are errors (General Manager)');

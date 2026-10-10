@@ -258,10 +258,13 @@ const SHELL_NAV = {
 const COST_WORDS = /cost|profit|margin|تكلفة|التكلفة|ربح|أرباح|الربح|هامش/i;
 /** A money figure: thousands separators or two or more decimals (the IP address and small counts are not). */
 const MONEY_FIGURE = /\d{1,3}(?:[,٬]\d{3})+|\d+[.٫]\d{2,}/;
+/** A weight such as "12.345 g" / "12.345 جم" (grams of gold are not money). */
+const WEIGHT_FIGURE = /\d[\d,٬]*[.٫]\d{3}\s*(?:g|جم)/g;
 /**
  * The app shell for one role: the sidebar items in order, and (for the branch manager and the cashier) no cost or
- * profit word or figure anywhere in the sidebar and the top bar — the opened user menu and notifications included —
- * in both languages. The rate chip shows the public selling rate and is the only figure allowed.
+ * profit word or figure anywhere in the sidebar and the top bar — the opened user menu and the attention control's
+ * list included (UI-B: it replaced the bell) — in both languages. The rate chip shows the public selling rate and is
+ * the only money figure allowed. A cashier has no attention control (D-ux-14).
  */
 async function checkShell(page, base, who, role, home) {
   await page.goto(`${base}${home}`);
@@ -280,12 +283,22 @@ async function checkShell(page, base, who, role, home) {
     await page.waitForLoadState('networkidle');
     await page.getByTestId('user-menu').click();
     const userMenu = await page.getByTestId('topbar').innerText();
-    await page.getByTestId('notifications').click();
-    await page.getByTestId('notifications-menu').waitFor();
+    if (role === 'cashier') {
+      check((await page.getByTestId('attention-button').count()) === 0, `${who} (${lang}): no attention control in the cashier's shell`);
+    } else {
+      // On the home the control only shows the count (the list is on the page); its list opens on any other page.
+      await page.goto(`${base}/sales`);
+      await page.waitForLoadState('networkidle');
+      await page.getByTestId('attention-button').click();
+      await page.getByTestId('attention-menu').waitFor();
+      await page.locator('[data-testid=attention-menu] [data-testid=attention-line], [data-testid=attention-empty]').first().waitFor({ timeout: 15_000 });
+      const codes = await page.locator('[data-testid=attention-menu] [data-testid=attention-line]').evaluateAll((els) => els.map((e) => e.dataset.code));
+      check(!codes.some((c) => ['A9', 'A10', 'A16', 'S2'].includes(c)), `${who} (${lang}): the attention list has no company or General Manager line (${codes.join(', ') || 'empty'})`);
+    }
     const shell = [await page.getByTestId('sidebar').innerText(), userMenu, await page.getByTestId('topbar').innerText()].join('\n');
     const rate = await page.getByTestId('rate-chip').innerText();
-    const rest = shell.split(rate).join(' ');
-    check(!COST_WORDS.test(shell) && !MONEY_FIGURE.test(rest), `${who} (${lang}): no cost or profit word or figure in the sidebar, top bar, user menu or notifications`);
+    const rest = shell.split(rate).join(' ').replace(WEIGHT_FIGURE, ' ');
+    check(!COST_WORDS.test(shell) && !MONEY_FIGURE.test(rest), `${who} (${lang}): no cost or profit word or money figure in the sidebar, top bar, user menu or attention list`);
     await page.keyboard.press('Escape');
   }
   await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
@@ -412,23 +425,29 @@ async function main() {
     check(users0.status === 200 && users0.body.length === 1, 'the only user is the General Manager');
     const drawer0 = await apiGet(page, '/api/cash/drawer');
     check(drawer0.status === 200 && drawer0.body.branches.length === 0, 'no ledger accounts with money (no branches, no opening cash)');
-    // UI-A2 (D-ui-13): system notices live in one compact shell area on every screen, not as big banners on the home.
+    // UI-B (D-ui-18, owner condition Q2): the missing backup is a CRITICAL line of the attention list, and the top
+    // bar's count shows it on every page; only the lock, "Was this you?" and second-factor-off notices stay above
+    // the page. The one-passkey reminder is an information line of the same list.
     await page.goto(`${origin}/settings`);
-    await page.getByTestId('backup-banner').waitFor({ timeout: 15_000 });
-    await page.getByTestId('second-passkey-nag').waitFor({ timeout: 15_000 });
-    const noticeRows = await page.locator('[data-testid=notices] > [data-level]').evaluateAll((els) => els.map((e) => ({ id: e.dataset.testid, h: e.getBoundingClientRect().height })));
-    const mainTop = await page.locator('main').evaluate((m) => m.getBoundingClientRect().top);
-    const noticesBottom = await page.getByTestId('notices').evaluate((n) => n.getBoundingClientRect().bottom);
-    check(
-      noticeRows.map((r) => r.id).join(',') === 'backup-banner,second-passkey-nag' && noticeRows.every((r) => r.h <= 48) && noticesBottom >= mainTop,
-      `General Manager on Settings: the backup and one-passkey notices, one line each, above the page (${noticeRows.map((r) => `${r.id} ${Math.round(r.h)}px`).join(', ')})`,
-    );
-    check((await page.getByTestId('notice-dot').count()) === 1, 'the avatar carries a dot while notices are open');
+    await waitFor(async () => (await page.getByTestId('attention-button').getAttribute('data-severity')) === 'critical', 'the attention count turns critical', 15_000);
+    const badge = page.getByTestId('attention-count');
+    check(Number(await badge.innerText()) >= 1 && /\bbg-crit\b/.test((await badge.getAttribute('class')) ?? ''), `General Manager on Settings (not the home): the attention count is critical, in the critical colour (${await badge.innerText()})`);
+    check((await page.locator('[data-testid=notices]').count()) === 0, 'no notice above the page: the backup and one-passkey notices left the shell notice area');
+    check((await page.getByTestId('notice-dot').count()) === 0, 'no dot on the avatar (no open notice)');
+    await page.getByTestId('attention-button').click();
+    await page.getByTestId('attention-menu').waitFor();
+    const gmLines = await page.locator('[data-testid=attention-menu] [data-testid=attention-line]').evaluateAll((els) => els.map((e) => `${e.dataset.code}:${e.dataset.severity}`));
+    check(gmLines.includes('A9:critical') && gmLines.includes('S1:info'), `the attention list holds the backup line (critical) and the one-passkey line (information) (${gmLines.join(', ')})`);
+    await page.keyboard.press('Escape');
     check(!/USD|\$/.test(await page.getByTestId('topbar').innerText()), 'no USD chip in the top bar (D-ux-3, until Q-10)');
+    for (const p of ['/inventory', '/reports']) {
+      await page.goto(`${origin}${p}`);
+      await waitFor(async () => (await page.getByTestId('attention-button').getAttribute('data-severity')) === 'critical', `the critical count on ${p}`, 15_000);
+    }
+    ok('the critical backup count shows on every page for the General Manager (Inventory, Reports)');
     await page.goto(`${origin}/overview`);
-    await page.getByTestId('notices').waitFor();
-    await page.getByTestId('backup-banner').waitFor({ timeout: 15_000 });
-    check((await page.locator('[data-testid=notices] [data-testid=backup-banner]').count()) === 1 && (await page.getByTestId('backup-banner').count()) === 1, 'the backup notice is in the shell notice area, no longer a card on the home');
+    await page.getByTestId('attention-button').waitFor();
+    check((await page.locator('[data-testid=backup-banner], [data-testid=second-passkey-nag], [data-testid=uv-preferred-banner]').count()) === 0, 'no backup, one-passkey or touch-only notice anywhere above the page');
     // UI-A2 (D-ui-14/15): the General Manager's tagline on the public sign-in page, in the self-hosted Amiri font.
     const TAGLINE = 'ذهب سوداني منذ ١٩٨٠';
     const saveTagline = async (v) => {
@@ -585,7 +604,9 @@ async function main() {
     await noExpenseWords(page, origin, ['/dashboard', '/cash', '/reports'], 'branch manager');
     await page.goto(`${origin}/dashboard`);
     await page.waitForLoadState('networkidle');
-    check((await page.locator('[data-testid=backup-banner], [data-testid=uv-preferred-banner], [data-testid=enforcement-off-banner]').count()) === 0, 'branch manager: no backup or General Manager notices');
+    check((await page.locator('[data-testid=enforcement-off-banner]').count()) === 0, 'branch manager: no General Manager notice above the page');
+    const bmAttention = await apiGet(page, '/api/attention');
+    check(bmAttention.status === 200 && !bmAttention.body.signals.some((x) => ['A9', 'A10', 'A16', 'S2'].includes(x.code)), 'branch manager: the attention list has no backup, new-device, rates or touch-only line');
 
     section('REM-2: Hasad only as a payment channel');
     for (const p of ['/api/hasad/withdrawals', '/api/hasad/simulator/customers', '/api/reports/hasad']) {
