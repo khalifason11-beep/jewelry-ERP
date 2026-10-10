@@ -152,7 +152,8 @@ export function DataTable<T>({
               <tr>
                 {columns.map((c) => {
                   const active = sort?.key === c.key;
-                  const canSort = c.sortable !== false;
+                  // An action column has no header text: nothing to sort by, and a nameless sort button would fail axe.
+                  const canSort = c.sortable !== false && c.header !== '';
                   return (
                     <th
                       key={c.key}

@@ -16,6 +16,7 @@ import { useBranches } from '../../lib/hooks';
 import { useActionKeys } from '../../lib/idempotency';
 import { Button, Card, CardHeader, Dialog, Empty, ErrorState, Field, Input, KeyValue, Kpi, Mono, PageHeader, QueryState, Select, SkeletonRows } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
+import { FundingPanel } from './FundingPanel';
 
 interface Drawer {
   asOf: string;
@@ -62,6 +63,9 @@ const LINE_LABEL: Record<string, string> = {
   SCRAP_PURCHASES: tk('Scrap bought from customers'),
   MAKING_CHARGES: tk('Supplier making charges'),
   HASAD_RECEIVABLE_SETTLEMENTS: tk('Hasad transfers received'),
+  // CSH-2: the General Manager's advances into, and repayments out of, the drawer or the bank (D-csh-3).
+  GM_ADVANCES: tk('Advances from the General Manager'),
+  GM_REPAYMENTS: tk('Repayments to the General Manager'),
   OTHER: tk('Other movements'),
 };
 
@@ -85,7 +89,7 @@ export function CashPage() {
       <PageHeader title={t('Cash')} subtitle={t('Expected cash in each drawer, from the branch money ledger, and the daily cash reconciliation.')} />
 
       <Card padded={false} className="mb-5">
-        <CardHeader title={t('Expected cash now')} subtitle={t('Every sale, cancellation, scrap purchase, supplier making charge and Hasad bank transfer moves these balances. Nothing is typed in by hand.')} />
+        <CardHeader title={t('Expected cash now')} subtitle={t('Every sale, cancellation, scrap purchase, supplier making charge, Hasad bank transfer and advance from the General Manager moves these balances. Nothing is typed in by hand.')} />
         <DataTable
           query={drawer}
           rows={drawer.data?.branches ?? []}
@@ -118,6 +122,8 @@ export function CashPage() {
       </Card>
 
       {settling && <HasadSettleDialog row={settling} onClose={() => setSettling(null)} />}
+      {/* CSH-2 (Q10): the General Manager's funding of the branches; nothing of it is shown to a branch manager. */}
+      {can('funding.view') && <FundingPanel branchId={selected} />}
       {selected != null && <HasadTransfers branchId={selected} />}
 
       <Card padded={false}>

@@ -327,6 +327,33 @@ async function main() {
     check(/branchId=/.test(page.url()) && (await page.getByTestId('home-subtitle').innerText()).includes('·'), 'the scope pill turns the home into one branch’s view (/overview?branchId=)');
     await signOut(page);
 
+    section('Cash › Funding from the General Manager (CSH-2): states and the dialog');
+    await signIn(page, world.gm);
+    await page.goto(`${BASE}/cash`);
+    await page.getByTestId('funding-panel').waitFor({ timeout: 15_000 });
+    await page.locator('[data-testid^=owed-]').first().waitFor({ timeout: 15_000 });
+    check((await page.getByTestId('funding-panel').innerText()).includes('E2E-FUND-1'), 'the history lists the opening advances with their bank reference');
+    let offFunding = await intercept(page, '/api/funding', { status: 500 });
+    await page.reload();
+    await page.locator('[data-testid=funding-panel] [data-state=error]').first().waitFor({ timeout: 20_000 });
+    check((await page.locator('main [data-testid=cash-lines], main table').count()) > 0, 'a failed funding load is an error in its own block; the rest of Cash still renders');
+    await axe(page, 'funding error');
+    await offFunding();
+    offFunding = await intercept(page, '/api/funding', { body: { branches: [{ branchId: world.branchId, branchCode: 'X', branchName: 'X', branchNameAr: 'س', owedToGm: 0 }], totalOwedToGm: 0, events: [], hasMore: false, offset: 0 } });
+    await page.reload();
+    await page.getByText('No advances recorded yet').waitFor({ timeout: 15_000 });
+    ok('no event yet: "No advances recorded yet" with what to do');
+    await offFunding();
+    await page.reload();
+    await page.getByTestId('funding-advance').click({ timeout: 15_000 });
+    check((await page.getByTestId('funding-bank-ref').count()) === 0, 'the advance dialog asks for a bank reference only when the money goes to the bank');
+    await page.locator('[data-testid=funding-account] [role=radio]').nth(1).click();
+    await page.getByTestId('funding-bank-ref').waitFor();
+    check(await page.getByTestId('funding-submit').isDisabled(), 'nothing can be saved without branch, amount, reason and reference');
+    await axe(page, 'advance dialog');
+    await page.keyboard.press('Escape');
+    await signOut(page);
+
     section('Branch manager home: blocks load and fail on their own; no cost (UI-B)');
     await signIn(page, world.bm);
     await page.goto(`${BASE}/dashboard`);

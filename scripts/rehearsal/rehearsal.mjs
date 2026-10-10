@@ -324,11 +324,11 @@ async function homeChecks(page, base, branchId) {
   await page.goto(`${base}/overview`);
   await waitFor(async () => (await page.getByTestId('home-sales-value').innerText()).replace(/\D/g, '') === String(api.totals.revenue), 'the dark card', 15_000);
   check(api.totals.revenue > 0 && api.totals.salesCount > 0, `the dark card equals the API for today (${api.totals.revenue}, ${api.totals.salesCount} invoices)`);
-  // A4: a count 35,000 over the expected cash, then a corrected count. A counted amount cannot be negative, so the
-  // check uses a branch whose expected cash is not below zero (the rehearsal's main drawer paid out more than it took).
+  // A4: a count 35,000 over the expected cash, then a corrected count. Since CSH-2 the main branch's drawer is funded,
+  // so the check runs there (a counted amount can never be negative).
   const drawers = (await apiGet(page, '/api/cash/drawer')).body.branches;
   const target = drawers.filter((b) => b.expectedCash >= 0).sort((a, z) => (a.branchId === branchId ? -1 : 0) - (z.branchId === branchId ? -1 : 0))[0];
-  check(!!target, `a branch drawer to count (${drawers.map((b) => `${b.branchCode} ${b.expectedCash}`).join(', ')})`);
+  check(target?.branchId === branchId, `the main branch's drawer is the one counted (${drawers.map((b) => `${b.branchCode} ${b.expectedCash}`).join(', ')})`);
   const a4 = async () => (await apiGet(page, '/api/attention')).body.signals.filter((x) => x.code === 'A4' && x.branchId === target.branchId);
   const over = await apiSend(page, 'POST', '/api/cash/counts', { branchId: target.branchId, day: today, countedAmount: target.expectedCash + 35_000 });
   const raised = await a4();
@@ -346,6 +346,7 @@ async function homeChecks(page, base, branchId) {
  * cost or profit word, and no profit or stock-value figure, in Arabic or English.
  */
 async function bmHomeChecks(page, base, branchId) {
+  await fundingRefused(page, 'branch manager', branchId);
   const api = (await apiGet(page, '/api/dashboard/branch')).body;
   const drawer = (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId);
   const signedDigits = (s) => Number(s.replace(/[^\d−-]/g, '').replace('−', '-'));
@@ -375,6 +376,43 @@ async function bmHomeChecks(page, base, branchId) {
   );
   const attention = (await apiGet(page, '/api/attention')).body.signals;
   check(attention.every((x) => !Object.keys(x.params).some((k) => /cost|profit|price|amountOwed|money/i.test(k))), 'branch manager: no attention line carries a cost, profit or supplier money amount');
+}
+
+/** CSH-2: test amounts of the General Manager's opening advances (never a client figure). */
+const FUND = { cash: 2_000_000, bank: 1_500_000 };
+
+/** Record an advance through Cash › Funding (password re-confirmation as for every money action of the GM). */
+async function fundBranch(page, base, { branchId, account, amount, reason, bankReference, kind = 'advance' }) {
+  await page.goto(`${base}/cash`);
+  await page.getByTestId(kind === 'advance' ? 'funding-advance' : 'funding-repayment').click({ timeout: 15_000 });
+  await page.selectOption('[data-testid=funding-branch]', String(branchId));
+  if (account === 'BANK') await page.locator('[data-testid=funding-account] [role=radio]').nth(1).click();
+  await page.fill('[data-testid=funding-amount]', String(amount));
+  if (bankReference) await page.fill('[data-testid=funding-bank-ref]', bankReference);
+  await page.fill('[data-testid=funding-reason]', reason);
+  const before = (await apiGet(page, '/api/funding')).body.events.length;
+  await page.click('[data-testid=funding-submit]');
+  await confirmIfAsked(page, GM.password);
+  await waitFor(async () => (await apiGet(page, '/api/funding')).body.events.length > before, `the ${kind} recorded`, 15_000);
+  ok(`General Manager: ${kind} of ${amount.toLocaleString('en-US')} ${kind === 'advance' ? 'into' : 'from'} the ${account === 'CASH' ? 'drawer' : 'bank'} recorded from Cash › Funding`);
+}
+
+/** CSH-2: every funding route answers 403 to anyone but the General Manager (D-csh-5). */
+async function fundingRefused(page, who, branchId) {
+  const body = { branchId, account: 'CASH', amount: 1, reason: 'probe' };
+  const codes = [
+    (await apiGet(page, '/api/funding')).status,
+    (await apiSend(page, 'POST', '/api/funding/advances', body)).status,
+    (await apiSend(page, 'POST', '/api/funding/repayments', body)).status,
+    (await apiSend(page, 'POST', '/api/funding/1/correct', { reason: 'probe' })).status,
+  ];
+  check(codes.every((c) => c === 403), `${who}: every funding route answers 403 (${codes.join(', ')})`);
+  // The drawer lines "Advances from / Repayments to the General Manager" stay (without them the drawer would not add
+  // up, SPEC §18.10); what is owed to him, the reasons and the history never show (Q10).
+  await page.goto(`${page.url().split('/').slice(0, 3).join('/')}/cash`).catch(() => {});
+  await page.waitForLoadState('networkidle');
+  const text = await page.locator('main').innerText().catch(() => '');
+  check((await page.getByTestId('funding-panel').count()) === 0 && !/مستحق للمدير العام|Owed to the General Manager/.test(text), `${who}: Cash shows nothing of what is owed to the General Manager`);
 }
 
 /** Empty screens on a new database (UI-A2): the exact English text, and in Arabic no English text left in the block. */
@@ -613,6 +651,17 @@ async function main() {
     const branchId = (await apiGet(page, '/api/branches')).body.find((b) => b.code === BRANCH.code).id;
     const accounts = (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId);
     check(accounts && accounts.expectedCash === 0 && accounts.bank === 0, 'the new branch starts at zero cash and zero bank');
+    // CSH-2 (D-csh-6): the money the General Manager puts in is recorded as advances, through the Cash page, before
+    // anything is paid out. Test values only. This is why the drawer no longer goes negative (it showed −335,000).
+    await fundBranch(page, origin, { branchId, account: 'CASH', amount: FUND.cash, reason: 'رصيد الدرج: سُلّم صباح اليوم' });
+    await fundBranch(page, origin, { branchId, account: 'BANK', amount: FUND.bank, reason: 'تمويل الحساب البنكي للفرع', bankReference: 'reh ١٠٠١' });
+    const funded = (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId);
+    check(funded.expectedCash === FUND.cash && funded.bank === FUND.bank, `the advances moved the drawer (${funded.expectedCash}) and the bank (${funded.bank})`);
+    await page.goto(`${origin}/cash`);
+    const owedText = await page.getByTestId(`owed-${BRANCH.code}`).innerText({ timeout: 15_000 });
+    check(owedText.replace(/\D/g, '') === String(FUND.cash + FUND.bank) && (await page.getByTestId('owed-total').innerText()).replace(/\D/g, '') === String(FUND.cash + FUND.bank), `Cash › Funding: the branch owes the General Manager ${owedText} (the two advances), and the total says the same`);
+    const history = await page.getByTestId('funding-panel').innerText();
+    check(/REH 1001/.test(history) && /رصيد الدرج/.test(history), 'the history lists both advances with the reason and the normalized bank reference');
 
     const temps = {};
     for (const u of [BM, CASHIER]) {
@@ -676,6 +725,7 @@ async function main() {
     ok('the POS says "No pieces in this branch yet" (not "no matching pieces")');
     await captureBaseline(page, '03-cashier-home');
     await checkShell(page, origin, 'cashier', 'cashier', '/pos');
+    await fundingRefused(page, 'cashier', branchId);
     const cashierUsers = await apiGet(page, '/api/users');
     check(cashierUsers.status === 403, 'the cashier cannot open the user list (403)');
     await signOut(page);
@@ -1028,6 +1078,29 @@ async function main() {
     await page.click('[data-testid=send-transfer]');
     const gmSent = await (await gmResp).json();
     check(gmSent.status === 'IN_TRANSIT' && gmSent.courierName === 'سائق الشركة', `General Manager: "New transfer" ${gmSent.number} sent with its courier (same rules)`);
+
+    section('CSH-2: a repayment to the General Manager and a correction');
+    const owedNow = async () => (await apiGet(page, `/api/funding?branchId=${branchId}`)).body.branches[0].owedToGm;
+    const owed0 = await owedNow();
+    await fundBranch(page, origin, { branchId, account: 'CASH', amount: 100_000, reason: 'سُدّد للمدير العام عند الإغلاق', kind: 'repayment' });
+    check((await owedNow()) === owed0 - 100_000, `the repayment lowers what the branch owes (${owed0} → ${await owedNow()})`);
+    await fundBranch(page, origin, { branchId, account: 'CASH', amount: 50_000, reason: 'سُجّلت بالخطأ' });
+    const wrong = (await apiGet(page, `/api/funding?branchId=${branchId}`)).body.events[0];
+    await page.goto(`${origin}/cash`);
+    await page.click(`[data-testid=funding-correct-${wrong.number}]`, { timeout: 15_000 });
+    await page.fill('[data-testid=funding-correct-reason]', 'لم تُسلَّم هذه السلفة');
+    await page.click('[data-testid=funding-correct-submit]');
+    await confirmIfAsked(page, GM.password);
+    await waitFor(async () => (await apiGet(page, `/api/funding?branchId=${branchId}`)).body.events.some((e) => e.reversesEventId === wrong.id), 'the correction', 15_000);
+    check((await owedNow()) === owed0 - 100_000, 'the correction reverses the wrong advance in what is owed');
+    const recFund = (await apiGet(page, `/api/cash/reconciliation?branchId=${branchId}`)).body;
+    const lineOf = (lines, l) => lines.find((x) => x.line === l)?.amount;
+    check(
+      lineOf(recFund.cashLines, 'GM_ADVANCES') === FUND.cash && lineOf(recFund.cashLines, 'GM_REPAYMENTS') === -100_000 && lineOf(recFund.bankLines, 'GM_ADVANCES') === FUND.bank && lineOf(recFund.cashLines, 'OTHER') === 0,
+      `today's reconciliation: "Advances from the General Manager" ${lineOf(recFund.cashLines, 'GM_ADVANCES')} (the correction nets inside the line, not under Other), "Repayments" ${lineOf(recFund.cashLines, 'GM_REPAYMENTS')}`,
+    );
+    const drawerA = (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId).expectedCash;
+    check(drawerA >= 0, `the main drawer is ${drawerA}, not negative: the money that paid for the scrap and the making charge was recorded`);
 
     section('UI-B: the General Manager home after the rehearsal sales and transfers');
     await homeChecks(page, origin, branchId);

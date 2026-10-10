@@ -32,6 +32,7 @@ import { createCategory, createProduct, createSupplier } from '../modules/catalo
 import { createPurchase } from '../modules/purchases/service';
 import { createSale } from '../modules/sales/service';
 import { buyScrap, setScrapRates } from '../modules/scrap/service';
+import { recordAdvance } from '../modules/funding/service';
 import { createTransfer } from '../modules/transfers/service';
 
 interface Names {
@@ -126,6 +127,14 @@ async function buildSample(ctx: Ctx) {
     products.push(await createProduct(ctx, gm, { nameAr: p.nameAr, name: p.nameEn ?? null, karat: allowed[i % allowed.length], categoryId: types[p.type].id }));
   }
   const supplier = await createSupplier(ctx, gm, { nameAr: names.suppliers[0].nameAr, name: names.suppliers[0].nameEn ?? null });
+
+  // CSH-2 (D-csh-6): the General Manager's opening money for each branch, recorded as advances before any outflow, so
+  // the sample's drawers never go below zero (it used to show −647,810: money left a drawer nobody had filled).
+  say('Opening money from the General Manager…');
+  for (const [bi, b] of branches.entries()) {
+    await recordAdvance(ctx, gm, { branchId: b.id, account: 'CASH', amount: 3_000_000, reason: '[عينة] رصيد الدرج من المدير العام' });
+    await recordAdvance(ctx, gm, { branchId: b.id, account: 'BANK', amount: 2_000_000, reason: '[عينة] تمويل الحساب البنكي', bankReference: `SAMPLE-FUND-${bi + 1}` });
+  }
 
   say('Supplier orders, sales, scrap and a transfer…');
   for (const [bi, b] of branches.entries()) {

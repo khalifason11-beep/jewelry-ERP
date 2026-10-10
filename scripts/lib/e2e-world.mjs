@@ -181,6 +181,9 @@ export async function buildSalesWorld(srv, { pieces = 8 } = {}) {
     const net = 4_000 + i * 730;
     return { productId: product.id, grossWeightMg: net + 150, netWeightMg: net, purchaseCost: 700_000 + i * 50_000, makingCost: 40_000, otherCost: 0, sellingPrice: 1_000_000 + i * 75_000 };
   });
+  // CSH-2: the General Manager's opening money for the branch (test values), before any cash or bank outflow.
+  await gm.must('POST', '/funding/advances', { branchId, account: 'CASH', amount: 2_000_000, reason: '[اختبار] رصيد الدرج' }, { idempotent: true });
+  await gm.must('POST', '/funding/advances', { branchId, account: 'BANK', amount: 1_000_000, reason: '[اختبار] تمويل البنك', bankReference: 'E2E-FUND-1' }, { idempotent: true });
   await gm.must('POST', '/purchases', { branchId, supplierId: supplier.id, lines, makingChargePaidFrom: 'CASH' }, { idempotent: true });
   await gm.dispose();
   return { gm: PEOPLE.gm, bm: people.bm, cashier: people.cashier, branchId, typeId: type.id, productId: product.id, supplierId: supplier.id };

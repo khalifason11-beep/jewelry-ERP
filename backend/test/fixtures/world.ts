@@ -25,6 +25,7 @@ import { settleHasadReceivable, balances as ledgerBalances } from '../../src/mod
 import { createTransfer, receiveTransfer } from '../../src/modules/transfers/service';
 import { adjustItem } from '../../src/modules/inventory/service';
 import { buyScrap } from '../../src/modules/scrap/service';
+import { recordAdvance } from '../../src/modules/funding/service';
 import { settleWithScrap } from '../../src/modules/supplier-settlements/service';
 import { seedRolesAndPermissions } from '../../src/seed/reference';
 import { BRANCHES, CATEGORIES, COMPANY, CUSTOMER_NAMES, DEMO_PASSWORDS, PRODUCTS, SUPPLIERS, USERS } from './world-data';
@@ -195,6 +196,15 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
       const res = await createPurchase(ctx, bm[code], { branchId: branch[code].id, supplierId: pick(supplierRows).id, supplierInvoiceNo: `SUP-${int(10000, 99999)}`, lines: openingLines, notes: 'رصيد افتتاحي' }, { at: at(offset, 10, int(0, 50)) });
       if (code === 'KRT' && b === 0) res.itemCodes.slice(0, 3).forEach((c) => specialCodes.add(c));
     }
+  }
+
+  // ───────── CSH-2: the General Manager funds each branch before its first cash or bank outflow ─────────
+  // Test values only (D-csh-6): an advance into the drawer and one into the bank on day −31, the day before the
+  // simulation starts paying making charges, buying scrap and refunding voids. Without them the drawers went
+  // negative from the first outflow (the −335,000 of REH-1): the money now enters the books the way it does in a shop.
+  for (const [i, code] of Object.keys(branch).entries()) {
+    await recordAdvance(ctx, gm, { branchId: branch[code].id, account: 'CASH', amount: 40_000_000, reason: 'رصيد الدرج من المدير العام' }, { at: at(-31, 9, 5) });
+    await recordAdvance(ctx, gm, { branchId: branch[code].id, account: 'BANK', amount: 25_000_000, reason: 'تمويل حساب الفرع البنكي', bankReference: `FUND-${1001 + i}` }, { at: at(-31, 9, 10) });
   }
 
   // ───────── helpers for the daily simulation ─────────
