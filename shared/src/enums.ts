@@ -66,11 +66,15 @@ export const PRICING_MODES = ['FIXED_TAG', 'COMPUTED'] as const;
 export type PricingMode = (typeof PRICING_MODES)[number];
 
 // ── Branch money ledger (Phase 2b, decisions Q5–Q8, D-2b-*) ──
-/** HASAD_RECEIVABLE (Phase 4): sales paid through the Hasad app, held by Hasad until Hasad's bank transfer is recorded (D-4-14). */
-export const LEDGER_ACCOUNT_KINDS = ['CASH', 'BANK', 'FUNDS_IN_TRANSIT', 'HASAD_RECEIVABLE'] as const;
+/**
+ * HASAD_RECEIVABLE (Phase 4): sales paid through the Hasad app, held by Hasad until Hasad's bank transfer is recorded (D-4-14).
+ * OWED_TO_GM (CSH-2, D-csh-1): what the branch owes the General Manager for his advances; a liability, positive = owed.
+ * It is never money in the drawer or the bank: every reader of the ledger filters by account kind (guardrail test).
+ */
+export const LEDGER_ACCOUNT_KINDS = ['CASH', 'BANK', 'FUNDS_IN_TRANSIT', 'HASAD_RECEIVABLE', 'OWED_TO_GM'] as const;
 export type LedgerAccountKind = (typeof LEDGER_ACCOUNT_KINDS)[number];
 
-export const LEDGER_EVENT_TYPES = ['SALE', 'SALE_VOID', 'REVERSAL', 'SCRAP_PURCHASE', 'SUPPLIER_MAKING_CHARGE', 'HASAD_RECEIVABLE_SETTLEMENT'] as const;
+export const LEDGER_EVENT_TYPES = ['SALE', 'SALE_VOID', 'REVERSAL', 'SCRAP_PURCHASE', 'SUPPLIER_MAKING_CHARGE', 'HASAD_RECEIVABLE_SETTLEMENT', 'GM_ADVANCE', 'GM_REPAYMENT'] as const;
 export type LedgerEventType = (typeof LEDGER_EVENT_TYPES)[number];
 
 /** Q5: which branch account a payment method moves. Every entry keeps its own payment method too. */
@@ -100,6 +104,10 @@ export type ScrapPaymentMethod = (typeof SCRAP_PAYMENT_METHODS)[number];
 /** Movements of the broken-scrap weight pool. */
 export const SCRAP_WEIGHT_EVENT_TYPES = ['SCRAP_PURCHASE', 'SUPPLIER_SETTLEMENT', 'REVERSAL'] as const;
 export type ScrapWeightEventType = (typeof SCRAP_WEIGHT_EVENT_TYPES)[number];
+
+/** CSH-2 (D-csh-2): funding events between the General Manager and a branch; a REVERSAL corrects one of the others. */
+export const GM_FUNDING_KINDS = ['ADVANCE', 'REPAYMENT', 'REVERSAL'] as const;
+export type GmFundingKind = (typeof GM_FUNDING_KINDS)[number];
 
 /** Money paid out from the drawer (CASH) or the bank account (BANK): the supplier making charge. */
 export const CASH_OR_BANK = ['CASH', 'BANK'] as const;
@@ -150,6 +158,10 @@ export const AUDIT_ACTIONS = [
   'SCRAP_RATE_CHANGED',
   'SUPPLIER_SETTLEMENT_RECORDED',
   'HASAD_RECEIVABLE_SETTLED',
+  // CSH-2: the General Manager's funding of a branch (GM-only in the audit list, D-csh-5)
+  'GM_ADVANCE_RECORDED',
+  'GM_REPAYMENT_RECORDED',
+  'GM_FUNDING_CORRECTED',
   'USER_CREATED',
   'USER_UPDATED',
   'USER_DISABLED',

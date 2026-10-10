@@ -40,6 +40,7 @@ import * as passkeys from './modules/auth/passkeys';
 import { relyingParty } from './auth/webauthn';
 import * as backups from './modules/backups/status';
 import * as scrap from './modules/scrap/service';
+import * as funding from './modules/funding/service';
 import * as supplierSettlements from './modules/supplier-settlements/service';
 import { runIdempotent } from './core/idempotency';
 import { log } from './core/logger';
@@ -654,6 +655,36 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('POST', '/cash/hasad-settlements', async (req, res) => {
     const body = parse(z.object({ branchId: zIdBody.optional(), amount: zPositiveMoney, bankReference: zText(80).optional(), note: zText(500).optional() }).strict(), req.body);
     res.json(await runIdempotent(ctx, req, res, (idem) => ledger.settleHasadReceivable(ctx, actorOf(req), body, { idem })));
+  });
+
+  // ─────────── CSH-2: GM funding (advances, repayments, corrections) ───────────
+  const zFunding = z
+    .object({
+      branchId: zIdBody,
+      account: z.enum(CASH_OR_BANK),
+      amount: zPositiveMoney,
+      reason: zText(300).min(3),
+      bankReference: zText(80).optional(),
+      paidDirectlyToSeller: z.boolean().optional(),
+      linkedRef: zText(40).optional(),
+    })
+    .strict();
+  route('GET', '/funding', async (req, res) => {
+    const q = parse(z.object({ branchId: zOptId, offset: z.coerce.number().int().min(0).max(1_000_000).optional() }).strict(), req.query);
+    res.json(await funding.fundingView(ctx, actorOf(req), q));
+  });
+  route('POST', '/funding/advances', async (req, res) => {
+    const body = parse(zFunding, req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => funding.recordAdvance(ctx, actorOf(req), body, { idem })));
+  });
+  route('POST', '/funding/repayments', async (req, res) => {
+    const body = parse(zFunding, req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => funding.recordRepayment(ctx, actorOf(req), body, { idem })));
+  });
+  route('POST', '/funding/:id/correct', async (req, res) => {
+    const id = parse(zId, req.params.id);
+    const body = parse(z.object({ reason: zText(300).min(3) }).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => funding.correctFunding(ctx, actorOf(req), id, body, { idem })));
   });
 
   route('GET', '/transfers', async (req, res) => {

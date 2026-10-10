@@ -131,4 +131,13 @@ export const EN: Record<string, string> = {
   PRODUCT_REACTIVATED: 'Product reactivated',
   SUPPLIER_CREATED: 'Supplier created',
   ALLOWED_KARATS_CONFIRMED: 'Allowed karats confirmed',
+  GM_ADVANCE_RECORDED: "Advance from the General Manager",
+  GM_REPAYMENT_RECORDED: "Repayment to the General Manager",
+  GM_FUNDING_CORRECTED: "Funding correction",
+  GM_ADVANCE: "Advance from the General Manager",
+  GM_REPAYMENT: "Repayment to the General Manager",
+  ADVANCE: "Advance",
+  REPAYMENT: "Repayment",
+  BANK: "Bank",
+  OWED_TO_GM: "Owed to the General Manager",
 };

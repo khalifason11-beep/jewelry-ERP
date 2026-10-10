@@ -104,6 +104,11 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   backup_runs: { safe: words('id kind status file_name size_bytes sha256 encrypted uploaded detail host started_at finished_at') },
   // Hasad bank transfers received (Phase 4 follow-up): a money movement between two branch accounts, like the ledger.
   hasad_receivable_settlements: { safe: words('id number branch_id amount bank_reference note actor_id session_id idempotency_key at') },
+  // CSH-2 (D-csh-5): the General Manager's funding of a branch. Money movements, not cost or profit: SAFE. Who sees
+  // them is decided by permission (`funding.view`, General Manager only), not by this registry.
+  gm_funding_events: {
+    safe: words('id number branch_id kind account amount reason bank_reference paid_directly_to_seller linked_ref reverses_event_id actor_id session_id idempotency_key at'),
+  },
 };
 
 /** Response field names that carry cost, acquisition cost, margin or profit. */
@@ -193,7 +198,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     voidReauthAboveAmount priceChangeReason
     bankTransferSales reference bankTransfer confirmDuplicateReference
     courierName unavailable
-    supplierDebtMaxAgeDays countDifferenceTolerance cash signals severity critical warning info generatedAt counts since
+    supplierDebtMaxAgeDays countDifferenceTolerance account paidDirectlyToSeller linkedRef reversesEventId offset owedToGm totalOwedToGm events hasMore corrected gmAdvancesCash gmAdvancesBank gmRepaymentsCash gmRepaymentsBank cash signals severity critical warning info generatedAt counts since
     inTransit goldOwed salesLine lastCount orders fullNameAr
   `),
 );

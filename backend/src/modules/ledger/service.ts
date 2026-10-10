@@ -8,6 +8,7 @@
 //     entry can be reversed only once (unique index), so a double void can never refund twice.
 
 import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { t, type Executor } from '@jerp/database';
 import { PAYMENT_ACCOUNT, sumInt, type LedgerAccountKind, type LedgerEventType, type PaymentMethod } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
@@ -54,6 +55,28 @@ async function accountId(exec: Executor, branchId: number, kind: LedgerAccountKi
     .where(and(eq(t.ledgerAccounts.branchId, branchId), eq(t.ledgerAccounts.kind, kind)));
   if (!a) throw new Error(`ledger account ${kind} missing for branch ${branchId}`);
   return a.id;
+}
+
+/**
+ * Lock some of a branch's accounts for the rest of the transaction (SELECT … FOR UPDATE), ALWAYS in ascending
+ * `ledger_accounts.id` order, so two transactions that lock overlapping accounts can never deadlock (D-csh-4). Every
+ * check-then-write on a balance (the repayment cap, the CASH no-negative rule, the Hasad receivable) goes through
+ * here. Returns each locked account's id and its balance read under the lock.
+ */
+export async function lockAccounts(exec: Executor, branchId: number, kinds: readonly LedgerAccountKind[]): Promise<Record<string, { id: number; balance: number }>> {
+  const locked = await exec
+    .select({ id: t.ledgerAccounts.id, kind: t.ledgerAccounts.kind })
+    .from(t.ledgerAccounts)
+    .where(and(eq(t.ledgerAccounts.branchId, branchId), inArray(t.ledgerAccounts.kind, [...kinds])))
+    .orderBy(asc(t.ledgerAccounts.id))
+    .for('update');
+  const out: Record<string, { id: number; balance: number }> = {};
+  for (const a of locked) {
+    const [{ balance }] = rows<{ balance: string | number }>(await exec.execute(sql`SELECT coalesce(sum(amount), 0)::bigint AS balance FROM ledger_entries WHERE account_id = ${a.id}`));
+    out[a.kind] = { id: a.id, balance: Number(balance) };
+  }
+  for (const k of kinds) if (!out[k]) throw new Error(`ledger account ${k} missing for branch ${branchId}`);
+  return out;
 }
 
 /** Append entries. Must run inside the transaction of the business change it records. */
@@ -171,8 +194,8 @@ export async function drawer(ctx: Ctx, actor: Actor, q: { branchId?: number }) {
  * Nothing silently disappears.
  */
 export const RECONCILIATION_LINES = {
-  CASH: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'MAKING_CHARGES', 'OTHER'],
-  BANK: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'MAKING_CHARGES', 'HASAD_RECEIVABLE_SETTLEMENTS', 'OTHER'],
+  CASH: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'MAKING_CHARGES', 'GM_ADVANCES', 'GM_REPAYMENTS', 'OTHER'],
+  BANK: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'MAKING_CHARGES', 'HASAD_RECEIVABLE_SETTLEMENTS', 'GM_ADVANCES', 'GM_REPAYMENTS', 'OTHER'],
 } as const;
 export type ReconciliationLine = (typeof RECONCILIATION_LINES)['BANK'][number];
 export const LINE_OF_EVENT: Partial<Record<LedgerEventType, ReconciliationLine>> = {
@@ -181,6 +204,9 @@ export const LINE_OF_EVENT: Partial<Record<LedgerEventType, ReconciliationLine>>
   SCRAP_PURCHASE: 'SCRAP_PURCHASES',
   SUPPLIER_MAKING_CHARGE: 'MAKING_CHARGES',
   HASAD_RECEIVABLE_SETTLEMENT: 'HASAD_RECEIVABLE_SETTLEMENTS',
+  // CSH-2 (D-csh-3): the General Manager's money into and out of the drawer or the bank.
+  GM_ADVANCE: 'GM_ADVANCES',
+  GM_REPAYMENT: 'GM_REPAYMENTS',
 };
 
 /**
@@ -189,18 +215,23 @@ export const LINE_OF_EVENT: Partial<Record<LedgerEventType, ReconciliationLine>>
  * in test/ledger.test.ts): adding an event type fails the build until someone decides where it goes.
  */
 export const OTHER_EVENT_TYPES: Readonly<Partial<Record<LedgerEventType, string>>> = {
-  // A generic correction that reverses an earlier entry of any kind; it has no business line of its
-  // own (sale voids use SALE_VOID). Shown as "Other" so the day still adds up.
-  REVERSAL: 'generic correction of an earlier entry; no business line of its own',
+  // A generic correction of an earlier entry (sale voids use SALE_VOID). CSH-2 Q9 (D-csh-3): it is shown under the
+  // line of the entry it reverses (`effectiveEventType`), on whatever day it is recorded; only a reversal whose
+  // original has no line of its own stays under "Other". Either way the day still adds up.
+  REVERSAL: 'shown under the line of the entry it reverses; no line of its own',
 };
 
+/** The event type an entry counts as in the reconciliation: a REVERSAL counts as the entry it reverses (Q9). */
+export const effectiveEventType = (e: { eventType: string; reversedEventType?: string | null }): string =>
+  e.eventType === 'REVERSAL' && e.reversedEventType ? e.reversedEventType : e.eventType;
+
 /** Group one account's entries into its reconciliation lines; their sum always equals the account's movement. */
-export function reconciliationLines(kind: keyof typeof RECONCILIATION_LINES, entries: { kind: string; eventType: string; amount: number }[]) {
+export function reconciliationLines(kind: keyof typeof RECONCILIATION_LINES, entries: { kind: string; eventType: string; reversedEventType?: string | null; amount: number }[]) {
   const lines: readonly ReconciliationLine[] = RECONCILIATION_LINES[kind];
   const totals = new Map<ReconciliationLine, number[]>(lines.map((l) => [l, []]));
   for (const e of entries) {
     if (e.kind !== kind) continue;
-    const own = LINE_OF_EVENT[e.eventType as LedgerEventType];
+    const own = LINE_OF_EVENT[effectiveEventType(e) as LedgerEventType];
     totals.get(own && lines.includes(own) ? own : 'OTHER')!.push(e.amount);
   }
   return lines.map((line) => ({ line, amount: sumInt(totals.get(line)!) }));
@@ -219,11 +250,26 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
   const day = q.day ?? dayKey(new Date(), company.timezone);
   const start = dayStart(day, company.timezone);
   const end = dayStart(addDays(day, 1), company.timezone);
-  const entries = await ctx.db
-    .select({ amount: t.ledgerEntries.amount, eventType: t.ledgerEntries.eventType, paymentMethod: t.ledgerEntries.paymentMethod, kind: t.ledgerAccounts.kind, refType: t.ledgerEntries.refType, refId: t.ledgerEntries.refId })
+  // Every sum below names its account kind or an event type that only CASH, BANK or HASAD_RECEIVABLE carry, so an
+  // OWED_TO_GM entry (D-csh-1) never counts as money here (guardrail test in test/funding.test.ts).
+  // A REVERSAL carries the event type of the entry it reverses, so it counts in that entry's line (Q9).
+  const original = alias(t.ledgerEntries, 'reversed');
+  const raw = await ctx.db
+    .select({
+      amount: t.ledgerEntries.amount,
+      eventType: t.ledgerEntries.eventType,
+      reversedEventType: original.eventType,
+      paymentMethod: t.ledgerEntries.paymentMethod,
+      kind: t.ledgerAccounts.kind,
+      refType: t.ledgerEntries.refType,
+      refId: t.ledgerEntries.refId,
+    })
     .from(t.ledgerEntries)
     .innerJoin(t.ledgerAccounts, eq(t.ledgerAccounts.id, t.ledgerEntries.accountId))
+    .leftJoin(original, eq(original.id, t.ledgerEntries.reversesEntryId))
     .where(and(eq(t.ledgerEntries.branchId, branchId), gte(t.ledgerEntries.at, start), lt(t.ledgerEntries.at, end)));
+  // `type` = the business event an entry counts as (a reversal counts as its original).
+  const entries = raw.map((e) => ({ ...e, type: effectiveEventType(e) }));
   const sum = (f: (e: (typeof entries)[number]) => boolean) => sumInt(entries.filter(f).map((e) => e.amount));
   const openingCash = await cashBalance(ctx.db, branchId, start);
   const cashIn = sum((e) => e.kind === 'CASH');
@@ -257,17 +303,22 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
     branchId,
     day,
     openingCash,
-    salesByMethod: methods.map((m) => ({ paymentMethod: m, amount: sum((e) => e.eventType === 'SALE' && e.paymentMethod === m) })),
-    salesTotal: sum((e) => e.eventType === 'SALE'),
-    voidsByMethod: methods.map((m) => ({ paymentMethod: m, amount: sum((e) => e.eventType === 'SALE_VOID' && e.paymentMethod === m) })),
-    voidsTotal: sum((e) => e.eventType === 'SALE_VOID'),
+    salesByMethod: methods.map((m) => ({ paymentMethod: m, amount: sum((e) => e.type === 'SALE' && e.paymentMethod === m) })),
+    salesTotal: sum((e) => e.type === 'SALE'),
+    voidsByMethod: methods.map((m) => ({ paymentMethod: m, amount: sum((e) => e.type === 'SALE_VOID' && e.paymentMethod === m) })),
+    voidsTotal: sum((e) => e.type === 'SALE_VOID'),
     // Hasad's bank transfers received this day (receivable → bank; never the drawer).
-    hasadReceivableToBank: sum((e) => e.eventType === 'HASAD_RECEIVABLE_SETTLEMENT' && e.kind === 'BANK'),
+    hasadReceivableToBank: sum((e) => e.type === 'HASAD_RECEIVABLE_SETTLEMENT' && e.kind === 'BANK'),
     // Phase 4: scrap bought from customers and supplier making charges, both paid out at once.
-    scrapPurchasesCash: sum((e) => e.eventType === 'SCRAP_PURCHASE' && e.kind === 'CASH'),
-    scrapPurchasesBank: sum((e) => e.eventType === 'SCRAP_PURCHASE' && e.kind === 'BANK'),
-    makingChargesCash: sum((e) => e.eventType === 'SUPPLIER_MAKING_CHARGE' && e.kind === 'CASH'),
-    makingChargesBank: sum((e) => e.eventType === 'SUPPLIER_MAKING_CHARGE' && e.kind === 'BANK'),
+    scrapPurchasesCash: sum((e) => e.type === 'SCRAP_PURCHASE' && e.kind === 'CASH'),
+    scrapPurchasesBank: sum((e) => e.type === 'SCRAP_PURCHASE' && e.kind === 'BANK'),
+    makingChargesCash: sum((e) => e.type === 'SUPPLIER_MAKING_CHARGE' && e.kind === 'CASH'),
+    makingChargesBank: sum((e) => e.type === 'SUPPLIER_MAKING_CHARGE' && e.kind === 'BANK'),
+    // CSH-2: the General Manager's advances and repayments of the day, per account (corrections included).
+    gmAdvancesCash: sum((e) => e.type === 'GM_ADVANCE' && e.kind === 'CASH'),
+    gmAdvancesBank: sum((e) => e.type === 'GM_ADVANCE' && e.kind === 'BANK'),
+    gmRepaymentsCash: sum((e) => e.type === 'GM_REPAYMENT' && e.kind === 'CASH'),
+    gmRepaymentsBank: sum((e) => e.type === 'GM_REPAYMENT' && e.kind === 'BANK'),
     cashLines: reconciliationLines('CASH', entries),
     bankLines: reconciliationLines('BANK', entries),
     bankTransferSales,
@@ -331,16 +382,9 @@ export async function settleHasadReceivable(
   const at = opts.at ?? new Date();
   return ctx.db.transaction(async (tx) => {
     await opts.idem?.claim(tx);
-    const [account] = await tx
-      .select()
-      .from(t.ledgerAccounts)
-      .where(and(eq(t.ledgerAccounts.branchId, branchId), eq(t.ledgerAccounts.kind, 'HASAD_RECEIVABLE')))
-      .for('update');
-    if (!account) throw new Error(`ledger account HASAD_RECEIVABLE missing for branch ${branchId}`);
-    const [{ balance }] = rows<{ balance: string | number }>(
-      await tx.execute(sql`SELECT coalesce(sum(amount), 0)::bigint AS balance FROM ledger_entries WHERE account_id = ${account.id}`),
-    );
-    const receivable = Number(balance);
+    // Lock the receivable (and the bank it moves to) in the one lock order (D-csh-4), then read the receivable.
+    const locked = await lockAccounts(tx, branchId, ['HASAD_RECEIVABLE', 'BANK']);
+    const receivable = locked.HASAD_RECEIVABLE.balance;
     if (input.amount > receivable) {
       throw badRequest('This is more than the Hasad receivable of this branch ({balance})', { balance: receivable.toLocaleString('en-US') });
     }

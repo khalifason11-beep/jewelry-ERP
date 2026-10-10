@@ -680,6 +680,42 @@ export const hasadReceivableSettlements = pgTable(
   (t) => [index('hasad_receivable_settlements_branch_idx').on(t.branchId, t.at)],
 );
 
+/**
+ * CSH-2 (D-csh-1, D-csh-2): money the General Manager advances to a branch (into its drawer or bank) and the
+ * branch's repayments, append-only. Each event posts two ledger entries in one transaction: the CASH or BANK side
+ * and the branch's OWED_TO_GM account, whose balance is what the branch owes him (derived, never edited). A wrong
+ * event is corrected by a REVERSAL row (at most one per event), which reverses both entries.
+ */
+export const gmFundingEvents = pgTable(
+  'gm_funding_events',
+  {
+    id: serial('id').primaryKey(),
+    number: text('number').notNull().unique(),
+    branchId: integer('branch_id').notNull().references(() => branches.id),
+    /** ADVANCE | REPAYMENT | REVERSAL. */
+    kind: text('kind').notNull(),
+    /** CASH (the drawer) | BANK. A REVERSAL repeats the account of the event it corrects. */
+    account: text('account').notNull(),
+    /** Whole SDG, > 0. */
+    amount: money('amount').notNull(),
+    /** Why, and when the money actually moved (no backdating: `at` is the recording time). 3–300 characters. */
+    reason: text('reason').notNull(),
+    /** The bank's reference, normalized (FIX-2 rules); required on the BANK account. */
+    bankReference: text('bank_reference'),
+    /** Q5, display only: the General Manager paid a seller directly from his own money. */
+    paidDirectlyToSeller: boolean('paid_directly_to_seller').notNull().default(false),
+    /** Q5, display only: the purchase number this advance paid for (free text; it may not exist yet). */
+    linkedRef: text('linked_ref'),
+    /** For a REVERSAL: the event it corrects (unique: an event is corrected at most once). */
+    reversesEventId: integer('reverses_event_id'),
+    actorId: integer('actor_id').notNull().references(() => users.id),
+    sessionId: text('session_id'),
+    idempotencyKey: text('idempotency_key'),
+    at: ts('at').notNull().defaultNow(),
+  },
+  (t) => [index('gm_funding_events_branch_idx').on(t.branchId, t.at), uniqueIndex('gm_funding_events_reverses_idx').on(t.reversesEventId)],
+);
+
 // ───────────────────────────── Branch money ledger (Phase 2b) ─────────────────────────────
 
 /** One account per branch and kind (CASH, BANK, FUNDS_IN_TRANSIT); created by a trigger on branches. */

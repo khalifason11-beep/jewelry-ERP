@@ -121,13 +121,13 @@ describe('cost model', () => {
 });
 
 describe('ledger basics', () => {
-  it('every branch has CASH, BANK, FUNDS_IN_TRANSIT and HASAD_RECEIVABLE accounts, also a branch created later', async () => {
+  it('every branch has CASH, BANK, FUNDS_IN_TRANSIT, HASAD_RECEIVABLE and OWED_TO_GM (CSH-2) accounts, also a branch created later', async () => {
     const accounts = await ctx.db.select().from(t.ledgerAccounts);
     const branches = await ctx.db.select().from(t.branches);
-    expect(accounts).toHaveLength(branches.length * 4);
+    expect(accounts).toHaveLength(branches.length * 5);
     const [b] = await ctx.db.insert(t.branches).values({ code: 'LDGT', name: 'Ledger Test', nameAr: 'اختبار', city: 'Test' }).returning();
     const kinds = (await ctx.db.select().from(t.ledgerAccounts).where(eq(t.ledgerAccounts.branchId, b.id))).map((a) => a.kind).sort();
-    expect(kinds).toEqual(['BANK', 'CASH', 'FUNDS_IN_TRANSIT', 'HASAD_RECEIVABLE']);
+    expect(kinds).toEqual(['BANK', 'CASH', 'FUNDS_IN_TRANSIT', 'HASAD_RECEIVABLE', 'OWED_TO_GM']);
   });
 
   it('the demo seed posted entries consistent with its history', async () => {
@@ -421,7 +421,7 @@ describe('expected cash and daily reconciliation', () => {
       { kind: 'CASH', eventType: 'SOMETHING_NEW', amount: 3 },
       { kind: 'BANK', eventType: 'SALE', amount: 999 }, // another account: ignored
     ]);
-    expect(Object.fromEntries(lines.map((l) => [l.line, l.amount]))).toEqual({ SALES: 50_000, VOIDS: 0, SCRAP_PURCHASES: 0, MAKING_CHARGES: 0, OTHER: -7_098 });
+    expect(Object.fromEntries(lines.map((l) => [l.line, l.amount]))).toEqual({ SALES: 50_000, VOIDS: 0, SCRAP_PURCHASES: 0, MAKING_CHARGES: 0, GM_ADVANCES: 0, GM_REPAYMENTS: 0, OTHER: -7_098 });
     // And through the API: an entry on the drawer whose event type has no drawer line appears under OTHER, and the total still matches.
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
     const krt = await branchId('KRT');

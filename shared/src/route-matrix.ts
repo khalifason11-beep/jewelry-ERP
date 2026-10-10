@@ -160,6 +160,11 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   // Hasad receivable settled by a bank transfer from Hasad (Phase 4 follow-up).
   r('GET', '/cash/hasad-settlements', 'branch', { all: ['cash.view'] }),
   r('POST', '/cash/hasad-settlements', 'branch', { all: ['cash.settle_hasad'], idempotent: true, idempotencyInTx: true }),
+  // ── CSH-2: the General Manager's advances to a branch and its repayments (GM only, password, key in the transaction)
+  r('GET', '/funding', 'branch', { all: ['funding.view'] }),
+  r('POST', '/funding/advances', 'branch', { all: ['funding.manage'], reauth: true, idempotent: true, idempotencyInTx: true }),
+  r('POST', '/funding/repayments', 'branch', { all: ['funding.manage'], reauth: true, idempotent: true, idempotencyInTx: true }),
+  r('POST', '/funding/:id/correct', 'branch', { all: ['funding.manage'], reauth: true, idempotent: true, idempotencyInTx: true }),
   r('GET', '/transfers', 'branch', { all: ['inventory.transfer'] }),
   // FIX-1 (D-fix-1): the BM's POS cart and the GM's "New transfer"; all or nothing, key claimed in the transaction.
   r('POST', '/transfers', 'branch', { all: ['inventory.transfer'], idempotent: true, idempotencyInTx: true }),

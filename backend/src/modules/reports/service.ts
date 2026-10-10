@@ -1,7 +1,7 @@
 // Report engine: every report returns the same shape (columns + rows + totals) so the UI
 // renders, searches, sorts and exports all of them with one component.
 
-import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import { PAYMENT_METHODS, sumInt, type ReportKey } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
@@ -451,6 +451,9 @@ export async function listAudit(
   if (q.userId) where.push(eq(t.auditLogs.userId, q.userId));
   if (q.action) where.push(inArray(t.auditLogs.action, q.action.split(',')));
   if (q.entityType) where.push(eq(t.auditLogs.entityType, q.entityType));
+  // CSH-2 (D-csh-5): the General Manager's funding of a branch is his own business; without `funding.view` (the
+  // branch manager reading their branch's log) those rows are left out, so nothing reveals what is owed to him.
+  if (!actor.permissions.has('funding.view')) where.push(ne(t.auditLogs.entityType, 'gm_funding_event'));
   if (q.q?.trim()) {
     const s = `%${q.q.trim()}%`;
     where.push(or(ilike(t.auditLogs.description, s), ilike(t.auditLogs.entityId, s), ilike(t.auditLogs.username, s))!);

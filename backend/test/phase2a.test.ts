@@ -77,6 +77,10 @@ describe('idempotency keys', () => {
         'POST /categories',
         'POST /products',
         'POST /suppliers',
+        // CSH-2: the General Manager's advances, repayments and corrections (key claimed inside the transaction).
+        'POST /funding/advances',
+        'POST /funding/repayments',
+        'POST /funding/:id/correct',
       ].sort(),
     );
     // Only mutating routes can be idempotent.

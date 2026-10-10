@@ -14,6 +14,7 @@ import {
   BACKUP_RUN_STATUSES,
   BRANDING_ASSET_KINDS,
   CASH_OR_BANK,
+  GM_FUNDING_KINDS,
   IDEMPOTENCY_STATUSES,
   ITEM_ORIGINS,
   ITEM_HISTORY_STATUSES,
@@ -87,6 +88,9 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   e('scrap_purchases', 'payment_method', SCRAP_PAYMENT_METHODS),
   e('scrap_weight_entries', 'event_type', SCRAP_WEIGHT_EVENT_TYPES),
   e('purchases', 'making_charge_paid_from', CASH_OR_BANK, true),
+  // ── CSH-2: GM funding (migration 0020)
+  e('gm_funding_events', 'kind', GM_FUNDING_KINDS),
+  e('gm_funding_events', 'account', CASH_OR_BANK),
 ];
 
 const nonNeg = (table: string, ...columns: string[]): ExprCheck[] =>
@@ -177,6 +181,22 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   // ── FIX-2: a bank-transfer sale carries its bank reference (migration 0018, validated after a guard)
   { name: 'ck_sales_bank_transfer_reference', table: 'sales', expr: "payment_method <> 'BANK_TRANSFER' OR (payment_ref_transaction IS NOT NULL AND length(btrim(payment_ref_transaction)) BETWEEN 4 AND 40)" },
   { name: 'ck_sales_price_change_reason', table: 'sales', expr: 'price_change_reason IS NULL OR length(btrim(price_change_reason)) BETWEEN 3 AND 200' },
+  // ── CSH-2: GM funding events (migration 0020)
+  { name: 'ck_gm_funding_events_amount_positive', table: 'gm_funding_events', expr: 'amount > 0' },
+  { name: 'ck_gm_funding_events_reason', table: 'gm_funding_events', expr: 'length(btrim(reason)) BETWEEN 3 AND 300' },
+  {
+    name: 'ck_gm_funding_events_reversal',
+    table: 'gm_funding_events',
+    // A correction says which event it corrects; an advance or a repayment never does.
+    expr: "(kind = 'REVERSAL') = (reverses_event_id IS NOT NULL)",
+  },
+  {
+    name: 'ck_gm_funding_events_bank_reference',
+    table: 'gm_funding_events',
+    // A movement on the bank account carries the bank's reference (FIX-2 rules); a correction repeats none.
+    expr: "kind = 'REVERSAL' OR account <> 'BANK' OR (bank_reference IS NOT NULL AND length(btrim(bank_reference)) BETWEEN 4 AND 40)",
+  },
+  { name: 'ck_gm_funding_events_linked_ref', table: 'gm_funding_events', expr: 'linked_ref IS NULL OR length(btrim(linked_ref)) BETWEEN 3 AND 40' },
 ];
 
 /** The SQL expression for an enum check. */
