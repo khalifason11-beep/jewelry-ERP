@@ -194,6 +194,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     bankTransferSales reference bankTransfer confirmDuplicateReference
     courierName unavailable
     supplierDebtMaxAgeDays countDifferenceTolerance cash signals severity critical warning info generatedAt counts since
+    inTransit goldOwed salesLine lastCount orders fullNameAr
   `),
 );
 

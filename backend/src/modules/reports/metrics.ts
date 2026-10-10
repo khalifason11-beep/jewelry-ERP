@@ -35,17 +35,22 @@ const iso = (d: Date) => d.toISOString();
 export async function branchMetrics(exec: Executor, p: Period, branchId: number | null): Promise<Map<number, BranchMetrics>> {
   const bFilter = (col: string) => (branchId != null ? sql.raw(`AND ${col} = ${Number(branchId)}`) : sql``);
 
-  const [branchesR, salesR, purchR, invR] = await Promise.all([
+  // UI-B (D-ui-21): grouped queries only. The pieces and weight sold come from one join of the period's sales with
+  // their lines (it used to be a sub-query per sale, 16 s on 60,000 sales).
+  const [branchesR, salesR, linesR, purchR, invR] = await Promise.all([
     exec.execute(sql`SELECT id FROM branches WHERE is_active ${bFilter('id')} ORDER BY id`),
     exec.execute(sql`
       SELECT s.branch_id,
              count(*) AS sales_count,
              coalesce(sum(s.total),0) AS revenue,
              coalesce(sum(s.discount_total),0) AS discounts,
-             coalesce(sum(s.cost_total),0) AS cost,
-             coalesce(sum((SELECT count(*) FROM sale_items si WHERE si.sale_id = s.id)),0) AS items,
-             coalesce(sum((SELECT sum(si.net_weight_mg) FROM sale_items si WHERE si.sale_id = s.id)),0) AS weight
+             coalesce(sum(s.cost_total),0) AS cost
       FROM sales s
+      WHERE s.status = 'COMPLETED' AND s.created_at >= ${iso(p.start)} AND s.created_at < ${iso(p.end)} ${bFilter('s.branch_id')}
+      GROUP BY s.branch_id`),
+    exec.execute(sql`
+      SELECT s.branch_id, count(*) AS items, coalesce(sum(si.net_weight_mg),0) AS weight
+      FROM sales s JOIN sale_items si ON si.sale_id = s.id
       WHERE s.status = 'COMPLETED' AND s.created_at >= ${iso(p.start)} AND s.created_at < ${iso(p.end)} ${bFilter('s.branch_id')}
       GROUP BY s.branch_id`),
     exec.execute(sql`
@@ -77,7 +82,11 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
   for (const r of rows<Record<string, unknown>>(salesR)) {
     const m = get(r.branch_id); if (!m) continue;
     m.salesCount = num(r.sales_count); m.revenue = num(r.revenue); m.discounts = num(r.discounts);
-    m.costOfSales = num(r.cost); m.itemsSold = num(r.items); m.weightSoldMg = num(r.weight);
+    m.costOfSales = num(r.cost);
+  }
+  for (const r of rows<Record<string, unknown>>(linesR)) {
+    const m = get(r.branch_id); if (!m) continue;
+    m.itemsSold = num(r.items); m.weightSoldMg = num(r.weight);
   }
   for (const r of rows<Record<string, unknown>>(purchR)) {
     const m = get(r.branch_id); if (!m) continue;
