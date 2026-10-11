@@ -17,6 +17,7 @@ import { config } from '../../config';
 import { backupHealth } from '../backups/status';
 import { factorState } from '../../auth/second-factor';
 import { setupRatesDone } from '../setup/service';
+import { daysOpen, supplierGoldOwed } from '../purchases/supplier-debt';
 
 export type Severity = 'critical' | 'warning' | 'info';
 export type SignalCode = 'A1' | 'A2' | 'A4' | 'A5' | 'A6' | 'A9' | 'A10' | 'A11' | 'A12' | 'A15' | 'A16' | 'A17' | 'S1' | 'S2';
@@ -172,27 +173,18 @@ export async function attentionFor(ctx: Ctx, actor: Actor, q: { branchId?: numbe
   // ── A6 supplier gold owed, per supplier (purchases.view): weight only, never money ──
   if (can(actor, 'purchases.view')) {
     const maxAgeDays = settings.purchases.supplierDebtMaxAgeDays;
-    const owed = rows<{ supplier_id: number | null; supplier: string | null; supplier_ar: string | null; owed: number | string; orders: number; oldest_at: Date | string; oldest_id: number }>(
-      await ctx.db.execute(sql`
-        SELECT p.supplier_id, s.name AS supplier, s.name_ar AS supplier_ar,
-               sum(p.gold_owed_mg_pure24) AS owed, count(*)::int AS orders, min(p.created_at) AS oldest_at,
-               (array_agg(p.id ORDER BY p.created_at, p.id))[1] AS oldest_id
-        FROM purchases p LEFT JOIN suppliers s ON s.id = p.supplier_id
-        WHERE p.gold_owed_mg_pure24 > 0 ${inScope('p.branch_id')}
-        GROUP BY p.supplier_id, s.name, s.name_ar`),
-    );
-    for (const o of owed) {
-      const oldest = new Date(o.oldest_at);
-      const days = Math.floor((now.getTime() - oldest.getTime()) / 86_400_000);
+    // SUP-1 (D-sup-1): the same helper feeds the warning on a new supplier order (one source of truth).
+    for (const o of await supplierGoldOwed(ctx.db, { branchId: scope })) {
+      const days = daysOpen(o.oldestAt, now);
       push({
-        id: `A6:${o.supplier_id ?? 0}`,
+        id: `A6:${o.supplierId ?? 0}`,
         code: 'A6',
         severity: days > maxAgeDays ? 'warning' : 'info',
         branchId: scope,
-        count: num(o.orders),
-        link: `/purchases/${o.oldest_id}`,
-        params: { supplier: o.supplier ?? null, supplierAr: o.supplier_ar ?? null, pureMg24: num(o.owed), days, orders: num(o.orders) },
-        since: oldest.toISOString(),
+        count: o.orders,
+        link: `/purchases/${o.oldestPurchaseId}`,
+        params: { supplier: o.supplier, supplierAr: o.supplierAr, pureMg24: o.pureMg24, days, orders: o.orders },
+        since: o.oldestAt.toISOString(),
       });
     }
   }

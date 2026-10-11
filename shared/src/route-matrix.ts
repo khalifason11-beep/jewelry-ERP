@@ -100,6 +100,8 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/products/:id/reactivate', 'none', { all: ['catalog.manage'] }),
   r('POST', '/suppliers', 'none', { all: ['catalog.create'], idempotent: true }),
   r('GET', '/suppliers', 'none', { any: ['purchases.view', 'catalog.create'] }),
+  // SUP-1: the gold still owed to one supplier (weights only), for the warning on the General Manager's purchase form.
+  r('GET', '/suppliers/:id/gold-owed', 'none', { all: ['purchases.create'] }),
   r('GET', '/roles', 'none', { all: ['users.view'] }),
   r('GET', '/branches/:id', 'branch'),
 

@@ -13,6 +13,7 @@ import { assertSellableKarat } from '../../core/karats';
 import type { TxIdempotency } from '../../core/idempotency';
 import { settlementsFor } from '../supplier-settlements/service';
 import { assertProductsUsable } from '../catalog/service';
+import { daysOpen, supplierGoldOwed } from './supplier-debt';
 
 export interface PurchaseLine {
   productId: number;
@@ -35,6 +36,8 @@ export interface CreatePurchaseInput {
   makingChargeTransferDate?: string;
   /** MKC-1 (Q4): record a transfer reference already on another order, after the warning. Never a block. */
   confirmDuplicateReference?: boolean;
+  /** SUP-1: record a new order for a supplier that still has gold owed, after the warning. Never a block. */
+  confirmOpenSupplierDebt?: boolean;
   lines: PurchaseLine[];
 }
 
@@ -99,6 +102,23 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
     await assertProductsUsable(tx, [...byId.keys()]);
     const [supplier] = await tx.select({ id: t.suppliers.id }).from(t.suppliers).where(eq(t.suppliers.id, input.supplierId!));
     if (!supplier) throw notFound('Supplier');
+    // SUP-1 (D-sup-1, D-sup-2): a supplier allows one open order at a time, so a new order while gold is still owed to
+    // the same supplier (in any branch: a supplier belongs to the company) asks the General Manager first. Refused until
+    // confirmed ("record anyway"), never blocked; the confirmation is audited. Weights, the order number and days only.
+    let openDebt: { pureMg24: number; orders: number; oldestNumber: string; days: number } | null = null;
+    const [debt] = await supplierGoldOwed(tx, { branchId: null, supplierId: input.supplierId! });
+    if (debt) {
+      openDebt = { pureMg24: debt.pureMg24, orders: debt.orders, oldestNumber: debt.oldestNumber, days: daysOpen(debt.oldestAt, at) };
+      if (!input.confirmOpenSupplierDebt) {
+        throw new AppError(
+          409,
+          'SUPPLIER_GOLD_OWED',
+          'We still owe this supplier {weight} g of 24K from order {number}, open for {days} days. Record the new order anyway?',
+          { weight: (debt.pureMg24 / 1000).toFixed(3), number: debt.oldestNumber, days: openDebt.days },
+          { ...openDebt, oldestPurchaseId: debt.oldestPurchaseId },
+        );
+      }
+    }
     // MKC-1 (Q4, as FIX-2 for sales): one transfer pays one order of one supplier, so the same reference on another order
     // (any branch: the transfers all come from the owner's one personal account) is probably a typing mistake. It is
     // refused until the General Manager confirms ("record anyway"); never blocked, and the confirmation is audited.
@@ -191,7 +211,7 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
       at,
       key: 'Purchase {number}: {n} item(s) received, cost {cost}',
       params: { number, n: input.lines.length, cost: ap.money(totalCost) },
-      metadata: { items: codes, makingChargePaidBy: payer, makingChargeReference: transfer.reference, makingChargeTransferDate: transfer.transferDate, ...(duplicateOf ? { duplicateReferenceOf: duplicateOf } : {}) },
+      metadata: { items: codes, makingChargePaidBy: payer, makingChargeReference: transfer.reference, makingChargeTransferDate: transfer.transferDate, ...(duplicateOf ? { duplicateReferenceOf: duplicateOf } : {}), ...(openDebt ? { openSupplierDebtConfirmed: openDebt } : {}) },
     });
     const result = { ...purchase, itemCodes: codes };
     await opts.idem?.complete(tx, result);
@@ -273,3 +293,16 @@ export async function getPurchase(ctx: Ctx, actor: Actor, id: number) {
   return { ...p.p, branchName: p.branchName, supplierName: p.supplierName, supplierNameAr: p.supplierNameAr, createdByName: p.createdByName, items, settlements };
 }
 
+
+/**
+ * SUP-1 (D-sup-1): the gold still owed to one supplier, across every branch, for the warning on the purchase form
+ * (General Manager only: the only role that records orders). Weights, the oldest order and its age only, never money.
+ */
+export async function supplierOpenDebt(ctx: Ctx, actor: Actor, supplierId: number) {
+  requirePerm(actor, 'purchases.create');
+  const [s] = await ctx.db.select({ id: t.suppliers.id }).from(t.suppliers).where(eq(t.suppliers.id, supplierId));
+  if (!s) throw notFound('Supplier');
+  const [debt] = await supplierGoldOwed(ctx.db, { branchId: null, supplierId });
+  if (!debt) return { supplierId, pureMg24: 0, orders: 0, oldestNumber: null, oldestPurchaseId: null, days: null };
+  return { supplierId, pureMg24: debt.pureMg24, orders: debt.orders, oldestNumber: debt.oldestNumber, oldestPurchaseId: debt.oldestPurchaseId, days: daysOpen(debt.oldestAt) };
+}

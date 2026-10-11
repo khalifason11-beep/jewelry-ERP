@@ -335,6 +335,7 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'GET /gold-rates': () => ({ path: '/gold-rates' }),
   'GET /products': () => ({ path: '/products' }),
   'GET /suppliers': () => ({ path: '/suppliers' }),
+  'GET /suppliers/:id/gold-owed': () => ({ path: `/suppliers/${NONE}/gold-owed` }),
   'POST /categories': () => ({ path: '/categories', body: {} }),
   'POST /categories/:id/deactivate': () => ({ path: `/categories/${NONE}/deactivate`, body: {} }),
   'POST /categories/:id/reactivate': () => ({ path: `/categories/${NONE}/reactivate`, body: {} }),

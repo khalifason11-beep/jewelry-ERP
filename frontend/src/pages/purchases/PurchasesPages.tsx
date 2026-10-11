@@ -48,6 +48,16 @@ interface PurchaseRow {
   status: string;
 }
 
+/** SUP-1: the gold still owed to a supplier, across every branch (weights, the oldest order and its age only). */
+interface SupplierDebt {
+  supplierId: number;
+  pureMg24: number;
+  orders: number;
+  oldestNumber: string | null;
+  oldestPurchaseId: number | null;
+  days: number | null;
+}
+
 /** References and dates read left to right inside Arabic text. */
 const ltr = (s: string) => `\u2066${s}\u2069`;
 
@@ -138,6 +148,17 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
   const [transferRef, setTransferRef] = useState('');
   const [transferDate, setTransferDate] = useState(todayKey());
   const [duplicateOf, setDuplicateOf] = useState<string | null>(null);
+  // SUP-1: a supplier allows one open order at a time. When gold is still owed to the chosen supplier (any branch), the
+  // form says so before saving (weights, the order number and days only, never money) and the General Manager may
+  // "record anyway"; the server asks the same (409 SUPPLIER_GOLD_OWED) and audits the confirmation. Never a block.
+  const [confirmed, setConfirmed] = useState<{ duplicate: boolean; debt: boolean }>({ duplicate: false, debt: false });
+  const debt = useQuery({
+    queryKey: ['supplier-gold-owed', supplierId],
+    queryFn: () => get<SupplierDebt>(`/suppliers/${supplierId}/gold-owed`),
+    enabled: supplierId !== '',
+  });
+  const [serverDebt, setServerDebt] = useState<SupplierDebt | null>(null);
+  const openDebt = serverDebt ?? (debt.data && debt.data.orders > 0 ? debt.data : null);
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
   // Only karats this deployment sells can be bought from a supplier (D-4-1).
   const sellable = products.data?.filter((p) => me?.allowedKarats.includes(p.karat));
@@ -160,14 +181,15 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
 
   const actionKeys = useActionKeys();
   const m = useMutation({
-    mutationFn: (opts: { confirmDuplicate?: boolean } = {}) =>
+    mutationFn: (opts: { confirmDuplicate?: boolean; confirmDebt?: boolean } = {}) =>
       postOnce<{ id: number; number: string; itemCodes: string[] }>('/purchases', {
         branchId: branchId || undefined,
         supplierId: supplierId || undefined, // required (CAT-0); the button stays disabled without it
         supplierInvoiceNo: invoiceNo || undefined,
         ...(making > 0
-          ? { makingChargeReference: validBankReference(transferRef) ?? transferRef, makingChargeTransferDate: transferDate, ...(opts.confirmDuplicate ? { confirmDuplicateReference: true } : {}) }
+          ? { makingChargeReference: validBankReference(transferRef) ?? transferRef, makingChargeTransferDate: transferDate, ...(opts.confirmDuplicate || confirmed.duplicate ? { confirmDuplicateReference: true } : {}) }
           : {}),
+        ...(opts.confirmDebt || confirmed.debt ? { confirmOpenSupplierDebt: true } : {}),
         lines: lines.map((l) => ({
           productId: Number(l.productId),
           grossWeightMg: gramsToMg(l.gross),
@@ -189,6 +211,10 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
       // MKC-1 (Q4): the same transfer reference is already on another order: ask before recording it (never a block).
       if (e instanceof ApiError && e.code === 'DUPLICATE_BANK_REFERENCE') {
         setDuplicateOf((e.details as { number?: string } | undefined)?.number ?? '—');
+        return;
+      }
+      if (e instanceof ApiError && e.code === 'SUPPLIER_GOLD_OWED') {
+        setServerDebt({ supplierId: Number(supplierId), ...(e.details as Omit<SupplierDebt, 'supplierId'>) });
         return;
       }
       toast.fromError(e);
@@ -224,7 +250,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
           </Field>
         )}
         <Field label={t('Supplier')} hint={<NewButton testId="purchase-new-supplier" onClick={() => setNewSupplier(true)}>{t('New supplier')}</NewButton>}>
-          <Select value={supplierId} onChange={(e) => setSupplierId(e.target.value ? Number(e.target.value) : '')} data-testid="purchase-supplier">
+          <Select value={supplierId} onChange={(e) => { setSupplierId(e.target.value ? Number(e.target.value) : ''); setServerDebt(null); setConfirmed((c) => ({ ...c, debt: false })); }} data-testid="purchase-supplier">
             <option value="">{suppliers.data?.length === 0 ? t('No suppliers yet: add one') : t('Select…')}</option>
             {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{L(s.name, s.nameAr)}</option>)}
           </Select>
@@ -249,11 +275,24 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
       <Alert tone="info" className="mb-3">
         {t('Gold for gold: the supplier is owed the pieces’ weight as 24K pure gold, settled later with broken scrap only. The making charge is the only money paid: the owner pays it by bank transfer, and no branch money moves.')}
       </Alert>
+      {openDebt && (
+        <Alert tone="warning" className="mb-3">
+          <span className="flex flex-wrap items-center gap-3" data-testid="purchase-supplier-debt">
+            <span>
+              {openDebt.orders > 1
+                ? t('We still owe this supplier {weight} of 24K over {orders} open orders; the oldest, {number}, has been open for {days} days.', { weight: ltr(grams(openDebt.pureMg24)), orders: ltr(String(openDebt.orders)), number: ltr(openDebt.oldestNumber ?? '—'), days: ltr(String(openDebt.days ?? 0)) })
+                : t('We still owe this supplier {weight} of 24K from order {number}, open for {days} days.', { weight: ltr(grams(openDebt.pureMg24)), number: ltr(openDebt.oldestNumber ?? '—'), days: ltr(String(openDebt.days ?? 0)) })}{' '}
+              {t('The supplier usually opens a new order only after it is settled. Record anyway?')}
+            </span>
+            <Button size="sm" disabled={!valid} onClick={() => { setConfirmed((c) => ({ ...c, debt: true })); m.mutate({ confirmDebt: true }); }} loading={m.isPending} data-testid="purchase-supplier-debt-confirm">{t('Record anyway')}</Button>
+          </span>
+        </Alert>
+      )}
       {duplicateOf && (
         <Alert tone="warning" className="mb-3">
           <span className="flex flex-wrap items-center gap-3" data-testid="purchase-duplicate">
             {t('This transfer reference is already on supplier order {number}. Record it anyway?', { number: duplicateOf })}
-            <Button size="sm" onClick={() => m.mutate({ confirmDuplicate: true })} loading={m.isPending} data-testid="purchase-duplicate-confirm">{t('Record anyway')}</Button>
+            <Button size="sm" onClick={() => { setConfirmed((c) => ({ ...c, duplicate: true })); m.mutate({ confirmDuplicate: true }); }} loading={m.isPending} data-testid="purchase-duplicate-confirm">{t('Record anyway')}</Button>
           </span>
         </Alert>
       )}

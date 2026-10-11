@@ -45,7 +45,7 @@ async function order(body: { supplierId?: number; lines: { makingCost: number }[
   const krt = (await ctx.db.select().from(t.branches).where(eq(t.branches.code, 'KRT')))[0].id;
   const charge = body.lines.reduce((s, l) => s + l.makingCost, 0);
   const today = dayKey(new Date(), (await ctx.settings.get()).company.timezone);
-  return gm.post('/api/purchases').send({ branchId: krt, ...(charge > 0 ? { makingChargeReference: `TEST-CAT-${++refSeq}`, makingChargeTransferDate: today } : {}), ...body });
+  return gm.post('/api/purchases').send({ confirmOpenSupplierDebt: true, branchId: krt, ...(charge > 0 ? { makingChargeReference: `TEST-CAT-${++refSeq}`, makingChargeTransferDate: today } : {}), ...body });
 }
 
 beforeAll(async () => {

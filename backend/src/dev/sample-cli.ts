@@ -147,7 +147,8 @@ async function buildSample(ctx: Ctx) {
       const net = 3_000 + ((i * 1_370 + bi * 410) % 9_000);
       return { productId: p.id, grossWeightMg: net + 120, netWeightMg: net, purchaseCost: Math.round(net * 170) , makingCost: 40_000, otherCost: 0, sellingPrice: Math.round(net * 230 / 1000) * 1000 };
     });
-    await createPurchase(ctx, gm, { branchId: b.id, supplierId: supplier.id, lines, makingChargeReference: `SAMPLE-MKC-${bi + 1}`, makingChargeTransferDate: today });
+    // SUP-1: one sample supplier serves both branches; the sample confirms the open-debt warning.
+    await createPurchase(ctx, gm, { confirmOpenSupplierDebt: true, branchId: b.id, supplierId: supplier.id, lines, makingChargeReference: `SAMPLE-MKC-${bi + 1}`, makingChargeTransferDate: today });
   }
   const a = branches[0];
   const cashier = await actor(ctx, cashiers[0].username);
