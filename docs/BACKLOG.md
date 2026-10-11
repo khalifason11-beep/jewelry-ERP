@@ -221,6 +221,13 @@ real-looking names replaced by marked placeholders (fixture world, tests, CLIs, 
 **Security:** `APP_MODE` is required (D-cln1-1 supersedes D-1a-2): absent, empty or misspelt stops the server and every
 CLI; the demo and development entry points set `APP_MODE=demo` themselves.
 
+### CLN-2 — Display time zone from the company setting; unused fixture translations · DONE · S · P1
+**Done (plan `docs/plans/CLN-2.md`, no migration):** the browser no longer hardcodes `Africa/Khartoum`: dates, times
+and "today" use the company time zone sent with the session (`frontend/src/lib/zone.ts`; the settings default is the
+visible fallback before the session loads). A business-day key is formatted as that calendar day in every zone (it
+moved by one day in zones more than 12 h from UTC). Test `backend/test/display-zone.test.ts`. The backend already used
+`company.timezone` everywhere. The Arabic dictionary entries of the old fixture branch and city names are removed.
+
 ### SPL-1 — Split payments · BLOCKED (Q-7) · M · P2
 If a prepaid Hasad balance can fall short of the price, one sale must carry several payments (for example Hasad plus cash). Ledger entries per payment, one reference per payment.
 
@@ -330,8 +337,9 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
 
 - The per-IP sign-in limiter lives in process memory: run **one server instance** until it moves to the database.
 - ~~`docs/ARCHITECTURE.md` and `docs/DATA_MODEL.md` date from the prototype~~: **resolved by DOC-1** (rewritten; `check:docs` guards migrations, append-only tables and permission codes).
-- The browser formats every date and time in a hardcoded `Africa/Khartoum` time zone (`frontend/src/lib/format.ts`, `TZ`), although the server sends the company time zone (`me.timezone`, setting `company.timezone`): client-specific in code (found in CLN-1, not fixed there). Fix: set it from the signed-in session like the currency labels.
-- Branch and city names of the test fixture world (Khartoum, Omdurman, Bahri, Port Sudan) and their leftover Arabic translations in `frontend/src/lib/i18n-ar.ts` remain from the old demo seed; the UI kit page and a catalogue example text say "21K" / "Khartoum" as sample values (found in CLN-1, not changed: places and examples, not people or clients' data).
+- Branch and city names of the test fixture world (Khartoum, Omdurman, Bahri, Port Sudan) remain in the fixture (places, not people); their Arabic dictionary entries were removed in CLN-2. The UI kit page says "21K" / "Khartoum" as sample values (development only).
+- Several screens pass **data** through the UI dictionary (`t(r.branchName)`, `t(b.city)` in the sales, purchases, scrap, users, sessions, audit and branch lists), so a branch or city name shows its English form in the Arabic UI unless the dictionary happens to contain it. Show the stored Arabic name (`nameAr`) instead (found in CLN-2, not changed).
+- The English fallback of audit descriptions writes money as `… SDG` (`shared/src/audit.ts`), not the company's currency label; the UI renders audit entries from key + params with the configured label, so only the stored English fallback text is affected (found in CLN-2).
 - `scripts/i18n-check.mjs` still has a scan for English text in `/seed/` files; no such folder exists since REM-3 (harmless; remove when the script is next touched).
 - The test fixture world (copied from the old demo seed) is built relative to *today* in Khartoum time, so its content changes with the weekday and the hour. REM-3 step 7 fixed the three date-dependent failures it found: a fixed supplier-settlement weight exceeding the debt on one weekday in seven; an audit lookup that assumed today's purchase exists in the first minutes after midnight; and sale-line counts that included a voided sale of the same piece. It was then checked on 14 consecutive dates at three hours of the day. A fixed clock for the world would remove the class of problem (open).
 - The silent-printing `.cmd` template is untested on Windows; CSS page size on a given thermal driver is a request, not a guarantee.
