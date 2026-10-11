@@ -1459,7 +1459,7 @@ export const AR: Record<string, string> = {
   "Add the branch manager and a cashier": "أضف مدير الفرع وكاشيراً",
   "Each gets a temporary password to change at the first sign-in.": "يحصل كل منهم على كلمة مرور مؤقتة يغيّرها عند أول دخول.",
   "{done} of {total} done": "أُنجز {done} من {total}",
-  "Then the branch manager records the first supplier order (types and products can be created on the same screen), and selling can start.": "بعدها يسجّل مدير الفرع أول طلبية من مورّد (ويمكن إنشاء الأنواع والمنتجات من الشاشة نفسها)، ثم يبدأ البيع.",
+  "Then the General Manager records the first supplier order (types and products can be created on the same screen), and selling can start.": "بعدها يسجّل المدير العام أول طلبية من مورّد (ويمكن إنشاء الأنواع والمنتجات من الشاشة نفسها)، ثم يبدأ البيع.",
   "Allowed karats confirmed": "تم تأكيد الأعيرة المسموح بها",
   "Which karats do you sell?": "ما الأعيرة التي تبيعها؟",
   "Pieces of these karats can be bought from suppliers and sold. You can change this later in Settings.": "القطع بهذه الأعيرة تُشترى من الموردين وتُباع. يمكنك تغيير ذلك لاحقاً من الإعدادات.",
