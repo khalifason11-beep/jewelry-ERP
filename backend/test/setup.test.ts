@@ -27,7 +27,7 @@ let gm: Actor;
 beforeEach(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  const res = await bootstrapProduction(ctx, { username: 'samira.osman', fullName: 'Owner' });
+  const res = await bootstrapProduction(ctx, { username: 'golf.placeholder', fullName: 'Owner' });
   const [u] = await ctx.db.select().from(t.users).where(eq(t.users.username, res.username));
   gm = (await loadActor(ctx.db, u.id, null))!;
 });
@@ -72,9 +72,9 @@ describe('first-steps checklist (GM home)', () => {
     // 3. Branch, 4. staff: a branch manager AND a cashier.
     const b = await createBranch(ctx, gm, { code: 'KRT', name: 'Khartoum', nameAr: 'الخرطوم', city: 'Khartoum' });
     expect(await done()).toMatchObject({ branch: true, staff: false });
-    await createUser(ctx, gm, { username: 'hassan.elsayed', fullName: 'Hassan', roleCode: 'BRANCH_MANAGER', branchId: b.id });
+    await createUser(ctx, gm, { username: 'hotel.placeholder', fullName: 'Hotel', roleCode: 'BRANCH_MANAGER', branchId: b.id });
     expect(await done()).toMatchObject({ staff: false });
-    await createUser(ctx, gm, { username: 'ahmed.ali', fullName: 'Ahmed', roleCode: 'CASHIER', branchId: b.id });
+    await createUser(ctx, gm, { username: 'india.placeholder', fullName: 'India', roleCode: 'CASHIER', branchId: b.id });
     expect(await setupStatus(ctx, gm)).toMatchObject({ complete: false });
 
     // 5. CSH-2 (Q8): every active branch funded with an advance into its drawer. A bank advance does not count, nor
@@ -96,7 +96,7 @@ describe('first-steps checklist (GM home)', () => {
 
   it('only the General Manager sees or changes it', async () => {
     const b = await createBranch(ctx, gm, { code: 'KRT', name: 'Khartoum', nameAr: 'الخرطوم', city: 'Khartoum' });
-    const u = await createUser(ctx, gm, { username: 'hassan.elsayed', fullName: 'Hassan', roleCode: 'BRANCH_MANAGER', branchId: b.id });
+    const u = await createUser(ctx, gm, { username: 'hotel.placeholder', fullName: 'Hotel', roleCode: 'BRANCH_MANAGER', branchId: b.id });
     const bm = (await loadActor(ctx.db, u.id, null))!;
     await expect(setupStatus(ctx, bm)).rejects.toMatchObject({ status: 403 });
     await expect(confirmAllowedKarats(ctx, bm, [21])).rejects.toMatchObject({ status: 403 });
@@ -116,11 +116,11 @@ describe('ALLOWED_KARATS_INITIAL', () => {
   });
 
   it('is read from the environment, and an invalid value stops the start', () => {
-    expect(loadConfig({ ALLOWED_KARATS_INITIAL: '21' } as NodeJS.ProcessEnv).allowedKaratsInitial).toEqual([21]);
-    expect(loadConfig({ ALLOWED_KARATS_INITIAL: ' 21, 18 ' } as NodeJS.ProcessEnv).allowedKaratsInitial).toEqual([21, 18]);
-    expect(loadConfig({} as NodeJS.ProcessEnv).allowedKaratsInitial).toBeUndefined();
+    expect(loadConfig({ APP_MODE: 'demo', ALLOWED_KARATS_INITIAL: '21' } as NodeJS.ProcessEnv).allowedKaratsInitial).toEqual([21]);
+    expect(loadConfig({ APP_MODE: 'demo', ALLOWED_KARATS_INITIAL: ' 21, 18 ' } as NodeJS.ProcessEnv).allowedKaratsInitial).toEqual([21, 18]);
+    expect(loadConfig({ APP_MODE: 'demo' } as NodeJS.ProcessEnv).allowedKaratsInitial).toBeUndefined();
     for (const bad of ['7', '25', '21,21', 'x', '21.5', '21;18']) {
-      expect(() => loadConfig({ ALLOWED_KARATS_INITIAL: bad } as NodeJS.ProcessEnv)).toThrow(/ALLOWED_KARATS_INITIAL/);
+      expect(() => loadConfig({ APP_MODE: 'demo', ALLOWED_KARATS_INITIAL: bad } as NodeJS.ProcessEnv)).toThrow(/ALLOWED_KARATS_INITIAL/);
     }
   });
 });

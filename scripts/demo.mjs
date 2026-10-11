@@ -9,7 +9,12 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const EXIT_NEEDS_BOOTSTRAP = 10;
-const run = (cmd, args, cwd = ROOT) => spawnSync(cmd, args, { cwd, stdio: 'inherit', env: { ...process.env, APP_MODE: process.env.APP_MODE || 'demo' } });
+// CLN-1 (D-cln1-1): APP_MODE has no default; this demo entry point sets it explicitly and refuses any other value.
+if (process.env.APP_MODE && process.env.APP_MODE !== 'demo') {
+  console.error(`\`npm run demo\` is for APP_MODE=demo only (APP_MODE is "${process.env.APP_MODE}"). In production use \`npm run bootstrap -w @jerp/backend\` (docs/DEPLOYMENT.md).`);
+  process.exit(1);
+}
+const run = (cmd, args, cwd = ROOT) => spawnSync(cmd, args, { cwd, stdio: 'inherit', env: { ...process.env, APP_MODE: 'demo' } });
 
 let r = run('npm', ['run', 'build']);
 if (r.status !== 0) process.exit(r.status ?? 1);

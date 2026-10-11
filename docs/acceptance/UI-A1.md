@@ -64,7 +64,7 @@ Stop it with **Ctrl+C**.
 ```bash
 npm run build
 PGLITE_DIR=.data/sample npm run dev:sample        # prints the sample accounts and their passwords once
-PGLITE_DIR=.data/sample TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm start
+APP_MODE=demo PGLITE_DIR=.data/sample TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm start
 ```
 
 Open port **4000**. Sign in with the accounts that `dev:sample` printed. Names marked `[عينة]` / `[Sample]` are

@@ -54,7 +54,7 @@ beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
   await seedWorld(ctx, undefined, { twoFactor: true });
-  app = createApp(ctx, loadConfig({ VITEST: '1', APP_ORIGIN: ORIGIN } as NodeJS.ProcessEnv));
+  app = createApp(ctx, loadConfig({ APP_MODE: 'demo', VITEST: '1', APP_ORIGIN: ORIGIN } as NodeJS.ProcessEnv));
   gmId = (await ctx.db.select().from(t.users).where(eq(t.users.username, GM.username)))[0].id;
   // Enroll the GM: passkey on the shop PC + 10 recovery codes.
   const a = agent();

@@ -10,7 +10,7 @@ import { CircleAlert, ClipboardList, Fingerprint, LogOut } from 'lucide-react';
 import { get } from '../../lib/api';
 import { homePath, useAuth } from '../../lib/auth';
 import { AttentionLines, topSeverity, urgentCount, useAttention } from '../Attention';
-import { deviceText, money, relative } from '../../lib/format';
+import { deviceText, karatLabel, money, relative } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { useNotices } from './Notices';
 
@@ -24,22 +24,48 @@ function useClickOutside(onOutside: () => void) {
   return ref;
 }
 
-/** Today's 21K selling rate (public reference price; never a cost). REM-3: "Set today's rate" when none exists. */
+/**
+ * Today's selling rate of the karats this deployment sells (setting inventory.allowedKarats; public reference price,
+ * never a cost). CLN-1: nothing client-specific is hardcoded. Highest karat first, at most two in the chip and the rest
+ * as "+n" (every rate in the tooltip): the same pill, no layout change. REM-3: "Set today's rate" when no allowed karat
+ * has a rate yet.
+ */
 export function RateChip() {
   const { t } = useI18n();
-  const { can } = useAuth();
+  const { me, can } = useAuth();
   const q = useQuery({ queryKey: ['gold-rates'], queryFn: () => get<{ current: Record<string, { pricePerGram: number }> }>('/gold-rates'), refetchInterval: 120_000 });
-  const r = q.data?.current['21']?.pricePerGram;
-  const missing = q.isSuccess && !r;
+  const allowed = [...(me?.allowedKarats ?? [])].sort((a, b) => b - a);
+  const priced = allowed.flatMap((k) => {
+    const r = q.data?.current[String(k)]?.pricePerGram;
+    return r ? [{ karat: k, rate: r }] : [];
+  });
+  const missing = q.isSuccess && priced.length === 0;
+  const shown = priced.slice(0, 2);
+  const more = priced.length - shown.length;
+  const single = priced.length === 1 ? priced[0].karat : !priced.length && allowed.length === 1 ? allowed[0] : null;
+  const label = single != null ? t('Gold {karat}', { karat: karatLabel(single) }) : t('Gold');
+  const title = [t('Reference gold price per gram (set by the General Manager)'), ...priced.map((p) => `${karatLabel(p.karat)}: ${money(p.rate)}/${t('g')}`)].join('\n');
   const chip = (
-    <div className="flex h-9 items-center gap-2 rounded-full bg-navy px-3.5 text-meta text-white" title={t('Reference gold price per gram (set by the General Manager)')} data-testid="rate-chip">
+    <div className="flex h-9 items-center gap-2 rounded-full bg-navy px-3.5 text-meta text-white" title={title} data-testid="rate-chip">
       <span className="size-2 rounded-full bg-gold" aria-hidden />
-      <span className="text-on-navy-soft">{t('Gold 21K')}</span>
+      <span className="text-on-navy-soft">{label}</span>
       {missing ? (
         <span className="font-semibold">{can('settings.manage') ? t('Set today’s rate') : t('No rate set yet')}</span>
-      ) : (
+      ) : single != null ? (
         <span className="font-semibold num">
-          {r ? money(r) : '—'}/{t('g')}
+          {priced[0] ? money(priced[0].rate) : '—'}/{t('g')}
+        </span>
+      ) : (
+        <span className="whitespace-nowrap" data-testid="rate-chip-list">
+          {shown.map((p, i) => (
+            <span key={p.karat}>
+              {i > 0 && <span className="text-on-navy-soft"> · </span>}
+              <span className="text-on-navy-soft">{karatLabel(p.karat)} </span>
+              <span className="font-semibold num">{money(p.rate)}</span>
+            </span>
+          ))}
+          <span className="font-semibold">/{t('g')}</span>
+          {more > 0 && <span className="text-on-navy-soft num"> +{more}</span>}
         </span>
       )}
     </div>

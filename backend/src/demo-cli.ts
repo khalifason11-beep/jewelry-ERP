@@ -42,7 +42,7 @@ try {
         'Create the first General Manager with the real bootstrap command (choose your own username:',
         'at least 8 characters, no role-style words such as "admin" or "manager"), then start again:',
         '',
-        '  npm run bootstrap -w @jerp/backend -- --username <your.name> --full-name "<Your Name>" [--full-name-ar "<الاسم>"]',
+        '  APP_MODE=demo npm run bootstrap -w @jerp/backend -- --username <your.name> --full-name "<Your Name>" [--full-name-ar "<الاسم>"]',
         '  npm run demo',
         '',
       ].join('\n'),
@@ -53,7 +53,7 @@ try {
     console.log('This demo database is empty. Create the first General Manager (the same rules as in production).');
     let username = '';
     for (;;) {
-      username = (await rl.question('General Manager username (at least 8 characters, e.g. o.abdelrahman): ')).trim().toLowerCase();
+      username = (await rl.question('General Manager username (at least 8 characters, e.g. first.lastname): ')).trim().toLowerCase();
       try {
         if (!/^[a-z0-9._-]{3,40}$/.test(username)) throw new AppError(400, 'BAD_REQUEST', 'Username: 3–40 chars, letters, digits, dot, dash, underscore');
         assertOperatorUsername(username);

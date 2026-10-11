@@ -39,7 +39,7 @@ beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
   await seedWorld(ctx);
-  app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
+  app = createApp(ctx, loadConfig({ APP_MODE: 'demo', VITEST: '1' } as NodeJS.ProcessEnv));
   bm = await actorOf('branch.manager.kh');
   krt = (await ctx.db.select().from(t.branches).where(eq(t.branches.code, 'KRT')))[0].id;
 });

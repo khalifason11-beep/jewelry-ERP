@@ -55,7 +55,7 @@ beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
   await seedWorld(ctx);
-  app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
+  app = createApp(ctx, loadConfig({ APP_MODE: 'demo', VITEST: '1' } as NodeJS.ProcessEnv));
   prodApp = createApp(ctx, prodConfig);
 });
 afterAll(async () => handle.close());
@@ -112,16 +112,40 @@ describe('typed settings: one row per key, history, versions', () => {
   it('rejects a stale version (409) and rolls back the whole change set', async () => {
     const gm = await gmAgent();
     const versions = (await gm.get('/api/settings')).body.versions;
-    await gm.put('/api/settings').send({ changes: { 'rates.rateChangeMaxPct': 7 } });
+    // CLN-1: the sample key was rates.rateChangeMaxPct, which no longer accepts writes; same steps and values.
+    await gm.put('/api/settings').send({ changes: { 'purchases.supplierDebtMaxAgeDays': 7 } });
     const before = (await gm.get('/api/settings')).body.settings.transfers.pendingClaimStaleHours;
     const stale = await gm.put('/api/settings').send({
-      changes: { 'transfers.pendingClaimStaleHours': before + 1, 'rates.rateChangeMaxPct': 9 },
-      expectedVersions: { 'transfers.pendingClaimStaleHours': versions['transfers.pendingClaimStaleHours'], 'rates.rateChangeMaxPct': versions['rates.rateChangeMaxPct'] },
+      changes: { 'transfers.pendingClaimStaleHours': before + 1, 'purchases.supplierDebtMaxAgeDays': 9 },
+      expectedVersions: { 'transfers.pendingClaimStaleHours': versions['transfers.pendingClaimStaleHours'], 'purchases.supplierDebtMaxAgeDays': versions['purchases.supplierDebtMaxAgeDays'] },
     });
     expect(stale.status).toBe(409);
     const after = (await gm.get('/api/settings')).body.settings;
     expect(after.transfers.pendingClaimStaleHours).toBe(before); // first key rolled back too
-    expect(after.rates.rateChangeMaxPct).toBe(7);
+    expect(after.purchases.supplierDebtMaxAgeDays).toBe(7);
+  });
+
+  it('CLN-1: the two settings nothing reads refuse every write; their stored value and history stay as they were', async () => {
+    const gm = await gmAgent();
+    const historyOf = async (key: string) => ctx.db.select().from(t.settingsHistory).where(eq(t.settingsHistory.key, key));
+    const before = (await gm.get('/api/settings')).body;
+    for (const [key, value] of [['rates.rateChangeMaxPct', 9], ['rates.goldRateScope', 'BRANCH']] as const) {
+      const historyBefore = (await historyOf(key)).length;
+      const res = await gm.put('/api/settings').send({ changes: { [key]: value } });
+      expect(res.status, key).toBe(400);
+      expect(res.body.error).toMatchObject({ key: 'This setting is not in use yet and cannot be changed: {key}', params: { key } });
+      // Even together with a valid key, the whole request is refused and nothing changes.
+      const mixed = await gm.put('/api/settings').send({ changes: { 'transfers.pendingClaimStaleHours': 30, [key]: value } });
+      expect(mixed.status, key).toBe(400);
+      expect((await historyOf(key)).length, key).toBe(historyBefore);
+    }
+    const after = (await gm.get('/api/settings')).body;
+    expect(after.settings.rates).toEqual(before.settings.rates);
+    expect(after.settings.transfers.pendingClaimStaleHours).toBe(before.settings.transfers.pendingClaimStaleHours);
+    expect(after.versions['rates.rateChangeMaxPct']).toBe(before.versions['rates.rateChangeMaxPct']);
+    expect(after.versions['rates.goldRateScope']).toBe(before.versions['rates.goldRateScope']);
+    // Still readable with their defaults.
+    expect(after.settings.rates).toMatchObject({ goldRateScope: 'GLOBAL', rateChangeMaxPct: 5 });
   });
 
   it('validates values and cross-field rules; one bad key rejects the whole request', async () => {

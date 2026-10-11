@@ -7,15 +7,15 @@ React app too, so no separate static site is needed.
 > **Hosting is not decided** (BACKLOG HOST-1). What the app needs from any host: one Node.js 20+ process (one
 > instance for now), a managed PostgreSQL with separate owner and runtime roles, HTTPS at a final domain (before any
 > passkey is registered), shell access for the operator commands and the bootstrap, and a schedule for backups with
-> an off-site copy. Sections 1 and 2 use Render as **one worked example** only; the variables and checks apply to
-> any host.
+> an off-site copy. Nothing in this guide depends on a vendor. **Appendix A** shows the same settings on Render as a
+> **worked example, not a decision**.
 
 > Production mode refuses to start while the configuration is unsafe (see D-1a-10 in
 > [decisions.md](decisions.md)). If the service does not come up, read the start-up log first: it lists
 > every problem it found.
 
 > **The old hosted demo cannot run from the default branch any more (REM-3).** Earlier versions, started with
-> `npm start` in `APP_MODE=demo` (e.g. a Render web service without `APP_MODE=production`), seeded fictional data
+> `npm start` in `APP_MODE=demo` (e.g. a hosted web service without `APP_MODE=production`), seeded fictional data
 > and listed demo accounts on the login page on an empty database. That code is gone: `npm start` now creates **no
 > General Manager** and no data, so such a service starts with an empty database that nobody can sign in to (the log
 > says `no users yet`). `npm run demo` asks for the username in a terminal, which a hosting platform does not have,
@@ -24,29 +24,30 @@ React app too, so no separate static site is needed.
 > is reset, and how it stays separate from production. Until then, show the system from a local `npm run demo` or a
 > `dev:sample` database (docs/DEMO_SCRIPT.md).
 
-## 1. Services (example: Render)
+## 1. Services
 
-| Render resource | Settings |
+| What | Requirement |
 |---|---|
-| PostgreSQL | Any plan. Use the **Internal Database URL** for the web service, so traffic stays on Render's private network. |
-| Web Service | Runtime **Node**, region the same as the database. |
+| PostgreSQL | A managed PostgreSQL (16 is what the project is tested on), reachable from the app over a private network where the host offers one. |
+| App service | One Node.js 20+ process (22 tested), in the same region as the database. |
 | Build command | `npm ci --include=dev && npm run build` (the start command runs TypeScript through `tsx`, a dev dependency, so dev dependencies must be installed) |
 | Start command | `npm start` |
 | Health check path | `/api/health` |
 | Instances | **1** for now. The per-IP sign-in throttle and the login counters for unknown usernames are kept in process memory, and each instance keeps its own settings cache for up to 5 s. See "Remaining limits" below. |
+| Shell | Shell access to the running service (SSH or the host's console) for the bootstrap and the operator console. |
 
-## 2. Environment variables (example values: Render)
+## 2. Environment variables
 
-| Variable | Value on Render | Why |
+| Variable | Value | Why |
 |---|---|---|
-| `APP_MODE` | `production` | Turns on the start-up refusals, removes the "Demo" badge and refuses `npm run dev:sample`. (Since REM-3 there is no demo data in any mode: demo mode starts empty too.) |
-| `DATABASE_URL` | Render's **Internal Database URL** (`postgresql://user:password@host/db`) | Required in production; embedded PGlite is refused. Render generates a strong password. Never reuse `postgres`, `password`, `admin`, `root`, `changeme`, `secret` or `123456`: they are refused. |
-| `APP_ORIGIN` | `https://<your-service>.onrender.com`, or your custom domain, e.g. `https://erp.example.com` | Exact origin the browser uses (scheme + host, no trailing slash, no path). Must be `https://`. State-changing requests from any other origin are rejected (CSRF defence). If you add a custom domain later, update this value. |
+| `APP_MODE` | `production` (**required**) | **Required, no default** (D-cln1-1, superseding D-1a-2). Absent or empty stops the server and every CLI with: `Refusing to start: APP_MODE is not set. Set APP_MODE=production on a real server, or APP_MODE=demo for a local trial installation (the only two valid values).` Only the exact strings `production` and `demo` are accepted (`prod`, `Production` are refused). It turns on the start-up refusals, removes the "Demo" badge and refuses `npm run dev:sample`. (Since REM-3 there is no demo data in any mode: demo mode starts empty too.) |
+| `DATABASE_URL` | the database's private connection URL (`postgresql://user:password@host/db`) | Required in production; embedded PGlite is refused. Use a long generated password. Never reuse `postgres`, `password`, `admin`, `root`, `changeme`, `secret` or `123456`: they are refused. |
+| `APP_ORIGIN` | the final domain, e.g. `https://erp.example.com` | Exact origin the browser uses (scheme + host, no trailing slash, no path). Must be `https://`. State-changing requests from any other origin are rejected (CSRF defence). If you add a custom domain later, update this value. |
 | `TRUST_PROXY` | `1` to start with, then **verify** (section 4) | Number of proxy hops in front of the app. It decides which `X-Forwarded-For` entry becomes the client IP used in the audit log, the sessions list and the per-IP sign-in throttle. Unset means "no proxy": all users then appear with the proxy's IP. |
 | `COOKIE_SECURE` | leave **unset** (defaults to `true` in production) | The session cookie is `__Host-jerp_session`: `Secure`, `HttpOnly`, `SameSite=Lax`. `false` is refused in production. |
 | `LOG_LEVEL` | `info` | `warn` or `error` to reduce volume, `debug` only while diagnosing. Logs never contain bodies, query strings, cookies or passwords. |
 | `NODE_VERSION` | `22` | Node 20 or newer is required; 22 is what the project is tested on. |
-| `PORT` | **do not set** | Render provides it; the app reads it. |
+| `PORT` | the port the host routes to (many hosts set it themselves) | The app listens on it; default 4000. |
 | `MIGRATION_DATABASE_URL` | optional, recommended: the owner role (section 5) | Runs the migrations; the app then connects with `DATABASE_URL` as a runtime role that owns nothing. |
 | `STRICT_DB_ROLES` | `true` once the roles are separated | Refuse to start if the runtime role could alter the audit log or the ledgers. |
 | `WEBAUTHN_RP_ID` | leave **unset** (= the host of `APP_ORIGIN`), or the parent domain, e.g. `example.com` | The domain passkeys belong to. Must be the host of `APP_ORIGIN` or a parent of it; anything else is refused at start-up. **Changing it later invalidates every passkey** (section 8.1). |
@@ -55,8 +56,8 @@ React app too, so no separate static site is needed.
 | `ALLOWED_KARATS_INITIAL` | optional, e.g. `21` | **First start only**: the initial list of allowed karats (comma-separated, 8–24; an invalid value stops the start). Ignored once the setting exists. The GM still confirms the list once (first-steps checklist). |
 | `TWO_FACTOR_REQUIRED_ROLES_INITIAL` | optional, e.g. `GENERAL_MANAGER` (default) or empty | **First start only**: roles that must use a passkey. Empty = not enforced (accepted risk, section 8.7). Ignored once the setting exists. |
 
-Secrets: the only secret is the database password inside `DATABASE_URL`. Keep it in Render's
-environment settings (or an Environment Group), never in the repository. The app needs no signing key:
+Secrets: the only secret is the database password inside `DATABASE_URL`. Keep it in the host's secret or
+environment settings, never in the repository. The app needs no signing key:
 CSRF tokens and session ids are random values stored in the database. Rotating the database password
 means updating `DATABASE_URL` and redeploying; all sessions survive because they live in the database.
 
@@ -68,7 +69,8 @@ Backup variables (`BACKUP_*`) are listed in section 7; they belong to the backup
 
 1. Create the database and the web service with the variables above. Deploy. Migrations run
    automatically at start-up (forward-only; they never drop data).
-2. Open the service's **Shell** tab and create the first General Manager and the branches:
+2. Open a shell on the service and create the first General Manager and the branches (the shell must have the
+   service's variables, `APP_MODE=production` included; the CLIs refuse to run without it):
 
    ```bash
    npm run bootstrap -w @jerp/backend -- --username first.lastname --full-name "Owner Name" --full-name-ar "اسم المالك" \
@@ -102,7 +104,7 @@ Backup variables (`BACKUP_*`) are listed in section 7; they belong to the backup
 ### Operator console (shell access only)
 
 Two recovery actions exist for the case where nobody can sign in. They are **not** reachable over HTTP;
-you need the Render Shell (or SSH) for the service:
+you need a shell on the service (SSH or the host's console):
 
 ```bash
 # Lift a sign-in lock (any user)
@@ -168,7 +170,7 @@ anyone would block sign-in for the whole company.
   `gold_rates`, `settings_history`, `ledger_entries`, `cash_counts`) are protected by triggers and by missing
   privileges. A role that **owns** those tables can still drop the triggers or grant itself the privileges back,
   and a superuser ignores privileges altogether. So the app should run as a role that owns nothing.
-- **One role (simplest, Render's default).** `DATABASE_URL` both migrates and runs the app. Migrations take
+- **One role (simplest, and what a managed database usually gives you first).** `DATABASE_URL` both migrates and runs the app. Migrations take
   UPDATE/DELETE/TRUNCATE away from it on the append-only tables, but it still owns them, so at every start the server
   logs `SECURITY WARNING: the database role can alter the append-only tables` with the fix. Acceptable for a trial,
   not for real money.
@@ -403,8 +405,8 @@ tampered-database cases) against a freshly seeded real PostgreSQL database (`bac
 - **Time to restore (RTO)**: minutes for a database of this size, plus the time to fetch the file. Measure it
   during the first drill and write it down.
 - **To lose less**: run `npm run backup` more often (e.g. every hour: RPO 1 hour; lower *Warn after* to 2
-  hours), and/or enable the database provider's **point-in-time recovery** (continuous WAL archiving; on
-  Render a paid PostgreSQL plan, self-hosted pgBackRest or WAL-G), which brings the loss down to seconds.
+  hours), and/or enable the database provider's **point-in-time recovery** (continuous WAL archiving; for
+  example a managed database's paid plan, self-hosted pgBackRest or WAL-G), which brings the loss down to seconds.
   The logical backups described here stay useful in any case: they are encrypted, off-site, and checked.
 
 ### 7.1 Tools
@@ -494,18 +496,18 @@ BACKUP_UPLOAD_COMMAND='rsync -a -e "ssh -i /etc/jerp/backup_ed25519 -o StrictHos
 
 ### 7.6 Schedule
 
-**cron** on a server that has the tools (times in the server's timezone; Sudan is UTC+2):
+**cron** on a server that has the tools (times in the server's timezone). Cron starts with an empty environment:
+the job needs the variables of 7.4 **and `APP_MODE=production`**, or `npm run backup` refuses to run.
 
 ```cron
 # daily backup at 01:30, after closing
-30 1 * * *  cd /srv/jerp && npm run backup        >> /var/log/jerp-backup.log 2>&1
+30 1 * * *  cd /srv/jerp && APP_MODE=production npm run backup        >> /var/log/jerp-backup.log 2>&1
 # weekly restore drill (Sunday 03:00) on the drill machine, which holds the secret key
-0 3 * * 0   cd /srv/jerp && npm run backup:verify >> /var/log/jerp-backup-verify.log 2>&1
+0 3 * * 0   cd /srv/jerp && APP_MODE=production npm run backup:verify >> /var/log/jerp-backup-verify.log 2>&1
 ```
 
-**Render**: add a **Cron Job** service from the same repository, schedule `30 23 * * *` (UTC; 01:30 at UTC+2:
-adjust to the company time zone), build command `npm ci`, command `npm run backup`, with the variables of 7.4 (no secret key).
-Its disk is temporary, so the off-site copy is the real one. Run the weekly drill on a machine you control
+On a host without cron on the app's machine, run `npm run backup` as a scheduled job of the host (Appendix A has one
+example). A scheduled job's disk is usually temporary, so the off-site copy is the real one. Run the weekly drill on a machine you control
 (an office computer or a small VPS with PostgreSQL 16 and age): download the latest three files from the
 off-site storage into `BACKUP_DIR`, then `npm run backup:verify` with `BACKUP_AGE_IDENTITY_FILE`,
 `BACKUP_VERIFY_ADMIN_URL` (the local scratch server) and `DATABASE_URL` (production runtime role, used only to
@@ -522,7 +524,7 @@ record the drill so the health check sees it).
 
 ### 7.8 Restoring after a disaster (step by step)
 
-1. **Stop the writes**: suspend the web service (Render: *Suspend*), so nothing is entered into a database you
+1. **Stop the writes**: stop or suspend the app service, so nothing is entered into a database you
    are about to replace. Tell the branches to keep paper receipts.
 2. **Fetch** the latest backup's three files from the off-site storage and check them:
    `sha256sum -c jerp-backup-<time>.sha256`.
@@ -742,4 +744,41 @@ Chrome sends `@page { size: 72mm <length>mm; margin: 0 }` for receipts and `size
   5 s. Move the counters to PostgreSQL or Redis before scaling out.
 - **Passkeys and the domain.** Moving to another domain invalidates every passkey (section 8.1).
 - **The proxy's header format.** The app relies on `X-Forwarded-For` as the proxy writes it. If a CDN is
-  added in front of Render, repeat section 4: the hop count usually changes.
+  added in front of the app, repeat section 4: the hop count usually changes.
+
+---
+
+## Appendix A — Render: a worked example, not a decision
+
+Hosting is undecided (BACKLOG HOST-1). This appendix only shows how the settings above map onto one managed host,
+Render; another host needs the same things under other names.
+
+### A.1 Services
+
+| Render resource | Settings |
+|---|---|
+| PostgreSQL | Any plan. Use the **Internal Database URL** for the web service, so traffic stays on Render's private network. |
+| Web Service | Runtime **Node**, region the same as the database. |
+| Build command | `npm ci --include=dev && npm run build` (the start command runs TypeScript through `tsx`, a dev dependency, so dev dependencies must be installed) |
+| Start command | `npm start` |
+| Health check path | `/api/health` |
+| Instances | **1** for now. The per-IP sign-in throttle and the login counters for unknown usernames are kept in process memory, and each instance keeps its own settings cache for up to 5 s. See "Remaining limits" below. |
+
+### A.2 Environment variables on Render
+
+- `DATABASE_URL`: Render's **Internal Database URL**, so traffic stays on Render's private network. Render generates a
+  strong password.
+- `APP_ORIGIN`: `https://<your-service>.onrender.com`, or the custom domain once it is final.
+- `PORT`: **do not set**; Render provides it.
+- Secrets: in the service's environment settings or an Environment Group.
+- The operator console: the service's **Shell** tab.
+
+### A.3 Scheduled backup on Render
+
+**Render**: add a **Cron Job** service from the same repository, schedule `30 23 * * *` (UTC; 01:30 at UTC+2:
+adjust to the company time zone), build command `npm ci`, command `npm run backup`, with the variables of 7.4 (no secret key).
+
+### A.4 Restore
+
+Stopping the writes (section 7.8, step 1) is **Suspend** on the web service.
+

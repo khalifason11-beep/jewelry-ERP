@@ -54,7 +54,7 @@ beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
   await seedWorld(ctx);
-  app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
+  app = createApp(ctx, loadConfig({ APP_MODE: 'demo', VITEST: '1' } as NodeJS.ProcessEnv));
 });
 afterAll(async () => handle.close());
 beforeEach(() => resetThrottleMemory());

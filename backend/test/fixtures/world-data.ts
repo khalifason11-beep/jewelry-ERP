@@ -1,9 +1,10 @@
-// TEST FIXTURE (REM-3): static data of the test world (products, people, places). All names are fictional.
+// TEST FIXTURE (REM-3): static data of the test world (products, people, places). People, suppliers and the company are
+// marked placeholders ([Test] / [اختبار], CLN-1) so nothing resembles a real person or client; branches keep city names.
 
 /** Branding of the demo deployment (production branding is entered by the GM in Settings). */
 export const COMPANY = {
-  name: 'Loai Tabeede',
-  nameAr: 'لؤي تبيدي',
+  name: '[Test] Gold Jewelry',
+  nameAr: '[اختبار] مجوهرات الذهب',
   invoiceFooter: 'Thank you for shopping with us',
   invoiceFooterAr: 'شكراً لتسوقكم معنا',
 };
@@ -22,16 +23,16 @@ export const DEMO_PASSWORDS = {
 } as const;
 
 export const USERS: { username: string; fullName: string; fullNameAr: string; role: keyof typeof DEMO_PASSWORDS; branch: string | null; phone: string }[] = [
-  { username: 'general.manager', fullName: 'Omer Abdelrahman', fullNameAr: 'عمر عبدالرحمن', role: 'GENERAL_MANAGER', branch: null, phone: '+249 912 000 001' },
-  { username: 'branch.manager.kh', fullName: 'Hassan Elsayed', fullNameAr: 'حسن السيد', role: 'BRANCH_MANAGER', branch: 'KRT', phone: '+249 912 000 011' },
-  { username: 'cashier.kh.01', fullName: 'Ahmed Ali', fullNameAr: 'أحمد علي', role: 'CASHIER', branch: 'KRT', phone: '+249 912 000 012' },
-  { username: 'cashier.kh.02', fullName: 'Sara Mohamed', fullNameAr: 'سارة محمد', role: 'CASHIER', branch: 'KRT', phone: '+249 912 000 013' },
-  { username: 'branch.manager.omd', fullName: 'Mustafa Ibrahim', fullNameAr: 'مصطفى إبراهيم', role: 'BRANCH_MANAGER', branch: 'OMD', phone: '+249 912 000 021' },
-  { username: 'cashier.omd.01', fullName: 'Amna Yousif', fullNameAr: 'آمنة يوسف', role: 'CASHIER', branch: 'OMD', phone: '+249 912 000 022' },
-  { username: 'branch.manager.bhr', fullName: 'Tarig Osman', fullNameAr: 'طارق عثمان', role: 'BRANCH_MANAGER', branch: 'BHR', phone: '+249 912 000 031' },
-  { username: 'cashier.bhr.01', fullName: 'Hiba Salih', fullNameAr: 'هبة صالح', role: 'CASHIER', branch: 'BHR', phone: '+249 912 000 032' },
-  { username: 'branch.manager.pzu', fullName: 'Adil Hamid', fullNameAr: 'عادل حامد', role: 'BRANCH_MANAGER', branch: 'PZU', phone: '+249 912 000 041' },
-  { username: 'cashier.pzu.01', fullName: 'Nour Eldin Musa', fullNameAr: 'نور الدين موسى', role: 'CASHIER', branch: 'PZU', phone: '+249 912 000 042' },
+  { username: 'general.manager', fullName: '[Test] General Manager', fullNameAr: '[اختبار] المدير العام', role: 'GENERAL_MANAGER', branch: null, phone: '+249 912 000 001' },
+  { username: 'branch.manager.kh', fullName: '[Test] Branch Manager KRT', fullNameAr: '[اختبار] مدير فرع KRT', role: 'BRANCH_MANAGER', branch: 'KRT', phone: '+249 912 000 011' },
+  { username: 'cashier.kh.01', fullName: '[Test] Cashier KRT 01', fullNameAr: '[اختبار] كاشير KRT 01', role: 'CASHIER', branch: 'KRT', phone: '+249 912 000 012' },
+  { username: 'cashier.kh.02', fullName: '[Test] Cashier KRT 02', fullNameAr: '[اختبار] كاشير KRT 02', role: 'CASHIER', branch: 'KRT', phone: '+249 912 000 013' },
+  { username: 'branch.manager.omd', fullName: '[Test] Branch Manager OMD', fullNameAr: '[اختبار] مدير فرع OMD', role: 'BRANCH_MANAGER', branch: 'OMD', phone: '+249 912 000 021' },
+  { username: 'cashier.omd.01', fullName: '[Test] Cashier OMD 01', fullNameAr: '[اختبار] كاشير OMD 01', role: 'CASHIER', branch: 'OMD', phone: '+249 912 000 022' },
+  { username: 'branch.manager.bhr', fullName: '[Test] Branch Manager BHR', fullNameAr: '[اختبار] مدير فرع BHR', role: 'BRANCH_MANAGER', branch: 'BHR', phone: '+249 912 000 031' },
+  { username: 'cashier.bhr.01', fullName: '[Test] Cashier BHR 01', fullNameAr: '[اختبار] كاشير BHR 01', role: 'CASHIER', branch: 'BHR', phone: '+249 912 000 032' },
+  { username: 'branch.manager.pzu', fullName: '[Test] Branch Manager PZU', fullNameAr: '[اختبار] مدير فرع PZU', role: 'BRANCH_MANAGER', branch: 'PZU', phone: '+249 912 000 041' },
+  { username: 'cashier.pzu.01', fullName: '[Test] Cashier PZU 01', fullNameAr: '[اختبار] كاشير PZU 01', role: 'CASHIER', branch: 'PZU', phone: '+249 912 000 042' },
 ];
 
 export const CATEGORIES = [
@@ -78,33 +79,33 @@ export const PRODUCTS: { sku: string; name: string; nameAr: string; category: st
 ];
 
 export const SUPPLIERS = [
-  { name: 'Al-Sharif Gold Workshop', nameAr: 'ورشة الشريف للذهب', phone: '+249 912 300 100' },
-  { name: 'Nile Goldsmiths Co.', nameAr: 'شركة النيل للصاغة', phone: '+249 912 300 200' },
-  { name: 'Dubai Souk Gold Trading LLC', nameAr: 'دبي سوق الذهب للتجارة', phone: '+971 4 000 0300' },
-  { name: 'Istanbul Kuyumculuk A.Ş.', nameAr: 'إسطنبول للمجوهرات', phone: '+90 212 000 0400' },
+  { name: '[Test] Supplier A', nameAr: '[اختبار] مورد أ', phone: '+249 912 300 100' },
+  { name: '[Test] Supplier B', nameAr: '[اختبار] مورد ب', phone: '+249 912 300 200' },
+  { name: '[Test] Supplier C', nameAr: '[اختبار] مورد ج', phone: '+971 4 000 0300' },
+  { name: '[Test] Supplier D', nameAr: '[اختبار] مورد د', phone: '+90 212 000 0400' },
 ];
 
-/** Walk-in customers named on invoices (fictional), with Arabic spelling. */
+/** Walk-in customers named on invoices: marked placeholders (CLN-1), with an Arabic spelling. */
 export const CUSTOMER_NAMES: { en: string; ar: string }[] = [
-  { en: 'Mohamed Ahmed', ar: 'محمد أحمد' },
-  { en: 'Fatima Osman', ar: 'فاطمة عثمان' },
-  { en: 'Khalid Abdalla', ar: 'خالد عبدالله' },
-  { en: 'Maha Elfadil', ar: 'مها الفاضل' },
-  { en: 'Yasir Hamza', ar: 'ياسر حمزة' },
-  { en: 'Rania Mahgoub', ar: 'رانيا محجوب' },
-  { en: 'Ibrahim Nour', ar: 'إبراهيم نور' },
-  { en: 'Samia Babiker', ar: 'سامية بابكر' },
-  { en: 'Abubakr Siddig', ar: 'أبوبكر صديق' },
-  { en: 'Huda Elamin', ar: 'هدى الأمين' },
-  { en: 'Walid Karrar', ar: 'وليد كرار' },
-  { en: 'Tasneem Awad', ar: 'تسنيم عوض' },
-  { en: 'Hisham Idris', ar: 'هشام إدريس' },
-  { en: 'Nada Ali', ar: 'ندى علي' },
-  { en: 'Mujtaba Hassan', ar: 'مجتبى حسن' },
-  { en: 'Reem Suliman', ar: 'ريم سليمان' },
-  { en: 'Osama Taha', ar: 'أسامة طه' },
-  { en: 'Salma Eltayeb', ar: 'سلمى الطيب' },
-  { en: 'Anwar Bashir', ar: 'أنور بشير' },
-  { en: 'Mawada Ismail', ar: 'مودة إسماعيل' },
+  { en: '[Test] Customer 01', ar: '[اختبار] عميل 01' },
+  { en: '[Test] Customer 02', ar: '[اختبار] عميل 02' },
+  { en: '[Test] Customer 03', ar: '[اختبار] عميل 03' },
+  { en: '[Test] Customer 04', ar: '[اختبار] عميل 04' },
+  { en: '[Test] Customer 05', ar: '[اختبار] عميل 05' },
+  { en: '[Test] Customer 06', ar: '[اختبار] عميل 06' },
+  { en: '[Test] Customer 07', ar: '[اختبار] عميل 07' },
+  { en: '[Test] Customer 08', ar: '[اختبار] عميل 08' },
+  { en: '[Test] Customer 09', ar: '[اختبار] عميل 09' },
+  { en: '[Test] Customer 10', ar: '[اختبار] عميل 10' },
+  { en: '[Test] Customer 11', ar: '[اختبار] عميل 11' },
+  { en: '[Test] Customer 12', ar: '[اختبار] عميل 12' },
+  { en: '[Test] Customer 13', ar: '[اختبار] عميل 13' },
+  { en: '[Test] Customer 14', ar: '[اختبار] عميل 14' },
+  { en: '[Test] Customer 15', ar: '[اختبار] عميل 15' },
+  { en: '[Test] Customer 16', ar: '[اختبار] عميل 16' },
+  { en: '[Test] Customer 17', ar: '[اختبار] عميل 17' },
+  { en: '[Test] Customer 18', ar: '[اختبار] عميل 18' },
+  { en: '[Test] Customer 19', ar: '[اختبار] عميل 19' },
+  { en: '[Test] Customer 20', ar: '[اختبار] عميل 20' },
 ];
 

@@ -79,7 +79,7 @@ export function FirstSteps({ status }: { status: SetupStatus }) {
         ))}
       </ol>
       <div className="px-1 pt-3 text-meta text-ink-3">
-        {t('Then the branch manager records the first supplier order (types and products can be created on the same screen), and selling can start.')}
+        {t('Then the General Manager records the first supplier order (types and products can be created on the same screen), and selling can start.')}
       </div>
       {karats && <KaratsDialog current={status.allowedKarats} onClose={() => setKarats(false)} />}
     </Panel>

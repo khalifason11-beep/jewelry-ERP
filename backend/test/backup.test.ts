@@ -26,7 +26,7 @@ beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
   await seedWorld(ctx);
-  app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
+  app = createApp(ctx, loadConfig({ APP_MODE: 'demo', VITEST: '1' } as NodeJS.ProcessEnv));
 });
 afterAll(async () => handle.close());
 beforeEach(() => resetThrottleMemory());
@@ -112,9 +112,9 @@ describe('backup configuration', () => {
     expect(() => loadBackupConfig({ BACKUP_DIR: '/tmp/x' })).toThrow(/BACKUP_DATABASE_URL/);
     const c = loadBackupConfig({ BACKUP_DIR: '/tmp/x', BACKUP_DATABASE_URL: 'postgres://a@h/db', APP_MODE: 'production', BACKUP_AGE_RECIPIENT: 'age1abc, age1def' });
     expect(c).toMatchObject({ strict: true, keep: { daily: 14, weekly: 8, monthly: 6 }, ageRecipients: ['age1abc', 'age1def'] });
-    expect(loadBackupConfig({ BACKUP_DIR: '/tmp/x', BACKUP_DATABASE_URL: 'postgres://a@h/db' }).strict).toBe(false);
-    expect(loadBackupConfig({ BACKUP_DIR: '/tmp/x', BACKUP_DATABASE_URL: 'postgres://a@h/db', BACKUP_STRICT: 'true' }).strict).toBe(true);
-    expect(() => loadBackupConfig({ BACKUP_DIR: '/tmp/x', BACKUP_DATABASE_URL: 'postgres://a@h/db', BACKUP_KEEP_DAILY: '-1' })).toThrow(/BACKUP_KEEP_DAILY/);
+    expect(loadBackupConfig({ BACKUP_DIR: '/tmp/x', BACKUP_DATABASE_URL: 'postgres://a@h/db', APP_MODE: 'demo' }).strict).toBe(false);
+    expect(loadBackupConfig({ BACKUP_DIR: '/tmp/x', BACKUP_DATABASE_URL: 'postgres://a@h/db', APP_MODE: 'demo', BACKUP_STRICT: 'true' }).strict).toBe(true);
+    expect(() => loadBackupConfig({ BACKUP_DIR: '/tmp/x', BACKUP_DATABASE_URL: 'postgres://a@h/db', APP_MODE: 'demo', BACKUP_KEEP_DAILY: '-1' })).toThrow(/BACKUP_KEEP_DAILY/);
   });
   it('passes the password to pg_dump through the environment, never on the command line', () => {
     expect(pgEnv('postgres://bk:s%40cret@db.example:5433/jerp?sslmode=require')).toEqual({ PGHOST: 'db.example', PGPORT: '5433', PGUSER: 'bk', PGPASSWORD: 's@cret', PGDATABASE: 'jerp', PGSSLMODE: 'require' });

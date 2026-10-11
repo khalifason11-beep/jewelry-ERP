@@ -59,7 +59,7 @@ beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
   await seedWorld(ctx);
-  app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
+  app = createApp(ctx, loadConfig({ APP_MODE: 'demo', VITEST: '1' } as NodeJS.ProcessEnv));
 });
 afterAll(async () => handle?.close());
 
@@ -67,15 +67,15 @@ describe('the branch manager sends the POS cart', () => {
   it('one transfer holds every piece; courier stored, listed and audited', async () => {
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
     const items = await freshItems('KRT', 3);
-    const r = await send(bm, { toBranchId: await branchId('OMD'), itemIds: items.map((i) => i.id), courierName: '  عثمان   الطيب ' });
+    const r = await send(bm, { toBranchId: await branchId('OMD'), itemIds: items.map((i) => i.id), courierName: '  مندوب   اختبار ' });
     expect(r.status, JSON.stringify(r.body)).toBe(200);
-    expect(r.body).toMatchObject({ status: 'IN_TRANSIT', courierName: 'عثمان الطيب' });
+    expect(r.body).toMatchObject({ status: 'IN_TRANSIT', courierName: 'مندوب اختبار' });
     expect(await statuses(items.map((i) => i.id))).toEqual(['TRANSFERRED', 'TRANSFERRED', 'TRANSFERRED']);
     const [audit] = await ctx.db.select().from(t.auditLogs).where(eq(t.auditLogs.action, 'INVENTORY_TRANSFER')).orderBy(desc(t.auditLogs.id)).limit(1);
     expect(audit.entityId).toBe(r.body.number);
-    expect(audit.metadata).toMatchObject({ courierName: 'عثمان الطيب', items: items.map((i) => i.code) });
+    expect(audit.metadata).toMatchObject({ courierName: 'مندوب اختبار', items: items.map((i) => i.code) });
     const list = (await bm.get('/api/transfers')).body as { id: number; courierName: string | null }[];
-    expect(list.find((x) => x.id === r.body.id)?.courierName).toBe('عثمان الطيب');
+    expect(list.find((x) => x.id === r.body.id)?.courierName).toBe('مندوب اختبار');
   });
 
   it('the courier is required (2–80 characters)', async () => {
