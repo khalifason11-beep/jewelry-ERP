@@ -1,10 +1,12 @@
 # Screens after the latest UI phase
 
-**Current set: CSH-2** (the General Manager's funding, split payment on scrap, negative balances), taken in the CSH-2
-docs commit. At all three sizes in both languages: the three role homes (the GM home `01-gm-home-company-overview`,
-the branch manager's home `18-bm-home-branch-dashboard`, the cashier's POS `26-cashier-home-pos`, unchanged until
-UI-C1), Cash for the General Manager with the funding panel (`10-gm-cash-and-reconciliation`) and for the branch
-manager (`21-bm-cash-and-reconciliation`), and the scrap form with the cash and bank parts (`19-bm-scrap-purchase`).
+**Current set: MKC-1** (supplier making charges paid by the owner; supplier orders GM-only), taken in the MKC-1 docs
+commit. At all three sizes in both languages: the three role homes (the GM home `01-gm-home-company-overview`, the
+branch manager's home `20-bm-home-branch-dashboard`, the cashier's POS `26-cashier-home-pos`, unchanged until UI-C1),
+the supplier purchases list with the transfer reference (`08-gm-supplier-purchases`), an order's detail with "paid by
+the owner" and the owner's transfer (`09-gm-supplier-purchase-detail`) and the new purchase form
+(`18-gm-dialog-new-purchase`). The purchase dialogs are taken as the General Manager now (orders are GM-only), so the
+branch manager's screens moved from 18–25 to 20–25.
 Each UI phase replaces this folder with its own "after" set; earlier sets stay in git history
 (`git show <commit>:<path>`, or browse the repository on GitHub at that commit):
 
@@ -17,6 +19,7 @@ Each UI phase replaces this folder with its own "after" set; earlier sets stay i
 | UI-A2 after | `2988ff5` | `docs/ux/screens/` |
 | POS-FIXES after | `121bb9a` | `docs/ux/screens/` |
 | UI-B after | `cb48e0b` | `docs/ux/screens/` |
+| CSH-2 after | `89b9848` | `docs/ux/screens/` |
 
 Rule (D-ui-10), applied by `scripts/lib/screens.mjs`; `npm run check:assets` enforces at most 4 MB in total,
 150 KB per image, WebP only, no "before" set:

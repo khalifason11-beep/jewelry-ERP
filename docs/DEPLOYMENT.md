@@ -320,6 +320,36 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   "Fund the branch" stays open until every active branch has one. Whether that opening money is a loan or capital is
   an open client question (Q11): recorded as an advance, it is a debt of the branch to him.
 
+### MKC-1: making charges paid by the owner; supplier orders GM-only (migration 0022)
+
+- **Operating rule: the General Manager records a supplier order only after the pieces have arrived at the branch.**
+  Recording it receives the pieces into the branch at once (they are AVAILABLE for sale).
+- The making charge is paid by the owner by one bank transfer from the owner's personal account. The order records the
+  transfer reference and date; **no branch money moves** (the drawer and the branch bank are untouched, and the branch
+  owes nothing). The making charge stays in each piece's cost.
+- 0022 adds `purchases.making_charge_reference` and `purchases.making_charge_transfer_date`, replaces the payment-source
+  check (`OWNER_PERSONAL` only) and removes `purchases.create` from every role except the General Manager. A guard runs
+  first. If the database holds any supplier order whose making charge was paid from branch money, start-up stops with
+  `Migration 0022 (MKC-1) stopped: this database holds N supplier order(s) whose making charge was paid from branch
+  money: a paid from the drawer, b paid from the bank (no transfer reference), c with a charge of 0 and a branch source,
+  d recorded before Phase 4.` and **nothing is changed** (no column, no check, every role's grant still there). Orders
+  are never rewritten. Such a database holds trial data and is **recreated, not upgraded**, exactly as for CSH-2 and
+  FIX-2 (local: delete the `PGLITE_DIR` folder, default `.data/pglite`; server: a new database and the bootstrap of
+  section 3).
+
+### Stop and recreate is a pre-production rule only
+
+Four migrations so far stop on trial data instead of transforming it, and ask for the database to be recreated:
+
+- **0016 (REM-5)**: old demo data from removed features;
+- **0018 (FIX-2)**: a bank-transfer sale without its bank reference;
+- **0021 (CSH-2)**: a scrap purchase that disagrees with its ledger entries, or one paid by bank transfer (no reference);
+- **0022 (MKC-1)**: a supplier order whose making charge was paid from branch money.
+
+**This is allowed only before the first real client data exists** (decision D-mkc-5). From the day real data is
+entered, a migration must **transform** existing data (with a tested, reviewed backfill), **never reject it**. A
+future migration that cannot transform a row is redesigned, not shipped with a guard that stops.
+
 ### Purchases, scrap and supplier settlement (Phase 4)
 
 - Migration 0007 adds a **HASAD_RECEIVABLE** account to every branch (and to every future branch). Sales paid with

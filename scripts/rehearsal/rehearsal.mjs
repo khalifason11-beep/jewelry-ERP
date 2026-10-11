@@ -1073,6 +1073,8 @@ async function main() {
     const bankSale1 = await (await resp).json();
     check(bankSale1.paymentRefTransaction === 'TRF 9012-REH', `sale ${bankSale1.number}: the reference is stored normalized ("TRF 9012-REH", Arabic-Indic digits → ASCII)`);
     await page.keyboard.press('Escape');
+    // The receipt dialog must be gone before the next click on the POS (a click during its closing hits the overlay).
+    await page.locator('[role=dialog]').waitFor({ state: 'detached', timeout: 15_000 });
     await bankSaleAt('TRF 9012-REH');
     resp = page.waitForResponse((r) => r.url().endsWith('/api/sales') && r.request().method() === 'POST');
     await page.click('[data-testid=pos-complete]');
