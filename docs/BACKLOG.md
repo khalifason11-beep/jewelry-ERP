@@ -211,6 +211,16 @@ append-only tables); `docs/DEMO_SCRIPT.md` and `docs/DEPLOYMENT.md` corrected (h
 names); the acceptance scripts open the codespace on `main`. New gate `npm run check:docs` (in `typecheck`): every
 migration and append-only table named in DATA_MODEL, every permission code in FEATURES.
 
+### CLN-1 — Clean-up found during DOC-1 · DONE · S · P1
+**Done (plan `docs/plans/CLN-1.md`, decisions D-cln1-1…3, no migration):** `APPEND_ONLY_TABLES` includes
+`gm_funding_events`, with a drift test against the migrations (both projects); the first steps say the General Manager
+records the first supplier order; the top bar's rate follows the allowed karats instead of a hardcoded 21K; the
+settings nothing reads (`rates.rateChangeMaxPct`, `rates.goldRateScope`) are hidden and refuse writes (RAT-1, RAT-2);
+real-looking names replaced by marked placeholders (fixture world, tests, CLIs, docs); the root package is
+`jewelry-erp`; DEPLOYMENT keeps Render only as a worked-example appendix; `docs/phase0-report.md` is in `docs/archive/`.
+**Security:** `APP_MODE` is required (D-cln1-1 supersedes D-1a-2): absent, empty or misspelt stops the server and every
+CLI; the demo and development entry points set `APP_MODE=demo` themselves.
+
 ### SPL-1 — Split payments · BLOCKED (Q-7) · M · P2
 If a prepaid Hasad balance can fall short of the price, one sale must carry several payments (for example Hasad plus cash). Ledger entries per payment, one reference per payment.
 
@@ -320,11 +330,8 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
 
 - The per-IP sign-in limiter lives in process memory: run **one server instance** until it moves to the database.
 - ~~`docs/ARCHITECTURE.md` and `docs/DATA_MODEL.md` date from the prototype~~: **resolved by DOC-1** (rewritten; `check:docs` guards migrations, append-only tables and permission codes).
-- `APPEND_ONLY_TABLES` (`backend/src/core/startup.ts`) lacks `gm_funding_events` (CSH-2): the start-up report of what the runtime role could alter does not cover it. The table's triggers and `jerp_lock_append_only` exist (migration 0020). Fix: add it to the list and a test that the list equals the migrations' locked tables (found in DOC-1).
-- The first-steps panel ends with "Then the branch manager records the first supplier order"; since MKC-1 only the General Manager can (UI text, found in DOC-1).
-- The top bar's rate chip always shows the **21K** rate (`frontend/src/components/layout/TopBar.tsx`), whatever the allowed karats: client-specific in code (found in DOC-1).
-- Example usernames in code comments and the `npm run demo` prompt still use a client-like name (`backend/src/bootstrap-cli.ts`, `backend/src/demo-cli.ts`); the docs use `first.lastname` since DOC-1.
-- The root package is still named `jewelry-erp-prototype` (`package.json`).
+- The browser formats every date and time in a hardcoded `Africa/Khartoum` time zone (`frontend/src/lib/format.ts`, `TZ`), although the server sends the company time zone (`me.timezone`, setting `company.timezone`): client-specific in code (found in CLN-1, not fixed there). Fix: set it from the signed-in session like the currency labels.
+- Branch and city names of the test fixture world (Khartoum, Omdurman, Bahri, Port Sudan) and their leftover Arabic translations in `frontend/src/lib/i18n-ar.ts` remain from the old demo seed; the UI kit page and a catalogue example text say "21K" / "Khartoum" as sample values (found in CLN-1, not changed: places and examples, not people or clients' data).
 - `scripts/i18n-check.mjs` still has a scan for English text in `/seed/` files; no such folder exists since REM-3 (harmless; remove when the script is next touched).
 - The test fixture world (copied from the old demo seed) is built relative to *today* in Khartoum time, so its content changes with the weekday and the hour. REM-3 step 7 fixed the three date-dependent failures it found: a fixed supplier-settlement weight exceeding the debt on one weekday in seven; an audit lookup that assumed today's purchase exists in the first minutes after midnight; and sale-line counts that included a voided sale of the same piece. It was then checked on 14 consecutive dates at three hours of the day. A fixed clock for the world would remove the class of problem (open).
 - The silent-printing `.cmd` template is untested on Windows; CSS page size on a given thermal driver is a request, not a guarantee.

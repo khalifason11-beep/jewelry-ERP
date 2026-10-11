@@ -147,8 +147,8 @@ PostgreSQL, the runtime role's privileges are also removed (`jerp_lock_append_on
 `inventory_movements`, `item_status_history`, `ledger_entries`, `scrap_purchases`, `scrap_rates`,
 `scrap_weight_entries`, `settings_history`, `supplier_settlements`.
 
-The start-up privilege report (`APPEND_ONLY_TABLES` in `backend/src/core/startup.ts`) does not list
-`gm_funding_events` yet (BACKLOG §G). Its triggers and lock exist.
+The start-up privilege report and the restore drill use the same list (`APPEND_ONLY_TABLES` in
+`backend/src/core/startup.ts`); `backend/test/append-only-list.test.ts` fails if it differs from the migrations (CLN-1).
 
 ## Item lifecycle
 

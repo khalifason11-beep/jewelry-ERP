@@ -30,7 +30,7 @@ TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm run demo       # asks for the GM username
    The header says "Set today's rate".
 3. **Allowed karats** (mandatory): tick the karats the shop sells, confirm with the password. The audit log records it.
 4. **Settings**: enter today's gold rate for each allowed karat and the scrap rates. The header now shows the rate
-   (it always shows the 21K rate: a known limit, BACKLOG §G).
+   of the allowed karats.
 5. **Branches → New branch**, then **Users**: a branch manager and a cashier (temporary passwords shown once).
 6. **Cash → Record an advance** into the new branch's drawer (the fifth step). Explain: the drawer can never pay out
    money that was never recorded; the branch now owes the General Manager that amount (only the GM sees it).

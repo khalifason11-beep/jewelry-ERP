@@ -46,6 +46,10 @@ One commit per item, the suites green after each, then push. No migration. Each 
    `docs/phase0-report.md` moves to `docs/archive/`, and the documentation map is updated.
 8. **BACKLOG.** CLN-1 is marked done, and §G drops what is fixed.
 
+9. **APP_MODE explicit (added during the run, done right after item 1's batch).** Absent, empty or misspelt
+   `APP_MODE` stops the server and every CLI; the demo and development entry points set `APP_MODE=demo` themselves.
+   D-cln1-1 supersedes D-1a-2.
+
 Gates at the end: typecheck (with `check:docs`), both vitest projects, build, `i18n:check`, REH-1, e2e print, passkeys
 on and off, states, UI kit, perf.
 

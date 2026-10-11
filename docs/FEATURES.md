@@ -19,14 +19,14 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   3. Create the first branch.
   4. Add a branch manager and a cashier.
   5. Fund the branch: record an advance into its drawer.
-- **Known text gap:** the panel's closing line still says the *branch manager* records the first supplier order. Since
-  MKC-1, only the General Manager can (BACKLOG §G).
+- The panel ends with: then the General Manager records the first supplier order, and selling can start.
 
 ## 2. Shell, homes and attention
 
 - **The shell:**
   - The sidebar depends on the role (the cashier sees icons only).
-  - The top bar shows today's rate and the attention count.
+  - The top bar shows today's selling rate of the allowed karats (one karat, or at most two plus "+n") and the
+    attention count.
   - A **notice area** sits under the top bar for what must interrupt:
     - security-locked accounts;
     - the "Was this you?" new-sign-in alert;

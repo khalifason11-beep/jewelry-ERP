@@ -98,15 +98,17 @@ browser ──HTTPS──▶ reverse proxy ──▶ Express
   PostgreSQL by revoked privileges for the runtime role (`jerp_lock_append_only`). The list of tables is in
   DATA_MODEL.md.
   - At start-up, a check verifies that the runtime role can alter none of the tables in `APPEND_ONLY_TABLES`
-    (`backend/src/core/startup.ts`).
-  - Known gap: that list lacks `gm_funding_events`. Its trigger and lock exist (migration 0020); only the start-up
-    report misses it (BACKLOG §G).
+    (`backend/src/core/startup.ts`). A test (`backend/test/append-only-list.test.ts`, both projects) fails if that list
+    differs from the tables the migrations lock (CLN-1).
 - **Ledger:** a balance is always the sum of its entries, and entries are written in the same transaction as the
   business change.
   - A cash outflow takes a row lock on the branch's accounts before checking the drawer (`DRAWER_SHORT`).
   - Readers filter by account kind, so `OWED_TO_GM` is never counted as money (guardrail test).
 
 ## 5. Production safety
+
+`APP_MODE` is required and must be exactly `demo` or `production`; absent, empty or misspelt stops the server and
+every CLI before anything is opened (`parseAppMode`, D-cln1-1).
 
 `APP_MODE=production` refuses to start when:
 
