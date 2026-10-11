@@ -182,6 +182,15 @@ cannot be corrected today. A General-Manager-only correction, with a reason and 
 that keeps the original values in the history. It moves no branch money (the owner pays making charges personally,
 D-mkc-1); a correction of the pieces' costs must keep every sold piece's cost snapshot as it was.
 
+### SUP-1 — Warn on a new supplier order while gold is still owed to that supplier · DONE · S · P1
+**Done (plan `docs/plans/SUP-1.md`, decisions D-sup-1…4, `docs/acceptance/SUP-1.md`, no migration):** a supplier
+allows one open order at a time (client fact). When the General Manager chooses a supplier that is still owed gold (any
+branch: a supplier belongs to the company), the purchase form says how much (24K grams), from which order and for how
+many days, before saving; "Record anyway" records it. The server asks the same (409 `SUPPLIER_GOLD_OWED`) and audits
+the confirmation. Never a block, never a money amount. The facts come from the same query as attention A6, which is
+unchanged. **Open client question:** after how many days should an open supplier debt become a warning on the
+attention list? (`purchases.supplierDebtMaxAgeDays`, default 30, not confirmed.)
+
 ### MKC-1 — Supplier making charges paid personally by the owner · DONE · S–M · P1
 **Done (plan `docs/plans/MKC-1.md`, decisions D-mkc-1…10, `docs/acceptance/MKC-1.md`, migration 0022):** a supplier
 order records the payment fact of its making charge: paid by the owner by one bank transfer from the owner's
