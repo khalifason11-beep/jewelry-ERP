@@ -2,8 +2,10 @@
 // (trade convention in Sudan); dates use Arabic month names when the UI is in Arabic.
 
 import { getLang, translate } from './i18n';
+import { dayKeyIn, formatDayKey, formatInstant } from './zone';
 
-const TZ = 'Africa/Khartoum';
+// Dates and times are shown in the company time zone (lib/zone.ts, CLN-2), set from the session.
+export { numericDateTime } from './zone';
 
 /** Currency labels come from the company settings (see lib/branding.tsx). */
 let currencyLabels = { en: '', ar: '' };
@@ -49,28 +51,20 @@ function locale(lang: string) {
 }
 
 export const dateTime = (d: string | Date | null | undefined, lang: string = getLang()) =>
-  d ? new Date(d).toLocaleString(locale(lang), { timeZone: TZ, day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+  d ? formatInstant(d, locale(lang), { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 
-/** Short numeric date-time for narrow print formats: "2026/10/04 16:42" (Western digits, 24 h, app time zone). */
-export const numericDateTime = (d: string | Date | null | undefined) => {
+/** A moment, or a business-day key ("2026-10-11", kept as that day in every zone). */
+export const date = (d: string | Date | null | undefined, lang: string = getLang()) => {
   if (!d) return '—';
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat('en-GB', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-      .formatToParts(new Date(d))
-      .map((p) => [p.type, p.value]),
-  );
-  return `${parts.year}/${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`;
+  const opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short', year: 'numeric' };
+  return typeof d === 'string' && d.length === 10 ? formatDayKey(d, locale(lang), opts) : formatInstant(d, locale(lang), opts);
 };
 
-export const date = (d: string | Date | null | undefined, lang: string = getLang()) =>
-  d ? new Date(typeof d === 'string' && d.length === 10 ? `${d}T12:00:00Z` : d).toLocaleDateString(locale(lang), { timeZone: TZ, day: '2-digit', month: 'short', year: 'numeric' }) : '—';
-
 export const time = (d: string | Date | null | undefined, lang: string = getLang()) =>
-  d ? new Date(d).toLocaleTimeString(locale(lang), { timeZone: TZ, hour: '2-digit', minute: '2-digit' }) : '—';
+  d ? formatInstant(d, locale(lang), { hour: '2-digit', minute: '2-digit' }) : '—';
 
 /** Short day label for chart axes, e.g. "24 سبتمبر" / "24 Sep". */
-export const shortDay = (key: string) =>
-  new Date(`${key}T12:00:00Z`).toLocaleDateString(locale(getLang()), { timeZone: TZ, day: 'numeric', month: 'short' });
+export const shortDay = (key: string) => formatDayKey(key, locale(getLang()), { day: 'numeric', month: 'short' });
 
 export function relative(d: string | Date | null | undefined): string {
   if (!d) return '—';
@@ -83,7 +77,7 @@ export function relative(d: string | Date | null | undefined): string {
 
 /** Business "today" as YYYY-MM-DD in the company timezone. */
 export function todayKey(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  return dayKeyIn(new Date());
 }
 
 export function addDaysKey(key: string, days: number): string {
