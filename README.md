@@ -266,14 +266,14 @@ npm run ops -w @jerp/backend -- unlock-security-lock --username <user> --confirm
 | [docs/FEATURES.md](docs/FEATURES.md) | What the system does today, by capability |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Stack, layers, request path, security mechanisms |
 | [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Tables, migrations 0000–0022, ledger, append-only tables |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production configuration, database roles, upgrades, backups, passkeys, printing |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production configuration, database roles, upgrades, backups, passkeys, printing; Appendix A: Render as a worked example, not a decision |
 | [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | How to present the system |
 | [docs/BACKLOG.md](docs/BACKLOG.md) | The single backlog: done, to do, blocked on client questions, production readiness |
 | [docs/SPEC.md](docs/SPEC.md) | The specification and the open client questions (Q-n) |
 | [docs/decisions.md](docs/decisions.md) | Every decision, with its reason (append-only) |
 | `docs/plans/`, `docs/acceptance/` | Plan and owner acceptance script of each phase |
 | `docs/ux/`, `docs/design-reference/` | UX analysis, tokens, mockups |
-| [docs/phase0-report.md](docs/phase0-report.md) | Historical: the first analysis of the prototype |
+| [docs/archive/](docs/archive/) | Historical documents: the first analysis of the prototype (`phase0-report.md`) |
 
 ## Repository layout
 
