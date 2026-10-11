@@ -47,7 +47,7 @@ Details and reasons are in `docs/decisions.md` and `docs/DEPLOYMENT.md`.
 - No word "expense" or "مصروف" is visible anywhere in either language.
 - Routes return 404; the permission matrix, generated tests and the field registry are updated.
 - The reconciliation equals the old result for sales, scrap purchases, making charges and settlements.
-- Depends on Q-6 only for CSH-2 (what replaces it), not for the removal.
+- Depends on Q-6 only for CSH-3 (what replaces it; named CSH-2 before the funding work), not for the removal.
 - The daily reconciliation keeps the SPEC §18 invariant: its lines sum exactly to each account's movement in the ledger; event types without a line of their own (e.g. a historical `EXPENSE` entry) appear under "Other".
 
 **Done:** routes, service, permissions (deleted from existing databases by migration 0013), setting, notification, dashboard and report figures (with "contribution", which equalled gross profit once expenses were gone), Cash-screen lines, i18n, seed and tests removed. The `expenses` table, its CHECKs and the `EXPENSE` ledger event type stay for history; migration 0013 adds triggers that refuse new expense rows and new `EXPENSE` ledger entries. See `docs/decisions.md` D-rem1-*.
@@ -162,8 +162,21 @@ In the invoice summary a negative discount renders as "32,000−" while the line
 ### LBL-1 — Barcode labels for physical pieces · BLOCKED (Q-9) · M · P1
 Print a label (code, karat, weight, Code128 or QR) for each piece, from the opening import and from every receipt. Needs the printer model and label size.
 
-### CSH-2 — Cash-out entry for the operating amount · BLOCKED (Q-6) · S · P1
-If the operating amount leaves the drawer: a minimal audited cash-out record (amount, reason, actor) posted to the ledger. Not an expenses module.
+### CSH-2 — The General Manager's funding of a branch, split payment on scrap, negative balances · DONE · M · P0
+**Done (plan `docs/plans/CSH-2.md`, decisions D-csh-1…9, `docs/acceptance/CSH-2.md`):** GM_ADVANCE / GM_REPAYMENT per branch into or out of the drawer or the bank, with "owed to the General Manager" derived from an `OWED_TO_GM` ledger account (migration 0020), corrections by reversal, GM only (Cash page); counter scrap purchases paid part cash, part bank transfer (migration 0021); CASH outflows blocked below zero, BANK below zero raises attention A17; the first step "Fund the branch". **Open with the client (Q11):** is the General Manager's funding a loan to be repaid or capital? Until answered, opening money recorded as an advance is a debt of the branch to him.
+
+### CSH-3 — Cash-out entry for the operating amount · BLOCKED (Q-6) · S · P1
+(Was CSH-2 before the funding work took that name.) If the operating amount leaves the drawer: a minimal audited cash-out record (amount, reason, actor) posted to the ledger. Not an expenses module. It may turn out to be one more General Manager ↔ branch movement (see CSH-2).
+
+### SCR-VOID — Correct a wrong counter scrap purchase · TODO · S · P1 (before real operation)
+A wrong scrap purchase cannot be corrected today: `scrap_purchases` is append-only and has no void. A General-Manager-only void that reverses the ledger entries (both parts of a split payment: `reverseRef` already does it, tested in `scrap-split.test.ts`), the inventory piece or the pool weight, with a reason and the password re-confirmation. Needed before the shop works on the system.
+
+### MKC-1 — Supplier making charges paid personally by the General Manager · TODO · M · P1 (after CSH-2)
+**Client facts (2026-10-10):** a making charge is **always one full bank transfer** (never cash, never split); the owner/General Manager pays it from his **personal** account, not from the branch bank account, **outside the branch's working day**; **creating supplier orders is General-Manager-only**; a single company bank account across all branches is a **future wish** (build nothing for it now, hard-code nothing that would block it). Today a making charge leaves the branch's drawer (default) or bank at once (D-4-4), which contradicts these facts: it should not move branch money at all when the General Manager pays personally. **Open with the client:** is a making charge the General Manager pays personally reimbursed by the branch (then it is an advance in CSH-2 terms, owed to him) or is it the company's cost carried by him? CSH-2 changed nothing here (owner answer Q2).
+**How CSH-2 interacts with these facts until MKC-1 is built:**
+- *OWED_TO_GM:* if the branch reimburses him, the faithful record today is an **advance into the branch bank**, marked "paid directly to a seller" with the order number, followed by the order paid "from the bank". The branch bank nets to zero and the branch owes him the charge. If the charge is the company's cost carried by him, recording it as an advance would overstate what the branch owes. The client's answer decides which.
+- *BANK WARN (A17):* an order recorded "from the bank" with no matching advance takes the branch bank below zero, and A17 (urgent) shows every day until an advance is recorded. That is correct for a branch account and wrong for his personal account, which the system does not hold. A future single company account would be a new account scope; nothing in CSH-2 assumes one bank per branch beyond today's ledger accounts.
+- *A5 / A4 and the drawer BLOCK:* an order recorded "from the drawer" outside the working day is a CASH movement of that business day. It can raise A5 ("no cash count yesterday") for a day the branch was closed, or an A4 difference when it lands after the count. On an unfunded drawer it is refused (BLOCK). Recorded "from the bank", it touches neither the drawer nor A4/A5.
 
 ### SPL-1 — Split payments · BLOCKED (Q-7) · M · P2
 If a prepaid Hasad balance can fall short of the price, one sale must carry several payments (for example Hasad plus cash). Ledger entries per payment, one reference per payment.
@@ -285,7 +298,7 @@ Updated after UX-0 (D-ux-13, D-ux-14, D-ux-15).
 | 5 | PRC-1 | Needs Q-1, Q-2, Q-5 |
 | 6 | OPN-1 (+ LBL-1) | Needs CAT-1 and Q-4 |
 | 7 | **BE-1, BE-7** (P1, before the pilot), then UI-B, UI-C | The homes need the attention endpoint; the lists need server-side pagination |
-| 8 | CSH-2, SPL-1, MNY-1, SCR-1, RPT-1 | According to the answers |
+| 8 | SCR-VOID, MKC-1 (P1, before real operation); CSH-3, SPL-1, MNY-1, SCR-1, RPT-1 | According to the answers |
 | 9 | HOST-1, DEP-1, BKP-1, 2FA-1, HW-1, TRN-1, LEG-1 | Owner tasks that run in parallel with steps 1–8 |
 | 10 | PIL-1, then SEC-1 | Before relying on the system and before a second branch |
 

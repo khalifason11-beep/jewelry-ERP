@@ -119,9 +119,12 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
 
 ## 9. Cash, the ledger and reconciliation
 
-- **[BUILT]** One append-only ledger per branch with CASH, BANK, FUNDS_IN_TRANSIT and HASAD_RECEIVABLE accounts. Balance = sum of entries. Every money event is written in the same transaction as the business change.
+- **[BUILT]** One append-only ledger per branch with CASH, BANK, FUNDS_IN_TRANSIT, HASAD_RECEIVABLE and (CSH-2) OWED_TO_GM accounts. Balance = sum of entries. Every money event is written in the same transaction as the business change. OWED_TO_GM is what the branch owes the General Manager, never money: every reader of the ledger filters by account kind (guardrail test).
 - **[BUILT]** Expected cash in the drawer, a daily reconciliation per branch, and a **manual cash count**. A count difference is **only a note for the GM**; it is not posted to the ledger. **[CLIENT]**
-- **[CLIENT]** Books start at **zero cash** on handover day; only items are entered.
+- **[CLIENT]** Books start at **zero cash** on handover day; only items are entered. **[BUILT, CSH-2]** The first money in is the General Manager's recorded **advance** into the drawer or the bank (first step "Fund the branch"); his **repayments** take it back. What each branch owes him is derived from the ledger and shown to him only (Cash page). **[OPEN, client Q11]** Is this funding a loan or capital? Until the client answers, opening money recorded as an advance is a **debt** of the branch to the General Manager: answer before opening day.
+- **[CLIENT, CSH-2]** Staff pay a scrap seller from the drawer, by bank transfer, or **both in one purchase** (cash part + bank part, the bank part with its reference). Split payment on **sales** is not built (open).
+- **[BUILT, CSH-2]** The drawer can never go below zero: an outflow that would (scrap cash part, making charge, sale-void refund, repayment to the GM, correction of an advance into the drawer) is refused with the shortfall and "ask the General Manager to record an advance". The bank may go below zero (its figure lags the GM's deposits); attention A17 then warns.
+- **[CLIENT, MKC-1]** A supplier making charge is always one full bank transfer that the owner pays from his personal account, outside the working day; supplier orders are created by the General Manager only. Not built yet (BACKLOG MKC-1); open: is such a charge reimbursed by the branch?
 - **[REMOVED] Expenses.** The client gives employees a fixed operating amount, so there is no expenses screen, approval flow or expense reports. Removed by BACKLOG REM-1; the old table stays (no new rows) until REM-5.
 - **[OPEN]** Where the operating amount comes from. If it leaves the shop drawer, the daily count will show a shortage unless it is recorded. Recommended: a minimal **cash-out entry** (amount, reason, actor, audited), not an expenses module.
 
@@ -196,7 +199,7 @@ Requirements: GM-only, once per branch, then **sealed** (changes only through au
 7. Tests run on both PGlite and real PostgreSQL. Phase gate: typecheck, tests, build, `npm run i18n:check`, migration applied to a copy of an existing database, docs and `docs/decisions.md` updated, push.
 8. **Acceptance of any phase that changes a user flow includes the empty-database rehearsal** (BACKLOG REH-1), not only automated tests.
 9. Decisions made under ambiguity are recorded in `docs/decisions.md` with the option chosen and how to change it.
-10. **The daily cash reconciliation adds up.** Its lines sum exactly to each account's movement of the day in the ledger (for CASH: opening cash + lines = expected cash). A ledger event type without a dedicated line appears in an "Other" line; nothing may silently disappear. Tested. Every event type is either given a line or listed, with a reason, as "Other" (`OTHER_EVENT_TYPES`); a guardrail test fails on an undecided one.
+10. **The daily cash reconciliation adds up.** Its lines sum exactly to each account's movement of the day in the ledger (for CASH: opening cash + lines = expected cash). A ledger event type without a dedicated line appears in an "Other" line; nothing may silently disappear. Tested. Every event type is either given a line or listed, with a reason, as "Other" (`OTHER_EVENT_TYPES`); a guardrail test fails on an undecided one. CSH-2: the General Manager's advances and repayments have their own lines; a correction (REVERSAL) counts under the line of the entry it corrects, on whatever day it is recorded, and every day still adds up (tested).
 
 ## 19. Glossary
 
@@ -221,7 +224,7 @@ Requirements: GM-only, once per branch, then **sealed** (changes only through au
 | Q-3 | Item type and name lists in real Sudanese terms; is a product catalog needed? | CAT-1 |
 | Q-4 | Cost estimation formula for existing and supplier items | OPN-1, reports |
 | Q-5 | Clean scrap at a karat other than 21: melt, sell as it is, or refuse? | PRC-1, stock |
-| Q-6 | How the fixed operating amount for staff is recorded (cash-out entry or outside the system) | CSH-2 |
+| Q-6 | How the fixed operating amount for staff is recorded (cash-out entry or outside the system) | CSH-3 |
 | Q-7 | Hasad: keep tracking the receivable? Do prepaid pickups ever have a difference to pay (split payment)? | REM-2, SPL-1 |
 | Q-8 | Is the branch-to-branch **money** transfer still required? | MNY-1 |
 | Q-9 | Invoice format; printer model; labels printer; tax invoice requirement; footer contents | PRN, LBL-1 |

@@ -298,6 +298,28 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   exactly as for REM-5 above. Hasad sales and their references are untouched.
 - Take a backup before upgrading (section 7), as for every release that adds a migration.
 
+### CSH-2: the General Manager's funding and split payment on scrap (migrations 0020 and 0021)
+
+- **0020** adds the append-only table `gm_funding_events`, the ledger account kind **OWED_TO_GM** (one per existing
+  branch, and for every future branch), the event types `GM_ADVANCE` and `GM_REPAYMENT`, and the permissions
+  `funding.view` / `funding.manage`, granted to the General Manager role only. It is additive: nothing existing changes.
+- **0021** adds `cash_amount`, `bank_amount` and `bank_reference` to the append-only `scrap_purchases`, and `SPLIT` as
+  a payment method. It writes the parts of existing purchases once, from each purchase's own method. The append-only
+  trigger and the UPDATE privilege are lifted for that one statement and put back in the same transaction. Two guards
+  run first. If either finds something, start-up stops and **nothing is changed** (all pending migrations run in one
+  transaction):
+  - `Migration 0021 (CSH-2) stopped: N scrap purchase(s) do not match their entries in the money ledger.`
+  - `Migration 0021 (CSH-2) stopped: N scrap purchase(s) paid by bank transfer have no bank reference (the field is new).`
+
+  Scrap purchases are never rewritten. Such a database holds trial data from before CSH-2 and is **recreated, not
+  upgraded**, exactly as for FIX-2 above. Locally: stop the server, delete the `PGLITE_DIR` folder (default
+  `.data/pglite`) and start again. On a server: a new database and the bootstrap of section 3
+  (`npm run bootstrap -w @jerp/backend -- …`).
+- **After the upgrade, the drawer cannot go below zero.** Before any cash leaves a branch, the General Manager records
+  the money he puts in its drawer as an **advance** (Cash › Funding from the General Manager). The home's first step
+  "Fund the branch" stays open until every active branch has one. Whether that opening money is a loan or capital is
+  an open client question (Q11): recorded as an advance, it is a debt of the branch to him.
+
 ### Purchases, scrap and supplier settlement (Phase 4)
 
 - Migration 0007 adds a **HASAD_RECEIVABLE** account to every branch (and to every future branch). Sales paid with
