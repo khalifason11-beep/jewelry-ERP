@@ -217,6 +217,18 @@ If a prepaid Hasad balance can fall short of the price, one sale must carry seve
 ### MNY-1 — Inter-branch money transfers · BLOCKED (Q-8) · M · P2
 A claim by the sender, confirmation by the receiver, through `FUNDS_IN_TRANSIT`, with the bank reference number. Never built.
 
+### RAT-1 — Maximum change of a gold rate in one edit · BLOCKED (client question) · S · P2
+The setting `rates.rateChangeMaxPct` (default 5) existed on the Settings screen but nothing read it. Since CLN-1 it is
+hidden and every write is refused (stored default and history untouched). **Open client question:** is there a maximum
+percentage by which a rate may change in one edit, and what happens above it (refuse, or ask for a confirmation)?
+Build only after the answer, then make the setting writable again.
+
+### RAT-2 — One gold rate for the company, or one per branch · BLOCKED (client question) · M · P2
+The setting `rates.goldRateScope` (default GLOBAL) existed on the Settings screen but nothing read it: the rate has
+always been company-wide. Since CLN-1 it is hidden and every write is refused (stored default and history untouched).
+**Open client question:** is the gold rate one for the whole company, or can each branch have its own? A per-branch
+rate needs rate history per branch, the POS and the top bar reading the branch's rate, and the reports.
+
 ### SCR-1 — Customer identification on scrap purchases · BLOCKED (Q-12) · S · P2
 Name, phone, optionally an ID number, and a printed receipt for the customer.
 
@@ -311,7 +323,6 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
 - `APPEND_ONLY_TABLES` (`backend/src/core/startup.ts`) lacks `gm_funding_events` (CSH-2): the start-up report of what the runtime role could alter does not cover it. The table's triggers and `jerp_lock_append_only` exist (migration 0020). Fix: add it to the list and a test that the list equals the migrations' locked tables (found in DOC-1).
 - The first-steps panel ends with "Then the branch manager records the first supplier order"; since MKC-1 only the General Manager can (UI text, found in DOC-1).
 - The top bar's rate chip always shows the **21K** rate (`frontend/src/components/layout/TopBar.tsx`), whatever the allowed karats: client-specific in code (found in DOC-1).
-- The settings `rates.rateChangeMaxPct` and `rates.goldRateScope` can be edited but nothing reads them (found in DOC-1): enforce or remove.
 - Example usernames in code comments and the `npm run demo` prompt still use a client-like name (`backend/src/bootstrap-cli.ts`, `backend/src/demo-cli.ts`); the docs use `first.lastname` since DOC-1.
 - The root package is still named `jewelry-erp-prototype` (`package.json`).
 - `scripts/i18n-check.mjs` still has a scan for English text in `/seed/` files; no such folder exists since REM-3 (harmless; remove when the script is next touched).

@@ -241,7 +241,8 @@ A review of the reports after the removals is still to do (RPT-1).
   - Its history is append-only (`settings_history`).
   - Every change needs re-confirmation and is audited.
 - **Gold rates** (`POST /gold-rates`): the selling rate per gram and karat, recorded in a history; one company-wide rate.
-  The settings `rates.rateChangeMaxPct` and `rates.goldRateScope` can be edited but nothing reads them yet (BACKLOG §G).
+  The settings `rates.rateChangeMaxPct` and `rates.goldRateScope` are stored but not in use: hidden from Settings, writes
+  refused, their meaning **open** (RAT-1, RAT-2).
 - **Branding:**
   - The company names, currency labels, invoice footer, sign-in tagline and logo come from Settings. Nothing
     client-specific is coded.

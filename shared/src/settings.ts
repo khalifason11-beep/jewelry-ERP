@@ -212,6 +212,11 @@ export interface SettingDef {
   schema: z.ZodType;
   /** Changed only through a dedicated flow (password + passkey), refused by the generic settings form. */
   guarded?: boolean;
+  /**
+   * CLN-1: stored and readable, but nothing in the system reads it yet and its meaning is an open client question
+   * (BACKLOG RAT-1, RAT-2). Not on the Settings screen; every write is refused (400). Default and history untouched.
+   */
+  notInUse?: boolean;
 }
 
 /** Every setting, keyed by "group.field". The value schema is the only validation path. */
@@ -242,8 +247,8 @@ export const SETTINGS_REGISTRY = {
   'purchases.requireGmApprovalForScrapOverride': { schema: z.boolean() },
   'purchases.supplierDebtMaxAgeDays': { schema: int(1, 3650) },
   'cash.countDifferenceTolerance': { schema: int(0, 1_000_000_000_000) },
-  'rates.goldRateScope': { schema: z.enum(['GLOBAL', 'BRANCH']) },
-  'rates.rateChangeMaxPct': { schema: z.number().min(0.1).max(100) },
+  'rates.goldRateScope': { schema: z.enum(['GLOBAL', 'BRANCH']), notInUse: true },
+  'rates.rateChangeMaxPct': { schema: z.number().min(0.1).max(100), notInUse: true },
   'transfers.pendingClaimStaleHours': { schema: int(1, 24 * 30) },
   'inventory.allowedKarats': {
     schema: z

@@ -104,7 +104,8 @@ export class SettingsStore {
     const parsed: Partial<Record<SettingKey, unknown>> = {};
     for (const key of keys) {
       if (!isSettingKey(key)) throw badRequest('Unknown setting: {key}', { key });
-      const def = SETTINGS_REGISTRY[key] as { schema: typeof SETTINGS_REGISTRY[SettingKey]['schema']; guarded?: boolean };
+      const def = SETTINGS_REGISTRY[key] as { schema: typeof SETTINGS_REGISTRY[SettingKey]['schema']; guarded?: boolean; notInUse?: boolean };
+      if (def.notInUse) throw badRequest('This setting is not in use yet and cannot be changed: {key}', { key });
       if (def.guarded && !opts.allowGuarded) throw forbidden('This setting is changed on the Security screen (password and passkey required)');
       const r = def.schema.safeParse(changes[key]);
       if (!r.success) throw badRequest('Invalid value for {field}', { field: key }, r.error.issues.map((i) => ({ path: [key, ...i.path].join('.'), code: i.code })));

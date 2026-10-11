@@ -225,8 +225,8 @@ export function SettingsPage() {
         <Card padded={false}>
           <CardHeader
             title={t('Business rules')}
-            subtitle={t('Purchases, scrap, rates and transfers')}
-            actions={saveBtn(['purchases.supplierCreditEnabled', 'purchases.scrapPriceTolerancePct', 'purchases.requireGmApprovalForScrapOverride', 'rates.goldRateScope', 'rates.rateChangeMaxPct', 'transfers.pendingClaimStaleHours', 'inventory.allowedKarats', 'cash.countDifferenceTolerance', 'purchases.supplierDebtMaxAgeDays'], 'save-business-rules')}
+            subtitle={t('Purchases, scrap and transfers')}
+            actions={saveBtn(['purchases.supplierCreditEnabled', 'purchases.scrapPriceTolerancePct', 'purchases.requireGmApprovalForScrapOverride', 'transfers.pendingClaimStaleHours', 'inventory.allowedKarats', 'cash.countDifferenceTolerance', 'purchases.supplierDebtMaxAgeDays'], 'save-business-rules')}
           />
           <div className="grid gap-3 p-5 sm:grid-cols-2">
             <div className="sm:col-span-2">{checkbox(draft.purchases.supplierCreditEnabled, (v) => set('purchases', { supplierCreditEnabled: v }), t('Allow supplier purchases on credit (creates a supplier payable)'))}</div>
@@ -234,15 +234,6 @@ export function SettingsPage() {
               {numberInput(draft.purchases.scrapPriceTolerancePct, (n) => set('purchases', { scrapPriceTolerancePct: n }), { min: 0, max: 50, step: 0.5 })}
             </Field>
             <div className="self-end pb-2">{checkbox(draft.purchases.requireGmApprovalForScrapOverride, (v) => set('purchases', { requireGmApprovalForScrapOverride: v }), t('Deviations beyond the tolerance need General Manager approval'))}</div>
-            <Field label={t('Gold rate scope')}>
-              <Select value={draft.rates.goldRateScope} onChange={(e) => set('rates', { goldRateScope: e.target.value as SystemSettings['rates']['goldRateScope'] })}>
-                <option value="GLOBAL">{t('One rate table for the company')}</option>
-                <option value="BRANCH">{t('One rate table per branch')}</option>
-              </Select>
-            </Field>
-            <Field label={t('Rate change needing confirmation (%)')}>
-              {numberInput(draft.rates.rateChangeMaxPct, (n) => set('rates', { rateChangeMaxPct: n }), { min: 0.1, max: 100, step: 0.5 })}
-            </Field>
             <Field label={t('Flag pending transfers/claims after (hours)')}>
               {numberInput(draft.transfers.pendingClaimStaleHours, (n) => set('transfers', { pendingClaimStaleHours: n }), { min: 1, max: 720 })}
             </Field>
