@@ -71,8 +71,8 @@ Backup variables (`BACKUP_*`) are listed in section 7; they belong to the backup
 2. Open the service's **Shell** tab and create the first General Manager and the branches:
 
    ```bash
-   npm run bootstrap -w @jerp/backend -- --username o.abdelrahman --full-name "Owner Name" --full-name-ar "اسم المالك" \
-     --branch "KRT:Khartoum Branch:فرع الخرطوم:Khartoum"
+   npm run bootstrap -w @jerp/backend -- --username first.lastname --full-name "Owner Name" --full-name-ar "اسم المالك" \
+     --branch "MAIN:Main Branch:الفرع الرئيسي:City"
    ```
 
    It prints a one-time password that must be changed at the first sign-in, and refuses to run again once a
@@ -106,19 +106,19 @@ you need the Render Shell (or SSH) for the service:
 
 ```bash
 # Lift a sign-in lock (any user)
-npm run ops -w @jerp/backend -- unlock --username o.abdelrahman
+npm run ops -w @jerp/backend -- unlock --username first.lastname
 
 # Reset the General Manager's password (GM accounts only); prints a one-time password,
 # ends all of that user's sessions and forces a password change at the next sign-in
-npm run ops -w @jerp/backend -- reset-gm-password --username o.abdelrahman
+npm run ops -w @jerp/backend -- reset-gm-password --username first.lastname
 
 # Lost every passkey AND the recovery codes: revoke all passkeys, invalidate the recovery codes,
 # end the sessions; the next sign-in registers a new passkey (section 8.6)
-npm run ops -w @jerp/backend -- reset-second-factor --username o.abdelrahman --confirm
+npm run ops -w @jerp/backend -- reset-second-factor --username first.lastname --confirm
 
 # Account SECURITY-LOCKED after "This wasn't me" on a recovery-code sign-in (section 8.6): lifts the lock,
 # revokes passkeys and codes, prints a NEW one-time password, ends sessions; new password + new enrollment
-npm run ops -w @jerp/backend -- unlock-security-lock --username o.abdelrahman --confirm
+npm run ops -w @jerp/backend -- unlock-security-lock --username first.lastname --confirm
 ```
 
 All of them refuse to run unless `APP_MODE=production` and the production configuration is safe (pass
@@ -144,7 +144,7 @@ Do this once after the first deploy, and again after any change to the proxy, CD
 curl -s -o /dev/null -w '%{http_code}\n' https://erp.example.com/api/auth/login \
   -H 'Origin: https://erp.example.com' -H 'Content-Type: application/json' \
   -H 'X-Forwarded-For: 203.0.113.77' \
-  -d '{"username":"o.abdelrahman","password":"wrong-password"}'
+  -d '{"username":"first.lastname","password":"wrong-password"}'
 ```
 
 It answers `401`. In **Audit log**, the matching `LOGIN_FAILED` entry must show **your computer's real IP**,
@@ -503,8 +503,8 @@ BACKUP_UPLOAD_COMMAND='rsync -a -e "ssh -i /etc/jerp/backup_ed25519 -o StrictHos
 0 3 * * 0   cd /srv/jerp && npm run backup:verify >> /var/log/jerp-backup-verify.log 2>&1
 ```
 
-**Render**: add a **Cron Job** service from the same repository, schedule `30 23 * * *` (UTC = 01:30 in
-Khartoum), build command `npm ci`, command `npm run backup`, with the variables of 7.4 (no secret key).
+**Render**: add a **Cron Job** service from the same repository, schedule `30 23 * * *` (UTC; 01:30 at UTC+2:
+adjust to the company time zone), build command `npm ci`, command `npm run backup`, with the variables of 7.4 (no secret key).
 Its disk is temporary, so the off-site copy is the real one. Run the weekly drill on a machine you control
 (an office computer or a small VPS with PostgreSQL 16 and age): download the latest three files from the
 off-site storage into `BACKUP_DIR`, then `npm run backup:verify` with `BACKUP_AGE_IDENTITY_FILE`,
