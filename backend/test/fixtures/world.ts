@@ -194,7 +194,8 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
       // Opening stock: its making charge was paid before the system was used, so it is part of the
       // piece's cost and no money leaves the drawer now (the gold owed to the supplier remains).
       const openingLines = lines.map((l) => ({ ...l, purchaseCost: l.purchaseCost + l.makingCost, makingCost: 0 }));
-      const res = await createPurchase(ctx, gm, { branchId: branch[code].id, supplierId: pick(supplierRows).id, supplierInvoiceNo: `SUP-${int(10000, 99999)}`, lines: openingLines, notes: 'رصيد افتتاحي' }, { at: at(offset, 10, int(0, 50)) });
+      // SUP-1: test data does not model one open order per supplier; it confirms the warning.
+      const res = await createPurchase(ctx, gm, { confirmOpenSupplierDebt: true, branchId: branch[code].id, supplierId: pick(supplierRows).id, supplierInvoiceNo: `SUP-${int(10000, 99999)}`, lines: openingLines, notes: 'رصيد افتتاحي' }, { at: at(offset, 10, int(0, 50)) });
       if (code === 'KRT' && b === 0) res.itemCodes.slice(0, 3).forEach((c) => specialCodes.add(c));
     }
   }
@@ -262,6 +263,8 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
               lines,
               makingChargeReference: `TEST-MKC-${code}${-offset}`,
               makingChargeTransferDate: dayKey(when, tz),
+              // SUP-1: test data does not model one open order per supplier; it confirms the warning.
+              confirmOpenSupplierDebt: true,
             },
             { at: when },
           );

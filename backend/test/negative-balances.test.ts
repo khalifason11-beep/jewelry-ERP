@@ -60,7 +60,7 @@ afterAll(async () => handle?.close());
 describe('BLOCK: the drawer', () => {
   it('MKC-1: a supplier order never touches the drawer, whatever its making charge (the owner pays it personally)', async () => {
     const today = dayKey(new Date(), (await ctx.settings.get()).company.timezone);
-    await createPurchase(ctx, gm, { branchId, supplierId, lines: [line(1_200_000)], makingChargeReference: 'TEST-MKC-0001', makingChargeTransferDate: today });
+    await createPurchase(ctx, gm, { branchId, supplierId, confirmOpenSupplierDebt: true, lines: [line(1_200_000)], makingChargeReference: 'TEST-MKC-0001', makingChargeTransferDate: today });
     expect(await bal('CASH')).toBe(1_000_000);
     expect(await bal('BANK')).toBe(0);
     expect(Object.keys(DRAWER_SHORT)).not.toContain('MAKING_CHARGE');

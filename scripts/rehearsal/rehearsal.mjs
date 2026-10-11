@@ -1130,8 +1130,35 @@ async function main() {
     const productId = (await apiGet(page, '/api/products')).body[0].id;
     const supplierId = (await apiGet(page, '/api/suppliers')).body[0].id;
     const line = { productId, grossWeightMg: 4_200, netWeightMg: 4_000, purchaseCost: 700_000, makingCost: 0, otherCost: 0, sellingPrice: 1_100_000 };
-    const stockPo = await apiSend(page, 'POST', '/api/purchases', { branchId, supplierId, lines: [line, line, line] });
-    check(stockPo.status === 200, 'General Manager: three new pieces in the branch for the transfer');
+    // SUP-1: this supplier still has gold owed (the CAT-0 order, settled in part). Choosing it on the form warns before
+    // saving, with weights, the order number and days only; "Record anyway" records the order (one piece here).
+    const owedOrder = (await apiGet(page, `/api/suppliers/${supplierId}/gold-owed`)).body;
+    await page.goto(`${origin}/purchases`);
+    await page.click('[data-testid=new-purchase]');
+    await page.selectOption('[data-testid=purchase-branch]', String(branchId));
+    await page.selectOption('[data-testid=purchase-supplier]', String(supplierId));
+    const debtText = await page.getByTestId('purchase-supplier-debt').innerText({ timeout: 15_000 });
+    check(
+      owedOrder.orders === 1 && owedOrder.pureMg24 === 3500 && debtText.includes(owedOrder.oldestNumber) && /3\.500/.test(debtText) && !/ج\.س|SDG/.test(debtText),
+      `General Manager: choosing a supplier still owed gold warns before saving ("${debtText.replace(/\s+/g, ' ').slice(0, 140)}")`,
+    );
+    await page.selectOption('[data-testid=line-product-0]', String(productId));
+    await page.fill('[data-testid=line-gross-0]', '4.2');
+    await page.fill('[data-testid=line-net-0]', '4');
+    await page.locator('[data-testid=line-net-0]').blur();
+    await page.fill('[data-testid=line-cost-0]', '700000');
+    await page.fill('[data-testid=line-making-0]', '0');
+    await page.fill('[data-testid=line-price-0]', '1100000');
+    await page.click('[data-testid=purchase-supplier-debt-confirm]');
+    await page.waitForURL((u) => /^\/purchases\/\d+$/.test(u.pathname), { timeout: 15_000 });
+    const confirmedNumber = (await apiGet(page, `/api/purchases/${new URL(page.url()).pathname.split('/').pop()}`)).body.number;
+    const supAudit = (await apiGet(page, `/api/audit?q=${encodeURIComponent(confirmedNumber)}`)).body;
+    const auditRow = (Array.isArray(supAudit) ? supAudit : supAudit.rows ?? []).find((r) => r.action === 'PURCHASE_CREATED' && r.entityId === confirmedNumber);
+    check(!!auditRow, `"Record anyway" records order ${confirmedNumber}; the audit log has it`);
+    const refused = await apiSend(page, 'POST', '/api/purchases', { branchId, supplierId, lines: [line, line] });
+    check(refused.status === 409 && refused.body.error.code === 'SUPPLIER_GOLD_OWED' && refused.body.error.details.orders === 2, `the server asks first as well (409 SUPPLIER_GOLD_OWED, ${refused.body?.error?.details?.orders} open orders)`);
+    const stockPo = await apiSend(page, 'POST', '/api/purchases', { branchId, supplierId, lines: [line, line], confirmOpenSupplierDebt: true });
+    check(stockPo.status === 200, 'General Manager: three new pieces in the branch for the transfer (the last two confirmed through the API)');
     await signOut(page);
     await signIn(page, origin, BM.username, BM.password);
     await pathIs(page, ['/dashboard']);

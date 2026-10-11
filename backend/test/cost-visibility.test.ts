@@ -116,6 +116,8 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /gold-rates': ['/gold-rates'],
       'GET /products': ['/products'],
       'GET /suppliers': ['/suppliers'],
+      // SUP-1: a supplier with open gold owed (the order above), weights only.
+      'GET /suppliers/:id/gold-owed': purchase.supplierId ? [`/suppliers/${purchase.supplierId}/gold-owed`] : [],
       'GET /roles': ['/roles'],
       'GET /branches/:id': [`/branches/${krt.id}`],
       'GET /settings': ['/settings'],

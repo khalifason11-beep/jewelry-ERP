@@ -77,7 +77,7 @@ describe('the payment fact: no branch money moves', () => {
       home: (({ expectedCash, lastCount }) => ({ expectedCash, lastCount }))(await branchDashboard(ctx, gm, { branchId: b })),
     });
     const before = await money();
-    const po = await createPurchase(ctx, gm, { branchId: b, supplierId, lines: [line(120_000), line(130_000, 5_000)], makingChargeReference: 'trf ٤٤٥٥', makingChargeTransferDate: today });
+    const po = await createPurchase(ctx, gm, { confirmOpenSupplierDebt: true, branchId: b, supplierId, lines: [line(120_000), line(130_000, 5_000)], makingChargeReference: 'trf ٤٤٥٥', makingChargeTransferDate: today });
     expect(await money()).toEqual(before);
     const [row] = await ctx.db.select().from(t.purchases).where(eq(t.purchases.id, po.id));
     expect(row).toMatchObject({ makingChargePaid: 250_000, makingChargePaidFrom: 'OWNER_PERSONAL', makingChargeReference: 'TRF 4455', makingChargeTransferDate: today });
@@ -106,7 +106,7 @@ describe('cost and profit stay exactly as before (Q6)', () => {
     const b = await newBranch('MK2');
     const lines = [line(120_000, 4_000, 700_000), line(90_000, 6_000, 1_000_000), line(0, 3_000, 500_000)];
     const acq = lines.map((l) => l.purchaseCost + l.makingCost + l.otherCost);
-    const po = await createPurchase(ctx, gm, { branchId: b, supplierId, lines, makingChargeReference: 'TEST-COST-1', makingChargeTransferDate: today });
+    const po = await createPurchase(ctx, gm, { confirmOpenSupplierDebt: true, branchId: b, supplierId, lines, makingChargeReference: 'TEST-COST-1', makingChargeTransferDate: today });
     // Each piece's cost basis = purchase + making + other, whoever paid the making charge.
     const items = await ctx.db.select().from(t.jewelryItems).where(eq(t.jewelryItems.purchaseId, po.id)).orderBy(t.jewelryItems.id);
     expect(items.map((i) => i.acquisitionCost)).toEqual(acq);
@@ -137,7 +137,7 @@ describe('a day with only a supplier order asks for no cash count (A5)', () => {
   it('an order recorded late yesterday raises no A5; a cash movement yesterday does (control)', async () => {
     const b = await newBranch('MK3');
     const lateYesterday = new Date(dayStart(today, tz).getTime() - 60 * 60_000); // 23:00 yesterday, business time
-    await createPurchase(ctx, gm, { branchId: b, supplierId, lines: [line(80_000)], makingChargeReference: 'TEST-NIGHT-1', makingChargeTransferDate: addDays(today, -1) }, { at: lateYesterday });
+    await createPurchase(ctx, gm, { confirmOpenSupplierDebt: true, branchId: b, supplierId, lines: [line(80_000)], makingChargeReference: 'TEST-NIGHT-1', makingChargeTransferDate: addDays(today, -1) }, { at: lateYesterday });
     const a5 = async () => (await attentionFor(ctx, gm)).signals.filter((s) => s.code === 'A5' && s.branchId === b);
     expect(await a5()).toHaveLength(0);
     await recordAdvance(ctx, gm, { branchId: b, account: 'CASH', amount: 10_000, reason: 'test float yesterday' }, { at: lateYesterday });
@@ -146,7 +146,7 @@ describe('a day with only a supplier order asks for no cash count (A5)', () => {
 });
 
 describe('the transfer reference and date', () => {
-  const order = (over: Record<string, unknown>, lines = [line(50_000)]) => createPurchase(ctx, gm, { branchId: undefined as never, supplierId, lines, ...over });
+  const order = (over: Record<string, unknown>, lines = [line(50_000)]) => createPurchase(ctx, gm, { confirmOpenSupplierDebt: true, branchId: undefined as never, supplierId, lines, ...over });
   it('are required above 0, follow the FIX-2 reference rules, and the date is a real day, never in the future', async () => {
     const krt = (await ctx.db.select().from(t.branches).where(eq(t.branches.code, 'KRT')))[0].id;
     const at = (over: Record<string, unknown>, lines?: PurchaseLine[]) => err(order({ branchId: krt, ...over }, lines));
@@ -179,7 +179,7 @@ describe('only the General Manager records an order; the branch manager keeps th
     const bmA = await login('branch.manager.kh', 'BRANCH_MANAGER');
     const cashier = await login('cashier.kh.01', 'CASHIER');
     const krt = (await ctx.db.select().from(t.branches).where(eq(t.branches.code, 'KRT')))[0].id;
-    const body = { branchId: krt, supplierId, lines: [line(60_000)], makingChargeReference: 'TEST-HTTP-1', makingChargeTransferDate: today };
+    const body = { confirmOpenSupplierDebt: true, branchId: krt, supplierId, lines: [line(60_000)], makingChargeReference: 'TEST-HTTP-1', makingChargeTransferDate: today };
     expect((await bmA.post('/api/purchases').set('Idempotency-Key', crypto.randomUUID()).send(body)).status).toBe(403);
     expect((await cashier.post('/api/purchases').set('Idempotency-Key', crypto.randomUUID()).send(body)).status).toBe(403);
     expect((await gmA.post('/api/purchases').set('Idempotency-Key', crypto.randomUUID()).send({ ...body, makingChargePaidFrom: 'CASH' })).status).toBe(400);
@@ -213,7 +213,7 @@ describe('only the General Manager records an order; the branch manager keeps th
   it('the gold side is unchanged: the order owes its pure-24K weight, and the branch manager settles it with broken scrap', async () => {
     const bm = await actorOf('branch.manager.kh');
     const krt = (await ctx.db.select().from(t.branches).where(eq(t.branches.code, 'KRT')))[0].id;
-    const po = await createPurchase(ctx, gm, { branchId: krt, supplierId, lines: [line(40_000, 2_000)], makingChargeReference: 'TEST-GOLD-1', makingChargeTransferDate: today });
+    const po = await createPurchase(ctx, gm, { confirmOpenSupplierDebt: true, branchId: krt, supplierId, lines: [line(40_000, 2_000)], makingChargeReference: 'TEST-GOLD-1', makingChargeTransferDate: today });
     const owed = pureGoldMg(2_000, 21);
     expect(po).toMatchObject({ goldDebtMgPure24: owed, goldOwedMgPure24: owed });
     await buyScrap(ctx, bm, { branchId: krt, kind: 'BROKEN', karat: 21, grossWeightMg: 1_000, netWeightMg: 1_000, paymentMethod: 'CASH' });

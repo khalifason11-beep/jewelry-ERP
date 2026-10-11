@@ -89,7 +89,7 @@ async function newPurchase(code: string, nets: number[], opts: { makingCost?: nu
   const lines = nets.map((n) => ({ productId: p.id, grossWeightMg: n + 100, netWeightMg: n, purchaseCost: 1_000_000, makingCost: opts.makingCost ?? 50_000, otherCost: 0, sellingPrice: 1_400_000 }));
   const charge = sumInt(lines.map((l) => l.makingCost));
   const transfer = charge > 0 ? { makingChargeReference: `TEST-PO-${nets.join('-')}`, makingChargeTransferDate: await today() } : {};
-  const po = await createPurchase(ctx, gm, { branchId: await branchId(code), supplierId: await supplierId(), lines, ...transfer });
+  const po = await createPurchase(ctx, gm, { branchId: await branchId(code), supplierId: await supplierId(), lines, ...transfer, confirmOpenSupplierDebt: true });
   return { po, bm, owed: sumInt(nets.map((n) => pureGoldMg(n, 21))) };
 }
 async function stockUp(code: string, karat: number, weightMg: number) {

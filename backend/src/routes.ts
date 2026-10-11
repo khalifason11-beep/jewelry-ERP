@@ -553,6 +553,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     const q = parse(z.object({ branchId: zOptId, from: zDay.optional(), to: zDay.optional(), q: zQ }).strict(), req.query);
     res.json(await purchases.listPurchases(ctx, actorOf(req), q));
   });
+  route('GET', '/suppliers/:id/gold-owed', async (req, res) => res.json(await purchases.supplierOpenDebt(ctx, actorOf(req), parse(zId, req.params.id))));
   route('GET', '/purchases/:id', async (req, res) => res.json(await purchases.getPurchase(ctx, actorOf(req), parse(zId, req.params.id))));
   route('POST', '/purchases', async (req, res) => {
     const line = z
@@ -578,6 +579,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           makingChargeReference: zText(80).optional(),
           makingChargeTransferDate: zDay.optional(),
           confirmDuplicateReference: z.boolean().optional(),
+          confirmOpenSupplierDebt: z.boolean().optional(),
           lines: z.array(line).min(1).max(200),
         })
         .strict(),

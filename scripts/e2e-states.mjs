@@ -389,6 +389,11 @@ async function main() {
     await page.fill('[data-testid=line-making-0]', '40000');
     await page.getByTestId('purchase-mkc-reference').waitFor();
     check((await page.inputValue('[data-testid=purchase-mkc-date]')).length === 10 && (await page.getByTestId('purchase-save').isDisabled()), 'a making charge asks for the transfer reference and date (today by default); nothing can be saved without them');
+    // SUP-1: the e2e supplier still has gold owed from the world's order: choosing it warns before saving.
+    await page.selectOption('[data-testid=purchase-supplier]', String(world.supplierId));
+    await page.getByTestId('purchase-supplier-debt').waitFor({ timeout: 15_000 });
+    const debtText = await page.getByTestId('purchase-supplier-debt').innerText();
+    check(/24/.test(debtText) && (await page.getByTestId('purchase-supplier-debt-confirm').count()) === 1 && !/SDG|ج\.س/.test(debtText), `choosing a supplier still owed gold warns before saving, weights and days only, with "Record anyway" ("${debtText.replace(/\s+/g, ' ').slice(0, 120)}")`);
     await axe(page, 'new purchase dialog');
     await page.keyboard.press('Escape');
     await signOut(page);
