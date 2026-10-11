@@ -109,6 +109,11 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   const pendingToken = (req: Request): string | undefined => req.cookies?.[pendingCookie];
   const zWebauthnResponse = z.object({ id: z.string().min(1).max(1400), rawId: z.string().max(1400), type: z.literal('public-key') }).passthrough();
 
+  /** CLN-3: a successful sign-in ends the session a leftover cookie of this browser pointed to (no orphan session). */
+  const endReplacedSession = async (req: Request) => {
+    if (req.sessionId) await sessions.endSession(ctx.db, req.sessionId, 'LOGGED_OUT', 'Replaced by a new sign-in in the same browser');
+  };
+
   route('POST', '/auth/login', async (req, res) => {
     const body = parse(z.object({ username: zText(64).min(1), password: z.string().min(1).max(128) }).strict(), req.body);
     const r = await auth.login(ctx, { ...body, userAgent: req.header('user-agent'), ip: clientIp(req) });
@@ -118,6 +123,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
       return;
     }
     clearPendingCookie(res);
+    await endReplacedSession(req);
     await setSessionCookie(res, r.token);
     res.json(await auth.me(ctx, r.actor));
   });
@@ -129,6 +135,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     const body = parse(z.object({ response: zWebauthnResponse }).strict(), req.body);
     const s = await passkeys.loginPasskeyVerify(ctx, pendingToken(req), body.response as never, { userAgent: req.header('user-agent'), ip: clientIp(req) });
     clearPendingCookie(res);
+    await endReplacedSession(req);
     await setSessionCookie(res, s.token);
     res.json(await auth.me(ctx, s.actor));
   });
@@ -136,6 +143,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     const body = parse(z.object({ code: z.string().min(1).max(40) }).strict(), req.body);
     const s = await passkeys.loginRecoveryCode(ctx, pendingToken(req), body.code, { userAgent: req.header('user-agent'), ip: clientIp(req) });
     clearPendingCookie(res);
+    await endReplacedSession(req);
     await setSessionCookie(res, s.token);
     res.json(await auth.me(ctx, s.actor));
   });
