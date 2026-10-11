@@ -35,6 +35,11 @@ Screenshots of every main screen, before and after, at 1366×768, 1536×864 and 
 
 ## B. In a Codespace, from the Windows browser (about 15 minutes)
 
+> **Codespace settings (CLN-3).** Do **not** set `APP_ORIGIN` in a Codespace: its port proxy rewrites the `Origin`
+> header, so the sign-in would be refused. The Codespace sets `APP_MODE=demo` and `TRUST_PROXY=1` itself (a codespace
+> created before CLN-3: run `export TRUST_PROXY=1` in the terminal before starting the server, or rebuild the
+> container). In the **Ports** tab, set port 4000 to **Public**, then open the address shown there (the globe icon).
+
 **Open it.** On GitHub, open the repository, then **Code → Codespaces → Create codespace on main** (`main` is the
 default branch). A codespace created earlier on `claude/hopeful-sagan-lehxyp` can be moved to `main` in its terminal:
 `git fetch origin`, then `git checkout main`, `git pull` and `npm install`. Wait until the terminal says the

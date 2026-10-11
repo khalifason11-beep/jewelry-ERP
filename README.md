@@ -68,6 +68,11 @@ To start over, stop the server and delete `.data/`. The embedded database suppor
 **Codespaces:** on GitHub, open **Code → Codespaces → Create codespace** on `main`. The codespace runs `npm install`;
 then run `npm run demo` in its terminal and open port 4000.
 
+In a Codespace, do **not** set `APP_ORIGIN`: the port proxy rewrites the `Origin` header, and with `APP_ORIGIN` set the
+sign-in is refused (403). The Codespace sets `APP_MODE=demo` and `TRUST_PROXY=1` itself (one proxy hop), so passkeys
+use the public `…app.github.dev` address. Set the forwarded port to **Public** in the **Ports** tab and open the
+address from there.
+
 **A populated database** (for screenshots and trials):
 
 ```bash
