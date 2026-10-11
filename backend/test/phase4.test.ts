@@ -11,6 +11,7 @@ import { and, count, eq, sql } from 'drizzle-orm';
 import { t, type DatabaseHandle } from '@jerp/database';
 import { COLUMN_CLASSES, COST_RESPONSE_FIELDS, SAFE_RESPONSE_FIELDS, pureGoldMg, sumInt } from '@jerp/shared';
 import { createApp } from '../src/app';
+import { dayKey } from '../src/core/time';
 import { createContext } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
 import type { Actor, Ctx } from '../src/core/context';
@@ -79,11 +80,16 @@ const failure = async (statement: string) => {
 };
 const supplierId = async () => (await ctx.db.select().from(t.suppliers).orderBy(t.suppliers.id).limit(1))[0].id;
 /** A purchase in `code` with known lines (21K): returns it and the expected gold debt. */
-async function newPurchase(code: string, nets: number[], opts: { makingCost?: number; paidFrom?: 'CASH' | 'BANK' } = {}) {
+/** MKC-1: the General Manager records the order; the owner pays the making charge by bank transfer (test reference). */
+const today = async () => dayKey(new Date(), (await ctx.settings.get()).company.timezone);
+async function newPurchase(code: string, nets: number[], opts: { makingCost?: number } = {}) {
   const bm = await actorOf(code === 'PZU' ? 'branch.manager.pzu' : code === 'OMD' ? 'branch.manager.omd' : code === 'BHR' ? 'branch.manager.bhr' : 'branch.manager.kh');
+  const gm = await actorOf('general.manager');
   const p = await product(21);
   const lines = nets.map((n) => ({ productId: p.id, grossWeightMg: n + 100, netWeightMg: n, purchaseCost: 1_000_000, makingCost: opts.makingCost ?? 50_000, otherCost: 0, sellingPrice: 1_400_000 }));
-  const po = await createPurchase(ctx, bm, { branchId: await branchId(code), supplierId: await supplierId(), lines, makingChargePaidFrom: opts.paidFrom });
+  const charge = sumInt(lines.map((l) => l.makingCost));
+  const transfer = charge > 0 ? { makingChargeReference: `TEST-PO-${nets.join('-')}`, makingChargeTransferDate: await today() } : {};
+  const po = await createPurchase(ctx, gm, { branchId: await branchId(code), supplierId: await supplierId(), lines, ...transfer });
   return { po, bm, owed: sumInt(nets.map((n) => pureGoldMg(n, 21))) };
 }
 async function stockUp(code: string, karat: number, weightMg: number) {
@@ -111,10 +117,10 @@ describe('karat restriction (sellable stock only, from the allowedKarats setting
   });
 
   it('a supplier purchase of a non-allowed karat is refused with a clear error and writes nothing', async () => {
-    const bm = await actorOf('branch.manager.kh');
+    const bm = await actorOf('general.manager');
     const p = await foreignProduct();
     const before = await counts();
-    const e = await errorOf(createPurchase(ctx, bm, { branchId: await branchId('KRT'), supplierId: await supplierId(), lines: [{ productId: p.id, grossWeightMg: 5100, netWeightMg: 5000, purchaseCost: 900_000, makingCost: 40_000, otherCost: 0, sellingPrice: 1_200_000 }] }));
+    const e = await errorOf(createPurchase(ctx, bm, { branchId: await branchId('KRT'), supplierId: await supplierId(), lines: [{ productId: p.id, grossWeightMg: 5100, netWeightMg: 5000, purchaseCost: 900_000, makingCost: 40_000, otherCost: 0, sellingPrice: 1_200_000 }], makingChargeReference: 'TEST-KARAT-1', makingChargeTransferDate: await today() }));
     expect(e).toMatchObject({ status: 400, key: '{karat}K is not sold here: sellable pieces must be {allowed}' });
     expect(e!.message).toBe('18K is not sold here: sellable pieces must be 21K');
     expect(await counts()).toEqual(before);
@@ -283,18 +289,15 @@ describe('pure-gold conversion: one helper, one rounding', () => {
 
 // ───────────────────────── 4. supplier purchases and settlement ─────────────────────────
 describe('supplier purchase: making charge in money, gold debt in 24K', () => {
-  it('pays the making charge at once from the chosen account (the only supplier money)', async () => {
+  it('records the making charge as paid by the owner (MKC-1): no branch money moves, no ledger entry', async () => {
     const krt = await branchId('KRT');
     const bal = async () => Object.fromEntries((await balances(ctx.db, krt)).map((a) => [a.kind, a.balance]));
     const before = await bal();
-    const { po } = await newPurchase('KRT', [5_000, 6_000], { makingCost: 70_000, paidFrom: 'BANK' });
-    const after = await bal();
-    expect(after.BANK).toBe(before.BANK - 140_000);
-    expect(after.CASH).toBe(before.CASH);
+    const { po } = await newPurchase('KRT', [5_000, 6_000], { makingCost: 70_000 });
+    expect(await bal()).toEqual(before);
     const row = await purchaseRow(po.id);
-    expect(row).toMatchObject({ makingChargePaid: 140_000, makingChargePaidFrom: 'BANK' });
-    const [e] = await ctx.db.select().from(t.ledgerEntries).where(and(eq(t.ledgerEntries.refType, 'purchase'), eq(t.ledgerEntries.refId, po.id)));
-    expect(e).toMatchObject({ amount: -140_000, eventType: 'SUPPLIER_MAKING_CHARGE', paymentMethod: 'BANK_TRANSFER' });
+    expect(row).toMatchObject({ makingChargePaid: 140_000, makingChargePaidFrom: 'OWNER_PERSONAL', makingChargeReference: 'TEST-PO-5000-6000', makingChargeTransferDate: await today() });
+    expect(await ctx.db.select().from(t.ledgerEntries).where(and(eq(t.ledgerEntries.refType, 'purchase'), eq(t.ledgerEntries.refId, po.id)))).toEqual([]);
   });
 
   it('is refused when supplier credit is turned off', async () => {
@@ -435,7 +438,7 @@ describe('cost visibility of the new fields and routes', () => {
       expect(SAFE_RESPONSE_FIELDS.has(f), f).toBe(true);
     }
     expect(COLUMN_CLASSES.purchases.safe).toEqual(expect.arrayContaining(['gold_owed_mg_pure24', 'gold_debt_mg_pure24']));
-    expect(COLUMN_CLASSES.purchases.cost).toEqual(['total_cost', 'making_charge_paid']);
+    expect(COLUMN_CLASSES.purchases.cost).toEqual(['total_cost', 'making_charge_paid', 'making_charge_reference', 'making_charge_transfer_date']);
     expect(COLUMN_CLASSES.supplier_settlements.cost ?? []).toEqual([]);
     expect(COLUMN_CLASSES.supplier_settlements.safe).toEqual(expect.arrayContaining(['settled_karat', 'settled_weight_mg', 'settled_pure_mg24']));
     expect(COLUMN_CLASSES.scrap_weight_entries.cost ?? []).toEqual([]);

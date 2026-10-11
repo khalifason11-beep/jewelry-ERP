@@ -45,7 +45,8 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   purchase_items: { cost: words('purchase_cost making_cost other_cost'), safe: words('id purchase_id item_id') },
   // Phase 4: MONEY costs of a supplier order (total cost, making charge paid) are GM-only.
   purchases: {
-    cost: words('total_cost making_charge_paid'),
+    // MKC-1 (Q3): the owner's personal transfer reference and date are GM-only too.
+    cost: words('total_cost making_charge_paid making_charge_reference making_charge_transfer_date'),
     // The order's GOLD weights are SAFE (client decisions D-4-13, D-4-16): gold_debt_mg_pure24 (owed
     // before settlements) and gold_owed_mg_pure24 (still owed) are OPERATIONAL quantities the branch
     // manager settles against. They reveal neither what the shop paid nor what it earned, and the debt
@@ -136,6 +137,9 @@ export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
   'makingCharge',
   'costIsEstimated',
   'makingChargePaid',
+  // MKC-1 (Q3): the owner's personal transfer reference and date.
+  'makingChargeReference',
+  'makingChargeTransferDate',
 ]);
 
 /** Every other field name the API sends, classified SAFE (one registry; unknown names fail tests). */

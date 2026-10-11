@@ -375,6 +375,24 @@ async function main() {
     await axe(page, 'cash scrap drill-down');
     await signOut(page);
 
+    section('Supplier orders (MKC-1): the General Manager records them, the owner pays the making charge personally');
+    await signIn(page, world.bm);
+    await page.goto(`${BASE}/purchases`);
+    await page.waitForLoadState('networkidle');
+    check((await page.getByTestId('new-purchase').count()) === 0, 'the branch manager has no "New purchase" (orders are General-Manager-only)');
+    await signOut(page);
+    await signIn(page, world.gm);
+    await page.goto(`${BASE}/purchases`);
+    await page.click('[data-testid=new-purchase]', { timeout: 15_000 });
+    await page.getByTestId('purchase-mkc-payer').waitFor();
+    check((await page.getByTestId('purchase-mkc-reference').count()) === 0, 'no transfer reference is asked while the making charge is 0');
+    await page.fill('[data-testid=line-making-0]', '40000');
+    await page.getByTestId('purchase-mkc-reference').waitFor();
+    check((await page.inputValue('[data-testid=purchase-mkc-date]')).length === 10 && (await page.getByTestId('purchase-save').isDisabled()), 'a making charge asks for the transfer reference and date (today by default); nothing can be saved without them');
+    await axe(page, 'new purchase dialog');
+    await page.keyboard.press('Escape');
+    await signOut(page);
+
     section('Branch manager home: blocks load and fail on their own; no cost (UI-B)');
     await signIn(page, world.bm);
     await page.goto(`${BASE}/dashboard`);

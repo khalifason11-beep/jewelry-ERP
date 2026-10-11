@@ -770,14 +770,31 @@ async function main() {
     const me = await apiGet(page, '/api/auth/me');
     check(!('hasadMode' in me.body) && me.body.posPaymentMethods.join(',') === 'CASH,BANK_TRANSFER,HASAD', 'no Hasad integration mode; the counter methods are Cash, Bank transfer, Hasad');
 
+    section('MKC-1: supplier orders are recorded by the General Manager; the owner pays the making charge personally');
+    await page.goto(`${origin}/purchases`);
+    await page.waitForLoadState('networkidle');
+    const bmOrder = await apiSend(page, 'POST', '/api/purchases', { branchId, supplierId: 1, lines: [{ productId: 1, grossWeightMg: 5_000, netWeightMg: 5_000, purchaseCost: 1, makingCost: 0, otherCost: 0, sellingPrice: 1 }] });
+    check((await page.getByTestId('new-purchase').count()) === 0 && bmOrder.status === 403, `branch manager: no "New purchase" on Purchases and POST /api/purchases answers ${bmOrder.status}`);
+    await signOut(page);
+    await signIn(page, origin, GM.username, GM.password);
+    await page.getByTestId('second-step').waitFor();
+    await page.click('[data-testid=use-passkey]');
+    await pathIs(page, ['/overview']);
+    const moneyOf = async () => (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId);
+    const reportTotals = async (key) => (await apiGet(page, `/api/reports/${key}?branchId=${branchId}`)).body.totals;
+    const money0 = await moneyOf();
+    const profit0 = await reportTotals('profit');
+    const purchases0 = await reportTotals('purchases');
+
     section('CAT-0: supplier, type and product created where they are needed');
     await page.goto(`${origin}/purchases`);
     await page.click('[data-testid=new-purchase]');
+    await page.selectOption('[data-testid=purchase-branch]', String(branchId));
     await page.click('[data-testid=purchase-new-supplier]');
     await page.fill('[data-testid=name-ar]', CAT.supplier);
     await page.click('[data-testid=save-supplier]');
     await waitFor(async () => (await page.inputValue('[data-testid=purchase-supplier]')) !== '', 'the new supplier selected', 15_000);
-    ok(`branch manager adds supplier "${CAT.supplier}" from the purchase form (Arabic name only); it is selected`);
+    ok(`General Manager adds supplier "${CAT.supplier}" from the purchase form (Arabic name only); it is selected`);
     await page.click('[data-testid=line-new-product-0]');
     await page.fill('[data-testid=name-ar]', CAT.product);
     await page.selectOption('[data-testid=product-karat]', '21');
@@ -796,7 +813,13 @@ async function main() {
     await waitFor(async () => (await page.inputValue('[data-testid=line-cost-0]')) !== '', 'the cost suggested from the gold rate', 10_000);
     ok(`with today's gold rate set, the purchase line suggests the cost from the rate (${await page.inputValue('[data-testid=line-cost-0]')})`);
     await page.fill('[data-testid=line-cost-0]', '1000000');
+    await page.fill('[data-testid=line-making-0]', '50000');
     await page.fill('[data-testid=line-price-0]', '1500000');
+    // MKC-1: a making charge above 0 asks for the owner's transfer reference (typed here in Arabic digits) and date.
+    await page.getByTestId('purchase-mkc-reference').waitFor();
+    check(await page.getByTestId('purchase-save').isDisabled(), 'a making charge above 0 cannot be saved without the owner’s transfer reference');
+    await page.fill('[data-testid=purchase-mkc-reference]', 'mkc ٧٧٠١');
+    check((await page.inputValue('[data-testid=purchase-mkc-date]')).length === 10, 'the transfer date defaults to today');
     await page.click('[data-testid=purchase-save]');
     await page.waitForURL((u) => /^\/purchases\/\d+$/.test(u.pathname), { timeout: 15_000 }).catch(async (e) => {
       const vals = await Promise.all(['line-gross-0', 'line-net-0', 'line-cost-0', 'line-price-0'].map((id) => page.inputValue(`[data-testid=${id}]`).catch(() => '?')));
@@ -808,6 +831,31 @@ async function main() {
     const owedShown = await page.getByTestId('gold-owed').count();
     const po = (await apiGet(page, `/api/purchases/${poId}`)).body;
     check(supplierShown === CAT.supplier && owedShown === 1 && po.goldOwedMgPure24 === 4375, `the supplier order shows the supplier "${CAT.supplier}" and the gold owed (4.375 g of 24K for 5 g of 21K)`);
+    const transferShown = await page.getByTestId('purchase-mkc-transfer').innerText();
+    check(
+      po.makingChargePaidFrom === 'OWNER_PERSONAL' && po.makingChargeReference === 'MKC 7701' && /MKC 7701/.test(transferShown) && (await page.getByTestId('purchase-mkc-paid-by').count()) === 1,
+      `the order says the making charge was paid by the owner, with the transfer "${transferShown.replace(/\s+/g, ' ')}" (reference normalized)`,
+    );
+    const money1 = await moneyOf();
+    check(money1.expectedCash === money0.expectedCash && money1.bank === money0.bank, `the order moved no branch money: drawer ${money1.expectedCash}, bank ${money1.bank} (unchanged)`);
+    const profit1 = await reportTotals('profit');
+    const purchases1 = await reportTotals('purchases');
+    check(
+      profit1.grossProfit === profit0.grossProfit && profit1.costOfSales === profit0.costOfSales && purchases1.totalCost - purchases0.totalCost === 1_050_000,
+      `reports: profit and cost of sales unchanged by the order; purchases cost up by exactly the order (1,000,000 + 50,000 making charge)`,
+    );
+    // The night-time case (an order recorded after hours raises no "no cash count" line) needs a backdated order and is
+    // proved in backend/test/mkc1.test.ts; here: the order produced no drawer movement, so A5 has nothing to count.
+    const recToday = (await apiGet(page, `/api/cash/reconciliation?branchId=${branchId}`)).body;
+    check(!recToday.cashLines.some((l) => l.line === 'MAKING_CHARGES') && !recToday.bankLines.some((l) => l.line === 'MAKING_CHARGES') && !('makingChargesCash' in recToday), 'the Cash lines have no "Supplier making charges" line any more');
+    await page.goto(`${origin}/purchases`);
+    await page.getByText('MKC 7701').first().waitFor({ timeout: 15_000 });
+    ok('the General Manager’s purchase list shows the transfer reference');
+    await signOut(page);
+    await signIn(page, origin, BM.username, BM.password);
+    await pathIs(page, ['/dashboard']);
+    const bmPo = (await apiGet(page, `/api/purchases/${poId}`)).body;
+    check(bmPo.makingChargePaidFrom === 'OWNER_PERSONAL' && !('makingChargeReference' in bmPo) && !('makingChargeTransferDate' in bmPo), 'branch manager: the order says "paid by the owner" without the reference or the date');
 
     const typeId = (await apiGet(page, '/api/categories')).body.find((c) => c.nameAr === CAT.type).id;
     await page.goto(`${origin}/catalog`);
@@ -879,6 +927,11 @@ async function main() {
       `a cash payment above the drawer (${drawerNow.toLocaleString('en-US')}) is refused on the form: "${shortText}"`,
     );
     check((await apiGet(page, '/api/scrap-purchases')).body.length === scrapCount && (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId).expectedCash === drawerNow, 'the refused purchase recorded nothing: same purchases, same drawer');
+
+    // MKC-1: the gold side is unchanged. The branch manager settles part of the General Manager's order with the
+    // broken scrap bought above (1 g of 21K = 0.875 g of 24K); the order still owes the rest.
+    const settled = await apiSend(page, 'POST', `/api/purchases/${poId}/settlements`, { karat: 21, weightMg: 1_000 });
+    check(settled.status === 200 && settled.body.goldOwedMgPure24 === 4375 - 875, `branch manager: settling 1 g of broken 21K scrap lowers the gold owed from 4.375 g to ${(settled.body?.goldOwedMgPure24 ?? 0) / 1000} g of 24K (unchanged rules)`);
 
     await page.evaluate(() => localStorage.setItem('jerp.lang', 'en'));
     await page.goto(`${origin}/catalog`);
@@ -1020,6 +1073,8 @@ async function main() {
     const bankSale1 = await (await resp).json();
     check(bankSale1.paymentRefTransaction === 'TRF 9012-REH', `sale ${bankSale1.number}: the reference is stored normalized ("TRF 9012-REH", Arabic-Indic digits → ASCII)`);
     await page.keyboard.press('Escape');
+    // The receipt dialog must be gone before the next click on the POS (a click during its closing hits the overlay).
+    await page.locator('[role=dialog]').waitFor({ state: 'detached', timeout: 15_000 });
     await bankSaleAt('TRF 9012-REH');
     resp = page.waitForResponse((r) => r.url().endsWith('/api/sales') && r.request().method() === 'POST');
     await page.click('[data-testid=pos-complete]');
@@ -1070,16 +1125,17 @@ async function main() {
     await page.goto(`${origin}/overview`);
     await page.getByTestId('home-branches').waitFor({ timeout: 15_000 });
     check((await page.getByTestId('first-steps').count()) === 0, 'once the second branch is funded the first steps are complete again');
+    // Stock for the cart (set-up through the API; purchases themselves are rehearsed above). MKC-1: the General
+    // Manager records the order once the pieces have arrived (making charge 0 here, so no transfer to record).
+    const productId = (await apiGet(page, '/api/products')).body[0].id;
+    const supplierId = (await apiGet(page, '/api/suppliers')).body[0].id;
+    const line = { productId, grossWeightMg: 4_200, netWeightMg: 4_000, purchaseCost: 700_000, makingCost: 0, otherCost: 0, sellingPrice: 1_100_000 };
+    const stockPo = await apiSend(page, 'POST', '/api/purchases', { branchId, supplierId, lines: [line, line, line] });
+    check(stockPo.status === 200, 'General Manager: three new pieces in the branch for the transfer');
     await signOut(page);
     await signIn(page, origin, BM.username, BM.password);
     await pathIs(page, ['/dashboard']);
     await bmHomeChecks(page, origin, branchId);
-    // Stock for the cart (set-up through the API; purchases themselves are rehearsed above).
-    const productId = (await apiGet(page, '/api/products')).body[0].id;
-    const supplierId = (await apiGet(page, '/api/suppliers')).body[0].id;
-    const line = { productId, grossWeightMg: 4_200, netWeightMg: 4_000, purchaseCost: 700_000, makingCost: 0, otherCost: 0, sellingPrice: 1_100_000 };
-    const stockPo = await apiSend(page, 'POST', '/api/purchases', { supplierId, lines: [line, line, line] });
-    check(stockPo.status === 200, 'branch manager: three new pieces in stock for the transfer');
     await page.goto(`${origin}/pos`);
     await page.getByTestId('pos-product').first().waitFor({ timeout: 15_000 });
     const cards = page.getByTestId('pos-product');

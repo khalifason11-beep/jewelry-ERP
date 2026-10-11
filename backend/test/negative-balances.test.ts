@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { t, type DatabaseHandle } from '@jerp/database';
 import { valueOfWeight } from '@jerp/shared';
+import { dayKey } from '../src/core/time';
 import { createContext } from '../src/bootstrap';
 import type { Actor, Ctx } from '../src/core/context';
 import { loadActor } from '../src/modules/sessions/service';
@@ -57,16 +58,12 @@ beforeAll(async () => {
 afterAll(async () => handle?.close());
 
 describe('BLOCK: the drawer', () => {
-  it('a making charge larger than the drawer is refused (409 DRAWER_SHORT) with the shortfall and what to do; nothing is recorded', async () => {
-    const e = await refusal(createPurchase(ctx, gm, { branchId, supplierId, makingChargePaidFrom: 'CASH', lines: [line(1_200_000)] }));
-    expect(e).toMatchObject({ status: 409, code: 'DRAWER_SHORT', params: { balance: '1,000,000', amount: '1,200,000', short: '200,000' } });
-    expect(e?.key).toMatch(/making charge.*ask the General Manager to record an advance/);
-    expect(await ctx.db.select().from(t.purchases).where(eq(t.purchases.branchId, branchId))).toHaveLength(0);
+  it('MKC-1: a supplier order never touches the drawer, whatever its making charge (the owner pays it personally)', async () => {
+    const today = dayKey(new Date(), (await ctx.settings.get()).company.timezone);
+    await createPurchase(ctx, gm, { branchId, supplierId, lines: [line(1_200_000)], makingChargeReference: 'TEST-MKC-0001', makingChargeTransferDate: today });
     expect(await bal('CASH')).toBe(1_000_000);
-    // Exactly the drawer is allowed (it may reach 0, never below).
-    await createPurchase(ctx, gm, { branchId, supplierId, makingChargePaidFrom: 'CASH', lines: [line(1_000_000)] });
-    expect(await bal('CASH')).toBe(0);
-    await recordAdvance(ctx, gm, { branchId, account: 'CASH', amount: 1_000_000, reason: 'test drawer float' });
+    expect(await bal('BANK')).toBe(0);
+    expect(Object.keys(DRAWER_SHORT)).not.toContain('MAKING_CHARGE');
   });
 
   it('a scrap cash part larger than the drawer is refused; the bank part never is', async () => {
@@ -122,7 +119,7 @@ describe('BLOCK: the drawer', () => {
 
   it('a bank payment is never refused', async () => {
     const bank = await bal('BANK');
-    await createPurchase(ctx, gm, { branchId, supplierId, makingChargePaidFrom: 'BANK', lines: [line(bank + 250_000)] });
+    await recordRepayment(ctx, gm, { branchId, account: 'BANK', amount: bank + 250_000, reason: 'test repayment below zero', bankReference: 'TEST-0004' });
     expect(await bal('BANK')).toBe(-250_000);
     await recordRepayment(ctx, gm, { branchId, account: 'BANK', amount: 10_000, reason: 'test repayment from the bank', bankReference: 'TEST-0003' });
     expect(await bal('BANK')).toBe(-260_000);

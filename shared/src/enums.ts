@@ -112,9 +112,17 @@ export type ScrapWeightEventType = (typeof SCRAP_WEIGHT_EVENT_TYPES)[number];
 export const GM_FUNDING_KINDS = ['ADVANCE', 'REPAYMENT', 'REVERSAL'] as const;
 export type GmFundingKind = (typeof GM_FUNDING_KINDS)[number];
 
-/** Money paid out from the drawer (CASH) or the bank account (BANK): the supplier making charge. */
+/** A branch money account: the drawer (CASH) or the bank account (BANK). Used by the General Manager's funding (CSH-2). */
 export const CASH_OR_BANK = ['CASH', 'BANK'] as const;
 export type CashOrBank = (typeof CASH_OR_BANK)[number];
+
+/**
+ * MKC-1 (D-mkc-1): who paid a supplier order's making charge. Always one bank transfer from the owner's PERSONAL
+ * account: no branch money moves and the branch owes nothing. Additive: a future company account would be one more
+ * value with its own posting rule (D-mkc-2); the CASH/BANK values of before MKC-1 no longer exist (migration 0022).
+ */
+export const MAKING_CHARGE_PAYERS = ['OWNER_PERSONAL'] as const;
+export type MakingChargePayer = (typeof MAKING_CHARGE_PAYERS)[number];
 export type SaleStatus = (typeof SALE_STATUSES)[number];
 
 export const PURCHASE_STATUSES = ['RECEIVED'] as const;

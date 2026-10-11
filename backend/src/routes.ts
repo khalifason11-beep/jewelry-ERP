@@ -574,7 +574,10 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           supplierId: zIdBody.optional(),
           supplierInvoiceNo: zText(60).optional(),
           notes: zText(1000).optional(),
-          makingChargePaidFrom: z.enum(CASH_OR_BANK).optional(),
+          // MKC-1: the making charge is paid by the owner from his personal account; no payment source is taken any more.
+          makingChargeReference: zText(80).optional(),
+          makingChargeTransferDate: zDay.optional(),
+          confirmDuplicateReference: z.boolean().optional(),
           lines: z.array(line).min(1).max(200),
         })
         .strict(),

@@ -168,15 +168,31 @@ Print a label (code, karat, weight, Code128 or QR) for each piece, from the open
 ### CSH-3 — Cash-out entry for the operating amount · BLOCKED (Q-6) · S · P1
 (Was CSH-2 before the funding work took that name.) If the operating amount leaves the drawer: a minimal audited cash-out record (amount, reason, actor) posted to the ledger. Not an expenses module. It may turn out to be one more General Manager ↔ branch movement (see CSH-2).
 
-### SCR-VOID — Correct a wrong counter scrap purchase · TODO · S · P1 (before real operation)
+### Mistake correction (before real operation)
+
+Two P1 items share one goal: a General-Manager-only, audited way to correct a record entered by mistake, with a
+reason and the password re-confirmation, never by editing or deleting history.
+
+#### SCR-VOID — Correct a wrong counter scrap purchase · TODO · S · P1 (before real operation)
 A wrong scrap purchase cannot be corrected today: `scrap_purchases` is append-only and has no void. A General-Manager-only void that reverses the ledger entries (both parts of a split payment: `reverseRef` already does it, tested in `scrap-split.test.ts`), the inventory piece or the pool weight, with a reason and the password re-confirmation. Needed before the shop works on the system.
 
-### MKC-1 — Supplier making charges paid personally by the General Manager · TODO · M · P1 (after CSH-2)
-**Client facts (2026-10-10):** a making charge is **always one full bank transfer** (never cash, never split); the owner/General Manager pays it from his **personal** account, not from the branch bank account, **outside the branch's working day**; **creating supplier orders is General-Manager-only**; a single company bank account across all branches is a **future wish** (build nothing for it now, hard-code nothing that would block it). Today a making charge leaves the branch's drawer (default) or bank at once (D-4-4), which contradicts these facts: it should not move branch money at all when the General Manager pays personally. **Open with the client:** is a making charge the General Manager pays personally reimbursed by the branch (then it is an advance in CSH-2 terms, owed to him) or is it the company's cost carried by him? CSH-2 changed nothing here (owner answer Q2).
-**How CSH-2 interacts with these facts until MKC-1 is built:**
-- *OWED_TO_GM:* if the branch reimburses him, the faithful record today is an **advance into the branch bank**, marked "paid directly to a seller" with the order number, followed by the order paid "from the bank". The branch bank nets to zero and the branch owes him the charge. If the charge is the company's cost carried by him, recording it as an advance would overstate what the branch owes. The client's answer decides which.
-- *BANK WARN (A17):* an order recorded "from the bank" with no matching advance takes the branch bank below zero, and A17 (urgent) shows every day until an advance is recorded. That is correct for a branch account and wrong for his personal account, which the system does not hold. A future single company account would be a new account scope; nothing in CSH-2 assumes one bank per branch beyond today's ledger accounts.
-- *A5 / A4 and the drawer BLOCK:* an order recorded "from the drawer" outside the working day is a CASH movement of that business day. It can raise A5 ("no cash count yesterday") for a day the branch was closed, or an A4 difference when it lands after the count. On an unfunded drawer it is refused (BLOCK). Recorded "from the bank", it touches neither the drawer nor A4/A5.
+#### PUR-FIX — Correct a wrong supplier order amount or transfer reference · TODO · S · P1 (before real operation)
+MKC-1 (owner decision Q13): a supplier order recorded with a wrong making-charge amount or a wrong transfer reference
+cannot be corrected today. A General-Manager-only correction, with a reason and the password re-confirmation, audited,
+that keeps the original values in the history. It moves no branch money (the owner pays making charges personally,
+D-mkc-1); a correction of the pieces' costs must keep every sold piece's cost snapshot as it was.
+
+### MKC-1 — Supplier making charges paid personally by the owner · DONE · S–M · P1
+**Done (plan `docs/plans/MKC-1.md`, decisions D-mkc-1…10, `docs/acceptance/MKC-1.md`, migration 0022):** a supplier
+order records the payment fact of its making charge: paid by the owner by one bank transfer from the owner's
+personal account (`OWNER_PERSONAL`), with the transfer reference and date (General Manager only). It moves **no
+branch money**: no drawer, bank or OWED_TO_GM entry, and the branch owes nothing. The making charge stays in each
+piece's cost, so cost and profit are unchanged. A reference already on another order asks "record anyway?" (never a
+block). Creating supplier orders is General-Manager-only. The General Manager records an order only after the pieces
+have arrived at the branch. The gold side (debt in pure 24K, settled only with broken scrap) is unchanged.
+**The CSH-2 workaround is no longer needed:** recording the owner's making charge as an advance into the branch bank
+(and paying the order "from the bank") was a way to keep the branch's money right before MKC-1. Do not use it any more:
+it would make the branch owe the owner a cost he bears himself.
 
 ### SPL-1 — Split payments · BLOCKED (Q-7) · M · P2
 If a prepaid Hasad balance can fall short of the price, one sale must carry several payments (for example Hasad plus cash). Ledger entries per payment, one reference per payment.
@@ -298,7 +314,7 @@ Updated after UX-0 (D-ux-13, D-ux-14, D-ux-15).
 | 5 | PRC-1 | Needs Q-1, Q-2, Q-5 |
 | 6 | OPN-1 (+ LBL-1) | Needs CAT-1 and Q-4 |
 | 7 | **BE-1, BE-7** (P1, before the pilot), then UI-B, UI-C | The homes need the attention endpoint; the lists need server-side pagination |
-| 8 | SCR-VOID, MKC-1 (P1, before real operation); CSH-3, SPL-1, MNY-1, SCR-1, RPT-1 | According to the answers |
+| 8 | SCR-VOID, PUR-FIX (P1, mistake correction, before real operation); CSH-3, SPL-1, MNY-1, SCR-1, RPT-1 | According to the answers |
 | 9 | HOST-1, DEP-1, BKP-1, 2FA-1, HW-1, TRN-1, LEG-1 | Owner tasks that run in parallel with steps 1–8 |
 | 10 | PIL-1, then SEC-1 | Before relying on the system and before a second branch |
 

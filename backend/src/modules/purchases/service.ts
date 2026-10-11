@@ -1,17 +1,16 @@
-import { ap, pureGoldMg, sumInt, type CashOrBank } from '@jerp/shared';
+import { ap, pureGoldMg, sumInt, validBankReference, type MakingChargePayer } from '@jerp/shared';
 import { and, desc, eq, gte, ilike, inArray, lt, or, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import { nameOrAr } from '../../core/sql';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
-import { badRequest, notFound } from '../../core/errors';
+import { AppError, badRequest, notFound } from '../../core/errors';
 import { nextItemCode, nextNumber } from '../../core/numbering';
-import { dayRange } from '../../core/time';
+import { dayKey, dayRange } from '../../core/time';
 import { recordMovement } from '../inventory/ledger';
 import { assertSellableKarat } from '../../core/karats';
 import type { TxIdempotency } from '../../core/idempotency';
-import { lockDrawerFor, post } from '../ledger/service';
 import { settlementsFor } from '../supplier-settlements/service';
 import { assertProductsUsable } from '../catalog/service';
 
@@ -30,9 +29,29 @@ export interface CreatePurchaseInput {
   supplierId?: number;
   supplierInvoiceNo?: string;
   notes?: string;
-  /** Where the making charge is paid from, immediately (D-4-4). Default CASH. */
-  makingChargePaidFrom?: CashOrBank;
+  /** MKC-1: the owner's bank transfer reference for the making charge (required when it is above 0). */
+  makingChargeReference?: string;
+  /** MKC-1: the date of that transfer, YYYY-MM-DD, not in the future (required when the charge is above 0). */
+  makingChargeTransferDate?: string;
+  /** MKC-1 (Q4): record a transfer reference already on another order, after the warning. Never a block. */
+  confirmDuplicateReference?: boolean;
   lines: PurchaseLine[];
+}
+
+/** MKC-1 (D-mkc-1, D-mkc-3): the payment fact of a making charge. Above 0: the reference (FIX-2 rules) and the date. */
+function makingChargeTransfer(input: CreatePurchaseInput, makingCharge: number, today: string) {
+  if (makingCharge === 0) {
+    if (input.makingChargeReference || input.makingChargeTransferDate) throw badRequest('A making charge of 0 has no transfer to record');
+    return { reference: null, transferDate: null };
+  }
+  const reference = validBankReference(input.makingChargeReference);
+  if (!reference) throw badRequest('Enter the bank transfer reference (4 to 40 letters or digits)');
+  const d = input.makingChargeTransferDate;
+  if (!d) throw badRequest('Enter the date of the transfer');
+  const parsed = new Date(`${d}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== d) throw badRequest('Invalid value for {field}', { field: 'makingChargeTransferDate' });
+  if (d > today) throw badRequest('The transfer date cannot be in the future');
+  return { reference, transferDate: d };
 }
 
 /**
@@ -40,9 +59,12 @@ export interface CreatePurchaseInput {
  *
  * Supplier terms (Phase 4, D-4-4): gold for gold. The order owes the supplier the 24K equivalent of
  * the pieces' net weight (gold_owed_mg_pure24, settled later only with broken scrap); the making
- * charge is the only money ever paid to a supplier and is paid now, from the drawer or the bank,
- * in the same transaction. The per-piece money costs stay the General Manager's valuation for
- * profit reporting.
+ * charge is the only money ever paid to a supplier.
+ *
+ * MKC-1 (D-mkc-1): the General Manager records an order only after the pieces have arrived at the branch, and the
+ * owner pays the making charge by one bank transfer from his PERSONAL account. The order records that payment fact
+ * (who, the reference, the date) and posts NO ledger entry: no branch drawer, bank or OWED_TO_GM moves, and the branch
+ * owes nothing. The making charge stays in each piece's cost (acquisition_cost), so cost and profit are unchanged.
  */
 export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurchaseInput, opts: { at?: Date; idem?: TxIdempotency } = {}) {
   requirePerm(actor, 'purchases.create');
@@ -58,8 +80,9 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
   if (!input.supplierId) throw badRequest('Select the supplier');
   const settings = await ctx.settings.get();
   if (!settings.purchases.supplierCreditEnabled) throw badRequest('Supplier purchases on gold credit are turned off in the settings');
-  const paidFrom: CashOrBank = input.makingChargePaidFrom ?? 'CASH';
   const at = opts.at ?? new Date();
+  const payer: MakingChargePayer = 'OWNER_PERSONAL';
+  const transfer = makingChargeTransfer(input, sumInt(input.lines.map((l) => l.makingCost)), dayKey(at, settings.company.timezone));
 
   return ctx.db.transaction(async (tx) => {
     await opts.idem?.claim(tx);
@@ -76,6 +99,22 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
     await assertProductsUsable(tx, [...byId.keys()]);
     const [supplier] = await tx.select({ id: t.suppliers.id }).from(t.suppliers).where(eq(t.suppliers.id, input.supplierId!));
     if (!supplier) throw notFound('Supplier');
+    // MKC-1 (Q4, as FIX-2 for sales): one transfer pays one order of one supplier, so the same reference on another order
+    // (any branch: the transfers all come from the owner's one personal account) is probably a typing mistake. It is
+    // refused until the General Manager confirms ("record anyway"); never blocked, and the confirmation is audited.
+    let duplicateOf: string | null = null;
+    if (transfer.reference) {
+      const [dup] = await tx
+        .select({ number: t.purchases.number })
+        .from(t.purchases)
+        .where(eq(t.purchases.makingChargeReference, transfer.reference))
+        .orderBy(desc(t.purchases.id))
+        .limit(1);
+      if (dup && !input.confirmDuplicateReference) {
+        throw new AppError(409, 'DUPLICATE_BANK_REFERENCE', 'This transfer reference is already on supplier order {number}. Record it anyway?', { number: dup.number }, { number: dup.number, reference: transfer.reference });
+      }
+      duplicateOf = dup?.number ?? null;
+    }
     const number = await nextNumber(tx, branch.code, 'PO');
     const totalCost = input.lines.reduce((s, l) => s + l.purchaseCost + l.makingCost + l.otherCost, 0);
     // The gold debt: one pureGoldMg rounding per piece (the system's single conversion, D-2a-6).
@@ -94,21 +133,16 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
         goldDebtMgPure24: goldDebt,
         goldOwedMgPure24: goldDebt,
         makingChargePaid,
-        makingChargePaidFrom: paidFrom,
+        makingChargePaidFrom: payer,
+        makingChargeReference: transfer.reference,
+        makingChargeTransferDate: transfer.transferDate,
         notes: input.notes ?? null,
         createdBy: actor.userId,
         createdAt: at,
       })
       .returning();
     const ref = { refType: 'purchase', refId: purchase.id, refNumber: number };
-    // The making charge leaves the drawer or the bank now (skipped when it is 0). CSH-2 (Q7): from the drawer only if it
-    // holds it (BLOCK, under its lock); from the bank always (A17 warns when the bank goes below zero).
-    if (paidFrom === 'CASH') await lockDrawerFor(tx, branchId, makingChargePaid, 'MAKING_CHARGE');
-    await post(
-      tx,
-      [{ branchId, kind: paidFrom, amount: -makingChargePaid, eventType: 'SUPPLIER_MAKING_CHARGE', paymentMethod: paidFrom === 'CASH' ? 'CASH' : 'BANK_TRANSFER', ref, at }],
-      { actor, idempotencyKey: opts.idem?.key },
-    );
+    // MKC-1: no ledger entry. The owner's personal transfer moves no branch money (D-mkc-1).
     const codes: string[] = [];
     for (const l of input.lines) {
       const product = byId.get(l.productId);
@@ -157,7 +191,7 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
       at,
       key: 'Purchase {number}: {n} item(s) received, cost {cost}',
       params: { number, n: input.lines.length, cost: ap.money(totalCost) },
-      metadata: { items: codes },
+      metadata: { items: codes, makingChargePaidBy: payer, makingChargeReference: transfer.reference, makingChargeTransferDate: transfer.transferDate, ...(duplicateOf ? { duplicateReferenceOf: duplicateOf } : {}) },
     });
     const result = { ...purchase, itemCodes: codes };
     await opts.idem?.complete(tx, result);
@@ -192,6 +226,8 @@ export async function listPurchases(ctx: Ctx, actor: Actor, q: { branchId?: numb
       itemCount: t.purchases.itemCount,
       totalNetWeightMg: t.purchases.totalNetWeightMg,
       totalCost: t.purchases.totalCost,
+      // MKC-1: the owner's transfer reference (COST: the General Manager only, the response filter strips it otherwise).
+      makingChargeReference: t.purchases.makingChargeReference,
       createdByName: t.users.fullName,
       status: t.purchases.status,
     })

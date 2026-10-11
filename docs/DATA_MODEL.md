@@ -45,7 +45,7 @@ hasad_mock.* (customers, withdrawals, api_calls). DEPRECATED (REM-2): the mock w
 | `jewelry_items` | One row per piece: code, barcode, karat, gross/net weight, **purchase / making / other cost** ⚙, total cost, selling price, branch, status, reservation |
 | `item_status_history` | Every status transition with reference document, user, note |
 | `inventory_movements` | Ledger: type, direction (±1), branch, from/to branch, reference, user, weight, cost value |
-| `purchases`, `purchase_items` | Stock receipts; each line creates one item |
+| `purchases`, `purchase_items` | Supplier orders (stock receipts; each line creates one item), recorded by the General Manager after the pieces arrive. **MKC-1** (migration 0022): the making charge is paid by the owner from the owner's personal account, `making_charge_paid_from = OWNER_PERSONAL` with `making_charge_reference` and `making_charge_transfer_date` (both GM only) when the charge is above 0; no ledger entry. Gold owed in pure-24K mg, settled only with broken scrap |
 | `sales`, `sale_items` | Invoice header and lines with **price, discount and cost snapshots** (historical profit never changes) |
 | `expenses` | **DEPRECATED (REM-1)**: no new rows (trigger, migration 0013); kept for history until REM-5. Category, amount, date, status, reviewer |
 | `transfers`, `transfer_items` | Two-step transfers (IN_TRANSIT → RECEIVED) |

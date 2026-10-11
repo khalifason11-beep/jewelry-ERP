@@ -392,8 +392,12 @@ export const purchases = pgTable('purchases', {
   goldOwedMgPure24: integer('gold_owed_mg_pure24'),
   /** Making charge paid to the supplier at receipt (the only money ever paid to a supplier). */
   makingChargePaid: money('making_charge_paid'),
-  /** CASH | BANK: where that making charge was paid from. */
+  /** MKC-1: OWNER_PERSONAL, the owner's personal bank transfer (no branch money moves). CASH | BANK before migration 0022. */
   makingChargePaidFrom: text('making_charge_paid_from'),
+  /** MKC-1: the owner's bank transfer reference (normalized, 4–40), when the making charge is above 0. GM only. */
+  makingChargeReference: text('making_charge_reference'),
+  /** MKC-1: the date of that transfer (display only; the order is grouped by created_at). GM only. */
+  makingChargeTransferDate: date('making_charge_transfer_date', { mode: 'string' }),
 });
 
 export const purchaseItems = pgTable('purchase_items', {

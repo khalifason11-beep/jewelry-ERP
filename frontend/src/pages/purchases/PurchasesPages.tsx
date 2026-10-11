@@ -1,11 +1,11 @@
-import { gramsToMg, pureGoldMg, type CashOrBank } from '@jerp/shared';
+import { gramsToMg, normalizeBankReference, pureGoldMg, validBankReference } from '@jerp/shared';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
-import { get, postOnce } from '../../lib/api';
+import { ApiError, get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { dateTime, grams, karatLabel, money } from '../../lib/format';
+import { dateTime, grams, karatLabel, money, todayKey } from '../../lib/format';
 import { useBranches, useGoldRates } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
@@ -42,9 +42,14 @@ interface PurchaseRow {
   itemCount: number;
   totalNetWeightMg: number;
   totalCost: number;
+  /** MKC-1: the owner's transfer reference (General Manager only; absent for everyone else). */
+  makingChargeReference?: string | null;
   createdByName: string;
   status: string;
 }
+
+/** References and dates read left to right inside Arabic text. */
+const ltr = (s: string) => `\u2066${s}\u2069`;
 
 export function PurchasesTable({ branchId, from, to, toolbar }: { branchId?: number; from: string; to: string; toolbar?: React.ReactNode }) {
   const { t, L, lang } = useI18n();
@@ -73,6 +78,8 @@ export function PurchasesTable({ branchId, from, to, toolbar }: { branchId?: num
         { key: 'totalNetWeightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.totalNetWeightMg)}</span>, footer: grams(rows.reduce((s, r) => s + r.totalNetWeightMg, 0)) },
         // Cost figures are General Manager only (the API omits them for everyone else).
         ...(showCost ? [{ key: 'totalCost', header: t('Total cost'), align: 'end' as const, render: (r: PurchaseRow) => <span className="font-medium num">{money(r.totalCost, false)}</span>, footer: money(rows.reduce((s, r) => s + r.totalCost, 0), false) }] : []),
+        // MKC-1: the owner's transfer reference for the making charge (General Manager only).
+        ...(showCost ? [{ key: 'makingChargeReference', header: t('Transfer reference'), render: (r: PurchaseRow) => <Mono className="text-ink-500">{r.makingChargeReference ? ltr(r.makingChargeReference) : '—'}</Mono> }] : []),
         { key: 'createdByName', header: t('Received by') },
       ]}
     />
@@ -126,7 +133,11 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
   const [branchId, setBranchId] = useState<number | ''>(me?.user.branch?.id ?? '');
   const [supplierId, setSupplierId] = useState<number | ''>('');
   const [invoiceNo, setInvoiceNo] = useState('');
-  const [paidFrom, setPaidFrom] = useState<CashOrBank>('CASH');
+  // MKC-1: the owner pays the making charge by bank transfer from the owner's personal account; the order records the
+  // transfer reference and date (required when the charge is above 0). No branch money moves.
+  const [transferRef, setTransferRef] = useState('');
+  const [transferDate, setTransferDate] = useState(todayKey());
+  const [duplicateOf, setDuplicateOf] = useState<string | null>(null);
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
   // Only karats this deployment sells can be bought from a supplier (D-4-1).
   const sellable = products.data?.filter((p) => me?.allowedKarats.includes(p.karat));
@@ -142,18 +153,21 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
     const making = Math.round((net * 10_000) / 1000) * 1000;
     upd(i, { purchaseCost: String(purchase), makingCost: String(making), sellingPrice: String(Math.round(((purchase + making) * 1.22) / 5000) * 5000) });
   };
-  const valid = lines.every((l) => l.productId && Number(l.net) > 0 && Number(l.gross) >= Number(l.net) && Number(l.purchaseCost) > 0 && Number(l.sellingPrice) > 0) && (branchId || !isGlobal) && !!supplierId;
   const total = lines.reduce((s, l) => s + (Number(l.purchaseCost) || 0) + (Number(l.makingCost) || 0) + (Number(l.otherCost) || 0), 0);
   const making = lines.reduce((s, l) => s + (Number(l.makingCost) || 0), 0);
+  const transferOk = making === 0 || (!!validBankReference(transferRef) && !!transferDate && transferDate <= todayKey());
+  const valid = lines.every((l) => l.productId && Number(l.net) > 0 && Number(l.gross) >= Number(l.net) && Number(l.purchaseCost) > 0 && Number(l.sellingPrice) > 0) && (branchId || !isGlobal) && !!supplierId && transferOk;
 
   const actionKeys = useActionKeys();
   const m = useMutation({
-    mutationFn: () =>
+    mutationFn: (opts: { confirmDuplicate?: boolean } = {}) =>
       postOnce<{ id: number; number: string; itemCodes: string[] }>('/purchases', {
         branchId: branchId || undefined,
         supplierId: supplierId || undefined, // required (CAT-0); the button stays disabled without it
         supplierInvoiceNo: invoiceNo || undefined,
-        makingChargePaidFrom: paidFrom,
+        ...(making > 0
+          ? { makingChargeReference: validBankReference(transferRef) ?? transferRef, makingChargeTransferDate: transferDate, ...(opts.confirmDuplicate ? { confirmDuplicateReference: true } : {}) }
+          : {}),
         lines: lines.map((l) => ({
           productId: Number(l.productId),
           grossWeightMg: gramsToMg(l.gross),
@@ -171,7 +185,14 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
       onClose();
       navigate(`/purchases/${p.id}`);
     },
-    onError: (e) => toast.fromError(e),
+    onError: (e) => {
+      // MKC-1 (Q4): the same transfer reference is already on another order: ask before recording it (never a block).
+      if (e instanceof ApiError && e.code === 'DUPLICATE_BANK_REFERENCE') {
+        setDuplicateOf((e.details as { number?: string } | undefined)?.number ?? '—');
+        return;
+      }
+      toast.fromError(e);
+    },
   });
 
   return (
@@ -186,17 +207,17 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
           <span className="me-auto text-[13px] text-ink-600">
             {t('{n} piece(s) · total cost', { n: lines.length })} <b className="num">{money(total)}</b>
             {' · '}
-            {t('Making charge paid now')} <b className="num">{money(making)}</b>
+            {t('Making charge (paid by the owner)')} <b className="num">{money(making)}</b>
           </span>
           <Button onClick={onClose}>{t('Cancel')}</Button>
-          <Button variant="primary" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()} data-testid="purchase-save">{t('Receive into stock')}</Button>
+          <Button variant="primary" disabled={!valid} loading={m.isPending} onClick={() => m.mutate({})} data-testid="purchase-save">{t('Receive into stock')}</Button>
         </>
       }
     >
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
         {isGlobal && (
           <Field label={t('Receiving branch')}>
-            <Select value={branchId} onChange={(e) => setBranchId(e.target.value ? Number(e.target.value) : '')}>
+            <Select value={branchId} onChange={(e) => setBranchId(e.target.value ? Number(e.target.value) : '')} data-testid="purchase-branch">
               <option value="">{t('Select…')}</option>
               {branches.data?.map((b) => <option key={b.id} value={b.id}>{L(b.name, b.nameAr)}</option>)}
             </Select>
@@ -211,16 +232,31 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
         <Field label={t('Supplier invoice no.')}>
           <Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} />
         </Field>
-        <Field label={t('Making charge paid from')}>
-          <Select value={paidFrom} onChange={(e) => setPaidFrom(e.target.value as CashOrBank)}>
-            <option value="CASH">{t('Cash drawer')}</option>
-            <option value="BANK">{t('Bank')}</option>
-          </Select>
+        <Field label={t('Making charge')}>
+          <span className="block py-2 text-[13px] text-ink-700" data-testid="purchase-mkc-payer">{t('Paid by the owner, by bank transfer from the owner’s personal account')}</span>
         </Field>
+        {making > 0 && (
+          <>
+            <Field label={t('Transfer reference')} hint={transferRef && !validBankReference(transferRef) ? t('4 to 40 letters or digits') : transferRef ? ltr(normalizeBankReference(transferRef)) : undefined}>
+              <Input value={transferRef} onChange={(e) => { setTransferRef(e.target.value); setDuplicateOf(null); }} maxLength={60} className="font-mono" data-testid="purchase-mkc-reference" />
+            </Field>
+            <Field label={t('Transfer date')}>
+              <Input type="date" value={transferDate} max={todayKey()} onChange={(e) => setTransferDate(e.target.value)} className="num" data-testid="purchase-mkc-date" />
+            </Field>
+          </>
+        )}
       </div>
       <Alert tone="info" className="mb-3">
-        {t('Gold for gold: the supplier is owed the pieces’ weight as 24K pure gold, settled later with broken scrap only. The making charge is the only money paid, now.')}
+        {t('Gold for gold: the supplier is owed the pieces’ weight as 24K pure gold, settled later with broken scrap only. The making charge is the only money paid: the owner pays it by bank transfer, and no branch money moves.')}
       </Alert>
+      {duplicateOf && (
+        <Alert tone="warning" className="mb-3">
+          <span className="flex flex-wrap items-center gap-3" data-testid="purchase-duplicate">
+            {t('This transfer reference is already on supplier order {number}. Record it anyway?', { number: duplicateOf })}
+            <Button size="sm" onClick={() => m.mutate({ confirmDuplicate: true })} loading={m.isPending} data-testid="purchase-duplicate-confirm">{t('Record anyway')}</Button>
+          </span>
+        </Alert>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-[12.5px]">
           <thead className="text-ink-500">
@@ -240,7 +276,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
               <tr key={i}>
                 <td className="py-1 pe-2">
                   <div className="flex items-center gap-1.5">
-                    <Select value={l.productId} onChange={(e) => upd(i, { productId: e.target.value ? Number(e.target.value) : '' })} className="h-8 min-w-48 text-[12.5px]" data-testid={`line-product-${i}`}>
+                    <Select value={l.productId} onChange={(e) => upd(i, { productId: e.target.value ? Number(e.target.value) : '' })} className="h-8 min-w-48 text-[12.5px]" aria-label={t('Product')} data-testid={`line-product-${i}`}>
                       <option value="">{sellable?.length === 0 ? t('No products yet: create one') : t('Select…')}</option>
                       {sellable?.map((p) => <option key={p.id} value={p.id}>{L(p.name, p.nameAr)} · {karatLabel(p.karat)} · {L(p.categoryName, p.categoryNameAr)}</option>)}
                     </Select>
@@ -249,12 +285,12 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
                     </button>
                   </div>
                 </td>
-                <td className="py-1 pe-2"><Input type="number" step="0.001" value={l.gross} onChange={(e) => upd(i, { gross: e.target.value })} className="h-8 w-20 text-[12.5px]" data-testid={`line-gross-${i}`} /></td>
-                <td className="py-1 pe-2"><Input type="number" step="0.001" value={l.net} onChange={(e) => upd(i, { net: e.target.value })} onBlur={() => !l.purchaseCost && suggest(i, l)} className="h-8 w-20 text-[12.5px]" data-testid={`line-net-${i}`} /></td>
-                <td className="py-1 pe-2"><Input type="number" value={l.purchaseCost} onChange={(e) => upd(i, { purchaseCost: e.target.value })} className="h-8 w-28 text-[12.5px]" data-testid={`line-cost-${i}`} /></td>
-                <td className="py-1 pe-2"><Input type="number" value={l.makingCost} onChange={(e) => upd(i, { makingCost: e.target.value })} className="h-8 w-24 text-[12.5px]" /></td>
-                <td className="py-1 pe-2"><Input type="number" value={l.otherCost} onChange={(e) => upd(i, { otherCost: e.target.value })} className="h-8 w-20 text-[12.5px]" /></td>
-                <td className="py-1 pe-2"><Input type="number" value={l.sellingPrice} onChange={(e) => upd(i, { sellingPrice: e.target.value })} className="h-8 w-28 text-[12.5px]" data-testid={`line-price-${i}`} /></td>
+                <td className="py-1 pe-2"><Input type="number" step="0.001" value={l.gross} onChange={(e) => upd(i, { gross: e.target.value })} className="h-8 w-20 text-[12.5px]" aria-label={t('Gross g')} data-testid={`line-gross-${i}`} /></td>
+                <td className="py-1 pe-2"><Input type="number" step="0.001" value={l.net} onChange={(e) => upd(i, { net: e.target.value })} onBlur={() => !l.purchaseCost && suggest(i, l)} className="h-8 w-20 text-[12.5px]" aria-label={t('Net g')} data-testid={`line-net-${i}`} /></td>
+                <td className="py-1 pe-2"><Input type="number" value={l.purchaseCost} onChange={(e) => upd(i, { purchaseCost: e.target.value })} className="h-8 w-28 text-[12.5px]" aria-label={t('Purchase cost')} data-testid={`line-cost-${i}`} /></td>
+                <td className="py-1 pe-2"><Input type="number" value={l.makingCost} onChange={(e) => upd(i, { makingCost: e.target.value })} data-testid={`line-making-${i}`} aria-label={t('Making')} className="h-8 w-24 text-[12.5px]" /></td>
+                <td className="py-1 pe-2"><Input type="number" value={l.otherCost} onChange={(e) => upd(i, { otherCost: e.target.value })} aria-label={t('Other')} className="h-8 w-20 text-[12.5px]" /></td>
+                <td className="py-1 pe-2"><Input type="number" value={l.sellingPrice} onChange={(e) => upd(i, { sellingPrice: e.target.value })} className="h-8 w-28 text-[12.5px]" aria-label={t('Selling price')} data-testid={`line-price-${i}`} /></td>
                 <td className="py-1">
                   <button onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} disabled={lines.length === 1} className="p-1 text-ink-400 hover:text-rose-600 disabled:opacity-30" aria-label={t('Remove line')}>
                     <Trash2 className="size-4" />
@@ -305,7 +341,10 @@ export function PurchaseDetailPage() {
           // Operational (D-4-13): visible to the branch manager too.
           goldOwedMgPure24: number | null;
           makingChargePaid?: number | null;
-          makingChargePaidFrom: 'CASH' | 'BANK' | null;
+          makingChargePaidFrom: 'OWNER_PERSONAL' | null;
+          // MKC-1: the owner's transfer (General Manager only).
+          makingChargeReference?: string | null;
+          makingChargeTransferDate?: string | null;
           settlements: Settlement[];
           items: { itemId: number; code: string; productName: string; productNameAr: string; karat: number; netWeightMg: number; purchaseCost: number; makingCost: number; otherCost: number; sellingPrice: number; status: string }[];
         }
@@ -327,11 +366,17 @@ export function PurchaseDetailPage() {
             { label: t('Supplier'), value: p.supplierName || p.supplierNameAr ? <span data-testid="purchase-supplier-name">{L(p.supplierName, p.supplierNameAr)}</span> : '—' },
             { label: t('Supplier invoice'), value: p.supplierInvoiceNo ?? '—' },
             { label: t('Items'), value: p.itemCount },
-            { label: t('Making charge paid from'), value: p.makingChargePaidFrom ? t(p.makingChargePaidFrom === 'CASH' ? 'Cash drawer' : 'Bank') : '—' },
+            { label: t('Making charge paid by'), value: p.makingChargePaidFrom ? <span data-testid="purchase-mkc-paid-by">{t('The owner (personal account)')}</span> : '—' },
             ...(showCost
               ? [
                   { label: t('Total cost'), value: money(p.totalCost) },
                   { label: t('Making charge paid'), value: p.makingChargePaid == null ? '—' : money(p.makingChargePaid) },
+                  {
+                    label: t('Owner’s transfer'),
+                    value: p.makingChargeReference ? (
+                      <span data-testid="purchase-mkc-transfer"><Mono>{ltr(p.makingChargeReference)}</Mono> · <span className="num">{ltr(p.makingChargeTransferDate ?? '')}</span></span>
+                    ) : '—',
+                  },
                 ]
               : []),
             // Gold weights are operational (D-4-13, D-4-16): visible to the branch manager too.
