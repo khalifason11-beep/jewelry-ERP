@@ -108,9 +108,10 @@ const SCREENS = [
   { role: 'bm', name: 'cash-and-reconciliation', path: '/cash' },
   { role: 'bm', name: 'dialog-new-product', path: '/catalog', then: (p) => p.click('[data-testid=new-product]') },
   { role: 'bm', name: 'dialog-new-type', path: '/catalog', then: (p) => p.click('[data-testid=new-type]') },
-  { role: 'bm', name: 'dialog-new-purchase', path: '/purchases', then: (p) => p.click('[data-testid=new-purchase]') },
+  // MKC-1: only the General Manager records supplier orders.
+  { role: 'gm', name: 'dialog-new-purchase', path: '/purchases', then: (p) => p.click('[data-testid=new-purchase]') },
   {
-    role: 'bm',
+    role: 'gm',
     name: 'dialog-new-supplier',
     path: '/purchases',
     then: async (p) => {

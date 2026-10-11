@@ -41,8 +41,6 @@ interface Reconciliation {
   hasadReceivableToBank: number;
   scrapPurchasesCash: number;
   scrapPurchasesBank: number;
-  makingChargesCash: number;
-  makingChargesBank: number;
   cashLines: ReconciliationLine[];
   bankLines: ReconciliationLine[];
   /** FIX-2: the day's bank-transfer sales; their amounts add up to the BANK_TRANSFER sales line. */
@@ -63,7 +61,6 @@ const LINE_LABEL: Record<string, string> = {
   SALES: tk('Sales'),
   VOIDS: tk('Cancelled sales (refunds)'),
   SCRAP_PURCHASES: tk('Scrap bought from customers'),
-  MAKING_CHARGES: tk('Supplier making charges'),
   HASAD_RECEIVABLE_SETTLEMENTS: tk('Hasad transfers received'),
   // CSH-2: the General Manager's advances into, and repayments out of, the drawer or the bank (D-csh-3).
   GM_ADVANCES: tk('Advances from the General Manager'),
@@ -91,7 +88,7 @@ export function CashPage() {
       <PageHeader title={t('Cash')} subtitle={t('Expected cash in each drawer, from the branch money ledger, and the daily cash reconciliation.')} />
 
       <Card padded={false} className="mb-5">
-        <CardHeader title={t('Expected cash now')} subtitle={t('Every sale, cancellation, scrap purchase, supplier making charge, Hasad bank transfer and advance from the General Manager moves these balances. Nothing is typed in by hand.')} />
+        <CardHeader title={t('Expected cash now')} subtitle={t('Every sale, cancellation, scrap purchase, Hasad bank transfer and advance from the General Manager moves these balances. Nothing is typed in by hand.')} />
         <DataTable
           query={drawer}
           rows={drawer.data?.branches ?? []}

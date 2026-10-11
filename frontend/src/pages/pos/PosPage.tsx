@@ -291,7 +291,7 @@ export function PosPage() {
                 <Empty
                   icon={<ShoppingBag className="size-5" />}
                   title={t('No pieces in this branch yet')}
-                  body={can('purchases.create') ? t('Receive a supplier order or buy scrap to add stock.') : t('Ask your branch manager to receive stock.')}
+                  body={can('purchases.create') ? t('Receive a supplier order or buy scrap to add stock.') : can('scrap.buy') ? t('The General Manager records supplier orders; you can buy scrap to add stock.') : t('Ask your branch manager to receive stock.')}
                 />
               </div>
             ) : (

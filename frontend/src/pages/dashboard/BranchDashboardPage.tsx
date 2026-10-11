@@ -277,7 +277,7 @@ function NoStockYet() {
       <div className="flex flex-wrap items-center gap-4 px-1 py-1" data-testid="no-stock-yet">
         <div className="min-w-0 flex-1">
           <div className="font-semibold text-ink">{t('Your branch has no stock yet')}</div>
-          <div className="text-meta text-ink-3">{t('Receive a supplier order or buy scrap to start. Types and products can be created on the same screens.')}</div>
+          <div className="text-meta text-ink-3">{can('purchases.create') ? t('Receive a supplier order or buy scrap to start. Types and products can be created on the same screens.') : t('The General Manager records supplier orders once the pieces arrive; you can buy scrap to start.')}</div>
         </div>
         {can('purchases.create') && (
           <Link to="/purchases" className="inline-flex h-8 items-center rounded-control bg-navy px-3 text-meta font-medium text-white hover:bg-navy-2">

@@ -184,7 +184,11 @@ export async function buildSalesWorld(srv, { pieces = 8 } = {}) {
   // CSH-2: the General Manager's opening money for the branch (test values), before any cash or bank outflow.
   await gm.must('POST', '/funding/advances', { branchId, account: 'CASH', amount: 2_000_000, reason: '[اختبار] رصيد الدرج' }, { idempotent: true });
   await gm.must('POST', '/funding/advances', { branchId, account: 'BANK', amount: 1_000_000, reason: '[اختبار] تمويل البنك', bankReference: 'E2E-FUND-1' }, { idempotent: true });
-  await gm.must('POST', '/purchases', { branchId, supplierId: supplier.id, lines, makingChargePaidFrom: 'CASH' }, { idempotent: true });
+  // MKC-1: the General Manager records the order once the pieces have arrived; the owner pays the making charge by bank
+  // transfer from the owner's personal account (test reference, today's business date). No branch money moves.
+  const tz = (await gm.must('GET', '/settings')).settings.company.timezone;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  await gm.must('POST', '/purchases', { branchId, supplierId: supplier.id, lines, makingChargeReference: 'E2E-MKC-1', makingChargeTransferDate: today }, { idempotent: true });
   // CSH-2 piece A: one broken-scrap purchase paid part cash, part bank (2 g × 150,000 = 300,000), for the Cash drill-down.
   await gm.must('POST', '/scrap-purchases', { branchId, kind: 'BROKEN', karat: 21, grossWeightMg: 2_000, netWeightMg: 2_000, cashAmount: 200_000, bankAmount: 100_000, bankReference: 'E2E-SCR-1' }, { idempotent: true });
   await gm.dispose();
