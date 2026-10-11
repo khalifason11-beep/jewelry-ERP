@@ -45,7 +45,7 @@ Preparation:
 
 ```bash
 PGLITE_DIR=.data/sample npm run dev:sample                         # prints the accounts and passwords once
-PGLITE_DIR=.data/sample TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm start
+APP_MODE=demo PGLITE_DIR=.data/sample TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm start
 ```
 
 The sample has two branches, a General Manager (`sample.alpha`), a branch manager (`sample.bravo.a`, `.b`) and a

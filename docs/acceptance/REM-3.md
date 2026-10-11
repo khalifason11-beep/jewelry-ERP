@@ -45,7 +45,7 @@ Stop any running server, then delete the local trial database (`.data/pglite`, o
 | 11 | Sign in as the branch manager (new browser window). | The dashboard says "Your branch has no stock yet", with New purchase / Buy scrap. |
 | 12 | Sign in as the cashier. | The point of sale says "No pieces in this branch yet". |
 | 13 | As the branch manager record a supplier order (CAT-0), then look at the cashier's point of sale again. | The pieces appear. |
-| 14 | Run `npm run demo < /dev/null` against another new database (`PGLITE_DIR=.data/other npm run demo < /dev/null`). | It prints the full `npm run bootstrap …` command and exits, without starting the server and without creating a user. |
+| 14 | Run `npm run demo < /dev/null` against another new database (`PGLITE_DIR=.data/other npm run demo < /dev/null`). | It prints the full `APP_MODE=demo npm run bootstrap …` command and exits, without starting the server and without creating a user. |
 
 ## C. A populated database for screenshots (`npm run dev:sample`)
 
@@ -54,7 +54,7 @@ Stop any running server, then delete the local trial database (`.data/pglite`, o
 | 1 | `PGLITE_DIR=.data/sample npm run dev:sample` | It prints a table of accounts (`sample.alpha`, `sample.bravo.a/.b`, `sample.charlie.a/.b`) with passwords shown once. |
 | 2 | Run the same command again. | It is refused because the database already has users. Nothing changes. |
 | 3 | `APP_MODE=production PGLITE_DIR=.data/x npm run dev:sample` | It is refused: never in production. |
-| 4 | `PGLITE_DIR=.data/sample TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm start`, then sign in as `sample.alpha`. | There are two branches, a few sales (cash, bank transfer, Hasad), supplier orders, scrap and a transfer in transit. Every name is a marked placeholder `[عينة] …`; no invented Sudanese names. |
+| 4 | `APP_MODE=demo PGLITE_DIR=.data/sample TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm start`, then sign in as `sample.alpha`. | There are two branches, a few sales (cash, bank transfer, Hasad), supplier orders, scrap and a transfer in transit. Every name is a marked placeholder `[عينة] …`; no invented Sudanese names. |
 
 ## D. Gates (engineering)
 

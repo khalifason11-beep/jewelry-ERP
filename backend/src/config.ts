@@ -5,10 +5,18 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
 export type AppMode = 'demo' | 'production';
 
-function appMode(v: string | undefined): AppMode {
-  if (v === undefined || v === '' || v === 'demo') return 'demo';
-  if (v === 'production') return 'production';
-  throw new Error(`APP_MODE must be "demo" or "production" (got "${v}")`);
+/**
+ * APP_MODE must be set explicitly (CLN-1, D-cln1-1, superseding D-1a-2): an absent or empty value used to mean "demo",
+ * so a real server that forgot the variable started with every production refusal off. Only the exact strings below
+ * are accepted; anything else stops the start.
+ */
+export const APP_MODE_MISSING =
+  'APP_MODE is not set. Set APP_MODE=production on a real server, or APP_MODE=demo for a local trial installation (the only two valid values).';
+
+export function parseAppMode(v: string | undefined): AppMode {
+  if (v === 'demo' || v === 'production') return v;
+  if (v === undefined || v.trim() === '') throw new Error(APP_MODE_MISSING);
+  throw new Error(`APP_MODE must be exactly "demo" or "production" (got "${v}").`);
 }
 
 /** ALLOWED_KARATS_INITIAL: a comma-separated list of karats 8–24 (the setting's own rule); anything else stops the start. */
@@ -39,7 +47,7 @@ const hostOf = (origin: string | undefined) => {
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
-  const mode = appMode(env.APP_MODE);
+  const mode = parseAppMode(env.APP_MODE);
   const production = mode === 'production';
   const appOrigin = env.APP_ORIGIN || undefined;
   return {
@@ -80,4 +88,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
 
 export type Config = ReturnType<typeof loadConfig>;
 
-export const config: Config = loadConfig();
+/**
+ * The process configuration. A missing or invalid APP_MODE (or another invalid variable) stops every entry point here,
+ * before any database is opened, with the message alone (no stack trace).
+ */
+export const config: Config = (() => {
+  try {
+    return loadConfig();
+  } catch (e) {
+    console.error(`Refusing to start: ${e instanceof Error ? e.message : String(e)}`);
+    process.exit(1);
+  }
+})();

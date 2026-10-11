@@ -79,7 +79,7 @@ beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
   await seedWorld(ctx);
-  demoApp = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
+  demoApp = createApp(ctx, loadConfig({ APP_MODE: 'demo', VITEST: '1' } as NodeJS.ProcessEnv));
   prodApp = createApp(ctx, prodConfig);
 });
 
@@ -102,7 +102,7 @@ describe('production mode (security item 2)', () => {
     expect(bad({ COOKIE_SECURE: 'false' }).join()).toMatch(/COOKIE_SECURE/);
     expect(() => loadConfig({ APP_MODE: 'prod' } as NodeJS.ProcessEnv)).toThrow(/APP_MODE/);
     // Demo mode has no production requirements.
-    expect(productionConfigProblems(loadConfig({} as NodeJS.ProcessEnv))).toEqual([]);
+    expect(productionConfigProblems(loadConfig({ APP_MODE: 'demo' } as NodeJS.ProcessEnv))).toEqual([]);
   });
 
   it('detects demo accounts that still accept their published password (startup refusal)', async () => {
@@ -193,7 +193,7 @@ describe('production mode (security item 2)', () => {
       expect(await fresh.db.select().from(t.users)).toHaveLength(1);
 
       // The GM can sign in only to change the password.
-      const app = createApp(fctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
+      const app = createApp(fctx, loadConfig({ APP_MODE: 'demo', VITEST: '1' } as NodeJS.ProcessEnv));
       const agent = withIdempotencyKeys(request.agent(app));
       const li = await agent.post('/api/auth/login').send({ username: 'first.lastname', password: res.temporaryPassword });
       expect(li.status).toBe(200);
@@ -525,7 +525,7 @@ describe('CSRF, headers, proxy trust and validation', () => {
     const agent = withIdempotencyKeys(request.agent(demoApp));
     const res = await agent.post('/api/auth/login').set('X-Forwarded-For', '6.6.6.6').send({ username: 'cashier.pzu.01', password: DEMO_PASSWORDS.CASHIER });
     expect(res.body.session.ipAddress).not.toBe('6.6.6.6');
-    const proxied = createApp(ctx, loadConfig({ VITEST: '1', TRUST_PROXY: '1' } as NodeJS.ProcessEnv));
+    const proxied = createApp(ctx, loadConfig({ APP_MODE: 'demo', VITEST: '1', TRUST_PROXY: '1' } as NodeJS.ProcessEnv));
     const viaProxy = await request(proxied).post('/api/auth/login').set('X-Forwarded-For', '6.6.6.6').send({ username: 'cashier.pzu.01', password: DEMO_PASSWORDS.CASHIER });
     expect(viaProxy.body.session.ipAddress).toBe('6.6.6.6');
   });

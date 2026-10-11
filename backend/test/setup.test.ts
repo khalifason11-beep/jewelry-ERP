@@ -116,11 +116,11 @@ describe('ALLOWED_KARATS_INITIAL', () => {
   });
 
   it('is read from the environment, and an invalid value stops the start', () => {
-    expect(loadConfig({ ALLOWED_KARATS_INITIAL: '21' } as NodeJS.ProcessEnv).allowedKaratsInitial).toEqual([21]);
-    expect(loadConfig({ ALLOWED_KARATS_INITIAL: ' 21, 18 ' } as NodeJS.ProcessEnv).allowedKaratsInitial).toEqual([21, 18]);
-    expect(loadConfig({} as NodeJS.ProcessEnv).allowedKaratsInitial).toBeUndefined();
+    expect(loadConfig({ APP_MODE: 'demo', ALLOWED_KARATS_INITIAL: '21' } as NodeJS.ProcessEnv).allowedKaratsInitial).toEqual([21]);
+    expect(loadConfig({ APP_MODE: 'demo', ALLOWED_KARATS_INITIAL: ' 21, 18 ' } as NodeJS.ProcessEnv).allowedKaratsInitial).toEqual([21, 18]);
+    expect(loadConfig({ APP_MODE: 'demo' } as NodeJS.ProcessEnv).allowedKaratsInitial).toBeUndefined();
     for (const bad of ['7', '25', '21,21', 'x', '21.5', '21;18']) {
-      expect(() => loadConfig({ ALLOWED_KARATS_INITIAL: bad } as NodeJS.ProcessEnv)).toThrow(/ALLOWED_KARATS_INITIAL/);
+      expect(() => loadConfig({ APP_MODE: 'demo', ALLOWED_KARATS_INITIAL: bad } as NodeJS.ProcessEnv)).toThrow(/ALLOWED_KARATS_INITIAL/);
     }
   });
 });

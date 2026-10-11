@@ -80,7 +80,7 @@ beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
   await seedWorld(ctx, undefined, { twoFactor: true });
-  app = createApp(ctx, loadConfig({ VITEST: '1', APP_ORIGIN: ORIGIN } as NodeJS.ProcessEnv));
+  app = createApp(ctx, loadConfig({ APP_MODE: 'demo', VITEST: '1', APP_ORIGIN: ORIGIN } as NodeJS.ProcessEnv));
   for (const level of ['debug', 'info', 'warn', 'error'] as const) {
     vi.spyOn(log, level).mockImplementation((msg: string, fields?: Record<string, unknown>) => {
       logged.push(`${msg} ${JSON.stringify(fields ?? {})}`);
@@ -329,7 +329,7 @@ describe('user verification setting', () => {
     } finally {
       await fresh.close();
     }
-    expect(webauthnConfigProblems(loadConfig({ WEBAUTHN_UV_INITIAL: 'sometimes' } as NodeJS.ProcessEnv))).toEqual(['WEBAUTHN_UV_INITIAL must be "required" or "preferred".']);
+    expect(webauthnConfigProblems(loadConfig({ APP_MODE: 'demo', WEBAUTHN_UV_INITIAL: 'sometimes' } as NodeJS.ProcessEnv))).toEqual(['WEBAUTHN_UV_INITIAL must be "required" or "preferred".']);
   });
 
   it('"required": a touch-only key is refused at registration and at sign-in; "preferred": accepted and recorded', async () => {

@@ -31,7 +31,7 @@ beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
   await seedWorld(ctx, undefined, { twoFactor: true });
-  app = createApp(ctx, loadConfig({ VITEST: '1', APP_ORIGIN: ORIGIN } as NodeJS.ProcessEnv));
+  app = createApp(ctx, loadConfig({ APP_MODE: 'demo', VITEST: '1', APP_ORIGIN: ORIGIN } as NodeJS.ProcessEnv));
 });
 afterAll(async () => handle?.close());
 

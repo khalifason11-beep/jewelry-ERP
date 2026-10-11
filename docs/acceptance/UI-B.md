@@ -92,7 +92,7 @@ earlier on `claude/hopeful-sagan-lehxyp` can be moved to `main` in its terminal:
 ```bash
 npm run build
 PGLITE_DIR=.data/sample npm run dev:sample        # prints the sample accounts and passwords once
-PGLITE_DIR=.data/sample TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm start
+APP_MODE=demo PGLITE_DIR=.data/sample TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm start
 ```
 
 Open port **4000**. The sample has two branches, A and B.

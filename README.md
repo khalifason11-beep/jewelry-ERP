@@ -35,7 +35,9 @@ npm install
 npm run demo          # builds the UI, creates the first General Manager if needed, starts http://localhost:4000
 ```
 
-`APP_MODE=demo` (the default) is a local trial installation. It uses an embedded PostgreSQL database (PGlite) in
+**`APP_MODE` is required** (`demo` or `production`, exactly; nothing else starts). `npm run demo`, `npm run dev` and
+`npm run dev:sample` set `APP_MODE=demo` themselves, and the Codespace sets it too; anything else (for example
+`npm start`) needs it in the environment. `APP_MODE=demo` is a local trial installation. It uses an embedded PostgreSQL database (PGlite) in
 `.data/`, plain `http://localhost`, and shows a small **Demo** badge. On its first run, `npm run demo` sees that no
 General Manager exists:
 
@@ -45,7 +47,7 @@ General Manager exists:
 - **Without a terminal** (Codespaces start-up, CI), it prints the bootstrap command and stops:
 
   ```bash
-  npm run bootstrap -w @jerp/backend -- --username <your.name> --full-name "<Your Name>" [--full-name-ar "<الاسم>"]
+  APP_MODE=demo npm run bootstrap -w @jerp/backend -- --username <your.name> --full-name "<Your Name>" [--full-name-ar "<الاسم>"]
   npm run demo
   ```
 
@@ -70,7 +72,7 @@ then run `npm run demo` in its terminal and open port 4000.
 
 ```bash
 PGLITE_DIR=.data/sample npm run dev:sample                             # fill a NEW, empty demo-mode database
-PGLITE_DIR=.data/sample TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm start   # serve it without a passkey
+APP_MODE=demo PGLITE_DIR=.data/sample TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm start   # serve it without a passkey
 ```
 
 `dev:sample` refuses `APP_MODE=production` and any database that already has a user. It goes through the real
@@ -88,11 +90,12 @@ once.
 
 - `npm run dev`: hot reload, with the UI on http://localhost:5173.
 - `DATABASE_URL=postgres://… npm run demo`: use a real PostgreSQL server instead of the embedded one.
+- `APP_MODE=demo npm start`: serve an existing demo database without rebuilding.
 
 **Windows:**
 
 - PowerShell sets variables with `$env:NAME="value"`, for example
-  `$env:TWO_FACTOR_REQUIRED_ROLES_INITIAL=""; npm run demo`.
+  `$env:TWO_FACTOR_REQUIRED_ROLES_INITIAL=""; npm run demo`, or `$env:APP_MODE="demo"; npm start`.
 - If the server stops at start with "Cannot find native binding" (from `@node-rs/argon2`), delete `node_modules` and
   `package-lock.json` and run `npm install` again. Commit the regenerated lockfile only if `npm run check:lockfile`
   still passes.
@@ -225,6 +228,7 @@ unsafe. The start-up log lists every problem it finds.
 
 | Variable | Notes |
 |---|---|
+| `APP_MODE` | **Required**, exactly `production` (absent, empty or misspelt stops the server and every CLI) |
 | `DATABASE_URL` | Real PostgreSQL (PGlite and well-known default passwords are refused) |
 | `APP_ORIGIN` | The `https://` origin users open; mutations from any other origin are rejected |
 | `TRUST_PROXY` | Number of proxy hops in front of the app; decides the client IP in the audit log |

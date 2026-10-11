@@ -10,5 +10,5 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const r = spawnSync('npx', ['tsx', 'test/perf/perf-homes.ts', ...process.argv.slice(2)], { cwd: path.join(ROOT, 'backend'), stdio: 'inherit', env: process.env });
+const r = spawnSync('npx', ['tsx', 'test/perf/perf-homes.ts', ...process.argv.slice(2)], { cwd: path.join(ROOT, 'backend'), stdio: 'inherit', env: { ...process.env, APP_MODE: 'demo' } }); // the harness builds its own test database (CLN-1: explicit mode)
 process.exit(r.status ?? 1);

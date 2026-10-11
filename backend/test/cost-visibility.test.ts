@@ -34,7 +34,7 @@ beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
   await seedWorld(ctx);
-  app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
+  app = createApp(ctx, loadConfig({ APP_MODE: 'demo', VITEST: '1' } as NodeJS.ProcessEnv));
   for (const [role, username] of Object.entries(ROLES) as [Role, string][]) {
     const a = withIdempotencyKeys(request.agent(app));
     const res = await a.post('/api/auth/login').send({ username, password: DEMO_PASSWORDS[role] });

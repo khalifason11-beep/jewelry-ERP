@@ -3,6 +3,7 @@
 // the identity during a restore drill, and are never logged.
 
 import path from 'node:path';
+import { parseAppMode } from '../config';
 
 export class BackupConfigError extends Error {}
 
@@ -46,11 +47,17 @@ const count = (v: string | undefined, def: number, name: string) => {
 };
 
 export function loadBackupConfig(env: NodeJS.ProcessEnv = process.env): BackupConfig {
-  const production = env.APP_MODE === 'production';
   const backupDir = env.BACKUP_DIR;
   if (!backupDir) throw new BackupConfigError('BACKUP_DIR is not set');
   const backupDatabaseUrl = env.BACKUP_DATABASE_URL;
   if (!backupDatabaseUrl) throw new BackupConfigError('BACKUP_DATABASE_URL is not set (a read-only backup role, see docs/DEPLOYMENT.md §7)');
+  // CLN-1: the same explicit APP_MODE as the app (absent, empty or misspelt is refused).
+  let production: boolean;
+  try {
+    production = parseAppMode(env.APP_MODE) === 'production';
+  } catch (e) {
+    throw new BackupConfigError(e instanceof Error ? e.message : String(e));
+  }
   return {
     production,
     strict: production || env.BACKUP_STRICT === 'true',

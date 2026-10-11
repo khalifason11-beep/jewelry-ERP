@@ -12,7 +12,8 @@ if (!pgUrl) {
   console.warn('\n⚠  TEST_DATABASE_URL is not set: the real-PostgreSQL test project is SKIPPED.\n');
 }
 
-const shared = { testTimeout: 60_000, hookTimeout: 120_000, fileParallelism: false, setupFiles: ['test/setup.ts'] };
+// CLN-1 (D-cln1-1): APP_MODE has no default any more; the suites run as a demo-mode process, explicitly.
+const shared = { testTimeout: 60_000, hookTimeout: 120_000, fileParallelism: false, setupFiles: ['test/setup.ts'], env: { APP_MODE: 'demo' } };
 
 export default defineConfig({
   test: {
@@ -20,7 +21,7 @@ export default defineConfig({
     projects: [
       { test: { ...shared, name: 'pglite', include: ['test/**/*.test.ts'], exclude: ['test/pg/**'] } },
       ...(pgUrl
-        ? [{ test: { ...shared, name: 'postgres', include: ['test/**/*.test.ts'], exclude: ['test/arithmetic.property.test.ts'], env: { JERP_TEST_DRIVER: 'postgres' } } }]
+        ? [{ test: { ...shared, name: 'postgres', include: ['test/**/*.test.ts'], exclude: ['test/arithmetic.property.test.ts'], env: { APP_MODE: 'demo', JERP_TEST_DRIVER: 'postgres' } } }]
         : []),
     ],
   },

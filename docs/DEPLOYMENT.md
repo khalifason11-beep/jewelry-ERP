@@ -40,7 +40,7 @@ React app too, so no separate static site is needed.
 
 | Variable | Value | Why |
 |---|---|---|
-| `APP_MODE` | `production` | Turns on the start-up refusals, removes the "Demo" badge and refuses `npm run dev:sample`. (Since REM-3 there is no demo data in any mode: demo mode starts empty too.) |
+| `APP_MODE` | `production` (**required**) | **Required, no default** (D-cln1-1, superseding D-1a-2). Absent or empty stops the server and every CLI with: `Refusing to start: APP_MODE is not set. Set APP_MODE=production on a real server, or APP_MODE=demo for a local trial installation (the only two valid values).` Only the exact strings `production` and `demo` are accepted (`prod`, `Production` are refused). It turns on the start-up refusals, removes the "Demo" badge and refuses `npm run dev:sample`. (Since REM-3 there is no demo data in any mode: demo mode starts empty too.) |
 | `DATABASE_URL` | the database's private connection URL (`postgresql://user:password@host/db`) | Required in production; embedded PGlite is refused. Use a long generated password. Never reuse `postgres`, `password`, `admin`, `root`, `changeme`, `secret` or `123456`: they are refused. |
 | `APP_ORIGIN` | the final domain, e.g. `https://erp.example.com` | Exact origin the browser uses (scheme + host, no trailing slash, no path). Must be `https://`. State-changing requests from any other origin are rejected (CSRF defence). If you add a custom domain later, update this value. |
 | `TRUST_PROXY` | `1` to start with, then **verify** (section 4) | Number of proxy hops in front of the app. It decides which `X-Forwarded-For` entry becomes the client IP used in the audit log, the sessions list and the per-IP sign-in throttle. Unset means "no proxy": all users then appear with the proxy's IP. |
@@ -69,7 +69,8 @@ Backup variables (`BACKUP_*`) are listed in section 7; they belong to the backup
 
 1. Create the database and the web service with the variables above. Deploy. Migrations run
    automatically at start-up (forward-only; they never drop data).
-2. Open the service's **Shell** tab and create the first General Manager and the branches:
+2. Open a shell on the service and create the first General Manager and the branches (the shell must have the
+   service's variables, `APP_MODE=production` included; the CLIs refuse to run without it):
 
    ```bash
    npm run bootstrap -w @jerp/backend -- --username first.lastname --full-name "Owner Name" --full-name-ar "اسم المالك" \
@@ -495,13 +496,14 @@ BACKUP_UPLOAD_COMMAND='rsync -a -e "ssh -i /etc/jerp/backup_ed25519 -o StrictHos
 
 ### 7.6 Schedule
 
-**cron** on a server that has the tools (times in the server's timezone; Sudan is UTC+2):
+**cron** on a server that has the tools (times in the server's timezone). Cron starts with an empty environment:
+the job needs the variables of 7.4 **and `APP_MODE=production`**, or `npm run backup` refuses to run.
 
 ```cron
 # daily backup at 01:30, after closing
-30 1 * * *  cd /srv/jerp && npm run backup        >> /var/log/jerp-backup.log 2>&1
+30 1 * * *  cd /srv/jerp && APP_MODE=production npm run backup        >> /var/log/jerp-backup.log 2>&1
 # weekly restore drill (Sunday 03:00) on the drill machine, which holds the secret key
-0 3 * * 0   cd /srv/jerp && npm run backup:verify >> /var/log/jerp-backup-verify.log 2>&1
+0 3 * * 0   cd /srv/jerp && APP_MODE=production npm run backup:verify >> /var/log/jerp-backup-verify.log 2>&1
 ```
 
 On a host without cron on the app's machine, run `npm run backup` as a scheduled job of the host (Appendix A has one

@@ -6,6 +6,8 @@
   "name": "Jewelry ERP",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
   "postCreateCommand": "npm install",
+  // CLN-1: APP_MODE has no default; a codespace is a local trial installation.
+  "containerEnv": { "APP_MODE": "demo" },
   "forwardPorts": [4000],
   "portsAttributes": {
     "4000": { "label": "Jewelry ERP", "onAutoForward": "openBrowser" }

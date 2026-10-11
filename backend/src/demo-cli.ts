@@ -42,7 +42,7 @@ try {
         'Create the first General Manager with the real bootstrap command (choose your own username:',
         'at least 8 characters, no role-style words such as "admin" or "manager"), then start again:',
         '',
-        '  npm run bootstrap -w @jerp/backend -- --username <your.name> --full-name "<Your Name>" [--full-name-ar "<الاسم>"]',
+        '  APP_MODE=demo npm run bootstrap -w @jerp/backend -- --username <your.name> --full-name "<Your Name>" [--full-name-ar "<الاسم>"]',
         '  npm run demo',
         '',
       ].join('\n'),
