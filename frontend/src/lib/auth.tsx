@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Permission } from '@jerp/shared';
 import { ApiError, get, onAuthError, post, setCsrfToken } from './api';
 import type { Branding } from './branding';
+import { setDisplayTimeZone } from './zone';
 
 export interface Me {
   user: {
@@ -148,6 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const me = await get<Me>('/auth/me');
         setCsrfToken(me.csrfToken);
+        setDisplayTimeZone(me.timezone); // CLN-2: dates and "today" in the company time zone, before anything renders
         return me;
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) {
@@ -179,6 +181,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSessionEnded();
     clearAccountLocked();
     setCsrfToken(res.csrfToken);
+    setDisplayTimeZone(res.timezone); // CLN-2: the sign-in answer carries the company zone too
     // Drop the previous user's cached data but keep the live `me` query observed by this provider.
     qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
     qc.setQueryData(['me'], res);

@@ -44,6 +44,11 @@ e2e-states checks the warning and runs axe on the dialog.
 
 ## B. In a Codespace (sample data)
 
+> **Codespace settings (CLN-3).** Do **not** set `APP_ORIGIN` in a Codespace: its port proxy rewrites the `Origin`
+> header, so the sign-in would be refused. The Codespace sets `APP_MODE=demo` and `TRUST_PROXY=1` itself (a codespace
+> created before CLN-3: run `export TRUST_PROXY=1` in the terminal before starting the server, or rebuild the
+> container). In the **Ports** tab, set port 4000 to **Public**, then open the address shown there (the globe icon).
+
 Start the sample as in `docs/acceptance/MKC-1.md` (recreate `.data/sample`, `npm run dev:sample`, `npm start`). The
 sample's supplier still has gold owed from its two orders.
 

@@ -1072,6 +1072,9 @@ async function main() {
     await page.click('[data-testid=pos-complete]');
     const bankSale1 = await (await resp).json();
     check(bankSale1.paymentRefTransaction === 'TRF 9012-REH', `sale ${bankSale1.number}: the reference is stored normalized ("TRF 9012-REH", Arabic-Indic digits → ASCII)`);
+    // The receipt dialog opens only after the response is handled: wait for it before Escape, or the key can land
+    // before the dialog exists and the dialog then stays open (a race seen once in CLN-3's gate run).
+    await page.locator('[role=dialog]').waitFor({ state: 'visible', timeout: 15_000 });
     await page.keyboard.press('Escape');
     // The receipt dialog must be gone before the next click on the POS (a click during its closing hits the overlay).
     await page.locator('[role=dialog]').waitFor({ state: 'detached', timeout: 15_000 });

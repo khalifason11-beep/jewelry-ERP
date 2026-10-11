@@ -131,6 +131,8 @@ with age, run by a read-only role, with a restore drill (`npm run backup`, `npm 
 - **Homes:** the General Manager's is `/overview`; the branch manager's is `/dashboard`.
 - **i18n:** English strings are the keys, and Arabic is in `frontend/src/lib/i18n-ar.ts`. RTL is the default.
 - Design tokens and mockups are in `docs/ux/` and `docs/design-reference/`.
+- Dates, times and "today" are shown in the company time zone from the session (`lib/zone.ts`), never the
+  browser's zone; the server computes business days in the same `company.timezone`.
 - Printing: one print module renders into a print-only container with its own `@page` rule, and the browser prints
   it.
 

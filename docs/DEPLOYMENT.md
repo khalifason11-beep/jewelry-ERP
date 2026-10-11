@@ -379,7 +379,22 @@ future migration that cannot transform a row is redesigned, not shipped with a g
 - The login page lists no accounts, and the header shows no "Demo" badge (it appears only in `APP_MODE=demo`).
 - The start-up log has no `integrity constraints left NOT VALID` warning (see section 5).
 - `GET /api/health` shows `"backup": {"status": "OK", …}` once backups and restore drills run (section 7).
-- Settings show **Allowed karats = 21** and a scrap buying rate for each karat the branches buy.
+- Settings show the **allowed karats** confirmed with the client and a scrap buying rate for each karat the branches buy.
+- **The reverse proxy passes the `Origin` header unchanged** (CLN-3). Why: in production every sign-in and every change
+  is refused unless the browser's `Origin` equals `APP_ORIGIN` exactly (CSRF defence, `backend/src/core/csrf.ts`). A
+  proxy that rewrites `Origin` (GitHub Codespaces does: it sends `https://localhost:<port>`) makes everyone fail with
+  `403 CSRF_FAILED`. Check it once per proxy, before go-live, with a throwaway echo server in place of the app (stop the
+  app for a minute, same port; `PORT` is the port the proxy forwards to):
+
+  ```bash
+  # on the server:
+  node -e "require('http').createServer((q,s)=>{s.setHeader('content-type','application/json');s.end(JSON.stringify({origin:q.headers.origin,host:q.headers.host,xfh:q.headers['x-forwarded-host'],xfp:q.headers['x-forwarded-proto']}))}).listen(process.env.PORT||4000)"
+  # from any machine, through the proxy:
+  curl -s -X POST -H 'Origin: https://erp.example.com' https://erp.example.com/
+  ```
+
+  Expected: `"origin":"https://erp.example.com"` (the value sent, unchanged). Any other value: fix the proxy before go-live;
+  do not work around it in the app.
 
 ## 7. Backups
 
