@@ -80,10 +80,10 @@ export async function lockAccounts(exec: Executor, branchId: number, kinds: read
 }
 
 /** CSH-2 (Q7): what a payment out of the drawer is for; it picks the refusal sentence (each names the shortfall and what to do). */
-export type DrawerOutflow = 'SCRAP_PURCHASE' | 'MAKING_CHARGE' | 'SALE_VOID' | 'GM_REPAYMENT' | 'GM_CORRECTION';
+// MKC-1: the supplier making charge is no longer one of them (the owner pays it from his personal account).
+export type DrawerOutflow = 'SCRAP_PURCHASE' | 'SALE_VOID' | 'GM_REPAYMENT' | 'GM_CORRECTION';
 export const DRAWER_SHORT: Record<DrawerOutflow, string> = {
   SCRAP_PURCHASE: 'The drawer holds {balance}: the cash part of {amount} is {short} more than that. Pay {short} more by bank transfer, or ask the General Manager to record an advance into the drawer',
-  MAKING_CHARGE: 'The drawer holds {balance}: the making charge of {amount} is {short} more than that. Pay it from the bank, or ask the General Manager to record an advance into the drawer first',
   SALE_VOID: 'The drawer holds {balance}: refunding {amount} in cash needs {short} more. Ask the General Manager to record an advance into the drawer, then cancel the sale again',
   GM_REPAYMENT: 'The drawer holds {balance}: a repayment of {amount} from it is {short} more than that. Repay at most {balance} from the drawer, or repay from the bank',
   GM_CORRECTION: 'The drawer holds {balance}: correcting this advance takes {amount} out of it, {short} more than it holds. That money has already been paid out: record the advance that really came in first, then correct this one',
@@ -222,15 +222,14 @@ export async function drawer(ctx: Ctx, actor: Actor, q: { branchId?: number }) {
  * Nothing silently disappears.
  */
 export const RECONCILIATION_LINES = {
-  CASH: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'MAKING_CHARGES', 'GM_ADVANCES', 'GM_REPAYMENTS', 'OTHER'],
-  BANK: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'MAKING_CHARGES', 'HASAD_RECEIVABLE_SETTLEMENTS', 'GM_ADVANCES', 'GM_REPAYMENTS', 'OTHER'],
+  CASH: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'GM_ADVANCES', 'GM_REPAYMENTS', 'OTHER'],
+  BANK: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'HASAD_RECEIVABLE_SETTLEMENTS', 'GM_ADVANCES', 'GM_REPAYMENTS', 'OTHER'],
 } as const;
 export type ReconciliationLine = (typeof RECONCILIATION_LINES)['BANK'][number];
 export const LINE_OF_EVENT: Partial<Record<LedgerEventType, ReconciliationLine>> = {
   SALE: 'SALES',
   SALE_VOID: 'VOIDS',
   SCRAP_PURCHASE: 'SCRAP_PURCHASES',
-  SUPPLIER_MAKING_CHARGE: 'MAKING_CHARGES',
   HASAD_RECEIVABLE_SETTLEMENT: 'HASAD_RECEIVABLE_SETTLEMENTS',
   // CSH-2 (D-csh-3): the General Manager's money into and out of the drawer or the bank.
   GM_ADVANCE: 'GM_ADVANCES',
@@ -247,6 +246,9 @@ export const OTHER_EVENT_TYPES: Readonly<Partial<Record<LedgerEventType, string>
   // line of the entry it reverses (`effectiveEventType`), on whatever day it is recorded; only a reversal whose
   // original has no line of its own stays under "Other". Either way the day still adds up.
   REVERSAL: 'shown under the line of the entry it reverses; no line of its own',
+  // MKC-1 (Q7, D-mkc-4): historical only. A making charge is paid by the owner from his personal account and posts no
+  // entry any more; the type stays valid in the database check so the ledger's history is never rewritten.
+  SUPPLIER_MAKING_CHARGE: 'historical, MKC-1: making charges no longer touch branch money',
 };
 
 /** The event type an entry counts as in the reconciliation: a REVERSAL counts as the entry it reverses (Q9). */
@@ -363,11 +365,9 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
     voidsTotal: sum((e) => e.type === 'SALE_VOID'),
     // Hasad's bank transfers received this day (receivable → bank; never the drawer).
     hasadReceivableToBank: sum((e) => e.type === 'HASAD_RECEIVABLE_SETTLEMENT' && e.kind === 'BANK'),
-    // Phase 4: scrap bought from customers and supplier making charges, both paid out at once.
+    // Phase 4: scrap bought from customers, paid out at once (MKC-1: supplier making charges no longer touch branch money).
     scrapPurchasesCash: sum((e) => e.type === 'SCRAP_PURCHASE' && e.kind === 'CASH'),
     scrapPurchasesBank: sum((e) => e.type === 'SCRAP_PURCHASE' && e.kind === 'BANK'),
-    makingChargesCash: sum((e) => e.type === 'SUPPLIER_MAKING_CHARGE' && e.kind === 'CASH'),
-    makingChargesBank: sum((e) => e.type === 'SUPPLIER_MAKING_CHARGE' && e.kind === 'BANK'),
     // CSH-2: the General Manager's advances and repayments of the day, per account (corrections included).
     gmAdvancesCash: sum((e) => e.type === 'GM_ADVANCE' && e.kind === 'CASH'),
     gmAdvancesBank: sum((e) => e.type === 'GM_ADVANCE' && e.kind === 'BANK'),

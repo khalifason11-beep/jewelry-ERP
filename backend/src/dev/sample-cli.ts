@@ -20,6 +20,7 @@ import { count, eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import { KARATS } from '@jerp/shared';
 import { config } from '../config';
+import { dayKey } from '../core/time';
 import { createContext, openDatabase } from '../bootstrap';
 import type { Actor, Ctx } from '../core/context';
 import { hashPassword } from '../auth/password';
@@ -137,14 +138,16 @@ async function buildSample(ctx: Ctx) {
   }
 
   say('Supplier orders, sales, scrap and a transfer…');
+  // MKC-1: the General Manager records each order after the pieces arrive; the owner pays the making charge by bank
+  // transfer from his personal account (sample reference, today's date). No branch money moves.
+  const today = dayKey(new Date(), (await ctx.settings.get()).company.timezone);
   for (const [bi, b] of branches.entries()) {
-    const bm = await actor(ctx, branchManagers[bi].username);
     const lines = Array.from({ length: 8 }, (_, i) => {
       const p = products[i % products.length];
       const net = 3_000 + ((i * 1_370 + bi * 410) % 9_000);
       return { productId: p.id, grossWeightMg: net + 120, netWeightMg: net, purchaseCost: Math.round(net * 170) , makingCost: 40_000, otherCost: 0, sellingPrice: Math.round(net * 230 / 1000) * 1000 };
     });
-    await createPurchase(ctx, bm, { branchId: b.id, supplierId: supplier.id, lines, makingChargePaidFrom: 'CASH' });
+    await createPurchase(ctx, gm, { branchId: b.id, supplierId: supplier.id, lines, makingChargeReference: `SAMPLE-MKC-${bi + 1}`, makingChargeTransferDate: today });
   }
   const a = branches[0];
   const cashier = await actor(ctx, cashiers[0].username);

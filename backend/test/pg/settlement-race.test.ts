@@ -37,10 +37,11 @@ const pool = async (branch: number, karat: number) => (await poolBalances(ctx.db
 const winners = <T>(rs: PromiseSettledResult<T>[]) => rs.filter((r): r is PromiseFulfilledResult<T> => r.status === 'fulfilled');
 const reasons = (rs: PromiseSettledResult<unknown>[]) => rs.filter((r): r is PromiseRejectedResult => r.status === 'rejected').map((r) => String(r.reason?.key ?? r.reason?.message ?? r.reason));
 
-async function order(bm: Actor, branch: number, net: number) {
+/** MKC-1: the General Manager records the order (making cost 0 here, so no transfer); branch managers settle it. */
+async function order(_bm: Actor, branch: number, net: number) {
   const [p] = await ctx.db.select().from(t.products).where(eq(t.products.karat, 21)).limit(1);
   const [s] = await ctx.db.select().from(t.suppliers).limit(1);
-  return createPurchase(ctx, bm, { branchId: branch, supplierId: s.id, lines: [{ productId: p.id, grossWeightMg: net, netWeightMg: net, purchaseCost: 1_000_000, makingCost: 0, otherCost: 0, sellingPrice: 1_500_000 }] });
+  return createPurchase(ctx, await actorOf('general.manager'), { branchId: branch, supplierId: s.id, lines: [{ productId: p.id, grossWeightMg: net, netWeightMg: net, purchaseCost: 1_000_000, makingCost: 0, otherCost: 0, sellingPrice: 1_500_000 }] });
 }
 
 beforeAll(async () => {

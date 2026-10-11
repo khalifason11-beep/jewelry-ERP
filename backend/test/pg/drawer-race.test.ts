@@ -1,6 +1,7 @@
 // Real PostgreSQL only (CSH-2 piece C, D-csh-8): the drawer never goes below zero, however requests interleave. The
 // BLOCK check reads the drawer under its row lock (lockAccounts), so outflows racing on one drawer are checked one after
 // the other: of several payments that each fit the drawer but not together, only as many as fit go through.
+// (MKC-1: scrap cash parts racing repayments from the drawer; supplier making charges no longer touch the drawer.)
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
@@ -11,9 +12,8 @@ import type { Actor, Ctx } from '../../src/core/context';
 import { loadActor } from '../../src/modules/sessions/service';
 import { balances } from '../../src/modules/ledger/service';
 import { createBranch } from '../../src/modules/branches/service';
-import { createPurchase } from '../../src/modules/purchases/service';
 import { buyScrap, scrapRates } from '../../src/modules/scrap/service';
-import { recordAdvance } from '../../src/modules/funding/service';
+import { recordAdvance, recordRepayment } from '../../src/modules/funding/service';
 import { seedWorld } from '../fixtures/world';
 import { openTestDatabase, PG_MODE } from '../helpers';
 
@@ -40,9 +40,11 @@ beforeAll(async () => {
 afterAll(async () => handle?.close());
 
 describe('the drawer never goes below zero', () => {
-  it('two scrap purchases and two making charges of 600,000 racing on a drawer of 1,000,000: exactly one goes through', async () => {
-    const [product] = await ctx.db.select().from(t.products).where(eq(t.products.karat, 21));
-    const [supplier] = await ctx.db.select().from(t.suppliers);
+  // MKC-1: a supplier making charge no longer leaves the drawer, so the second outflow kind in the race is a repayment to
+  // the General Manager from the drawer (it locks OWED_TO_GM and CASH, the scrap purchase CASH alone: overlapping locks).
+  it('two scrap purchases and two repayments of 600,000 racing on a drawer of 1,000,000: exactly one goes through', async () => {
+    // Enough owed that only the drawer can refuse a repayment (test values).
+    await recordAdvance(ctx, gm, { branchId, account: 'BANK', amount: 50_000_000, reason: 'Race: owed headroom', bankReference: 'RACE-OWED-1' });
     const rate = (await scrapRates(ctx.db))[21].pricePerGram;
     const mg = 10_000;
     const amount = valueOfWeight(mg, rate);
@@ -54,14 +56,8 @@ describe('the drawer never goes below zero', () => {
       expect(await drawer()).toBe(1_000_000);
       const scrap = (i: number) =>
         buyScrap(ctx, gm, { branchId, kind: 'BROKEN', karat: 21, grossWeightMg: mg, netWeightMg: mg, cashAmount: 600_000, bankAmount: amount - 600_000, bankReference: `RACE-${round}-${i}` });
-      const purchase = () =>
-        createPurchase(ctx, gm, {
-          branchId,
-          supplierId: supplier.id,
-          makingChargePaidFrom: 'CASH',
-          lines: [{ productId: product.id, grossWeightMg: 4_100, netWeightMg: 4_000, purchaseCost: 700_000, makingCost: 600_000, otherCost: 0, sellingPrice: 1_500_000 }],
-        });
-      const rs = await Promise.allSettled([scrap(1), purchase(), scrap(2), purchase()]);
+      const repay = (i: number) => recordRepayment(ctx, gm, { branchId, account: 'CASH', amount: 600_000, reason: `Race repayment ${round}-${i}` });
+      const rs = await Promise.allSettled([scrap(1), repay(1), scrap(2), repay(2)]);
       expect(fulfilled(rs), `round ${round}: ${reasons(rs).join(' | ')}`).toBe(1);
       expect(reasons(rs).every((r) => r === 'DRAWER_SHORT'), reasons(rs).join(' | ')).toBe(true);
       expect(await drawer()).toBe(400_000);

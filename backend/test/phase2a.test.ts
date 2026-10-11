@@ -206,14 +206,20 @@ describe('idempotency keys', () => {
   });
 
   it('stores the response as the caller saw it (cost fields already removed for a branch manager)', async () => {
+    // MKC-1: a branch manager no longer records supplier orders (GM-only), so a sale (its row carries the GM-only
+    // cost total) proves the same thing: the in-transaction mode stores the response with the cost already removed.
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER', false);
+    const krt = (await ctx.db.select().from(t.branches).where(eq(t.branches.code, 'KRT')))[0].id;
+    const [item] = await ctx.db.select().from(t.jewelryItems).where(and(eq(t.jewelryItems.branchId, krt), eq(t.jewelryItems.status, 'AVAILABLE'))).limit(1);
     const k = key();
-    const res = await bm.post('/api/purchases').set('Idempotency-Key', k).send(await purchaseBody());
-    expect(res.status).toBe(200);
-    expect(res.body).not.toHaveProperty('totalCost');
+    const res = await bm.post('/api/sales').set('Idempotency-Key', k).send({ items: [{ itemId: item.id }], paymentMethod: 'CASH' });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).not.toHaveProperty('costTotal');
     const [row] = await ctx.db.select().from(t.idempotencyKeys).where(eq(t.idempotencyKeys.key, k));
     expect(row.status).toBe('COMPLETED');
-    expect(JSON.stringify(row.responseBody)).not.toContain('totalCost');
+    expect(JSON.stringify(row.responseBody)).not.toContain('costTotal');
+    // The branch manager cannot record a supplier order at all (MKC-1, GM-only).
+    expect((await bm.post('/api/purchases').set('Idempotency-Key', key()).send(await purchaseBody())).status).toBe(403);
   });
 
   it('hashes requests canonically', () => {

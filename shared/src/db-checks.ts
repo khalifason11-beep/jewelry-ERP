@@ -14,6 +14,7 @@ import {
   BACKUP_RUN_STATUSES,
   BRANDING_ASSET_KINDS,
   CASH_OR_BANK,
+  MAKING_CHARGE_PAYERS,
   GM_FUNDING_KINDS,
   IDEMPOTENCY_STATUSES,
   ITEM_ORIGINS,
@@ -87,7 +88,7 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   e('scrap_purchases', 'kind', SCRAP_KINDS),
   e('scrap_purchases', 'payment_method', SCRAP_PAYMENT_METHODS),
   e('scrap_weight_entries', 'event_type', SCRAP_WEIGHT_EVENT_TYPES),
-  e('purchases', 'making_charge_paid_from', CASH_OR_BANK, true),
+  e('purchases', 'making_charge_paid_from', MAKING_CHARGE_PAYERS, true),
   // ── CSH-2: GM funding (migration 0020)
   e('gm_funding_events', 'kind', GM_FUNDING_KINDS),
   e('gm_funding_events', 'account', CASH_OR_BANK),
@@ -158,6 +159,12 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   { name: 'ck_purchases_gold_debt_pair', table: 'purchases', expr: '(gold_debt_mg_pure24 IS NULL) = (gold_owed_mg_pure24 IS NULL)' },
   { name: 'ck_purchases_gold_owed_range', table: 'purchases', expr: 'gold_owed_mg_pure24 IS NULL OR (gold_owed_mg_pure24 >= 0 AND gold_owed_mg_pure24 <= gold_debt_mg_pure24)' },
   { name: 'ck_purchases_making_charge_paid', table: 'purchases', expr: '(making_charge_paid IS NULL) = (making_charge_paid_from IS NULL) AND coalesce(making_charge_paid, 0) >= 0' },
+  // MKC-1 (D-mkc-3): a making charge above 0 carries the owner's transfer reference (FIX-2 rules) and its date; 0 carries neither.
+  {
+    name: 'ck_purchases_making_charge_transfer',
+    table: 'purchases',
+    expr: '(coalesce(making_charge_paid, 0) = 0 AND making_charge_reference IS NULL AND making_charge_transfer_date IS NULL) OR (making_charge_paid > 0 AND making_charge_reference IS NOT NULL AND length(btrim(making_charge_reference)) BETWEEN 4 AND 40 AND making_charge_transfer_date IS NOT NULL)',
+  },
   // ── Phase 4 follow-up: Hasad receivable settled by bank transfer
   { name: 'ck_hasad_receivable_settlements_amount_positive', table: 'hasad_receivable_settlements', expr: 'amount > 0' },
   // ── Phase 2fa: passkeys

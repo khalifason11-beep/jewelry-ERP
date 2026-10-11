@@ -194,7 +194,7 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
       // Opening stock: its making charge was paid before the system was used, so it is part of the
       // piece's cost and no money leaves the drawer now (the gold owed to the supplier remains).
       const openingLines = lines.map((l) => ({ ...l, purchaseCost: l.purchaseCost + l.makingCost, makingCost: 0 }));
-      const res = await createPurchase(ctx, bm[code], { branchId: branch[code].id, supplierId: pick(supplierRows).id, supplierInvoiceNo: `SUP-${int(10000, 99999)}`, lines: openingLines, notes: 'رصيد افتتاحي' }, { at: at(offset, 10, int(0, 50)) });
+      const res = await createPurchase(ctx, gm, { branchId: branch[code].id, supplierId: pick(supplierRows).id, supplierInvoiceNo: `SUP-${int(10000, 99999)}`, lines: openingLines, notes: 'رصيد افتتاحي' }, { at: at(offset, 10, int(0, 50)) });
       if (code === 'KRT' && b === 0) res.itemCodes.slice(0, 3).forEach((c) => specialCodes.add(c));
     }
   }
@@ -248,10 +248,21 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
         const when = offset === 0 ? timeOn(0) : at(offset, 10, int(0, 40));
         if (when) {
           const lines = Array.from({ length: int(6, 10) }, () => makeLine(weightedSku(), offset));
+          // MKC-1: the General Manager records the order (after the pieces arrived); the owner pays the making charge by
+          // bank transfer from his personal account, so no branch money moves. The old drawer/bank coin toss is still
+          // drawn, so the random sequence and every other figure of the world stay exactly as before.
+          void chance(0.7);
           const po = await createPurchase(
             ctx,
-            bm[code],
-            { branchId: branch[code].id, supplierId: pick(supplierRows).id, supplierInvoiceNo: `SUP-${int(10000, 99999)}`, lines, makingChargePaidFrom: chance(0.7) ? 'CASH' : 'BANK' },
+            gm,
+            {
+              branchId: branch[code].id,
+              supplierId: pick(supplierRows).id,
+              supplierInvoiceNo: `SUP-${int(10000, 99999)}`,
+              lines,
+              makingChargeReference: `TEST-MKC-${code}${-offset}`,
+              makingChargeTransferDate: dayKey(when, tz),
+            },
             { at: when },
           );
           purchaseLog.push({ code, offset, id: po.id });

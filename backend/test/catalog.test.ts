@@ -13,6 +13,7 @@ import { createContext } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
 import type { Ctx } from '../src/core/context';
 import { rows } from '../src/core/sql';
+import { dayKey } from '../src/core/time';
 import { resetThrottleMemory } from '../src/auth/lockout';
 import { bootstrapProduction } from '../src/modules/bootstrap/service';
 import { seedWorld } from './fixtures/world';
@@ -34,6 +35,18 @@ async function login(username: string, role: keyof typeof DEMO_PASSWORDS, keys =
 const branchId = async (code: string) => (await ctx.db.select().from(t.branches).where(eq(t.branches.code, code)))[0].id;
 const sqlNormalize = async (s: string) => rows<{ n: string }>(await ctx.db.execute(sql`SELECT jerp_normalize_name(${s}) AS n`))[0].n;
 const line = (productId: number, net = 4_000) => ({ productId, grossWeightMg: net + 100, netWeightMg: net, purchaseCost: 1_000_000, makingCost: 50_000, otherCost: 0, sellingPrice: 1_500_000 });
+/**
+ * MKC-1: only the General Manager records a supplier order (for KRT here), and the owner's transfer reference and date
+ * come with a making charge above 0 (a fresh test reference each time: the same one twice would ask for a confirmation).
+ */
+let refSeq = 0;
+async function order(body: { supplierId?: number; lines: { makingCost: number }[] }) {
+  const gm = await login('general.manager', 'GENERAL_MANAGER');
+  const krt = (await ctx.db.select().from(t.branches).where(eq(t.branches.code, 'KRT')))[0].id;
+  const charge = body.lines.reduce((s, l) => s + l.makingCost, 0);
+  const today = dayKey(new Date(), (await ctx.settings.get()).company.timezone);
+  return gm.post('/api/purchases').send({ branchId: krt, ...(charge > 0 ? { makingChargeReference: `TEST-CAT-${++refSeq}`, makingChargeTransferDate: today } : {}), ...body });
+}
 
 beforeAll(async () => {
   handle = await openTestDatabase();
@@ -162,7 +175,7 @@ describe('item types and products', () => {
     const supplierId = (await ctx.db.select().from(t.suppliers).limit(1))[0].id;
     const type = (await bm.post('/api/categories').send({ nameAr: 'أطقم خفيفة' })).body;
     const prod = (await bm.post('/api/products').send({ nameAr: 'طقم خفيف', karat: 21, categoryId: type.id })).body;
-    const po = await bm.post('/api/purchases').send({ supplierId, lines: [line(prod.id), line(prod.id, 5_000)] });
+    const po = await order({ supplierId, lines: [line(prod.id), line(prod.id, 5_000)] });
     expect(po.status, JSON.stringify(po.body)).toBe(200);
 
     expect((await bm.post(`/api/products/${prod.id}/deactivate`).send({ reason: 'not made any more' })).status).toBe(403);
@@ -174,7 +187,7 @@ describe('item types and products', () => {
     expect((await bm.get('/api/products')).body.some((p: { id: number }) => p.id === prod.id)).toBe(false);
     expect((await gm.get('/api/products?includeInactive=true')).body.find((p: { id: number }) => p.id === prod.id).isActive).toBe(false);
     // No new stock …
-    const refused = await bm.post('/api/purchases').send({ supplierId, lines: [line(prod.id)] });
+    const refused = await order({ supplierId, lines: [line(prod.id)] });
     expect(refused.status).toBe(400);
     expect(refused.body.error.key).toBe('{name} is deactivated and cannot receive new stock');
     // … but the pieces already in stock still sell.
@@ -185,10 +198,10 @@ describe('item types and products', () => {
     expect((await gm.post(`/api/products/${prod.id}/reactivate`).send({ reason: 'back in the range' })).status).toBe(200);
     expect((await gm.post(`/api/categories/${type.id}/deactivate`).send({ reason: 'merged into another type' })).status).toBe(200);
     expect((await bm.get('/api/categories')).body.some((c: { id: number }) => c.id === type.id)).toBe(false);
-    expect((await bm.post('/api/purchases').send({ supplierId, lines: [line(prod.id)] })).status).toBe(400);
+    expect((await order({ supplierId, lines: [line(prod.id)] })).status).toBe(400);
     expect((await bm.post('/api/products').send({ nameAr: 'طقم آخر', karat: 21, categoryId: type.id })).status).toBe(400);
     expect((await gm.post(`/api/categories/${type.id}/reactivate`).send({ reason: 'needed again' })).status).toBe(200);
-    expect((await bm.post('/api/purchases').send({ supplierId, lines: [line(prod.id)] })).status).toBe(200);
+    expect((await order({ supplierId, lines: [line(prod.id)] })).status).toBe(200);
     const actions = (await ctx.db.select().from(t.auditLogs).where(sql`${t.auditLogs.action} IN ('PRODUCT_DEACTIVATED','PRODUCT_REACTIVATED','ITEM_TYPE_DEACTIVATED','ITEM_TYPE_REACTIVATED')`)).map((a) => a.action);
     expect(actions).toEqual(expect.arrayContaining(['PRODUCT_DEACTIVATED', 'PRODUCT_REACTIVATED', 'ITEM_TYPE_DEACTIVATED', 'ITEM_TYPE_REACTIVATED']));
   });
@@ -198,7 +211,7 @@ describe('item types and products', () => {
     const supplierId = (await ctx.db.select().from(t.suppliers).limit(1))[0].id;
     const type = (await bm.post('/api/categories').send({ nameAr: 'غوايش مخرمة' })).body;
     const prod = (await bm.post('/api/products').send({ nameAr: 'غويشة مخرمة', karat: 21, categoryId: type.id })).body;
-    expect((await bm.post('/api/purchases').send({ supplierId, lines: [line(prod.id), line(prod.id, 6_000), line(prod.id, 7_000)] })).status).toBe(200);
+    expect((await order({ supplierId, lines: [line(prod.id), line(prod.id, 6_000), line(prod.id, 7_000)] })).status).toBe(200);
     const res = await bm.get(`/api/inventory/items?categoryId=${type.id}`);
     expect(res.status).toBe(200);
     expect(res.body.items).toHaveLength(3);
@@ -221,11 +234,13 @@ describe('suppliers', () => {
     expect((await cashier.post('/api/suppliers').send({ nameAr: 'مورد' })).status).toBe(403);
 
     const prodId = (await ctx.db.select().from(t.products).where(and(eq(t.products.karat, 21), eq(t.products.isActive, true))).limit(1))[0].id;
-    const none = await bm.post('/api/purchases').send({ lines: [line(prodId)] });
+    // MKC-1: the branch manager can no longer record the order itself (GM-only), even with a supplier.
+    expect((await bm.post('/api/purchases').send({ supplierId: s.body.id, lines: [line(prodId)] })).status).toBe(403);
+    const none = await order({ lines: [line(prodId)] });
     expect(none.status).toBe(400);
     expect(none.body.error.key).toBe('Select the supplier');
-    expect((await bm.post('/api/purchases').send({ supplierId: 999_999, lines: [line(prodId)] })).status).toBe(404);
-    const po = await bm.post('/api/purchases').send({ supplierId: s.body.id, lines: [line(prodId)] });
+    expect((await order({ supplierId: 999_999, lines: [line(prodId)] })).status).toBe(404);
+    const po = await order({ supplierId: s.body.id, lines: [line(prodId)] });
     expect(po.status).toBe(200);
     const detail = (await bm.get(`/api/purchases/${po.body.id}`)).body;
     expect(detail.supplierName).toBe('ورشة السوق العربي'); // English empty → Arabic
@@ -243,7 +258,7 @@ describe('English name optional: displays fall back to the Arabic name', () => {
     const supplierId = (await ctx.db.select().from(t.suppliers).limit(1))[0].id;
     const type = (await bm.post('/api/categories').send({ nameAr: 'كفوف' })).body;
     const prod = (await bm.post('/api/products').send({ nameAr: 'كف مشغول', karat: 21, categoryId: type.id })).body;
-    const po = (await bm.post('/api/purchases').send({ supplierId, lines: [line(prod.id)] })).body;
+    const po = (await order({ supplierId, lines: [line(prod.id)] })).body;
     const detail = (await bm.get(`/api/purchases/${po.id}`)).body;
     expect(detail.items[0]).toMatchObject({ productName: 'كف مشغول', productNameAr: 'كف مشغول' });
 

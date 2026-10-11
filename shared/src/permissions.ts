@@ -85,7 +85,7 @@ const BRANCH_MANAGER: Permission[] = [
   'inventory.price_edit',
   'inventory.transfer',
   'purchases.view',
-  'purchases.create',
+  // MKC-1 (client fact 5, Q9): creating a supplier order is General-Manager-only (no 'purchases.create' here).
   // CAT-0: a branch manager creates types, products and suppliers while recording stock; only the GM deactivates.
   'catalog.create',
   'dashboard.branch',
@@ -107,6 +107,13 @@ const BRANCH_MANAGER: Permission[] = [
 const GENERAL_MANAGER: Permission[] = [
   ...(Object.keys(PERMISSIONS) as Permission[]),
 ];
+
+/**
+ * Permissions that only the General Manager may ever hold (D-csh-5, D-mkc-6): the funding of a branch and the creation of
+ * supplier orders. No screen or API edits role grants; tests prove the defaults, the seed and the migrations never give
+ * them to another role.
+ */
+export const GM_ONLY_PERMISSIONS = ['funding.view', 'funding.manage', 'purchases.create'] as const satisfies readonly Permission[];
 
 export const DEFAULT_ROLE_PERMISSIONS: Record<SystemRoleCode, Permission[]> = {
   CASHIER,
