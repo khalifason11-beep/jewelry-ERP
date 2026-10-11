@@ -1,9 +1,14 @@
-# Deployment behind a reverse proxy (Render or similar)
+# Deployment behind a reverse proxy
 
-This guide covers a production deployment where the app runs behind a managed reverse proxy or load
-balancer that terminates HTTPS, for example a Render Web Service with a Render PostgreSQL database.
-The app is a single Node.js service: the API serves the built React app too, so no separate static
-site is needed.
+This guide covers a production deployment where the app runs behind a reverse proxy or load balancer that
+terminates HTTPS, with a managed PostgreSQL database. The app is a single Node.js service: the API serves the built
+React app too, so no separate static site is needed.
+
+> **Hosting is not decided** (BACKLOG HOST-1). What the app needs from any host: one Node.js 20+ process (one
+> instance for now), a managed PostgreSQL with separate owner and runtime roles, HTTPS at a final domain (before any
+> passkey is registered), shell access for the operator commands and the bootstrap, and a schedule for backups with
+> an off-site copy. Sections 1 and 2 use Render as **one worked example** only; the variables and checks apply to
+> any host.
 
 > Production mode refuses to start while the configuration is unsafe (see D-1a-10 in
 > [decisions.md](decisions.md)). If the service does not come up, read the start-up log first: it lists
@@ -19,7 +24,7 @@ site is needed.
 > is reset, and how it stays separate from production. Until then, show the system from a local `npm run demo` or a
 > `dev:sample` database (docs/DEMO_SCRIPT.md).
 
-## 1. Services
+## 1. Services (example: Render)
 
 | Render resource | Settings |
 |---|---|
@@ -30,7 +35,7 @@ site is needed.
 | Health check path | `/api/health` |
 | Instances | **1** for now. The per-IP sign-in throttle and the login counters for unknown usernames are kept in process memory, and each instance keeps its own settings cache for up to 5 s. See "Remaining limits" below. |
 
-## 2. Environment variables
+## 2. Environment variables (example values: Render)
 
 | Variable | Value on Render | Why |
 |---|---|---|
@@ -361,8 +366,9 @@ future migration that cannot transform a row is redesigned, not shipped with a g
 - New append-only tables (`scrap_rates`, `scrap_purchases`, `scrap_weight_entries`, `supplier_settlements`) are
   locked like the other ledgers by the migration (`jerp_lock_append_only`); with separate owner and runtime roles
   (section 5) the start-up check covers them too.
-- API clients: `POST /purchases` now stores its idempotency record in the same transaction (it pays the making
-  charge), like scrap purchases and supplier settlements; a retry with the same key never pays or settles twice.
+- API clients: `POST /purchases` stores its idempotency record in the same transaction, like scrap purchases and
+  supplier settlements; a retry with the same key never records or settles twice. (Since MKC-1 an order no longer
+  pays its making charge from branch money: see the MKC-1 section above.)
 
 ## 6. After every deploy
 
