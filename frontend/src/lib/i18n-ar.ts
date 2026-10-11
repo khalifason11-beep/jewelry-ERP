@@ -27,7 +27,8 @@ export const AR: Record<string, string> = {
   Administration: 'الإدارة',
   'Sign out': 'تسجيل الخروج',
   'Sign in': 'تسجيل الدخول',
-  'Gold 21K': 'ذهب عيار 21',
+  Gold: 'ذهب',
+  'Gold {karat}': 'ذهب {karat}',
   'All branches': 'كل الفروع',
   Today: 'اليوم',
   // common
