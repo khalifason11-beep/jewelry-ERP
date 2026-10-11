@@ -1,9 +1,11 @@
 // First steps on an empty system (REM-3). A new database has no demo data; the General Manager's home
-// shows a four-step checklist until the system can take its first sale:
+// shows a five-step checklist until the system can take its first sale:
 //   1. allowed karats confirmed (mandatory: an initial value from ALLOWED_KARATS_INITIAL is NOT a confirmation)
 //   2. today's gold rate and the scrap buying rates for the allowed karats
 //   3. a first branch
 //   4. a branch manager and a cashier
+//   5. CSH-2 (Q8): every active branch funded: an advance from the General Manager into its drawer (the drawer cannot
+//      pay out money it does not hold, Q7), so the first scrap purchase is not refused on day one
 // Every step is derived from real data; nothing here can be "ticked" without doing the step.
 
 import { and, eq, inArray, sql } from 'drizzle-orm';
@@ -15,7 +17,7 @@ import { writeAudit } from '../../core/audit';
 import { badRequest } from '../../core/errors';
 import { rows } from '../../core/sql';
 
-export type SetupStepKey = 'karats' | 'rates' | 'branch' | 'staff';
+export type SetupStepKey = 'karats' | 'rates' | 'branch' | 'staff' | 'fund';
 
 /** Every sellable karat has a gold selling rate and every allowed karat a scrap rate (first step "rates"; A16). */
 export async function setupRatesDone(ctx: Ctx): Promise<boolean> {
@@ -42,11 +44,21 @@ export async function setupStatus(ctx: Ctx, actor: Actor) {
     .innerJoin(t.roles, eq(t.roles.id, t.users.roleId))
     .where(and(eq(t.users.status, 'ACTIVE'), inArray(t.roles.code, ['BRANCH_MANAGER', 'CASHIER'])));
   const roles = new Set(staff.map((s) => s.code));
+  // An advance into the drawer that has not been corrected, for every active branch.
+  const [{ n: unfunded }] = rows<{ n: number }>(
+    await ctx.db.execute(sql`
+      SELECT count(*)::int AS n FROM branches b
+      WHERE b.is_active AND NOT EXISTS (
+        SELECT 1 FROM gm_funding_events g
+        WHERE g.branch_id = b.id AND g.kind = 'ADVANCE' AND g.account = 'CASH'
+          AND NOT EXISTS (SELECT 1 FROM gm_funding_events r WHERE r.reverses_event_id = g.id))`),
+  );
   const steps: { key: SetupStepKey; done: boolean }[] = [
     { key: 'karats', done: inventory.allowedKaratsConfirmed },
     { key: 'rates', done: goldKarats.length > 0 && goldKarats.every((k) => gold.has(k)) && allowed.every((k) => scrap.has(k)) },
     { key: 'branch', done: Number(branches) > 0 },
     { key: 'staff', done: roles.has('BRANCH_MANAGER') && roles.has('CASHIER') },
+    { key: 'fund', done: Number(branches) > 0 && Number(unfunded) === 0 },
   ];
   return { complete: steps.every((s) => s.done), steps, allowedKarats: allowed };
 }

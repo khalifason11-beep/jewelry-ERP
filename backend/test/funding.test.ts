@@ -208,13 +208,14 @@ describe('GUARDRAIL: no reader of the ledger counts OWED_TO_GM as money (D-csh-1
   // OWED_TO_GM except GM_ADVANCE/GM_REPAYMENT, which are summed per kind; "write" = writes only.
   const READERS: Record<string, string> = {
     'modules/ledger/service.ts#accountId': 'kind: looks up one account by branch and kind',
-    'modules/ledger/service.ts#lockAccounts': 'kind: locks named kinds only (callers: settleHasadReceivable, funding)',
+    'modules/ledger/service.ts#lockAccounts': 'kind: locks named kinds only (callers: settleHasadReceivable, funding, lockDrawerFor for the scrap, purchase and void drawer checks)',
     'modules/ledger/service.ts#post': 'write: appends entries',
     'modules/ledger/service.ts#reverseRef': 'write: reverses the entries of one record and event type',
     'modules/ledger/service.ts#balances': 'kind: returns one balance per (branch, kind); every caller picks a kind: cashBalance (CASH), drawer (named kinds), the homes and attention through cashBalance',
     'modules/ledger/service.ts#reconciliation': 'kind/type: every sum names a kind, or an event type only CASH/BANK/HASAD_RECEIVABLE carry',
     'modules/ledger/service.ts#entriesFor': 'type: the entries of one record (detail screens and tests)',
-    'modules/attention/service.ts#attentionFor': "kind: A4 and A5 read a.kind = 'CASH' only",
+    'modules/attention/service.ts#attentionFor': "kind: A4 and A5 read a.kind = 'CASH' only, A17 a.kind = 'BANK' only",
+    'modules/sales/service.ts#voidSale': "kind: the cash refund sums the sale's own SALE entries with a.kind = 'CASH' only (the drawer BLOCK, Q7)",
     'modules/funding/service.ts#owedToGm': "kind: OWED_TO_GM only, on purpose",
     'backup/stats.ts#*': 'integrity: one balance per account in the backup summary (every kind, labelled)',
     'backup/checks.ts#*': 'integrity: entries on the wrong branch, reversals of a missing entry (no sums of money)',

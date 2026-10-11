@@ -14,7 +14,7 @@ import { PAYMENT_ACCOUNT, sumInt, type LedgerAccountKind, type LedgerEventType, 
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
-import { badRequest } from '../../core/errors';
+import { AppError, badRequest } from '../../core/errors';
 import { rows } from '../../core/sql';
 import { addDays, dayKey, dayStart } from '../../core/time';
 import { nextNumber } from '../../core/numbering';
@@ -77,6 +77,34 @@ export async function lockAccounts(exec: Executor, branchId: number, kinds: read
   }
   for (const k of kinds) if (!out[k]) throw new Error(`ledger account ${k} missing for branch ${branchId}`);
   return out;
+}
+
+/** CSH-2 (Q7): what a payment out of the drawer is for; it picks the refusal sentence (each names the shortfall and what to do). */
+export type DrawerOutflow = 'SCRAP_PURCHASE' | 'MAKING_CHARGE' | 'SALE_VOID' | 'GM_REPAYMENT' | 'GM_CORRECTION';
+export const DRAWER_SHORT: Record<DrawerOutflow, string> = {
+  SCRAP_PURCHASE: 'The drawer holds {balance}: the cash part of {amount} is {short} more than that. Pay {short} more by bank transfer, or ask the General Manager to record an advance into the drawer',
+  MAKING_CHARGE: 'The drawer holds {balance}: the making charge of {amount} is {short} more than that. Pay it from the bank, or ask the General Manager to record an advance into the drawer first',
+  SALE_VOID: 'The drawer holds {balance}: refunding {amount} in cash needs {short} more. Ask the General Manager to record an advance into the drawer, then cancel the sale again',
+  GM_REPAYMENT: 'The drawer holds {balance}: a repayment of {amount} from it is {short} more than that. Repay at most {balance} from the drawer, or repay from the bank',
+  GM_CORRECTION: 'The drawer holds {balance}: correcting this advance takes {amount} out of it, {short} more than it holds. That money has already been paid out: record the advance that really came in first, then correct this one',
+};
+const fmtMoney = (n: number) => n.toLocaleString('en-US');
+
+/**
+ * CSH-2 (Q7, D-csh-8): BLOCK for the drawer. A payment out of CASH never takes it below zero. `drawer` is the CASH
+ * balance read by lockAccounts in the same transaction, before the entry is posted, so two payments racing on one
+ * drawer are checked one after the other (tested on PostgreSQL). The bank is never blocked (WARN: attention A17).
+ */
+export function requireDrawerCovers(drawer: number, amount: number, what: DrawerOutflow): void {
+  if (amount <= 0 || drawer >= amount) return;
+  throw new AppError(409, 'DRAWER_SHORT', DRAWER_SHORT[what], { balance: fmtMoney(drawer), amount: fmtMoney(amount), short: fmtMoney(amount - drawer) });
+}
+
+/** Lock the branch's drawer and refuse a payment it cannot cover (see requireDrawerCovers). No lock for an amount of 0. */
+export async function lockDrawerFor(exec: Executor, branchId: number, amount: number, what: DrawerOutflow): Promise<void> {
+  if (amount <= 0) return;
+  const { CASH } = await lockAccounts(exec, branchId, ['CASH']);
+  requireDrawerCovers(CASH.balance, amount, what);
 }
 
 /** Append entries. Must run inside the transaction of the business change it records. */

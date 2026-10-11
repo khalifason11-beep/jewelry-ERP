@@ -1,6 +1,7 @@
-// First steps on an empty system (REM-3, docs/ux/ANALYSIS.md §8): four steps before the first sale, shown
+// First steps on an empty system (REM-3, docs/ux/ANALYSIS.md §8): five steps before the first sale, shown
 // on the General Manager's home until every step is really done (the server derives each one from data).
-// Restyled in UI-B as a home panel (mockup empty-gm-home.html); four steps, not the mockup's three (REM-3 added karats).
+// Restyled in UI-B as a home panel (mockup empty-gm-home.html); five steps, not the mockup's three (REM-3 added karats,
+// CSH-2 "Fund the branch": the drawer cannot pay out money that was never recorded).
 
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -17,7 +18,7 @@ import { Button, Dialog, Panel, PanelHeader } from './ui';
 
 export interface SetupStatus {
   complete: boolean;
-  steps: { key: 'karats' | 'rates' | 'branch' | 'staff'; done: boolean }[];
+  steps: { key: 'karats' | 'rates' | 'branch' | 'staff' | 'fund'; done: boolean }[];
   allowedKarats: number[];
 }
 
@@ -50,11 +51,16 @@ export function FirstSteps({ status }: { status: SetupStatus }) {
       body: t('Each gets a temporary password to change at the first sign-in.'),
       action: <Link to="/users" className="text-[13px] font-medium text-gold-700 hover:underline">{t('New user')}</Link>,
     },
+    fund: {
+      title: t('Fund the branch'),
+      body: t('Record the money you put in each branch’s drawer as an advance. A drawer cannot pay out money that was never recorded.'),
+      action: <Link to="/cash" className="text-[13px] font-medium text-gold-700 hover:underline" data-testid="step-fund-action">{t('Record an advance')}</Link>,
+    },
   };
   return (
     <div className="mb-4" data-testid="first-steps">
     <Panel label={t('First steps')}>
-      <PanelHeader title={t('Welcome. Four steps before the first sale')} action={<span className="num">{t('{done} of {total} done', { done, total: status.steps.length })}</span>} />
+      <PanelHeader title={t('Welcome. Five steps before the first sale')} action={<span className="num">{t('{done} of {total} done', { done, total: status.steps.length })}</span>} />
       <div className="mx-1 mb-2 h-1.5 overflow-hidden rounded-full bg-line" aria-hidden>
         <div className="h-full bg-navy" style={{ width: `${(done / status.steps.length) * 100}%` }} />
       </div>

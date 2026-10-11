@@ -24,7 +24,7 @@ import { rows } from '../../core/sql';
 import { dayRange } from '../../core/time';
 import type { TxIdempotency } from '../../core/idempotency';
 import { recordMovement } from '../inventory/ledger';
-import { post } from '../ledger/service';
+import { lockDrawerFor, post } from '../ledger/service';
 
 // ───────────────────────── scrap buying rates ─────────────────────────
 
@@ -285,6 +285,8 @@ export async function buyScrap(ctx: Ctx, actor: Actor, input: ScrapPurchaseInput
     }
 
     // The money paid to the customer leaves the drawer (cash part) and the bank (bank part); a part of 0 posts nothing.
+    // CSH-2 (Q7): the drawer must hold the cash part (BLOCK, under its lock); the bank part is never blocked (A17 warns).
+    await lockDrawerFor(tx, branchId, pay.cash, 'SCRAP_PURCHASE');
     await post(
       tx,
       [

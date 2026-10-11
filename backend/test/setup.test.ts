@@ -17,6 +17,7 @@ import { createBranch } from '../src/modules/branches/service';
 import { createUser } from '../src/modules/users/service';
 import { setScrapRates } from '../src/modules/scrap/service';
 import { companyDashboard } from '../src/modules/dashboard/service';
+import { correctFunding, recordAdvance } from '../src/modules/funding/service';
 import { openTestDatabase } from './helpers';
 
 let handle: DatabaseHandle;
@@ -51,9 +52,9 @@ describe('a new system', () => {
 });
 
 describe('first-steps checklist (GM home)', () => {
-  it('starts with four open steps and closes each one only when the work is really done', async () => {
-    expect(await setupStatus(ctx, gm)).toMatchObject({ complete: false, steps: [{ key: 'karats' }, { key: 'rates' }, { key: 'branch' }, { key: 'staff' }] });
-    expect(await done()).toEqual({ karats: false, rates: false, branch: false, staff: false });
+  it('starts with five open steps and closes each one only when the work is really done', async () => {
+    expect(await setupStatus(ctx, gm)).toMatchObject({ complete: false, steps: [{ key: 'karats' }, { key: 'rates' }, { key: 'branch' }, { key: 'staff' }, { key: 'fund' }] });
+    expect(await done()).toEqual({ karats: false, rates: false, branch: false, staff: false, fund: false });
 
     // 1. Allowed karats: an explicit confirmation by the GM, audited.
     await confirmAllowedKarats(ctx, gm, [21]);
@@ -74,6 +75,22 @@ describe('first-steps checklist (GM home)', () => {
     await createUser(ctx, gm, { username: 'hassan.elsayed', fullName: 'Hassan', roleCode: 'BRANCH_MANAGER', branchId: b.id });
     expect(await done()).toMatchObject({ staff: false });
     await createUser(ctx, gm, { username: 'ahmed.ali', fullName: 'Ahmed', roleCode: 'CASHIER', branchId: b.id });
+    expect(await setupStatus(ctx, gm)).toMatchObject({ complete: false });
+
+    // 5. CSH-2 (Q8): every active branch funded with an advance into its drawer. A bank advance does not count, nor
+    // a corrected one; a second branch opens the step again until it is funded too.
+    expect(await done()).toMatchObject({ staff: true, fund: false });
+    await recordAdvance(ctx, gm, { branchId: b.id, account: 'BANK', amount: 500_000, reason: 'test bank funding', bankReference: 'TEST-0001' });
+    expect(await done()).toMatchObject({ fund: false });
+    const wrong = await recordAdvance(ctx, gm, { branchId: b.id, account: 'CASH', amount: 100_000, reason: 'test drawer float' });
+    expect(await done()).toMatchObject({ fund: true });
+    await correctFunding(ctx, gm, wrong.id, { reason: 'test: recorded by mistake' });
+    expect(await done()).toMatchObject({ fund: false });
+    await recordAdvance(ctx, gm, { branchId: b.id, account: 'CASH', amount: 100_000, reason: 'test drawer float' });
+    expect(await setupStatus(ctx, gm)).toMatchObject({ complete: true });
+    const b2 = await createBranch(ctx, gm, { code: 'OMD', name: 'Omdurman', nameAr: 'أم درمان', city: 'Omdurman' });
+    expect(await done()).toMatchObject({ fund: false });
+    await recordAdvance(ctx, gm, { branchId: b2.id, account: 'CASH', amount: 100_000, reason: 'test drawer float' });
     expect(await setupStatus(ctx, gm)).toMatchObject({ complete: true });
   });
 

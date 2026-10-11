@@ -19,7 +19,7 @@ import { factorState } from '../../auth/second-factor';
 import { setupRatesDone } from '../setup/service';
 
 export type Severity = 'critical' | 'warning' | 'info';
-export type SignalCode = 'A1' | 'A2' | 'A4' | 'A5' | 'A6' | 'A9' | 'A10' | 'A11' | 'A12' | 'A15' | 'A16' | 'S1' | 'S2';
+export type SignalCode = 'A1' | 'A2' | 'A4' | 'A5' | 'A6' | 'A9' | 'A10' | 'A11' | 'A12' | 'A15' | 'A16' | 'A17' | 'S1' | 'S2';
 
 export interface Signal {
   /** Stable id of this line (code + subject), for the list's keys and tests. */
@@ -151,6 +151,21 @@ export async function attentionFor(ctx: Ctx, actor: Actor, q: { branchId?: numbe
     for (const m of missing) {
       const b = Number(m.branch_id);
       push({ id: `A5:${b}`, code: 'A5', severity: 'warning', branchId: b, count: 1, link: `/cash?branchId=${b}&day=${yesterday}`, params: { day: yesterday, ...branchParams(b) }, since: dayStart(yesterday, tz).toISOString() });
+    }
+    // A17 (CSH-2, Q7 WARN): the branch's bank balance is below zero. A bank payment is never refused, because the
+    // system's bank figure lags the General Manager's deposits; it is flagged instead until an advance is recorded.
+    // Only the BANK account is read (never OWED_TO_GM). The branch manager sees their own branch (the same figure as Cash).
+    const negative = rows<{ branch_id: number; balance: number | string }>(
+      await ctx.db.execute(sql`
+        SELECT a.branch_id, sum(e.amount) AS balance
+        FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id
+        WHERE a.kind = 'BANK' ${inScope('a.branch_id')}
+        GROUP BY a.branch_id
+        HAVING sum(e.amount) < 0`),
+    );
+    for (const n of negative) {
+      const b = Number(n.branch_id);
+      push({ id: `A17:${b}`, code: 'A17', severity: 'critical', branchId: b, count: 1, link: `/cash?branchId=${b}`, params: { amount: num(n.balance), ...branchParams(b) }, since: null });
     }
   }
 

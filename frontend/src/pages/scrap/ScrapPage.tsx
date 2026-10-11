@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Recycle, Scale } from 'lucide-react';
 import { gramsToMg, normalizeBankReference, validBankReference, valueOfWeight, type ScrapKind, type ScrapPaymentMethod } from '@jerp/shared';
-import { get, postOnce } from '../../lib/api';
+import { ApiError, errorText, get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, karatLabel, money } from '../../lib/format';
 import { useBranches } from '../../lib/hooks';
@@ -194,6 +194,8 @@ function BuyForm({ branchId }: { branchId: number }) {
   const [cashPart, setCashPart] = useState('');
   const [bankPart, setBankPart] = useState<string | null>(null);
   const [bankRef, setBankRef] = useState('');
+  // CSH-2 (Q7): the drawer's refusal (the shortfall and what to do) stays on the form until the payment changes.
+  const [drawerShort, setDrawerShort] = useState<string | null>(null);
   const [productId, setProductId] = useState<number | ''>('');
   const [sellingPrice, setSellingPrice] = useState('');
   const [customerName, setCustomerName] = useState('');
@@ -233,6 +235,7 @@ function BuyForm({ branchId }: { branchId: number }) {
     setCashPart('');
     setBankPart(null);
     setBankRef('');
+    setDrawerShort(null);
   };
   const m = useMutation({
     mutationFn: () =>
@@ -265,7 +268,10 @@ function BuyForm({ branchId }: { branchId: number }) {
       reset();
       qc.invalidateQueries();
     },
-    onError: (e) => toast.fromError(e),
+    onError: (e) => {
+      if (e instanceof ApiError && e.code === 'DRAWER_SHORT') setDrawerShort(errorText(e));
+      else toast.fromError(e);
+    },
   });
 
   return (
@@ -315,7 +321,7 @@ function BuyForm({ branchId }: { branchId: number }) {
             <Input type="number" min={0} step="0.001" value={gross} onChange={(e) => setGross(e.target.value)} className="num" data-testid="scrap-gross" />
           </Field>
           <Field label={t('Net weight (g)')}>
-            <Input type="number" min={0} step="0.001" value={net} onChange={(e) => setNet(e.target.value)} className="num" data-testid="scrap-net" />
+            <Input type="number" min={0} step="0.001" value={net} onChange={(e) => { setNet(e.target.value); setDrawerShort(null); }} className="num" data-testid="scrap-net" />
           </Field>
           <Field label={t('Today’s scrap rate')} hint={karat !== '' && !rate ? t('No scrap buying rate is set for this karat') : undefined}>
             <Input value={rate ? money(rate, false) : '—'} readOnly className="num bg-canvas" />
@@ -369,13 +375,13 @@ function BuyForm({ branchId }: { branchId: number }) {
               step={1}
               value={cashPart}
               placeholder={amount ? String(amount) : ''}
-              onChange={(e) => { setCashPart(e.target.value); setBankPart(null); }}
+              onChange={(e) => { setCashPart(e.target.value); setBankPart(null); setDrawerShort(null); }}
               className="num"
               data-testid="scrap-cash-part"
             />
           </Field>
           <Field label={t('Paid by bank transfer')} hint={bankPart == null ? t('The rest of the amount') : undefined}>
-            <Input type="number" min={0} step={1} value={bankPart ?? String(bank)} onChange={(e) => setBankPart(e.target.value)} className="num" data-testid="scrap-bank-part" />
+            <Input type="number" min={0} step={1} value={bankPart ?? String(bank)} onChange={(e) => { setBankPart(e.target.value); setDrawerShort(null); }} className="num" data-testid="scrap-bank-part" />
           </Field>
           {bank > 0 && (
             <Field label={t('Bank transfer reference')} hint={bankRef && !refOk ? t('4 to 40 letters or digits') : bankRef ? ltr(normalizeBankReference(bankRef)) : undefined}>
@@ -388,6 +394,11 @@ function BuyForm({ branchId }: { branchId: number }) {
             <span data-testid="scrap-parts-mismatch">
               {t('The cash and bank parts must add up to the amount paid ({amount}); they add up to {sum}', { amount: ltr(money(amount, false)), sum: ltr(money(cash + bank, false)) })}
             </span>
+          </Alert>
+        )}
+        {drawerShort && (
+          <Alert tone="warning">
+            <span data-testid="scrap-drawer-short">{drawerShort}</span>
           </Alert>
         )}
         {beyond && (

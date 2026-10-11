@@ -8,8 +8,9 @@ import { writeAudit } from '../../core/audit';
 import { AppError, badRequest, forbidden, notFound } from '../../core/errors';
 import { nextNumber } from '../../core/numbering';
 import { dayRange } from '../../core/time';
+import { rows } from '../../core/sql';
 import { changeStatus, costBreakdown, lockItems, recordMovement } from '../inventory/ledger';
-import { accountKindFor, post, reverseRef } from '../ledger/service';
+import { accountKindFor, lockDrawerFor, post, reverseRef } from '../ledger/service';
 import type { TxIdempotency } from '../../core/idempotency';
 import { allowedKarats } from '../../core/karats';
 
@@ -384,6 +385,15 @@ export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: strin
     const lines = await tx.select().from(t.saleItems).where(eq(t.saleItems.saleId, id));
     const items = await lockItems(tx, lines.map((l) => l.itemId));
     const ref = { refType: 'sale', refId: sale.id, refNumber: sale.number };
+    // CSH-2 (Q7): a cash refund leaves the drawer, so the drawer must hold it (BLOCK, under its lock). The refund is the
+    // sale's own CASH entries (a sale recorded before the ledger: its total, when it was paid in cash).
+    const [{ cashRefund }] = rows<{ cashRefund: string | number }>(
+      await tx.execute(sql`SELECT coalesce(sum(e.amount), 0)::bigint AS "cashRefund" FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id
+                           WHERE e.ref_type = 'sale' AND e.ref_id = ${sale.id} AND e.event_type = 'SALE' AND a.kind = 'CASH'`),
+    );
+    const [{ entries: saleEntries }] = rows<{ entries: number }>(await tx.execute(sql`SELECT count(*)::int AS entries FROM ledger_entries WHERE ref_type = 'sale' AND ref_id = ${sale.id} AND event_type = 'SALE'`));
+    const refund = Number(saleEntries) > 0 ? Number(cashRefund) : accountKindFor(sale.paymentMethod as PaymentMethod) === 'CASH' ? sale.total : 0;
+    await lockDrawerFor(tx, sale.branchId, refund, 'SALE_VOID');
     for (const item of items) {
       await changeStatus(tx, { item, to: 'AVAILABLE', from: ['SOLD'], userId: actor.userId, ref, note: `Sale cancelled: ${reason}`, at });
       await recordMovement(tx, { item, type: 'RETURN', branchId: sale.branchId, ref, userId: actor.userId, note: reason, at });

@@ -21,7 +21,7 @@ import { badRequest, conflict, notFound } from '../../core/errors';
 import { nextNumber } from '../../core/numbering';
 import { rows } from '../../core/sql';
 import type { TxIdempotency } from '../../core/idempotency';
-import { lockAccounts, post, reverseRef } from '../ledger/service';
+import { lockAccounts, post, requireDrawerCovers, reverseRef } from '../ledger/service';
 
 export interface FundingInput {
   branchId: number;
@@ -79,6 +79,8 @@ async function record(ctx: Ctx, actor: Actor, kind: 'ADVANCE' | 'REPAYMENT', inp
     if (kind === 'REPAYMENT' && input.amount > owedBefore) {
       throw badRequest('This is more than the branch owes the General Manager ({owed}). Record at most {owed}', { owed: fmt(owedBefore) });
     }
+    // CSH-2 (Q7): a repayment from the drawer needs the drawer to hold it (BLOCK); from the bank it is never blocked.
+    if (kind === 'REPAYMENT' && money === 'CASH') requireDrawerCovers(locked.CASH.balance, input.amount, 'GM_REPAYMENT');
     const number = await nextNumber(tx, branch.code, kind === 'ADVANCE' ? 'GMA' : 'GMR');
     const [row] = await tx
       .insert(t.gmFundingEvents)
@@ -165,6 +167,8 @@ export async function correctFunding(ctx: Ctx, actor: Actor, eventId: number, in
         owed: fmt(owedBefore),
       });
     }
+    // CSH-2 (Q7): correcting an advance into the drawer takes that money back out of it (BLOCK when it is not there).
+    if (orig.kind === 'ADVANCE' && orig.account === 'CASH') requireDrawerCovers(locked.CASH.balance, orig.amount, 'GM_CORRECTION');
     const [branch] = await tx.select().from(t.branches).where(eq(t.branches.id, orig.branchId));
     const number = await nextNumber(tx, branch.code, 'GMX');
     const [row] = await tx

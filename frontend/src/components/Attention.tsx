@@ -14,7 +14,7 @@ import { useI18n } from '../lib/i18n';
 export type Severity = 'critical' | 'warning' | 'info';
 export interface Signal {
   id: string;
-  code: 'A1' | 'A2' | 'A4' | 'A5' | 'A6' | 'A9' | 'A10' | 'A11' | 'A12' | 'A15' | 'A16' | 'S1' | 'S2';
+  code: 'A1' | 'A2' | 'A4' | 'A5' | 'A6' | 'A9' | 'A10' | 'A11' | 'A12' | 'A15' | 'A16' | 'A17' | 'S1' | 'S2';
   severity: Severity;
   branchId: number | null;
   count: number;
@@ -109,6 +109,11 @@ export function useSignalText() {
         };
       case 'A16':
         return { title: t('A gold or scrap rate is missing'), detail: t('Set the rates in Settings before selling or buying scrap') };
+      case 'A17':
+        return {
+          title: t('The bank balance of {branch} is below zero', { branch }),
+          detail: t('The bank shows {amount}. Record the General Manager’s advance into the bank, or check the bank payments', { amount: `\u2066${money(n('amount'))}\u2069` }),
+        };
       case 'S1':
         return { title: t('You have only one passkey'), detail: t('Register a second device (your phone is ideal) so a lost or broken computer does not lock you out.') };
       case 'S2':

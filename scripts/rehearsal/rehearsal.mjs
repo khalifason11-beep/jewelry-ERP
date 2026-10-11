@@ -622,8 +622,8 @@ async function main() {
     check(JSON.stringify(inv0.allowedKarats) === '[21]' && inv0.allowedKaratsConfirmed === false, 'ALLOWED_KARATS_INITIAL=21 applied on the first start, not yet confirmed by the General Manager');
     await page.goto(`${origin}/overview`);
     await page.getByTestId('first-steps').waitFor({ timeout: 15_000 });
-    const stepState = async () => Object.fromEntries(await Promise.all(['karats', 'rates', 'branch', 'staff'].map(async (k) => [k, await page.getAttribute(`[data-testid=step-${k}]`, 'data-done')])));
-    check(Object.values(await stepState()).every((v) => v === 'false'), 'the GM home shows the four first steps (karats, rates, branch, staff), none done');
+    const stepState = async () => Object.fromEntries(await Promise.all(['karats', 'rates', 'branch', 'staff', 'fund'].map(async (k) => [k, await page.getAttribute(`[data-testid=step-${k}]`, 'data-done')])));
+    check(Object.values(await stepState()).every((v) => v === 'false'), 'the GM home shows the five first steps (karats, rates, branch, staff, fund the branch), none done');
     const chip = await page.getByTestId('rate-chip').innerText();
     check(/حدّد سعر اليوم/.test(chip) && !/—/.test(chip), 'the rate chip says "Set today’s rate" instead of "—/g"');
     check((await page.getByTestId('demo-badge').count()) === 0, 'production mode shows no "Demo" badge');
@@ -651,6 +651,9 @@ async function main() {
     const branchId = (await apiGet(page, '/api/branches')).body.find((b) => b.code === BRANCH.code).id;
     const accounts = (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId);
     check(accounts && accounts.expectedCash === 0 && accounts.bank === 0, 'the new branch starts at zero cash and zero bank');
+    await page.goto(`${origin}/overview`);
+    await page.getByTestId('step-fund').waitFor({ timeout: 15_000 });
+    check((await page.getAttribute('[data-testid=step-fund]', 'data-done')) === 'false' && (await page.getByTestId('step-fund-action').count()) === 1, 'a branch without an advance into its drawer: the first step "Fund the branch" is open, with a link to Cash');
     // CSH-2 (D-csh-6): the money the General Manager puts in is recorded as advances, through the Cash page, before
     // anything is paid out. Test values only. This is why the drawer no longer goes negative (it showed −335,000).
     await fundBranch(page, origin, { branchId, account: 'CASH', amount: FUND.cash, reason: 'رصيد الدرج: سُلّم صباح اليوم' });
@@ -696,7 +699,7 @@ async function main() {
     await waitFor(async () => (await apiGet(page, '/api/gold-rates')).body.current['21']?.pricePerGram === 190_000, 'the 21K gold rate', 15_000);
     await page.goto(`${origin}/overview`);
     await page.waitForLoadState('networkidle');
-    check((await page.getByTestId('first-steps').count()) === 0 && /190,000/.test(await page.getByTestId('rate-chip').innerText()), 'gold rate set: all four first steps done, the checklist disappears and the rate chip shows the rate');
+    check((await page.getByTestId('first-steps').count()) === 0 && /190,000/.test(await page.getByTestId('rate-chip').innerText()), 'gold rate set: all five first steps done, the checklist disappears and the rate chip shows the rate');
     await page.getByTestId('home-sales').waitFor({ timeout: 15_000 });
     const zeroHome = await page.locator('main').innerText();
     check(
@@ -858,6 +861,24 @@ async function main() {
     await page.click('[data-testid=scrap-purchases-bank-toggle]', { timeout: 15_000 });
     const bankDrill = await page.getByTestId('scrap-purchases-bank').innerText();
     check(bankDrill.includes(split.number) && /REH SCR 2/.test(bankDrill), 'the Cash drill-down "Scrap purchases" under the bank lists the purchase with its transfer reference');
+
+    // CSH-2 piece C (Q7): the drawer cannot pay out more than it holds. All in cash, a purchase above the drawer is
+    // refused on the form with the shortfall and what to do; nothing is recorded.
+    const drawerNow = (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId).expectedCash;
+    const grams = Math.ceil((drawerNow + 500_000) / CAT.scrapRate21);
+    const shortBy = grams * CAT.scrapRate21 - drawerNow;
+    await page.goto(`${origin}/scrap`);
+    await page.click('[data-testid=scrap-kind-BROKEN]');
+    await page.fill('[data-testid=scrap-karat-any]', '21');
+    await page.fill('[data-testid=scrap-net]', String(grams));
+    const scrapCount = (await apiGet(page, '/api/scrap-purchases')).body.length;
+    await page.click('[data-testid=scrap-buy]');
+    const shortText = await page.getByTestId('scrap-drawer-short').innerText({ timeout: 15_000 });
+    check(
+      shortText.includes(shortBy.toLocaleString('en-US')) && shortText.includes(drawerNow.toLocaleString('en-US')) && /المدير العام/.test(shortText) && /تحويل بنكي/.test(shortText),
+      `a cash payment above the drawer (${drawerNow.toLocaleString('en-US')}) is refused on the form: "${shortText}"`,
+    );
+    check((await apiGet(page, '/api/scrap-purchases')).body.length === scrapCount && (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId).expectedCash === drawerNow, 'the refused purchase recorded nothing: same purchases, same drawer');
 
     await page.evaluate(() => localStorage.setItem('jerp.lang', 'en'));
     await page.goto(`${origin}/catalog`);
@@ -1041,6 +1062,14 @@ async function main() {
     await confirmIfAsked(page, GM.password);
     await waitFor(async () => (await apiGet(page, '/api/branches')).body.some((b) => b.code === BRANCH_B.code), 'the second branch', 15_000);
     const branchB = (await apiGet(page, '/api/branches')).body.find((b) => b.code === BRANCH_B.code).id;
+    // CSH-2 (Q8): a new branch without an advance into its drawer opens "Fund the branch" again; recording it closes it.
+    await page.goto(`${origin}/overview`);
+    await page.getByTestId('step-fund').waitFor({ timeout: 15_000 });
+    check((await page.getAttribute('[data-testid=step-fund]', 'data-done')) === 'false', 'a second branch without an advance into its drawer opens the first step "Fund the branch" again');
+    await fundBranch(page, origin, { branchId: branchB, account: 'CASH', amount: 500_000, reason: 'رصيد درج الفرع الثاني' });
+    await page.goto(`${origin}/overview`);
+    await page.getByTestId('home-branches').waitFor({ timeout: 15_000 });
+    check((await page.getByTestId('first-steps').count()) === 0, 'once the second branch is funded the first steps are complete again');
     await signOut(page);
     await signIn(page, origin, BM.username, BM.password);
     await pathIs(page, ['/dashboard']);
