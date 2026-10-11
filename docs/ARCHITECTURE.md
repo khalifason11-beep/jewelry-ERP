@@ -1,155 +1,149 @@
-# Jewelry ERP Prototype — Architecture & Plan
+# Architecture
 
-> Status: **client-demo prototype, all phases below implemented.** The first milestone
-> (login → POS sale → Hasad redemption → dashboards → audit) is covered by automated end-to-end
-> tests in `backend/test/flow.test.ts`.
->
-> No connection to any real server, database, or the real
-> Hasad Gold system. All data is demo data; Hasad Gold is simulated by a mock service that
-> sits behind the same interface the real integration will implement.
+> Replaced in DOC-1. The previous file described the prototype: a Hasad simulator, demo seed, scrypt hashes,
+> reservations and expenses. None of that exists any more. What follows is the current system. For features see
+> [FEATURES.md](FEATURES.md); for tables see [DATA_MODEL.md](DATA_MODEL.md); for the reasons behind each choice see
+> [decisions.md](decisions.md).
 
-## 1. Environment findings
+## 1. Stack and packages
 
-| Item | Finding | Decision |
-|------|---------|----------|
-| Repository | Empty | Greenfield monorepo (npm workspaces) |
-| Node.js | v22 | TypeScript everywhere, run with `tsx` (no build step for backend) |
-| PostgreSQL | Server binaries available, but a presenter's laptop may not have one | Drizzle ORM with **two drivers**: real PostgreSQL when `DATABASE_URL` is set, otherwise **PGlite** (real Postgres compiled to WASM, embedded, file-backed). Same schema, same SQL, same migrations. |
+npm workspaces, TypeScript everywhere, Node.js ≥ 20. It runs as one process: the API also serves the built UI.
 
-## 2. Stack
+| Package | Role | Main libraries |
+|---|---|---|
+| `shared` (`@jerp/shared`) | Code used by both server and browser: enums, permissions and roles, the route matrix, the settings registry, the field classification, the DB-check list, money and weight arithmetic | zod |
+| `database` (`@jerp/database`) | Drizzle schema (`src/schema.ts`), client factory, SQL migrations `migrations/0000…0022` | drizzle-orm, pg, @electric-sql/pglite |
+| `backend` (`@jerp/backend`) | Express API, auth, central guard, business modules, CLIs, tests | express 5, helmet, @node-rs/argon2, @simplewebauthn/server, vitest |
+| `frontend` | React single-page app, Arabic RTL and English | react 19, react-router 7, @tanstack/react-query, tailwindcss 4, vite |
 
-| Layer | Choice | Why |
-|-------|--------|-----|
-| Frontend | React 19 + TypeScript + Vite | Standard, fast, easy to hire for |
-| Styling | Tailwind CSS v4 + an in-house component kit | Full control over a premium ERP look; no generic dashboard template feel |
-| Data fetching | TanStack Query | Caching, loading/error states, invalidation after mutations |
-| Charts | Recharts | Mature React charting |
-| Backend | Node.js + Express 5 + TypeScript + Zod | Simple, well-known, validation at the edge |
-| Database | PostgreSQL (or embedded PGlite) + Drizzle ORM | Typed schema, SQL-first, generated migrations |
-| Auth | Server-side sessions (opaque token in `httpOnly` cookie), passwords hashed with `scrypt` | Server-side sessions are required anyway for *Active Sessions* monitoring and revocation |
-| Tests | Vitest | Business-logic and end-to-end API flow tests against an in-memory PGlite |
+**Database:**
 
-## 3. Repository layout
+- Production uses PostgreSQL.
+- Demo, development and the default test project use PGlite, an embedded PostgreSQL in WebAssembly, so the SQL is
+  the same.
+- Migrations are plain SQL and run at start-up (`npm run migrate` runs them alone). They run as an owner role
+  (`MIGRATION_DATABASE_URL`). The app runs as a runtime role that owns nothing (`STRICT_DB_ROLES=true`).
+
+## 2. Request path
 
 ```
-/shared                 Domain enums, permission catalogue, role defaults, pure business
-                        rules (settlement calculation, money/weight helpers), API DTO types.
-                        Used by backend AND frontend so rules never drift.
-/database               Drizzle schema, DB client factory (Postgres | PGlite), migrations.
-/integrations/hasad     HasadService interface + MockHasadService (+ its own isolated tables).
-                        The rest of the app only sees the interface.
-/backend                Express API.
-  src/core              config, errors, request context, audit writer
-  src/auth              password hashing, sessions, login/logout, middleware
-  src/authz             permission checks + branch scoping (data isolation)
-  src/modules/*         one folder per business module: service.ts (business logic,
-                        DB access) + routes.ts (HTTP + validation only)
-  src/seed              deterministic demo data generator
-/frontend               React SPA (pages, components, i18n, API client)
-/docs                   Architecture, data model, demo script, assumptions
+browser ──HTTPS──▶ reverse proxy ──▶ Express
+   helmet (CSP) → JSON body → /api: authenticate (session cookie) → CSRF check → central guard
+   → zod-validated handler → module service (one DB transaction) → cost redaction → JSON
 ```
 
-Separation of concerns:
+- **Authentication** (`backend/src/auth/middleware.ts`):
+  - Sessions are held on the server; only a hash of the token is stored.
+  - The cookie is `__Host-jerp_session` in production.
+  - Sessions have an idle and an absolute limit.
+  - The client sends a heartbeat that feeds presence on the sessions screen.
+- **CSRF** (`core/csrf.ts`): a token per session, required on every change, plus an origin check against
+  `APP_ORIGIN`.
+- **Central guard** (`core/guard.ts` + `shared/src/route-matrix.ts`):
+  - Every route is declared once, with its permission, its scope (`public`, `self`, `none`, `global` or `branch`) and
+    its flags: `reauth`, `idempotent` and `idempotencyInTx`.
+  - Access is denied by default. A route missing from the matrix cannot be registered.
+  - The tests are generated from the matrix for every route and role.
+- **Branch scope:** `scope.all_branches` (the General Manager) sees every branch. Everyone else is pinned to their own
+  branch, and a request for another branch's data gets 403.
+- **Re-confirmation** (`auth/reauth.ts`): routes flagged `reauth` need the password, plus the passkey for users who
+  have one, within the last `security.reauthWindowMinutes` (5).
+  - Some handlers ask for it conditionally: a user's role or branch change, and a sale void above
+    `sales.voidReauthAboveAmount`.
+- **Idempotency** (`core/idempotency.ts`): routes that create business records require an `Idempotency-Key`.
+  - Repeating a request returns the stored response.
+  - On money routes (`idempotencyInTx`), the key is claimed inside the same transaction that writes the ledger.
+- **Cost redaction** (`core/cost-redaction.ts`):
+  - Services already leave out cost and profit for callers without `profit.view`.
+  - The response filter is a second line: it removes every field classified COST in
+    `shared/src/field-classification.ts`, at any depth, including the parameters of audit texts.
+  - A test fails on any field that is not classified.
+- **Errors** carry a stable English `key` plus `params`. The browser translates them, so the backend has no Arabic
+  text.
 
-* **UI** (`frontend`) never decides access — it hides what the API would reject anyway.
-* **Business logic** lives in `backend/src/modules/*/service.ts`; routes are thin.
-* **Authorization** — every service function receives the `Actor` and calls
-  `authz.require(...)` and `authz.branchScope(...)`. A cashier asking the API for another
-  branch's data gets **403**, not an empty UI.
-* **Hasad integration** is only reachable via `HasadService`. Swapping the mock for the real
-  API is a one-line change in `backend/src/integrations.ts`.
-* **Reporting** is a dedicated module that only reads.
+## 3. Business modules (`backend/src/modules`)
 
-## 4. Core domain rules
+| Module | Owns |
+|---|---|
+| `auth`, `sessions`, `users` | Sign-in, passkeys, recovery codes, new-device alerts, sessions, user administration |
+| `settings`, `branding`, `branches`, `setup`, `bootstrap` | Settings with history, logo and names, branches, first steps, first General Manager |
+| `catalog`, `inventory`, `stock` | Types, products, suppliers; pieces, price edits, adjustments; stock and weight figures |
+| `sales`, `print` | Point of sale, voids, invoices and reprints |
+| `purchases`, `supplier-settlements` | Supplier orders (gold owed, making charge paid by the owner, SUP-1 warning), settlement with broken scrap |
+| `scrap` | Scrap rates, scrap purchases (cash, bank or split), the broken-scrap pool |
+| `ledger`, `funding` | Branch ledger accounts and balances, drawer-short refusal; the General Manager's advances, repayments, corrections |
+| `transfers` | Two-step transfers between branches |
+| `dashboard`, `attention`, `reports` | Homes, the attention list, reports |
+| `backups`, `ops` | Backup status; operator commands |
 
-### Item-based inventory
-Every piece is a row in `jewelry_items` with a unique code (`J-1001`) and barcode.
-Status is one of `AVAILABLE, RESERVED, SOLD, REDEEMED, TRANSFERRED, DAMAGED, RETURNED`.
-Every status change writes `item_status_history`; every stock change writes
-`inventory_movements` (the ledger). Branch stock figures (opening, movements, closing) are
-**derived from the ledger**, and the report shows a reconciliation check against the live
-item statuses.
+- **Status changes:** every status change of a piece goes through one guarded function, a conditional update on the
+  current status, so a piece can never be sold twice.
+- **Numbering:** document numbers come from `document_sequences` within the transaction, in the form
+  `<branch>-<type>-NNNNNN`. The types are:
+  - `INV` invoices; `PO` supplier orders; `SCR` scrap purchases;
+  - `SST` supplier settlements; `HRS` Hasad settlements;
+  - `GMA`, `GMR`, `GMX` for funding (advance, repayment, correction);
+  - `CO-TRF` for transfers.
 
-Ledger movement types and their effect on a branch's sellable stock:
+  Pieces are numbered `J-n`, with a barcode.
+- **Time:** the business day is computed in `company.timezone`.
 
-| Type | Effect |
-|------|--------|
-| PURCHASE | +1 |
-| TRANSFER_IN | +1 |
-| RETURN | +1 |
-| SALE | −1 |
-| HASAD_REDEMPTION | −1 |
-| TRANSFER_OUT | −1 |
-| DAMAGE | −1 |
-| ADJUSTMENT | ±1 (explicit direction) |
+## 4. Data integrity
 
-### Hasad Gold withdrawals
-1. Hasad sends a withdrawal (`READY_FOR_PICKUP`) with an **entitled weight** and branch.
-   → The ERP stores it. **No item is reserved. Inventory is unchanged.**
-2. Customer arrives, cashier opens the request (`HASAD_WITHDRAWAL_OPENED`).
-3. Customer picks a real piece → **that** item becomes `RESERVED` (one or more items).
-4. System calculates `difference = delivered − entitled`:
-   * `< 0` → **Branch pays customer** `|diff| × rate`
-   * `> 0` → **Customer pays branch** `diff × rate`
-   * `= 0` → no settlement
-5. Cashier confirms the settlement (explicit customer-acknowledgement step).
-6. Complete → item `REDEEMED`, ledger `HASAD_REDEMPTION`, settlement recorded, Hasad notified.
-7. Abort → items `RESERVED → AVAILABLE`; request stays open. Cancel → request cancelled in Hasad.
-8. Stale reservations are automatically released after a configurable timeout.
+- **Integers only:** money is an integer in the currency's smallest unit, and weight is an integer in milligrams. The
+  arithmetic is in `shared/src/money.ts`.
+- **CHECK constraints** (`shared/src/db-checks.ts`) cover statuses, signs, net ≤ gross, karat 1–24, and totals equal
+  to their parts. A test compares the live database with this list.
+- **Append-only tables** are protected by `jerp_forbid_modification` triggers (UPDATE, DELETE and TRUNCATE), and on
+  PostgreSQL by revoked privileges for the runtime role (`jerp_lock_append_only`). The list of tables is in
+  DATA_MODEL.md.
+  - At start-up, a check verifies that the runtime role can alter none of the tables in `APPEND_ONLY_TABLES`
+    (`backend/src/core/startup.ts`).
+  - Known gap: that list lacks `gm_funding_events`. Its trigger and lock exist (migration 0020); only the start-up
+    report misses it (BACKLOG §G).
+- **Ledger:** a balance is always the sum of its entries, and entries are written in the same transaction as the
+  business change.
+  - A cash outflow takes a row lock on the branch's accounts before checking the drawer (`DRAWER_SHORT`).
+  - Readers filter by account kind, so `OWED_TO_GM` is never counted as money (guardrail test).
 
-### Profit
-`Gross profit = Σ(sale price after discount) − Σ(item total cost)`;
-`Branch contribution = Gross profit − approved branch expenses`.
-`Total cost = purchase cost + making cost + other cost` — each component is stored
-separately so the client can later redefine "cost" without a data migration.
-Hasad redemptions are reported **separately** (weight, item cost, settlements) because revenue
-recognition for Hasad is not yet defined by the client.
+## 5. Production safety
 
-## 5. Roles & data isolation
+`APP_MODE=production` refuses to start when:
 
-Roles live in the database (`roles`, `role_permissions`) — new roles need no code change.
-Permissions are fine-grained (`sales.create`, `inventory.price_edit`, …). Branch scope is
-itself a permission (`scope.all_branches`), only granted to the General Manager by default.
+- the database is PGlite;
+- a database password is well known;
+- `APP_ORIGIN` is not HTTPS;
+- an old demo account still accepts its published password;
+- or the configuration is otherwise unsafe.
 
-## 6. Configurable (not hard-coded)
+The checks are in `productionConfigProblems` (`core/startup.ts`), and the start-up log lists every problem. Bootstrap
+and the operator commands are CLIs that need shell access (`backend/src/*-cli.ts`). Backups are `pg_dump` encrypted
+with age, run by a read-only role, with a restore drill (`npm run backup`, `npm run backup:verify`).
 
-Stored in the `settings` table / `gold_rates` table and editable by the General Manager:
+## 6. Frontend
 
-* Gold price per gram per karat (used for Hasad weight-difference settlement & display)
-* Hasad settlement basis: *net weight* (default, per spec) or *pure-gold equivalent*
-* Hasad reservation timeout (minutes)
-* Maximum discount % per role
-* Expense approval threshold (expenses above it need GM approval)
-* Session idle / expiry timeouts
-* Self-service password change (disabled by default — centralized password control)
-* Business timezone (Africa/Khartoum), currency (SDG)
-* Mock Hasad: latency, simulated outage (to demonstrate error handling)
+- Routes are in `frontend/src/App.tsx`. Each one is wrapped in a permission `Guard` that mirrors the server.
+- The server is the authority: the UI only hides what the user cannot use.
+- Data is fetched with React Query. Every list has loading, empty, error and not-allowed states.
+- The shell has a top bar with the attention count, and a notice area for what must interrupt.
+- **Homes:** the General Manager's is `/overview`; the branch manager's is `/dashboard`.
+- **i18n:** English strings are the keys, and Arabic is in `frontend/src/lib/i18n-ar.ts`. RTL is the default.
+- Design tokens and mockups are in `docs/ux/` and `docs/design-reference/`.
+- Printing: one print module renders into a print-only container with its own `@page` rule, and the browser prints
+  it.
 
-## 7. Assumptions (to validate with the client)
+## 7. Tests and gates
 
-1. Hasad entitlements are expressed in grams comparable to the jewelry **net gold weight**.
-   A pure-gold-equivalent mode exists as a setting in case karat conversion is required.
-2. The weight difference is valued at the **current gold rate for the selected item's karat**.
-3. No making charge is applied to Hasad redemptions (open question for the client).
-4. A Hasad customer may take **one or more** pieces to consume their entitlement.
-5. Normal sale carts do not reserve items; the sale is validated atomically at completion
-   (prevents double-selling across cashiers without locking stock while browsing).
-6. Held carts are stored per user on the device (prototype simplification).
-7. Transfers are two-step (sent → received); in-transit items show status `TRANSFERRED`.
-8. Currency is SDG, integer amounts. Weights are stored as integer milligrams.
-
-## 8. Implementation plan (phases)
-
-1. **Foundation** — monorepo, shared domain, DB schema/migrations, auth & sessions.
-2. **Vertical slice** — login → POS sale → Hasad redemption → dashboards → audit (end-to-end test).
-3. **Management** — purchases, expenses, transfers, users & password management, sessions.
-4. **Reporting** — 10 reports with filters/sort/search, drill-down company → branch → txn → item.
-5. **Polish** — Arabic/RTL, empty/loading/error states, print invoice, demo tooling, docs.
-
-## 9. Moving to production (out of scope now)
-
-* Replace `MockHasadService` with `HttpHasadService` (same interface) + webhook endpoint with
-  signature verification, idempotency keys and retry queue.
-* Managed PostgreSQL, backups, row-level security as defence in depth.
-* SSO / MFA, rate limiting on login, CSRF tokens if the API is used cross-site.
-* Real barcode scanner & receipt printer integration.
+- `npm test` runs vitest. There are two projects, PGlite and real PostgreSQL (`TEST_DATABASE_URL`); the latter adds
+  the race and privilege tests. Every test file gets its own database.
+- `npm run typecheck` chains the static gates and then `tsc`:
+  - `check:lockfile`: native binaries for every OS;
+  - `check:hasad`: the Hasad footprint allow-list;
+  - `check:migrations`;
+  - `check:drizzle`: the schema matches the migrations;
+  - `check:test-imports`;
+  - `check:assets`;
+  - `check:docs`: the documentation drift guard.
+- `npm run i18n:check` finds hardcoded English and missing Arabic translations.
+- The browser scripts are listed in the README. `npm run rehearsal` (REH-1) replays the first day on an empty
+  production-mode database. `scripts/perf-homes.mjs` sets a 300 ms p95 budget for the homes and the attention list.
