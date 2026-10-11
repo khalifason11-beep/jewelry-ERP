@@ -20,8 +20,8 @@ import { inspectLogo } from '../src/modules/branding/image';
 import { operatorResetGmPassword, operatorUnlock } from '../src/modules/ops/service';
 import { createSession } from '../src/modules/sessions/service';
 import { hashPassword } from '../src/auth/password';
-import { seedDemo } from '../src/seed/demo';
-import { DEMO_PASSWORDS } from '../src/seed/catalog';
+import { seedWorld } from './fixtures/world';
+import { DEMO_PASSWORDS } from './fixtures/world-data';
 
 let handle: DatabaseHandle;
 let ctx: Ctx;
@@ -54,7 +54,7 @@ const gmAgent = async () => {
 beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
   app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
   prodApp = createApp(ctx, prodConfig);
 });
@@ -232,8 +232,11 @@ describe('branding and logo upload', () => {
     await gm.put('/api/settings').send({ changes: { 'company.nameEn': 'Test Gold Co', 'company.nameAr': 'شركة الذهب', 'company.currencyLabelEn': 'SDG' } });
     const meta = (await request(app).get('/api/meta')).body.branding;
     expect(meta.company).toEqual({ nameEn: 'Test Gold Co', nameAr: 'شركة الذهب' });
-    expect(meta.currency.labelAr).toBe('ج.س');
-    expect((await gm.get('/api/auth/me')).body.branding.company.nameEn).toBe('Test Gold Co');
+    // UI-A2 (D-ui-14): currency labels are for signed-in screens only (/auth/me), not the public sign-in page.
+    expect(meta.currency).toBeUndefined();
+    const me = (await gm.get('/api/auth/me')).body.branding;
+    expect(me.company.nameEn).toBe('Test Gold Co');
+    expect(me.currency.labelAr).toBe('ج.س');
   });
 });
 
@@ -325,7 +328,7 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'POST /auth/sign-ins/:id/not-me': () => ({ path: `/auth/sign-ins/${NONE}/not-me` }),
   'PUT /security/second-factor': () => ({ path: '/security/second-factor', body: {} }),
   'POST /sessions/heartbeat': () => ({ path: '/sessions/heartbeat' }),
-  'GET /notifications': () => ({ path: '/notifications' }),
+  'POST /client-errors': () => ({ path: '/client-errors', body: { ref: 'ERR-MATRIX01', path: '/x', message: 'TypeError: matrix sample' } }),
   'GET /branches': () => ({ path: '/branches' }),
   'GET /branches/directory': () => ({ path: '/branches/directory' }),
   'GET /categories': () => ({ path: '/categories' }),
@@ -381,15 +384,21 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'GET /scrap-rates': () => ({ path: '/scrap-rates' }),
   'GET /cash/hasad-settlements': () => ({ path: '/cash/hasad-settlements' }),
   'POST /cash/hasad-settlements': () => ({ path: '/cash/hasad-settlements', body: {} }),
+  'GET /funding': () => ({ path: '/funding' }),
+  'POST /funding/advances': () => ({ path: '/funding/advances', body: {} }),
+  'POST /funding/repayments': () => ({ path: '/funding/repayments', body: {} }),
+  'POST /funding/:id/correct': () => ({ path: `/funding/${NONE}/correct`, body: {} }),
   'POST /scrap-rates': () => ({ path: '/scrap-rates', body: {} }),
   'GET /scrap-purchases': () => ({ path: '/scrap-purchases' }),
   'POST /scrap-purchases': () => ({ path: '/scrap-purchases', body: {} }),
   'GET /scrap-pool': () => ({ path: '/scrap-pool' }),
   'POST /purchases/:id/settlements': (f) => ({ path: `/purchases/${f.krtPurchase}/settlements`, body: {} }),
   'GET /dashboard/company': () => ({ path: '/dashboard/company' }),
+  'GET /attention': () => ({ path: '/attention' }),
   'GET /reports/:key': () => ({ path: '/reports/sales' }),
   'GET /audit': () => ({ path: '/audit', query: { limit: 5 } }),
-  'POST /demo/reset': () => ({ path: '/demo/reset' }),
+  'GET /setup/status': () => ({ path: '/setup/status' }),
+  'POST /setup/allowed-karats': () => ({ path: '/setup/allowed-karats', body: { allowedKarats: [18, 21, 22, 24] } }),
 };
 
 /** For every branch-scoped rule: a request by a Khartoum user that targets Omdurman data. */
@@ -417,9 +426,10 @@ const CROSS: Record<string, (f: Fixtures) => Req> = {
   'GET /purchases/:id': (f) => ({ path: `/purchases/${f.omdPurchase}` }),
   'POST /purchases': (f) => ({ path: '/purchases', body: { branchId: f.omd, lines: [{ productId: 1, grossWeightMg: 5000, netWeightMg: 4800, purchaseCost: 100, makingCost: 0, otherCost: 0, sellingPrice: 200 }] } }),
   'GET /transfers': (f) => ({ path: '/transfers', query: { branchId: f.omd } }),
-  'POST /transfers': (f) => ({ path: '/transfers', body: { fromBranchId: f.omd, toBranchId: f.krt, itemIds: [f.omdItem] } }),
+  'POST /transfers': (f) => ({ path: '/transfers', body: { fromBranchId: f.omd, toBranchId: f.krt, itemIds: [f.omdItem], courierName: 'Cross courier' } }),
   'POST /transfers/:id/receive': (f) => ({ path: `/transfers/${f.omdTransferTo}/receive` }),
   'GET /dashboard/branch': (f) => ({ path: '/dashboard/branch', query: { branchId: f.omd } }),
+  'GET /attention': (f) => ({ path: '/attention', query: { branchId: f.omd } }),
   'GET /reports/:key': (f) => ({ path: '/reports/sales', query: { branchId: f.omd } }),
   'GET /audit': (f) => ({ path: '/audit', query: { branchId: f.omd } }),
   'GET /cash/drawer': (f) => ({ path: '/cash/drawer', query: { branchId: f.omd } }),
@@ -428,6 +438,10 @@ const CROSS: Record<string, (f: Fixtures) => Req> = {
   'GET /scrap-purchases': (f) => ({ path: '/scrap-purchases', query: { branchId: f.omd } }),
   'GET /cash/hasad-settlements': (f) => ({ path: '/cash/hasad-settlements', query: { branchId: f.omd } }),
   'POST /cash/hasad-settlements': (f) => ({ path: '/cash/hasad-settlements', body: { branchId: f.omd, amount: 1 } }),
+  'GET /funding': (f) => ({ path: '/funding', query: { branchId: f.omd } }),
+  'POST /funding/advances': (f) => ({ path: '/funding/advances', body: { branchId: f.omd, account: 'CASH', amount: 1, reason: 'cross-branch probe' } }),
+  'POST /funding/repayments': (f) => ({ path: '/funding/repayments', body: { branchId: f.omd, account: 'CASH', amount: 1, reason: 'cross-branch probe' } }),
+  'POST /funding/:id/correct': () => ({ path: `/funding/${NONE}/correct`, body: { reason: 'cross-branch probe' } }),
   'POST /scrap-purchases': (f) => ({ path: '/scrap-purchases', body: { branchId: f.omd, kind: 'BROKEN', karat: 21, grossWeightMg: 1000, netWeightMg: 1000, paymentMethod: 'CASH' } }),
   'GET /scrap-pool': (f) => ({ path: '/scrap-pool', query: { branchId: f.omd } }),
   'POST /purchases/:id/settlements': (f) => ({ path: `/purchases/${f.omdPurchase}/settlements`, body: { karat: 21, weightMg: 1000 } }),
@@ -482,7 +496,7 @@ describe('route permission matrix (generated from shared/src/route-matrix.ts)', 
   it('every registered route is in the matrix and every matrix rule is registered', () => {
     const ids = (rules: RouteRule[]) => rules.map((x) => routeId(x.method, x.path)).sort();
     expect(ids(app.locals.apiRoutes)).toEqual(ids([...ROUTE_MATRIX]));
-    expect(ids(prodApp.locals.apiRoutes)).toEqual(ids(ROUTE_MATRIX.filter((x) => !x.demoOnly)));
+    expect(ids(prodApp.locals.apiRoutes)).toEqual(ids([...ROUTE_MATRIX])); // REM-3: no demo-only route exists
     // GM: no destructive operation on business data in production.
     expect(prodApp.locals.apiRoutes.filter((x: RouteRule) => x.destructive)).toEqual([]);
   });
@@ -491,8 +505,8 @@ describe('route permission matrix (generated from shared/src/route-matrix.ts)', 
     const reg = defineRoutes(Router(), ctx, { demo: true });
     expect(() => reg.route('GET', '/secret/unlisted', (_req, res) => res.json({}))).toThrow(/not in ROUTE_MATRIX/);
     const prod = defineRoutes(Router(), ctx, { demo: false });
-    prod.route('POST', '/demo/reset', (_req, res) => res.json({}));
-    expect(prod.registered).toEqual([]); // demo-only rules are skipped outside demo mode
+    // REM-3: the demo reset is gone; it is not in the matrix, so it can never be registered.
+    expect(() => prod.route('POST', '/demo/reset', (_req, res) => res.json({}))).toThrow(/not in ROUTE_MATRIX/);
   });
 
   it('has a sample request for every rule and a cross-branch request for every branch-scoped rule', () => {
@@ -593,7 +607,7 @@ describe('cost, acquisition cost and profit are GM-only (Q15)', () => {
       '/reports/inventory-movement',
       '/reports/inventory-ledger',
       '/transfers',
-      '/notifications',
+      '/attention',
     ];
   };
 

@@ -10,8 +10,8 @@ import { createContext } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
 import type { Ctx } from '../src/core/context';
 import { resetThrottleMemory } from '../src/auth/lockout';
-import { seedDemo } from '../src/seed/demo';
-import { DEMO_PASSWORDS } from '../src/seed/catalog';
+import { seedWorld } from './fixtures/world';
+import { DEMO_PASSWORDS } from './fixtures/world-data';
 import { evaluateBackupHealth } from '../src/modules/backups/status';
 import { backupBaseName, parseBackupName, selectToKeep } from '../src/backup/retention';
 import { BackupConfigError, loadBackupConfig, pgEnv } from '../src/backup/config';
@@ -25,7 +25,7 @@ const H = 3_600_000;
 beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
   app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
 });
 afterAll(async () => handle.close());
@@ -77,9 +77,9 @@ describe('health check and GM status', () => {
     const s = (await gm.get('/api/backups/status')).body;
     expect(s).toMatchObject({ status: 'WARNING', reasons: ['BACKUP_STALE'], maxAgeHours: 26, maxVerifyAgeDays: 7 });
     // Raising the threshold (setting) clears the warning.
-    await ctx.settings.apply(ctx.db, { 'backup.maxAgeHours': 48 }, { actor: { id: null, username: 'test' }, allowDemoOnly: true });
+    await ctx.settings.apply(ctx.db, { 'backup.maxAgeHours': 48 }, { actor: { id: null, username: 'test' } });
     expect((await gm.get('/api/backups/status')).body).toMatchObject({ status: 'OK', reasons: [], maxAgeHours: 48 });
-    await ctx.settings.apply(ctx.db, { 'backup.maxAgeHours': 26 }, { actor: { id: null, username: 'test' }, allowDemoOnly: true });
+    await ctx.settings.apply(ctx.db, { 'backup.maxAgeHours': 26 }, { actor: { id: null, username: 'test' } });
   });
 
   it('branch managers and cashiers cannot read the backup status', async () => {

@@ -33,6 +33,10 @@ export interface SaleDetail {
   voidedAt: string | null;
   voidReason: string | null;
   voidedByName: string | null;
+  /** SEC-2: internal, shown to staff on the sale detail; never on the invoice. */
+  priceChangeReason?: string | null;
+  paymentRefInvoice?: string | null;
+  paymentRefTransaction?: string | null;
   items: {
     id: number;
     itemId: number;
@@ -97,6 +101,11 @@ export function InvoiceDocument({ sale }: { sale: SaleDetail }) {
           <div className="text-ink-500">
             {t('Payment')}: {t(sale.paymentMethod)}
           </div>
+          {sale.paymentMethod === 'BANK_TRANSFER' && (
+            <div className="text-ink-500">
+              {t('Bank transfer reference')}: <span className="font-mono">{sale.paymentRefTransaction ?? '—'}</span>
+            </div>
+          )}
         </div>
       </div>
       <table className="w-full border-collapse">

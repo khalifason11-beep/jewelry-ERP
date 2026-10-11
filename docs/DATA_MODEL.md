@@ -1,5 +1,9 @@
 # Prototype Data Model
 
+> **Status after REM-5 (migration 0016):** the objects marked DEPRECATED below (expenses, the Hasad withdrawal tables,
+> `settlements`, `hasad_mock.*`, the old item cost and reservation columns, RESERVED/REDEEMED) no longer exist. This
+> document dates from the prototype; the schema of record is `database/src/schema.ts` (BACKLOG section G).
+
 Source of truth: [`database/src/schema.ts`](../database/src/schema.ts) (Drizzle). SQL migrations are in
 `database/migrations/`. This is a **prototype** model designed around the requirements. Items marked ⚙
 are expected to evolve once the client confirms accounting rules.
@@ -52,6 +56,9 @@ hasad_mock.* (customers, withdrawals, api_calls). DEPRECATED (REM-2): the mock w
 | `gold_rates` | Rate history per karat; latest row is current |
 | `settings` | JSON settings (see ARCHITECTURE §6) |
 | `audit_logs` | Append-only: time, user, role, branch, action, entity, description, metadata, IP, session |
+| `ledger_accounts`, `ledger_entries` | The branch money ledger (Phase 2b): one account per branch and kind (CASH, BANK, FUNDS_IN_TRANSIT, HASAD_RECEIVABLE, and since CSH-2 **OWED_TO_GM**, what the branch owes the General Manager, never money); append-only signed entries, balance = SUM |
+| `gm_funding_events` | **CSH-2** (migration 0020), append-only: the General Manager's ADVANCE into a branch's drawer or bank, the branch's REPAYMENT, and the REVERSAL that corrects one of them (at most once); amount, account (CASH or BANK), reason, bank reference (BANK), "paid directly to a seller" marker and linked purchase number (display only) |
+| `scrap_purchases` | Counter scrap purchases (Phase 4), append-only. **CSH-2** (migration 0021): `cash_amount` + `bank_amount` = `amount`, `bank_reference` when the bank part > 0, `payment_method` = CASH, BANK_TRANSFER or SPLIT derived from the parts |
 
 ## Traceability
 
@@ -61,6 +68,8 @@ Any number on a dashboard can be traced to rows:
   reconciles the ledger closing balance with the live count of AVAILABLE + RESERVED items.
 - **Hasad** is a payment method: `sales.payment_method = HASAD` → `ledger_entries` on the branch's
   HASAD_RECEIVABLE account → `hasad_receivable_settlements` when Hasad's bank transfer arrives (REM-2).
+- **Owed to the General Manager** (CSH-2) → the branch's OWED_TO_GM account in `ledger_entries` (SUM) → each entry's
+  `ref_type = 'gm_funding_event'` → `gm_funding_events` (advance, repayment, correction) and its audit row.
 
 ## Item lifecycle
 

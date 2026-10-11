@@ -29,10 +29,26 @@ export async function openTestDatabase(): Promise<DatabaseHandle & { url?: strin
       await handle.close();
       const drop = new pg.Client({ connectionString: base });
       await drop.connect();
-      await drop.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+      await dropTestDatabase(drop, name);
       await drop.end();
     },
   };
+}
+
+/**
+ * Drop a test database once its own connections are closed. A plain DROP first: it cancels an autovacuum worker that
+ * may still be busy on the database (tests fill it heavily). `WITH (FORCE)` would instead try to terminate that worker,
+ * which runs as the bootstrap superuser, and our test role is deliberately not a superuser, so PostgreSQL refuses
+ * ("permission denied to terminate process", seen intermittently). FORCE only when a client connection is really
+ * left open (object_in_use, 55006), for the tests that connect as other roles.
+ */
+export async function dropTestDatabase(client: { query: (q: string) => Promise<unknown> }, name: string): Promise<void> {
+  try {
+    await client.query(`DROP DATABASE IF EXISTS ${name}`);
+  } catch (e) {
+    if ((e as { code?: string }).code !== '55006') throw e;
+    await client.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+  }
 }
 
 /** A fresh Idempotency-Key for every request the agent sends (a test can still `.set()` its own). */

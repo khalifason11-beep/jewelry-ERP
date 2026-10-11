@@ -15,8 +15,8 @@ import { createSale, voidSale } from '../src/modules/sales/service';
 import { balances, cashBalance, entriesFor, LINE_OF_EVENT, OTHER_EVENT_TYPES, post, reconciliation, reconciliationLines, RECONCILIATION_LINES } from '../src/modules/ledger/service';
 import { LEDGER_EVENT_TYPES } from '@jerp/shared';
 import { addDays, dayKey, dayStart } from '../src/core/time';
-import { seedDemo } from '../src/seed/demo';
-import { DEMO_PASSWORDS } from '../src/seed/catalog';
+import { seedWorld } from './fixtures/world';
+import { DEMO_PASSWORDS } from './fixtures/world-data';
 import { openTestDatabase, PG_MODE, withIdempotencyKeys } from './helpers';
 
 let handle: DatabaseHandle;
@@ -57,7 +57,7 @@ const failure = async (statement: string) => {
 beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
   app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
 });
 afterAll(async () => handle.close());
@@ -70,9 +70,11 @@ describe('cost model', () => {
     const supplier = items.filter((i) => i.origin === 'SUPPLIER_NEW');
     const scrap = items.filter((i) => i.origin === 'SCRAP');
     expect(supplier.length + scrap.length).toBe(items.length);
+    const lines = new Map((await ctx.db.select().from(t.purchaseItems)).map((l) => [l.itemId, l]));
     for (const i of supplier) {
-      expect(i.acquisitionCost).toBe(i.purchaseCost + i.makingCost + i.otherCost);
-      expect(i.makingCharge).toBe(i.makingCost);
+      const l = lines.get(i.id)!;
+      expect(i.acquisitionCost).toBe(l.purchaseCost + l.makingCost + l.otherCost);
+      expect(i.makingCharge).toBe(l.makingCost);
       expect(i.makingCharge).toBeLessThanOrEqual(i.acquisitionCost);
       expect(i.costIsEstimated).toBe(false);
       expect(i.supplierId).not.toBeNull();
@@ -119,13 +121,13 @@ describe('cost model', () => {
 });
 
 describe('ledger basics', () => {
-  it('every branch has CASH, BANK, FUNDS_IN_TRANSIT and HASAD_RECEIVABLE accounts, also a branch created later', async () => {
+  it('every branch has CASH, BANK, FUNDS_IN_TRANSIT, HASAD_RECEIVABLE and OWED_TO_GM (CSH-2) accounts, also a branch created later', async () => {
     const accounts = await ctx.db.select().from(t.ledgerAccounts);
     const branches = await ctx.db.select().from(t.branches);
-    expect(accounts).toHaveLength(branches.length * 4);
+    expect(accounts).toHaveLength(branches.length * 5);
     const [b] = await ctx.db.insert(t.branches).values({ code: 'LDGT', name: 'Ledger Test', nameAr: 'اختبار', city: 'Test' }).returning();
     const kinds = (await ctx.db.select().from(t.ledgerAccounts).where(eq(t.ledgerAccounts.branchId, b.id))).map((a) => a.kind).sort();
-    expect(kinds).toEqual(['BANK', 'CASH', 'FUNDS_IN_TRANSIT', 'HASAD_RECEIVABLE']);
+    expect(kinds).toEqual(['BANK', 'CASH', 'FUNDS_IN_TRANSIT', 'HASAD_RECEIVABLE', 'OWED_TO_GM']);
   });
 
   it('the demo seed posted entries consistent with its history', async () => {
@@ -134,12 +136,6 @@ describe('ledger basics', () => {
     expect(saleEntries.reduce((s, e) => s + e.amount, 0)).toBe(sales.reduce((s, x) => s + x.total, 0));
     const voids = await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'SALE_VOID'));
     expect(voids.reduce((s, e) => s + e.amount, 0)).toBe(-sales.filter((x) => x.status === 'VOIDED').reduce((s, x) => s + x.total, 0));
-    // Expenses were removed (REM-1): the seed records none and the ledger holds no EXPENSE entry.
-    expect(await ctx.db.select().from(t.expenses)).toHaveLength(0);
-    expect(await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'EXPENSE'))).toHaveLength(0);
-    // Hasad weight-difference settlements were removed (REM-2): none in the seed, none in the ledger.
-    expect(await ctx.db.select().from(t.settlements)).toHaveLength(0);
-    expect(await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'HASAD_SETTLEMENT'))).toHaveLength(0);
   });
 
   it('a balance is exactly the sum of its entries (no cached balance anywhere)', async () => {
@@ -193,7 +189,7 @@ describe('money events post in the same transaction as the business change', () 
     const [a, b] = await freshItems('KRT', 2);
     const cashBefore = await cashBalance(ctx.db, krt);
     const s1 = await createSale(ctx, cashier, { items: [{ itemId: a.id }], paymentMethod: 'CASH' });
-    const s2 = await createSale(ctx, cashier, { items: [{ itemId: b.id }], paymentMethod: 'BANK_TRANSFER' });
+    const s2 = await createSale(ctx, cashier, { items: [{ itemId: b.id }], paymentMethod: 'BANK_TRANSFER', paymentRefTransaction: 'TRF-LEDGER-0001' });
     expect(await cashBalance(ctx.db, krt)).toBe(cashBefore + s1.total);
     const e2 = await entriesFor(ctx.db, 'sale', [s2.id]);
     expect(e2).toHaveLength(1);
@@ -234,7 +230,7 @@ describe('money events post in the same transaction as the business change', () 
     expect(await ctx.db.select().from(t.rolePermissions).where(sql`permission_code LIKE 'expenses.%'`)).toHaveLength(0);
     const settings = (await gm.get('/api/settings')).body;
     expect(settings.settings.expenses).toBeUndefined();
-    for (const path of ['/api/dashboard/company', '/api/notifications', '/api/reports/branch-performance', '/api/reports/profit']) {
+    for (const path of ['/api/dashboard/company', '/api/attention', '/api/reports/branch-performance', '/api/reports/profit']) {
       const res = await gm.get(path);
       expect(res.status, path).toBe(200);
       expect(JSON.stringify(res.body), path).not.toMatch(/expense|contribution/i);
@@ -243,40 +239,23 @@ describe('money events post in the same transaction as the business change', () 
     expect(JSON.stringify((await bm.get('/api/dashboard/branch')).body)).not.toMatch(/expense|contribution/i);
   });
 
-  it('expenses are gone (REM-1): the database refuses new expense rows and new EXPENSE ledger entries', async () => {
+  it('expenses and the Hasad workspace are gone (REM-1, REM-2, dropped by REM-5): no tables, and the ledger refuses their event types', async () => {
     const krt = await branchId('KRT');
-    const [gm] = await ctx.db.select().from(t.users).where(eq(t.users.username, 'general.manager'));
-    const row = await failure(
-      `INSERT INTO expenses (number, branch_id, category, amount, expense_date, description, status, created_by) VALUES ('EXP-X', ${krt}, 'OTHER', 1000, '2026-01-01', 'x', 'APPROVED', ${gm.id})`,
-    );
-    expect(row).toMatch(/expenses were removed/);
-    const before = await entryCount();
-    await expect(
-      ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'CASH', amount: -1000, eventType: 'EXPENSE', ref: { refType: 'expense', refId: 1 } }], { actor: null })),
-    ).rejects.toThrow();
-    expect(await entryCount()).toBe(before);
-    // Every other event type still posts.
-    await ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'BANK', amount: 1, eventType: 'HASAD_RECEIVABLE_SETTLEMENT', ref: { refType: 'test', refId: 1 } }], { actor: null }));
-    expect(await entryCount()).toBe(before + 1);
-  });
-
-  it('the Hasad workspace is gone (REM-2): the database refuses new withdrawals, sessions, weight settlements and HASAD_SETTLEMENT entries', async () => {
-    const krt = await branchId('KRT');
-    for (const [table, stmt] of [
-      ['hasad_withdrawals', `INSERT INTO hasad_withdrawals (external_id) VALUES ('X')`],
-      ['hasad_redemptions', `INSERT INTO hasad_redemptions (number) VALUES ('X')`],
-      ['hasad_redemption_items', `INSERT INTO hasad_redemption_items (redemption_id) VALUES (1)`],
-      ['settlements', `INSERT INTO settlements (number) VALUES ('X')`],
-      ['hasad_mock.customers', `INSERT INTO hasad_mock.customers (id) VALUES ('X')`],
-    ]) {
-      expect(await failure(stmt), table).toMatch(/was removed|were removed/);
+    for (const stmt of ['SELECT 1 FROM expenses', 'SELECT 1 FROM hasad_withdrawals', 'SELECT 1 FROM hasad_redemptions', 'SELECT 1 FROM hasad_redemption_items', 'SELECT 1 FROM settlements', 'SELECT 1 FROM hasad_mock.customers']) {
+      expect(await failure(stmt), stmt).toMatch(/does not exist/);
     }
     const before = await entryCount();
-    await expect(
-      ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'CASH', amount: 500, eventType: 'HASAD_SETTLEMENT', ref: { refType: 'hasad_redemption', refId: 1 } }], { actor: null })),
-    ).rejects.toThrow();
+    for (const eventType of ['EXPENSE', 'HASAD_SETTLEMENT']) {
+      await expect(
+        ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'CASH', amount: -1000, eventType: eventType as never, ref: { refType: 'test', refId: 1 } }], { actor: null })),
+        eventType,
+      ).rejects.toThrow();
+    }
     expect(await entryCount()).toBe(before);
-    expect(await ctx.db.select().from(t.permissions).where(sql`code LIKE 'hasad.%'`)).toHaveLength(0);
+    // Every kept event type still posts.
+    await ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'BANK', amount: 1, eventType: 'HASAD_RECEIVABLE_SETTLEMENT', ref: { refType: 'test', refId: 1 } }], { actor: null }));
+    expect(await entryCount()).toBe(before + 1);
+    expect(await ctx.db.select().from(t.permissions).where(sql`code LIKE 'hasad.%' OR code LIKE 'expenses.%'`)).toHaveLength(0);
   });
 });
 
@@ -311,13 +290,15 @@ describe('idempotency inside the money transaction', () => {
   it('parallel submits with one key: one sale, one entry, the others replay or wait', async () => {
     const cashier = await login('cashier.kh.02', 'CASHIER', false);
     const [item] = await freshItems('KRT', 1);
+    // A piece back in stock after a voided sale already has a sale line: count only new ones.
+    const before = (await ctx.db.select().from(t.saleItems).where(eq(t.saleItems.itemId, item.id))).length;
     const key = `ldg-${crypto.randomUUID()}`;
     const rs = await Promise.all([1, 2, 3, 4].map(() => cashier.post('/api/sales').set('Idempotency-Key', key).send({ items: [{ itemId: item.id }], paymentMethod: 'CASH' })));
     for (const r of rs) expect([200, 409]).toContain(r.status);
     const ids = new Set(rs.filter((r) => r.status === 200).map((r) => r.body.id));
     expect(ids.size).toBe(1);
     const sales = await ctx.db.select().from(t.saleItems).where(eq(t.saleItems.itemId, item.id));
-    expect(sales).toHaveLength(1);
+    expect(sales).toHaveLength(before + 1);
     expect(await entriesFor(ctx.db, 'sale', [[...ids][0]])).toHaveLength(1);
   });
 });
@@ -380,6 +361,7 @@ describe('expected cash and daily reconciliation', () => {
     const today = dayKey(new Date(), company.timezone);
     const branches = await ctx.db.select().from(t.branches);
     let days = 0;
+    let bankDays = 0;
     for (const b of branches) {
       for (let off = -35; off <= 0; off++) {
         const day = addDays(today, off);
@@ -400,10 +382,16 @@ describe('expected cash and daily reconciliation', () => {
         expect(r.openingCash + sum(r.cashLines)).toBe(r.expectedCash);
         expect(sum(r.bankLines)).toBe(moved('BANK'));
         expect(r.bankMovement).toBe(moved('BANK'));
+        // FIX-2: the drill-down of bank-transfer sales adds up to the bank-transfer sales line; every row has its reference.
+        const bankSalesLine = r.salesByMethod.find((m) => m.paymentMethod === 'BANK_TRANSFER')!.amount;
+        expect(sum(r.bankTransferSales)).toBe(bankSalesLine);
+        for (const x of r.bankTransferSales) expect(x.reference, `${b.code} ${day} ${x.number}`).toMatch(/^[A-Z0-9 ./-]{4,40}$/);
+        if (r.bankTransferSales.length) bankDays++;
         days++;
       }
     }
     expect(days).toBeGreaterThan(100);
+    expect(bankDays).toBeGreaterThan(10);
   });
 
   it('guardrail: every ledger event type has a reconciliation line or is explicitly listed as "Other" with a reason', () => {
@@ -417,7 +405,7 @@ describe('expected cash and daily reconciliation', () => {
       expect((LEDGER_EVENT_TYPES as readonly string[]).includes(e), `${e} is not a ledger event type`).toBe(true);
       expect(reason?.trim().length, `${e} needs a reason`).toBeGreaterThan(10);
     }
-    expect(Object.keys(OTHER_EVENT_TYPES).sort()).toEqual(['EXPENSE', 'HASAD_SETTLEMENT', 'REVERSAL']);
+    expect(Object.keys(OTHER_EVENT_TYPES).sort()).toEqual(['REVERSAL']); // EXPENSE and HASAD_SETTLEMENT were dropped by REM-5
     // And the lines they map to exist for at least one account.
     const all = new Set<string>([...RECONCILIATION_LINES.CASH, ...RECONCILIATION_LINES.BANK]);
     for (const line of Object.values(LINE_OF_EVENT)) expect(all.has(line!), line).toBe(true);
@@ -433,7 +421,7 @@ describe('expected cash and daily reconciliation', () => {
       { kind: 'CASH', eventType: 'SOMETHING_NEW', amount: 3 },
       { kind: 'BANK', eventType: 'SALE', amount: 999 }, // another account: ignored
     ]);
-    expect(Object.fromEntries(lines.map((l) => [l.line, l.amount]))).toEqual({ SALES: 50_000, VOIDS: 0, SCRAP_PURCHASES: 0, MAKING_CHARGES: 0, OTHER: -7_098 });
+    expect(Object.fromEntries(lines.map((l) => [l.line, l.amount]))).toEqual({ SALES: 50_000, VOIDS: 0, SCRAP_PURCHASES: 0, MAKING_CHARGES: 0, GM_ADVANCES: 0, GM_REPAYMENTS: 0, OTHER: -7_098 });
     // And through the API: an entry on the drawer whose event type has no drawer line appears under OTHER, and the total still matches.
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
     const krt = await branchId('KRT');

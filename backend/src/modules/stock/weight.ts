@@ -1,5 +1,5 @@
 // Branch total stock weight (Phase 4, D-4-3): the gold a branch holds is its sellable pieces
-// (AVAILABLE + RESERVED, the same definition as the inventory KPIs) PLUS its broken-scrap pool.
+// (AVAILABLE, the same definition as the inventory KPIs) PLUS its broken-scrap pool.
 // Reported as raw weight by karat and as the 24K pure-gold equivalent. Both parts use the ONE
 // pure-gold helper (pureGoldMg), rounded once per karat balance; nothing is cached.
 
@@ -28,7 +28,7 @@ async function itemBalances(exec: Executor, branchId: number | null) {
   const res = await exec.execute(sql`
     SELECT branch_id AS "branchId", karat, coalesce(sum(net_weight_mg), 0)::bigint AS "weightMg"
     FROM jewelry_items
-    WHERE status IN ('AVAILABLE', 'RESERVED') ${branchId != null ? sql`AND branch_id = ${branchId}` : sql``}
+    WHERE status = 'AVAILABLE' ${branchId != null ? sql`AND branch_id = ${branchId}` : sql``}
     GROUP BY branch_id, karat
     ORDER BY branch_id, karat`);
   return rows<{ branchId: number; karat: number; weightMg: number | string }>(res).map((r) => ({ branchId: Number(r.branchId), karat: Number(r.karat), weightMg: Number(r.weightMg) }));

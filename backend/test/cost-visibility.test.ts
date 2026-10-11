@@ -16,8 +16,8 @@ import { createApp } from '../src/app';
 import { createContext } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
 import type { Ctx } from '../src/core/context';
-import { seedDemo } from '../src/seed/demo';
-import { DEMO_PASSWORDS } from '../src/seed/catalog';
+import { seedWorld } from './fixtures/world';
+import { DEMO_PASSWORDS } from './fixtures/world-data';
 import { openTestDatabase, withIdempotencyKeys } from './helpers';
 
 let handle: DatabaseHandle;
@@ -33,7 +33,7 @@ const camel = (s: string) => s.replace(/_([a-z])/g, (_m, c: string) => c.toUpper
 beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
   app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
   for (const [role, username] of Object.entries(ROLES) as [Role, string][]) {
     const a = withIdempotencyKeys(request.agent(app));
@@ -110,7 +110,6 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /health': ['/health'],
       'GET /branding/logo': [], // binary image, not JSON
       'GET /auth/me': ['/auth/me'],
-      'GET /notifications': ['/notifications'],
       'GET /branches': ['/branches'],
       'GET /branches/directory': ['/branches/directory'],
       'GET /categories': ['/categories'],
@@ -131,14 +130,17 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /purchases/:id': [`/purchases/${purchase.id}`, `/purchases/${settled.purchaseId}`],
       'GET /scrap-rates': ['/scrap-rates'],
       'GET /cash/hasad-settlements': ['/cash/hasad-settlements', `/cash/hasad-settlements?branchId=${krt.id}`],
+      'GET /funding': ['/funding', `/funding?branchId=${krt.id}`],
       'GET /scrap-purchases': ['/scrap-purchases', '/scrap-purchases?kind=SELLABLE'],
       'GET /scrap-pool': ['/scrap-pool', `/scrap-pool?branchId=${krt.id}`],
       'GET /transfers': ['/transfers'],
       'GET /dashboard/branch': [`/dashboard/branch?branchId=${krt.id}`],
       'GET /dashboard/company': ['/dashboard/company'],
+      'GET /attention': ['/attention', `/attention?branchId=${krt.id}`],
       'GET /reports/:key': reportPaths,
       'GET /audit': ['/audit', '/audit?limit=5000'],
       'GET /backups/status': ['/backups/status'],
+      'GET /setup/status': ['/setup/status'],
       'GET /auth/passkeys': ['/auth/passkeys'],
       'GET /auth/sign-ins': ['/auth/sign-ins'],
       'GET /cash/drawer': [`/cash/drawer?branchId=${krt.id}`],
@@ -186,8 +188,10 @@ describe('3. audit entries never reveal a cost figure to BM or cashier', () => {
     const [krt] = await ctx.db.select().from(t.branches).where(eq(t.branches.code, 'KRT'));
     const [p] = await ctx.db.select().from(t.purchases).where(eq(t.purchases.branchId, krt.id)).orderBy(desc(t.purchases.id)).limit(1);
     const figure = p.totalCost.toLocaleString('en-US');
+    // The audit list defaults to today; the latest purchase is today only after the first minutes of the day.
+    const day = (d: number) => new Date(p.createdAt.getTime() + d * 86_400_000).toISOString().slice(0, 10);
     const find = async (role: Role) => {
-      const res = await agents[role].get(`/api/audit?limit=5000&q=${encodeURIComponent(p.number)}`);
+      const res = await agents[role].get(`/api/audit?limit=5000&from=${day(-1)}&to=${day(1)}&q=${encodeURIComponent(p.number)}`);
       expect(res.status).toBe(200);
       return (res.body as { action: string; description: string; descriptionParams: Record<string, unknown> }[]).find((a) => a.action === 'PURCHASE_CREATED');
     };

@@ -11,7 +11,7 @@ import { dayRange } from '../../core/time';
 import { recordMovement } from '../inventory/ledger';
 import { assertSellableKarat } from '../../core/karats';
 import type { TxIdempotency } from '../../core/idempotency';
-import { post } from '../ledger/service';
+import { lockDrawerFor, post } from '../ledger/service';
 import { settlementsFor } from '../supplier-settlements/service';
 import { assertProductsUsable } from '../catalog/service';
 
@@ -101,7 +101,9 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
       })
       .returning();
     const ref = { refType: 'purchase', refId: purchase.id, refNumber: number };
-    // The making charge leaves the drawer or the bank now (skipped when it is 0).
+    // The making charge leaves the drawer or the bank now (skipped when it is 0). CSH-2 (Q7): from the drawer only if it
+    // holds it (BLOCK, under its lock); from the bank always (A17 warns when the bank goes below zero).
+    if (paidFrom === 'CASH') await lockDrawerFor(tx, branchId, makingChargePaid, 'MAKING_CHARGE');
     await post(
       tx,
       [{ branchId, kind: paidFrom, amount: -makingChargePaid, eventType: 'SUPPLIER_MAKING_CHARGE', paymentMethod: paidFrom === 'CASH' ? 'CASH' : 'BANK_TRANSFER', ref, at }],
@@ -122,10 +124,6 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
           karat: product.karat,
           grossWeightMg: l.grossWeightMg,
           netWeightMg: l.netWeightMg,
-          purchaseCost: l.purchaseCost,
-          makingCost: l.makingCost,
-          otherCost: l.otherCost,
-          totalCost: l.purchaseCost + l.makingCost + l.otherCost,
           // Cost model (Q3): a supplier piece's acquisition cost includes the making charge,
           // which is also kept on its own for reporting.
           origin: 'SUPPLIER_NEW',

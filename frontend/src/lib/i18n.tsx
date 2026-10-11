@@ -1,5 +1,6 @@
 // Lightweight localization: English source strings are the keys; Arabic is a dictionary
-// (./i18n-ar.ts). Arabic is the default language; English stays available via the switcher.
+// (./i18n-ar.ts). Code-like keys (PAYMENT_METHOD values, audit actions…) also have an English label in
+// ./i18n-en.ts (UI-A1), so English never shows a raw code. Arabic is the default language; English stays available via the switcher.
 // Switching language flips the document direction (RTL). Missing keys fall back to English.
 //
 // Interpolation: t('Item {code} not found', { code: 'J-1001' }). Placeholder names are kept
@@ -7,6 +8,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AR } from './i18n-ar';
+import { EN } from './i18n-en';
 
 export type Lang = 'en' | 'ar';
 export type Params = Record<string, string | number | null | undefined>;
@@ -39,7 +41,7 @@ export const tk = (s: string) => s;
 
 /** Translate outside React components (uses the current language). */
 export function translate(key: string, params?: Params): string {
-  const s = currentLang === 'ar' ? (AR[key] ?? key) : key;
+  const s = currentLang === 'ar' ? (AR[key] ?? key) : (EN[key] ?? key);
   return interpolate(s, params);
 }
 
@@ -75,7 +77,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       lang,
       dir,
       setLang,
-      t: (s, params) => interpolate(lang === 'ar' ? (AR[s] ?? s) : s, params),
+      t: (s, params) => interpolate(lang === 'ar' ? (AR[s] ?? s) : (EN[s] ?? s), params),
       // Bilingual names: the English name is optional (CAT-0), so English falls back to Arabic.
       // Same rule as displayName() in shared/src/names.ts, used for printed documents and CSV.
       L: (en, ar) => (lang === 'ar' ? ar?.trim() || en?.trim() || '' : en?.trim() || ar?.trim() || ''),

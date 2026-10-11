@@ -27,12 +27,20 @@ export interface SystemSettings {
     logoAssetId: number | null;
     invoiceFooterEn: string;
     invoiceFooterAr: string;
+    /** One line under the company name on the sign-in page (UI-A2, D-ui-14). Public: shown before sign-in. */
+    loginTaglineEn: string;
+    loginTaglineAr: string;
   };
   sales: {
     /** Max discount % of the item price, per role code. Missing role = 0. */
     maxDiscountPercentByRole: Record<string, number>;
     /** Payment methods the cashier's checkout offers (D-4-6); the others stay valid but hidden. */
     posPaymentMethods: PaymentMethod[];
+    /**
+     * SEC-2 (D-sec2-1): cancelling a sale whose total is above this amount needs a fresh password (and passkey)
+     * confirmation. 0 = every void. General Manager only (settings.manage).
+     */
+    voidReauthAboveAmount: number;
   };
   purchases: {
     /** Supplier purchases on CREDIT (creates a supplier payable). */
@@ -41,6 +49,12 @@ export interface SystemSettings {
     scrapPriceTolerancePct: number;
     /** Deviations beyond the tolerance need a reason AND General Manager approval. */
     requireGmApprovalForScrapOverride: boolean;
+    /** UI-B (A6, D-ux-12): supplier gold owed for longer than this many days raises a warning. */
+    supplierDebtMaxAgeDays: number;
+  };
+  cash: {
+    /** UI-B (A4, D-ux-12): a cash count may differ from the expected cash by at most this amount (0 = any difference). */
+    countDifferenceTolerance: number;
   };
   rates: {
     /** One rate table for the company, or one per branch. */
@@ -55,6 +69,11 @@ export interface SystemSettings {
   inventory: {
     /** Karats accepted anywhere in the system. */
     allowedKarats: number[];
+    /**
+     * The General Manager confirmed the allowed karats (REM-3 first-steps checklist, mandatory step).
+     * Set only by POST /setup/allowed-karats; an initial value from ALLOWED_KARATS_INITIAL is not a confirmation.
+     */
+    allowedKaratsConfirmed: boolean;
   };
   security: {
     /** Centralized password control: users cannot change their password except when forced. */
@@ -112,16 +131,25 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     logoAssetId: null,
     invoiceFooterEn: 'Thank you for shopping with us',
     invoiceFooterAr: 'شكراً لتسوقكم معنا',
+    // Empty: nothing is shown until the General Manager writes one (REM-3: no invented text).
+    loginTaglineEn: '',
+    loginTaglineAr: '',
   },
   sales: {
     maxDiscountPercentByRole: { CASHIER: 3, BRANCH_MANAGER: 10, GENERAL_MANAGER: 20 },
     posPaymentMethods: ['CASH', 'BANK_TRANSFER', 'HASAD'],
+    // The owner's rule: no guessed money amount. Every void asks; the General Manager may raise it.
+    voidReauthAboveAmount: 0,
   },
   purchases: {
     // Phase 4 (D-4-4): supplier purchases are gold-for-gold debts settled later with broken scrap.
     supplierCreditEnabled: true,
     scrapPriceTolerancePct: 2,
     requireGmApprovalForScrapOverride: true,
+    supplierDebtMaxAgeDays: 30,
+  },
+  cash: {
+    countDifferenceTolerance: 0,
   },
   rates: {
     goldRateScope: 'GLOBAL',
@@ -132,6 +160,7 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   },
   inventory: {
     allowedKarats: [18, 21, 22, 24],
+    allowedKaratsConfirmed: false,
   },
   security: {
     allowSelfPasswordChange: false,
@@ -161,6 +190,11 @@ export const DEFAULT_SETTINGS: SystemSettings = {
 
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
 const text = (min: number, max: number) => z.string().trim().min(min).max(max);
+/** One line of plain text: no markup characters (< >), no line breaks or other control characters. */
+const plainLine = (max: number) =>
+  text(0, max)
+    // eslint-disable-next-line no-control-regex
+    .refine((v) => !/[<>\u0000-\u001f\u007f]/.test(v), 'Plain text on one line only (no < >, no line breaks)');
 const roleKey = z.string().regex(/^[A-Z][A-Z0-9_]{1,39}$/);
 const karat = int(8, 24);
 const timezone = z.string().min(1).max(64).refine((tz) => {
@@ -176,8 +210,6 @@ export type SettingGroup = keyof SystemSettings;
 
 export interface SettingDef {
   schema: z.ZodType;
-  /** Only meaningful (and only editable) in APP_MODE=demo. */
-  demoOnly?: boolean;
   /** Changed only through a dedicated flow (password + passkey), refused by the generic settings form. */
   guarded?: boolean;
 }
@@ -193,6 +225,9 @@ export const SETTINGS_REGISTRY = {
   'branding.logoAssetId': { schema: z.number().int().positive().nullable() },
   'branding.invoiceFooterEn': { schema: text(0, 300) },
   'branding.invoiceFooterAr': { schema: text(0, 300) },
+  // Public on the sign-in page: one line of plain text (no markup, no line breaks), at most 120 characters.
+  'branding.loginTaglineEn': { schema: plainLine(120) },
+  'branding.loginTaglineAr': { schema: plainLine(120) },
   'sales.maxDiscountPercentByRole': { schema: z.record(roleKey, int(0, 100)) },
   'sales.posPaymentMethods': {
     schema: z
@@ -201,9 +236,12 @@ export const SETTINGS_REGISTRY = {
       .max(PAYMENT_METHODS.length)
       .refine((a) => new Set(a).size === a.length, 'Duplicate payment method'),
   },
+  'sales.voidReauthAboveAmount': { schema: int(0, 1_000_000_000_000) },
   'purchases.supplierCreditEnabled': { schema: z.boolean() },
   'purchases.scrapPriceTolerancePct': { schema: z.number().min(0).max(50) },
   'purchases.requireGmApprovalForScrapOverride': { schema: z.boolean() },
+  'purchases.supplierDebtMaxAgeDays': { schema: int(1, 3650) },
+  'cash.countDifferenceTolerance': { schema: int(0, 1_000_000_000_000) },
   'rates.goldRateScope': { schema: z.enum(['GLOBAL', 'BRANCH']) },
   'rates.rateChangeMaxPct': { schema: z.number().min(0.1).max(100) },
   'transfers.pendingClaimStaleHours': { schema: int(1, 24 * 30) },
@@ -214,6 +252,8 @@ export const SETTINGS_REGISTRY = {
       .max(10)
       .refine((a) => new Set(a).size === a.length, 'Duplicate karat'),
   },
+  // Changed only by the first-steps confirmation (POST /setup/allowed-karats), never by the settings form.
+  'inventory.allowedKaratsConfirmed': { schema: z.boolean(), guarded: true },
   'security.allowSelfPasswordChange': { schema: z.boolean() },
   'security.sessionIdleMinutes': { schema: int(1, 240) },
   'security.idleMinutes': { schema: int(5, 240) },

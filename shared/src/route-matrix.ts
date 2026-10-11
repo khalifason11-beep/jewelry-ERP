@@ -29,9 +29,7 @@ export interface RouteRule {
   any?: Permission[];
   /** Password re-confirmation within the re-auth window. */
   reauth?: boolean;
-  /** Registered only in APP_MODE=demo. */
-  demoOnly?: boolean;
-  /** Destroys business data — only ever allowed in demo mode. */
+  /** Destroys business data — never registered outside demo mode (REM-3: no such route exists). */
   destructive?: boolean;
   /**
    * Creates or confirms a business record: the request must carry an `Idempotency-Key` header.
@@ -84,7 +82,8 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   // Second-factor policy (user verification, required roles): password + passkey step-up.
   r('PUT', '/security/second-factor', 'global', { all: ['settings.manage'], reauth: true }),
   r('POST', '/sessions/heartbeat', 'self'),
-  r('GET', '/notifications', 'self'),
+  // A screen that crashed in the browser (UI-A2 crash page): reference id + details, written to the server log only.
+  r('POST', '/client-errors', 'self'),
 
   // ── reference data
   r('GET', '/branches', 'none'),
@@ -161,18 +160,27 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   // Hasad receivable settled by a bank transfer from Hasad (Phase 4 follow-up).
   r('GET', '/cash/hasad-settlements', 'branch', { all: ['cash.view'] }),
   r('POST', '/cash/hasad-settlements', 'branch', { all: ['cash.settle_hasad'], idempotent: true, idempotencyInTx: true }),
+  // ── CSH-2: the General Manager's advances to a branch and its repayments (GM only, password, key in the transaction)
+  r('GET', '/funding', 'branch', { all: ['funding.view'] }),
+  r('POST', '/funding/advances', 'branch', { all: ['funding.manage'], reauth: true, idempotent: true, idempotencyInTx: true }),
+  r('POST', '/funding/repayments', 'branch', { all: ['funding.manage'], reauth: true, idempotent: true, idempotencyInTx: true }),
+  r('POST', '/funding/:id/correct', 'branch', { all: ['funding.manage'], reauth: true, idempotent: true, idempotencyInTx: true }),
   r('GET', '/transfers', 'branch', { all: ['inventory.transfer'] }),
-  r('POST', '/transfers', 'branch', { all: ['inventory.transfer'], idempotent: true }),
+  // FIX-1 (D-fix-1): the BM's POS cart and the GM's "New transfer"; all or nothing, key claimed in the transaction.
+  r('POST', '/transfers', 'branch', { all: ['inventory.transfer'], idempotent: true, idempotencyInTx: true }),
   r('POST', '/transfers/:id/receive', 'branch', { all: ['inventory.transfer'], idempotent: true }),
 
   // ── dashboards, reports, audit
   r('GET', '/dashboard/branch', 'branch', { all: ['dashboard.branch'] }),
   r('GET', '/dashboard/company', 'global', { all: ['dashboard.company'] }),
+  // UI-B (BE-1): the attention list; GM all branches (or one), BM own branch, cashier refused.
+  r('GET', '/attention', 'branch', { any: ['dashboard.company', 'dashboard.branch'] }),
   r('GET', '/reports/:key', 'branch', { all: ['reports.view'] }),
   r('GET', '/audit', 'branch', { all: ['audit.view'] }),
 
-  // ── demo tooling (never registered in production)
-  r('POST', '/demo/reset', 'global', { all: ['settings.manage'], reauth: true, demoOnly: true, destructive: true }),
+  // ── first steps on an empty system (REM-3)
+  r('GET', '/setup/status', 'global', { all: ['settings.manage'] }),
+  r('POST', '/setup/allowed-karats', 'global', { all: ['settings.manage'], reauth: true }),
 ];
 
 export const routeId = (method: string, path: string) => `${method.toUpperCase()} ${path}`;

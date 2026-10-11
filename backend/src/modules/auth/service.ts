@@ -1,5 +1,5 @@
 import { ap } from '@jerp/shared';
-import { eq } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, type SQL } from 'drizzle-orm';
 import { t, type Executor } from '@jerp/database';
 import { config } from '../../config';
 import type { Actor, Ctx } from '../../core/context';
@@ -9,7 +9,8 @@ import { log } from '../../core/logger';
 import { burnVerification, hashPassword, needsRehash, verifyPassword } from '../../auth/password';
 import { assertPasswordPolicy } from '../../auth/policy';
 import { accountLocked, clearFailures, ipReserve, ipThrottled, reserveAttempt, type Reservation } from '../../auth/lockout';
-import { publicBranding } from '../branding/service';
+import { appBranding } from '../branding/service';
+import { isGlobal } from '../../authz';
 import { createSession, csrfTokenFor, endSession, endUserSessions, markReauthenticated, sessionRef } from '../sessions/service';
 import { factorState } from '../../auth/second-factor';
 import { createPending, openSession, secondFactorSummary, type SessionOpened } from './passkeys';
@@ -250,17 +251,39 @@ export async function me(ctx: Ctx, actor: Actor) {
     session: session
       ? { ref: sessionRef(session.id), loginAt: session.loginAt, device: session.device, ipAddress: session.ipAddress }
       : null,
-    branding: publicBranding(settings),
+    branding: appBranding(settings),
     timezone: settings.company.timezone,
     appMode: config.appMode,
     csrfToken: actor.sessionId ? await csrfTokenFor(ctx.db, actor.sessionId) : null,
     allowSelfPasswordChange: settings.security.allowSelfPasswordChange,
     maxDiscountPercent: settings.sales.maxDiscountPercentByRole[actor.roleCode] ?? 0,
+    // SEC-2 (D-sec2-1): voids above this total ask for the password again (0 = every void).
+    voidReauthAboveAmount: settings.sales.voidReauthAboveAmount,
     // Phase 2fa: second-factor state of this account (no secrets: counts, flags, the new-device alert).
     secondFactor: await secondFactorSummary(ctx, actor),
     // Phase 4: what the counter offers (D-4-6) and which karats are sold here (D-4-1).
     posPaymentMethods: settings.sales.posPaymentMethods,
     print: { invoiceFormat: settings.print.invoiceFormat, receiptWidthMm: settings.print.receiptWidthMm, autoPrintAfterSale: settings.print.autoPrintAfterSale },
     allowedKarats: settings.inventory.allowedKarats,
+    // LOCK-1 (D-lock-1): security-locked accounts the viewer may see (users.view, own branch for a manager).
+    lockedAccounts: await lockedAccounts(ctx, actor),
   };
+}
+
+/**
+ * Accounts under a security lock (D-2fa-13) that the viewer may see: the General Manager sees every one, a branch
+ * manager the staff of their own branch, anyone without `users.view` none. Names and the time only, no reason.
+ */
+export async function lockedAccounts(ctx: Ctx, actor: Actor) {
+  if (!actor.permissions.has('users.view')) return [];
+  const where: SQL[] = [isNotNull(t.users.securityLockedAt)];
+  if (!isGlobal(actor)) {
+    if (actor.branchId == null) return [];
+    where.push(eq(t.users.branchId, actor.branchId));
+  }
+  return ctx.db
+    .select({ id: t.users.id, username: t.users.username, fullName: t.users.fullName, fullNameAr: t.users.fullNameAr, lockedAt: t.users.securityLockedAt })
+    .from(t.users)
+    .where(and(...where))
+    .orderBy(asc(t.users.securityLockedAt));
 }

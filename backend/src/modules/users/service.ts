@@ -41,6 +41,7 @@ export async function listUsers(ctx: Ctx, actor: Actor, q: { branchId?: number }
       passwordChangedAt: t.users.passwordChangedAt,
       lastLoginAt: t.users.lastLoginAt,
       lockedUntil: t.users.lockedUntil,
+      securityLockedAt: t.users.securityLockedAt,
       failedLoginCount: t.users.failedLoginCount,
       createdAt: t.users.createdAt,
       activeSessions: sql<number>`(select count(*) from sessions s where s.user_id = ${t.users.id} and s.status = 'ACTIVE')`,

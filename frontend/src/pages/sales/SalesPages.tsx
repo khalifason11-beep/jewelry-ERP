@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, ChevronRight, FileText, Printer } from 'lucide-react';
 import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, karatLabel, money, pct } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import { Alert, Button, Card, CardHeader, Dialog, ErrorState, Field, KeyValue, Loading, Mono, PageHeader, StatusBadge, Textarea } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, DetailPending, Dialog, Field, KeyValue, Mono, PageHeader, StatusBadge, Textarea } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
 import type { SaleDetail } from '../../components/InvoiceDocument';
@@ -32,6 +32,8 @@ export interface SaleRow {
   costTotal?: number;
   grossProfit?: number;
   paymentMethod: string;
+  /** FIX-2: the bank-transfer reference (Hasad: its transaction reference). */
+  paymentRefTransaction?: string | null;
   status: string;
 }
 
@@ -39,20 +41,22 @@ export function SalesTable({ branchId, from, to, mine, toolbar }: { branchId?: n
   const { t, L, lang } = useI18n();
   const { can, isGlobal } = useAuth();
   const navigate = useNavigate();
-  const q = useQuery({ queryKey: ['sales', branchId, from, to, mine], queryFn: () => get<SaleRow[]>('/sales', { branchId, from, to, mine }) });
-  if (q.isLoading) return <Loading />;
-  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
-  const rows = q.data!;
+  // Filters stay on screen across reloads: the table shows the states (UI-A2) and keeps the previous rows while a
+  // new period or branch loads.
+  const q = useQuery({ queryKey: ['sales', branchId, from, to, mine], queryFn: () => get<SaleRow[]>('/sales', { branchId, from, to, mine }), placeholderData: keepPreviousData });
+  const rows = q.data ?? [];
   const done = rows.filter((r) => r.status === 'COMPLETED');
   const profit = can('profit.view');
   return (
     <DataTable
+      query={q}
       rows={rows}
       rowKey={(r) => r.id}
       onRowClick={(r) => navigate(`/sales/${r.id}`)}
       exportName="sales"
       toolbar={toolbar}
       emptyTitle={t('No sales in this period')}
+      emptyBody={t('Choose another period above.')}
       rowClassName={(r) => (r.status === 'VOIDED' ? 'opacity-60' : undefined)}
       columns={[
         { key: 'number', header: t('Invoice'), render: (r) => <Mono className="font-semibold text-ink-900">{r.number}</Mono> },
@@ -69,7 +73,18 @@ export function SalesTable({ branchId, from, to, mine, toolbar }: { branchId?: n
               { key: 'grossProfit', header: t('Gross Profit'), align: 'end' as const, render: (r: SaleRow) => <span className="num text-emerald-700">{money(r.grossProfit, false)}</span>, footer: money(done.reduce((s, r) => s + (r.grossProfit ?? 0), 0), false) },
             ]
           : []),
-        { key: 'paymentMethod', header: t('Payment'), render: (r) => <span className="text-[12px] text-ink-600">{t(r.paymentMethod)}</span> },
+        {
+          key: 'paymentMethod',
+          header: t('Payment'),
+          // FIX-2: the CSV carries the bank reference too (matching against the bank statement).
+          value: (r) => (r.paymentMethod === 'BANK_TRANSFER' ? `${t(r.paymentMethod)} ${r.paymentRefTransaction ?? ''}`.trim() : t(r.paymentMethod)),
+          render: (r) => (
+            <span className="text-[12px] text-ink-600">
+              {t(r.paymentMethod)}
+              {r.paymentMethod === 'BANK_TRANSFER' && <span className="block font-mono text-[11px] text-ink-500">{r.paymentRefTransaction ?? '—'}</span>}
+            </span>
+          ),
+        },
         { key: 'status', header: t('Status'), render: (r) => <StatusBadge status={r.status} /> },
       ]}
     />
@@ -122,7 +137,7 @@ export function Crumbs({ items }: { items: { label: React.ReactNode; to?: string
 export function SaleDetailPage() {
   const id = Number(useParams().id);
   const { t, L, lang } = useI18n();
-  const { can, isGlobal } = useAuth();
+  const { can, isGlobal, me } = useAuth();
   const toast = useToast();
   const qc = useQueryClient();
   const [voidOpen, setVoidOpen] = useState(false);
@@ -140,8 +155,7 @@ export function SaleDetailPage() {
     },
     onError: (e) => toast.fromError(e),
   });
-  if (q.isLoading) return <Loading />;
-  if (q.isError) return <div className="p-6"><ErrorState error={q.error} /></div>;
+  if (!q.data) return <DetailPending query={q} backTo={can('sales.view') ? '/sales' : '/me'} backLabel={can('sales.view') ? t('Back to sales') : t('Back to my activity')} notFoundTitle={t('This sale does not exist')} />;
   const s = q.data!;
   const profit = can('profit.view');
   const margin = s.grossProfit != null && s.total ? (s.grossProfit / s.total) * 100 : null;
@@ -182,7 +196,7 @@ export function SaleDetailPage() {
               {can('sales.reprint') && (s.originalPrintedAt || s.reprintCount) ? t('Reprint') : t('Print')}
             </Button>
             {can('sales.void') && s.status === 'COMPLETED' && (
-              <Button variant="danger" icon={<Ban className="size-4" />} onClick={() => setVoidOpen(true)}>{t('Cancel sale')}</Button>
+              <Button variant="danger" icon={<Ban className="size-4" />} onClick={() => setVoidOpen(true)} data-testid="sale-void">{t('Cancel sale')}</Button>
             )}
           </>
         }
@@ -190,6 +204,12 @@ export function SaleDetailPage() {
       {s.status === 'VOIDED' && (
         <Alert tone="danger" className="mb-4" title={t('Cancelled {when} by {name}', { when: dateTime(s.voidedAt, lang), name: s.voidedByName ?? '' })}>
           {t('{reason}. The items were returned to stock.', { reason: s.voidReason ?? '' })}
+        </Alert>
+      )}
+      {s.priceChangeReason && (
+        <Alert tone="info" className="mb-4" title={t('Price changed at sale')}>
+          <span data-testid="sale-price-change-reason">{t('Reason: {reason}', { reason: s.priceChangeReason })}</span>{' '}
+          <span className="text-ink-500">{t('(internal: not printed on the invoice)')}</span>
         </Alert>
       )}
       <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
@@ -248,6 +268,10 @@ export function SaleDetailPage() {
                 { label: t('Discount'), value: money(s.discountTotal) },
                 { label: t('Total'), value: <span className="text-lg">{money(s.total)}</span> },
                 { label: t('Payment'), value: t(s.paymentMethod) },
+                // FIX-2: the bank-transfer reference (a sale recorded before FIX-2 shows "—").
+                ...(s.paymentMethod === 'BANK_TRANSFER'
+                  ? [{ label: t('Bank transfer reference'), value: <span className="font-mono" data-testid="sale-bank-reference">{s.paymentRefTransaction ?? '—'}</span> }]
+                  : []),
                 ...(profit
                   ? [
                       { label: t('Cost of sale'), value: money(s.costTotal) },
@@ -279,13 +303,17 @@ export function SaleDetailPage() {
         footer={
           <>
             <Button onClick={() => setVoidOpen(false)}>{t('Back')}</Button>
-            <Button variant="danger" disabled={reason.trim().length < 3} loading={voidM.isPending} onClick={() => voidM.mutate()}>{t('Cancel sale')}</Button>
+            <Button variant="danger-solid" disabled={reason.trim().length < 3} loading={voidM.isPending} onClick={() => voidM.mutate()} data-testid="void-confirm">{t('Cancel sale')}</Button>
           </>
         }
       >
         <Field label={t('Reason (recorded in the audit log)')}>
-          <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('e.g. Customer returned the item the same day')} />
+          <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('e.g. Customer returned the item the same day')} data-testid="void-reason" />
         </Field>
+        {/* SEC-2 (D-sec2-1): the server asks; this only says so in advance. */}
+        {me && (me.voidReauthAboveAmount === 0 || s.total > me.voidReauthAboveAmount) && (
+          <p className="mt-2 text-meta text-ink-500" data-testid="void-reauth-hint">{t('You will be asked for your password to confirm.')}</p>
+        )}
       </Dialog>
     </div>
   );

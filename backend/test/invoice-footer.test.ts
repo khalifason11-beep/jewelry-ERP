@@ -9,8 +9,8 @@ import { DEFAULT_SETTINGS, LEGACY_INVOICE_FOOTERS } from '@jerp/shared';
 import { createContext } from '../src/bootstrap';
 import type { Ctx } from '../src/core/context';
 import { replaceLegacyInvoiceFooters } from '../src/modules/settings/legacy-footer';
-import { COMPANY } from '../src/seed/catalog';
-import { seedDemo } from '../src/seed/demo';
+import { COMPANY } from './fixtures/world-data';
+import { seedWorld } from './fixtures/world';
 import { openTestDatabase } from './helpers';
 
 const FORBIDDEN = /making|prototype|tax invoice|المصنعية|نموذج أولي|ضريبية/i;
@@ -53,7 +53,7 @@ describe('invoice footer', () => {
     const h = await openTestDatabase();
     try {
       const c = createContext(h);
-      await seedDemo(c);
+      await seedWorld(c);
       expect((await c.settings.get()).branding).toMatchObject({ invoiceFooterEn: 'Thank you for shopping with us', invoiceFooterAr: 'شكراً لتسوقكم معنا' });
     } finally {
       await h.close();

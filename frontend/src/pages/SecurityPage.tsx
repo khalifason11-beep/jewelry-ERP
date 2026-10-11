@@ -4,15 +4,15 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, Fingerprint, KeyRound, Laptop, LogOut, Plus, Printer, ShieldAlert, ShieldCheck, Smartphone, Trash2 } from 'lucide-react';
+import { Check, Copy, Fingerprint, KeyRound, Laptop, LogOut, Plus, Printer, ShieldCheck, Smartphone, Trash2 } from 'lucide-react';
 import { ApiError, del, errorText, get, post } from '../lib/api';
 import { homePath, useAuth, type Me } from '../lib/auth';
 import { dateTime, deviceText } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { useToast } from '../lib/toast';
 import { createPasskey, hasBuiltInAuthenticator, PasskeyError, passkeyUnavailable, PROBLEM_TEXT, type PublicKeyCredentialCreationOptionsJSON } from '../lib/webauthn';
-import { Alert, Badge, Button, Card, CardHeader, Dialog, Field, Input, Loading, Mono, PageHeader } from '../components/ui';
-import { Logo } from '../components/layout/AppShell';
+import { Alert, Badge, Button, Card, CardHeader, Dialog, ErrorState, Field, Input, Mono, PageHeader, SkeletonRows } from '../components/ui';
+import { AuthFrame } from '../components/layout/AuthFrame';
 import { printDocument } from '../lib/print';
 import { RecoveryCodesPrint } from '../print/documents';
 
@@ -44,9 +44,9 @@ export function UvLabel({ uv }: { uv: boolean | null }) {
   const { t } = useI18n();
   if (uv === null) return <span className="text-ink-400">—</span>;
   return uv ? (
-    <Badge tone="bg-emerald-50 text-emerald-700 ring-emerald-600/20">{t('Verified you (fingerprint, face or PIN)')}</Badge>
+    <Badge tone="ok">{t('Verified you (fingerprint, face or PIN)')}</Badge>
   ) : (
-    <Badge tone="bg-amber-50 text-amber-800 ring-amber-600/20">{t('Touch only (did not check who you are)')}</Badge>
+    <Badge tone="warn">{t('Touch only (did not check who you are)')}</Badge>
   );
 }
 
@@ -136,64 +136,59 @@ export function EnrollPage() {
   };
 
   return (
-    <div className="grid min-h-screen place-items-center bg-ink-900 p-4">
-      <div className="w-full max-w-xl">
-        <div className="mb-6 flex justify-center">
-          <Logo />
-        </div>
-        <Card className="p-6" >
-          <div className="mb-4 flex items-center gap-3">
-            <div className="grid size-10 place-items-center rounded-full bg-gold-100 text-gold-700">
-              <ShieldCheck className="size-5" />
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold">{t('Protect your account with a passkey')}</h1>
-              <p className="text-[13px] text-ink-500">
-                {t('Step {n} of 2', { n: step === 'device' ? 1 : 2 })} · {step === 'device' ? t('Register this computer') : t('Save your recovery codes')}
-              </p>
-            </div>
+    <AuthFrame width="lg">
+      <Card className="p-6">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="grid size-10 place-items-center rounded-full bg-gold-100 text-gold-700">
+            <ShieldCheck className="size-5" />
           </div>
-          {step === 'device' ? (
-            <form onSubmit={register} className="grid gap-4" data-testid="enroll-device">
-              <p className="text-[13px] leading-relaxed text-ink-600">
-                {t('Your account can approve money, gold and user changes, so a password alone is not enough. From now on you will sign in with your password AND a passkey: this computer’s fingerprint, face or PIN (Windows Hello), a USB security key, or your phone.')}
-              </p>
-              <NoPasskeyHere />
-              <WhatToExpect />
-              <Field label={t('Name this device')} hint={t('So you can recognise it later, e.g. “Shop PC – office” or “My phone”.')}>
-                <Input autoFocus value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={60} required data-testid="passkey-nickname" />
-              </Field>
-              {error && <Alert tone="danger">{error}</Alert>}
-              <div className="flex items-center justify-between gap-2">
-                <Button type="button" icon={<LogOut className="size-4" />} onClick={async () => { await logout(); navigate('/login'); }}>
-                  {t('Sign out')}
-                </Button>
-                <Button type="submit" variant="primary" loading={busy} disabled={!nickname.trim()} icon={<Fingerprint className="size-4" />} data-testid="register-passkey">
-                  {t('Register this device')}
-                </Button>
-              </div>
-            </form>
-          ) : (
-            <div className="grid gap-4" data-testid="enroll-codes">
-              <Alert tone="success">{t('Passkey registered. One last step.')}</Alert>
-              <p className="text-[13px] leading-relaxed text-ink-600">
-                {t('If this device is lost or broken, a recovery code lets you sign in once. Print them or write them down and keep them somewhere safe, away from the computer. They are shown only once.')}
-              </p>
-              {codes ? (
-                <RecoveryCodesSheet codes={codes} onDone={finish} />
-              ) : (
-                <>
-                  {error && <Alert tone="danger">{error}</Alert>}
-                  <Button variant="primary" loading={busy} onClick={generate} icon={<KeyRound className="size-4" />} data-testid="generate-codes">
-                    {t('Show my recovery codes')}
-                  </Button>
-                </>
-              )}
+          <div>
+            <h1 className="text-lg font-semibold">{t('Protect your account with a passkey')}</h1>
+            <p className="text-[13px] text-ink-500">
+              {t('Step {n} of 2', { n: step === 'device' ? 1 : 2 })} · {step === 'device' ? t('Register this computer') : t('Save your recovery codes')}
+            </p>
+          </div>
+        </div>
+        {step === 'device' ? (
+          <form onSubmit={register} className="grid gap-4" data-testid="enroll-device">
+            <p className="text-[13px] leading-relaxed text-ink-600">
+              {t('Your account can approve money, gold and user changes, so a password alone is not enough. From now on you will sign in with your password AND a passkey: this computer’s fingerprint, face or PIN (Windows Hello), a USB security key, or your phone.')}
+            </p>
+            <NoPasskeyHere />
+            <WhatToExpect />
+            <Field label={t('Name this device')} hint={t('So you can recognise it later, e.g. “Shop PC – office” or “My phone”.')}>
+              <Input autoFocus value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={60} required data-testid="passkey-nickname" />
+            </Field>
+            {error && <Alert tone="danger">{error}</Alert>}
+            <div className="flex items-center justify-between gap-2">
+              <Button type="button" icon={<LogOut className="size-4" />} onClick={async () => { await logout(); navigate('/login'); }}>
+                {t('Sign out')}
+              </Button>
+              <Button type="submit" variant="primary" loading={busy} disabled={!nickname.trim()} icon={<Fingerprint className="size-4" />} data-testid="register-passkey">
+                {t('Register this device')}
+              </Button>
             </div>
-          )}
-        </Card>
-      </div>
-    </div>
+          </form>
+        ) : (
+          <div className="grid gap-4" data-testid="enroll-codes">
+            <Alert tone="success">{t('Passkey registered. One last step.')}</Alert>
+            <p className="text-[13px] leading-relaxed text-ink-600">
+              {t('If this device is lost or broken, a recovery code lets you sign in once. Print them or write them down and keep them somewhere safe, away from the computer. They are shown only once.')}
+            </p>
+            {codes ? (
+              <RecoveryCodesSheet codes={codes} onDone={finish} />
+            ) : (
+              <>
+                {error && <Alert tone="danger">{error}</Alert>}
+                <Button variant="primary" loading={busy} onClick={generate} icon={<KeyRound className="size-4" />} data-testid="generate-codes">
+                  {t('Show my recovery codes')}
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+      </Card>
+    </AuthFrame>
   );
 }
 
@@ -328,8 +323,11 @@ export function SecurityPage() {
               </Button>
             }
           />
-          {keys.isLoading ? (
-            <Loading className="h-32" />
+          {/* UI-A2: a failed load is an error, never "No passkey registered yet" (audit bug). */}
+          {keys.data === undefined && keys.isError ? (
+            <ErrorState error={keys.error} onRetry={() => keys.refetch()} />
+          ) : keys.data === undefined ? (
+            <SkeletonRows rows={2} className="p-5" />
           ) : list.length === 0 ? (
             <div className="p-5 text-[13px] text-ink-500">{t('No passkey registered yet.')}</div>
           ) : (
@@ -387,6 +385,11 @@ export function SecurityPage() {
 
         <Card padded={false} className="xl:col-span-2">
           <CardHeader title={t('Recent sign-ins')} subtitle={t('The last 10 sign-ins to your account. If one is not yours, use “This wasn’t me” in the alert or tell the General Manager.')} />
+          {signIns.data === undefined ? (
+            signIns.isError ? <ErrorState error={signIns.error} onRetry={() => signIns.refetch()} /> : <SkeletonRows rows={3} className="p-5" />
+          ) : signIns.data.length === 0 ? (
+            <p className="px-5 py-4 text-meta text-ink-3">{t('No sign-ins recorded yet.')}</p>
+          ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]" data-testid="sign-ins">
               <thead className="bg-canvas text-start text-[12px] text-ink-500">
@@ -402,7 +405,7 @@ export function SecurityPage() {
                 {(signIns.data ?? []).map((s) => (
                   <tr key={s.id}>
                     <td className="px-5 py-2">
-                      {dateTime(s.at, lang)} {s.newDevice && <Badge tone="bg-amber-50 text-amber-800 ring-amber-600/20">{t('New device')}</Badge>}
+                      {dateTime(s.at, lang)} {s.newDevice && <Badge tone="warn">{t('New device')}</Badge>}
                     </td>
                     <td className="px-3 py-2">{s.method === 'PASSKEY' ? t('Passkey “{nickname}”', { nickname: s.credentialNickname ?? '—' }) : s.method === 'RECOVERY_CODE' ? t('Recovery code') : t('Password only')}</td>
                     <td className="px-3 py-2">{s.browser ? deviceText(s.browser) : '—'}</td>
@@ -413,6 +416,7 @@ export function SecurityPage() {
               </tbody>
             </table>
           </div>
+          )}
         </Card>
 
         <Card className="xl:col-span-2">
@@ -458,7 +462,7 @@ export function SecurityPage() {
         footer={
           <>
             <Button onClick={() => setRemoving(null)}>{t('Cancel')}</Button>
-            <Button variant="danger" loading={busy} onClick={remove} data-testid="remove-passkey-confirm">
+            <Button variant="danger-solid" loading={busy} onClick={remove} data-testid="remove-passkey-confirm">
               {t('Remove')}
             </Button>
           </>
@@ -481,112 +485,6 @@ export function SecurityPage() {
             }}
           />
         )}
-      </Dialog>
-    </div>
-  );
-}
-
-// ───────────────────────── banners (inside the app shell) ─────────────────────────
-
-/**
- * Persistent security notices: a sign-in from a new device (with "It was me" / "This wasn't me"),
- * a nag until a second passkey exists, and — for the General Manager — when touch-only keys are
- * accepted or the second factor is not enforced for the General Manager (not in demo mode).
- */
-export function SecurityBanners() {
-  const { me, can, refresh, logout } = useAuth();
-  const { t, lang } = useI18n();
-  const navigate = useNavigate();
-  const [confirmNotMe, setConfirmNotMe] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  if (!me) return null;
-  const sf = me.secondFactor;
-  const alert = sf.newDeviceAlert;
-  const isGm = can('settings.manage');
-
-  const itWasMe = async () => {
-    if (!alert) return;
-    await post(`/auth/sign-ins/${alert.id}/dismiss`).catch(() => undefined);
-    await refresh();
-  };
-  const notMe = async () => {
-    if (!alert) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await post(`/auth/sign-ins/${alert.id}/not-me`);
-      await logout().catch(() => undefined);
-      navigate('/login', { replace: true });
-    } catch (err) {
-      setError(failText(err, t('Action failed')));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="grid gap-2 px-5 pt-4 empty:hidden lg:px-6">
-      {alert && (
-        <Alert tone="danger" icon={<ShieldAlert className="size-4" />} title={t('New sign-in to your account')}>
-          <div data-testid="new-device-alert" className="grid gap-2">
-            <div>
-              {t('Signed in on {date} with {browser}, from about {ip}, using {method}. Was this you?', {
-                date: dateTime(alert.at, lang),
-                browser: alert.browser ? deviceText(alert.browser) : '—',
-                ip: alert.ipApprox ?? '—',
-                method: alert.method === 'PASSKEY' ? t('passkey “{nickname}”', { nickname: alert.credentialNickname ?? '—' }) : alert.method === 'RECOVERY_CODE' ? t('a recovery code') : t('the password only'),
-              })}
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={itWasMe} data-testid="it-was-me">{t('It was me')}</Button>
-              <Button size="sm" variant="danger" onClick={() => setConfirmNotMe(true)} data-testid="not-me">{t('This wasn’t me')}</Button>
-            </div>
-          </div>
-        </Alert>
-      )}
-      {sf.passkeys === 1 && sf.required && (
-        <Alert tone="info" icon={<Smartphone className="size-4" />}>
-          <span data-testid="second-passkey-nag">
-            {t('You have only one passkey. Register a second device (your phone is ideal) so a lost or broken computer does not lock you out.')}{' '}
-            <button className="font-medium underline underline-offset-2" onClick={() => navigate('/security')}>{t('Add a device')}</button>
-          </span>
-        </Alert>
-      )}
-      {isGm && sf.userVerification === 'preferred' && (
-        <Alert tone="warning" icon={<ShieldAlert className="size-4" />}>
-          <span data-testid="uv-preferred-banner">{t('Touch-only security keys are accepted: a passkey does not have to check a fingerprint, face or PIN (Settings › Second factor).')}</span>
-        </Alert>
-      )}
-      {isGm && me.appMode !== 'demo' && !sf.requiredRoles.includes('GENERAL_MANAGER') && (
-        <Alert tone="danger" icon={<ShieldAlert className="size-4" />}>
-          <span data-testid="enforcement-off-banner">{t('The second factor is OFF for the General Manager: a stolen password alone opens this account (Settings › Second factor).')}</span>
-        </Alert>
-      )}
-      <Dialog
-        open={confirmNotMe}
-        onClose={() => setConfirmNotMe(false)}
-        title={t('Secure your account?')}
-        footer={
-          <>
-            <Button onClick={() => setConfirmNotMe(false)}>{t('Cancel')}</Button>
-            <Button variant="danger" loading={busy} onClick={notMe} data-testid="not-me-confirm">{t('Yes, secure my account')}</Button>
-          </>
-        }
-      >
-        <div className="grid gap-2 text-[13px] text-ink-600">
-          <p>{t('This signs out every session of your account (including this one), removes all your passkeys and makes you choose a new password.')}</p>
-          {alert?.method === 'RECOVERY_CODE' ? (
-            <Alert tone="danger" title={t('That sign-in used a recovery code: your account will be locked')}>
-              <span data-testid="not-me-lock-warning">
-                {t('Someone may have your recovery-code sheet. All remaining recovery codes stop working and the account is locked: nobody can sign in, not even you, until the system administrator restores it from the server and gives you a new one-time password. Then you choose a new password and register your passkeys and new recovery codes again.')}
-              </span>
-            </Alert>
-          ) : (
-            <p>{t('To get back in: sign in with your password and one of your recovery codes, set a new password, then register your passkeys again. If you also lost the recovery codes, ask the system operator to reset your second factor.')}</p>
-          )}
-          {error && <Alert tone="danger">{error}</Alert>}
-        </div>
       </Dialog>
     </div>
   );

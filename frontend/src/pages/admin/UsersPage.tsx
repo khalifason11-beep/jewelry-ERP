@@ -7,7 +7,7 @@ import { dateTime, relative, time } from '../../lib/format';
 import { useBranches } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import { Alert, Badge, Button, Card, Dialog, ErrorState, Field, Input, Loading, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
+import { Alert, Badge, Button, Card, Dialog, ErrorState, Field, Input, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 
 interface UserRow {
@@ -26,6 +26,7 @@ interface UserRow {
   passwordChangedAt: string | null;
   lastLoginAt: string | null;
   lockedUntil: string | null;
+  securityLockedAt: string | null;
   failedLoginCount: number;
   activeSessions: number;
 }
@@ -85,72 +86,78 @@ export function UsersPage() {
         actions={manage && <Button variant="primary" icon={<UserPlus className="size-4" />} onClick={() => setEditing('new')} data-testid="new-user">{t('New user')}</Button>}
       />
       <Card padded={false}>
-        {users.isLoading ? (
-          <Loading />
-        ) : users.isError ? (
-          <ErrorState error={users.error} />
-        ) : (
-          <DataTable
-            rows={users.data!}
-            rowKey={(r) => r.id}
-            exportName="users"
-            columns={[
-              {
-                key: 'fullName',
-                header: t('User'),
-                render: (r) => (
-                  <div>
-                    <div className="font-medium">{r.fullName} {r.id === me?.user.id && <Badge className="ms-1">{t('you')}</Badge>}</div>
-                    <div className="font-mono text-[11.5px] text-ink-500">{r.username}</div>
-                  </div>
-                ),
-              },
-              { key: 'roleName', header: t('Role'), render: (r) => <span className="inline-flex items-center gap-1.5">{r.roleCode === 'GENERAL_MANAGER' && <ShieldCheck className="size-3.5 text-gold-600" />}{t(r.roleName)}</span> },
-              { key: 'branchName', header: t('Branch'), render: (r) => (r.branchName ? t(r.branchName) : null) ?? <span className="text-ink-500">{t('All branches')}</span> },
-              { key: 'lastLoginAt', header: t('Last sign-in'), render: (r) => <span title={dateTime(r.lastLoginAt, lang)}>{relative(r.lastLoginAt)}</span> },
-              { key: 'activeSessions', header: t('Live sessions'), align: 'end', render: (r) => (Number(r.activeSessions) > 0 ? <span className="font-medium text-emerald-700 num">{r.activeSessions}</span> : <span className="text-ink-400">0</span>) },
-              { key: 'password', header: t('Password'), sortable: false, value: (r) => (r.mustChangePassword ? t('Must change') : t('Set')), render: (r) => (r.mustChangePassword ? <Badge tone="bg-amber-50 text-amber-800 ring-amber-600/25">{t('Must change')}</Badge> : <span className="text-[12px] text-ink-500">{t('Set {when}', { when: relative(r.passwordChangedAt) })}</span>) },
-              {
-                key: 'status',
-                header: t('Status'),
-                render: (r) => (
-                  <div className="flex flex-wrap items-center gap-1">
-                    <StatusBadge status={r.status} />
-                    {isLocked(r) && <Badge tone="bg-rose-50 text-rose-800 ring-rose-600/25">{t('Locked until {time}', { time: time(r.lockedUntil, lang) })}</Badge>}
-                  </div>
-                ),
-              },
-              ...(manage
-                ? [
-                    {
-                      key: 'actions',
-                      header: t('Actions'),
-                      sortable: false,
-                      align: 'end' as const,
-                      render: (r: UserRow) => (
-                        <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                          <Button size="sm" variant="ghost" onClick={() => setEditing(r)} aria-label={t('Edit')}><Pencil className="size-4" /></Button>
-                          {isLocked(r) && (
-                            <Button size="sm" variant="ghost" className="text-emerald-700" icon={<LockOpen className="size-4" />} loading={unlock.isPending && unlock.variables?.id === r.id} onClick={() => unlock.mutate(r)}>
-                              {t('Unlock')}
-                            </Button>
-                          )}
-                          <Button size="sm" variant="ghost" icon={<KeyRound className="size-4" />} onClick={() => setConfirm({ user: r, action: 'reset' })}>{t('Reset')}</Button>
-                          {r.id !== me?.user.id && (
-                            <Button size="sm" variant="ghost" className={r.status === 'ACTIVE' ? 'text-rose-700' : 'text-emerald-700'} icon={<Power className="size-4" />} onClick={() => setConfirm({ user: r, action: r.status === 'ACTIVE' ? 'disable' : 'enable' })}>
-                              {r.status === 'ACTIVE' ? t('Disable') : t('Enable')}
-                            </Button>
-                          )}
-                        </div>
-                      ),
-                    },
-                  ]
-                : []),
-            ]}
-          />
-        )}
+        <DataTable
+          query={users}
+          rows={users.data ?? []}
+          rowKey={(r) => r.id}
+          emptyTitle={t('No users yet')}
+          exportName="users"
+          columns={[
+            {
+              key: 'fullName',
+              header: t('User'),
+              render: (r) => (
+                <div>
+                  <div className="font-medium">{r.fullName} {r.id === me?.user.id && <Badge className="ms-1">{t('you')}</Badge>}</div>
+                  <div className="font-mono text-[11.5px] text-ink-500">{r.username}</div>
+                </div>
+              ),
+            },
+            { key: 'roleName', header: t('Role'), render: (r) => <span className="inline-flex items-center gap-1.5">{r.roleCode === 'GENERAL_MANAGER' && <ShieldCheck className="size-3.5 text-gold-600" />}{t(r.roleName)}</span> },
+            { key: 'branchName', header: t('Branch'), render: (r) => (r.branchName ? t(r.branchName) : null) ?? <span className="text-ink-500">{t('All branches')}</span> },
+            { key: 'lastLoginAt', header: t('Last sign-in'), render: (r) => <span title={dateTime(r.lastLoginAt, lang)}>{relative(r.lastLoginAt)}</span> },
+            { key: 'activeSessions', header: t('Live sessions'), align: 'end', render: (r) => (Number(r.activeSessions) > 0 ? <span className="font-medium text-emerald-700 num">{r.activeSessions}</span> : <span className="text-ink-400">0</span>) },
+            { key: 'password', header: t('Password'), sortable: false, value: (r) => (r.mustChangePassword ? t('Must change') : t('Set')), render: (r) => (r.mustChangePassword ? <Badge tone="warn">{t('Must change')}</Badge> : <span className="text-[12px] text-ink-500">{t('Set {when}', { when: relative(r.passwordChangedAt) })}</span>) },
+            {
+              key: 'status',
+              header: t('Status'),
+              render: (r) => (
+                <div className="flex flex-wrap items-center gap-1">
+                  <StatusBadge status={r.status} />
+                  {r.securityLockedAt && (
+                    <span data-testid="security-locked-badge">
+                      <Badge tone="crit">{t('Security-locked since {date}', { date: dateTime(r.securityLockedAt, lang) })}</Badge>
+                    </span>
+                  )}
+                  {isLocked(r) && <Badge tone="crit">{t('Locked until {time}', { time: time(r.lockedUntil, lang) })}</Badge>}
+                </div>
+              ),
+            },
+            ...(manage
+              ? [
+                  {
+                    key: 'actions',
+                    header: t('Actions'),
+                    sortable: false,
+                    align: 'end' as const,
+                    render: (r: UserRow) => (
+                      <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                        <Button size="sm" variant="ghost" onClick={() => setEditing(r)} aria-label={t('Edit')}><Pencil className="size-4" /></Button>
+                        {isLocked(r) && (
+                          <Button size="sm" variant="ghost" className="text-emerald-700" icon={<LockOpen className="size-4" />} loading={unlock.isPending && unlock.variables?.id === r.id} onClick={() => unlock.mutate(r)}>
+                            {t('Unlock')}
+                          </Button>
+                        )}
+                        <Button size="sm" variant="ghost" icon={<KeyRound className="size-4" />} onClick={() => setConfirm({ user: r, action: 'reset' })}>{t('Reset')}</Button>
+                        {r.id !== me?.user.id && (
+                          <Button size="sm" variant="ghost" className={r.status === 'ACTIVE' ? 'text-rose-700' : 'text-emerald-700'} icon={<Power className="size-4" />} onClick={() => setConfirm({ user: r, action: r.status === 'ACTIVE' ? 'disable' : 'enable' })}>
+                            {r.status === 'ACTIVE' ? t('Disable') : t('Enable')}
+                          </Button>
+                        )}
+                      </div>
+                    ),
+                  },
+                ]
+              : []),
+          ]}
+        />
       </Card>
 
+      {roles.data === undefined && roles.isError && (
+        <Card padded={false} className="mt-5">
+          <ErrorState error={roles.error} onRetry={() => roles.refetch()} />
+        </Card>
+      )}
       {roles.data && (
         <Card padded={false} className="mt-5">
           <div className="border-b border-line px-5 py-3.5">
@@ -195,7 +202,7 @@ export function UsersPage() {
         footer={
           <>
             <Button onClick={() => setConfirm(null)}>{t('Cancel')}</Button>
-            <Button variant={confirm?.action === 'disable' ? 'danger' : 'primary'} loading={act.isPending} onClick={() => confirm && act.mutate(confirm)}>{t('Confirm')}</Button>
+            <Button variant={confirm?.action === 'disable' ? 'danger-solid' : 'primary'} loading={act.isPending} onClick={() => confirm && act.mutate(confirm)}>{t('Confirm')}</Button>
           </>
         }
       >

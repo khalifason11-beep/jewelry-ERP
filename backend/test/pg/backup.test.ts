@@ -12,7 +12,7 @@ import { desc, eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import { createContext } from '../../src/bootstrap';
 import type { Ctx } from '../../src/core/context';
-import { seedDemo } from '../../src/seed/demo';
+import { seedWorld } from '../fixtures/world';
 import { childEnv, loadBackupConfig, pgEnv, withDatabase, type BackupConfig } from '../../src/backup/config';
 import { applyRetention, BackupRefused, runBackup, type Manifest } from '../../src/backup/backup';
 import { runVerify, VerifyFailed } from '../../src/backup/verify';
@@ -21,7 +21,7 @@ import { collectStats } from '../../src/backup/stats';
 import { pipeline } from '../../src/backup/run';
 import { backupBaseName } from '../../src/backup/retention';
 import { backupHealth } from '../../src/modules/backups/status';
-import { openTestDatabase, PG_MODE } from '../helpers';
+import { dropTestDatabase, openTestDatabase, PG_MODE } from '../helpers';
 
 let handle: Awaited<ReturnType<typeof openTestDatabase>>;
 let ctx: Ctx;
@@ -53,7 +53,7 @@ beforeAll(async () => {
   if (!PG_MODE) throw new Error('test/pg/** must run in the postgres project');
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
   dbUrl = handle.url!;
   adminUrl = process.env.TEST_DATABASE_URL!;
   work = mkdtempSync(path.join(os.tmpdir(), 'jerp-backup-test-'));
@@ -67,7 +67,7 @@ beforeAll(async () => {
   await c.connect();
   await c.query(`CREATE ROLE ${backupRole} LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE`);
   await c.query(`GRANT CONNECT ON DATABASE ${dbName} TO ${backupRole}`);
-  for (const schema of ['public', 'drizzle', 'hasad_mock']) {
+  for (const schema of ['public', 'drizzle']) {
     await c.query(`GRANT USAGE ON SCHEMA ${schema} TO ${backupRole}`);
     await c.query(`GRANT SELECT ON ALL TABLES IN SCHEMA ${schema} TO ${backupRole}`);
     await c.query(`GRANT SELECT ON ALL SEQUENCES IN SCHEMA ${schema} TO ${backupRole}`);
@@ -214,7 +214,7 @@ describe('backup → off-site copy → restore drill', () => {
       expect(res.find((x) => x.name === 'append-only triggers')!.detail).toMatch(/ledger_entries: row trigger missing/);
       expect(res.find((x) => x.name === 'check constraints')!.detail).toMatch(/ck_sales_hasad_reference/);
     } finally {
-      await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
+      await dropTestDatabase(admin, dbName);
       await admin.end();
     }
   });

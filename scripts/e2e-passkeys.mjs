@@ -2,11 +2,12 @@
 // Browser end-to-end check of the passkey sign-in (Phase 2fa), with Chromium's virtual
 // authenticator (Chrome DevTools Protocol, WebAuthn domain): no real fingerprint reader needed.
 //
-//   1. start a FRESH demo server:   DEMO_TWO_FACTOR=true PGLITE_DIR=/tmp/jerp-e2e PORT=4100 npm start
-//   2. run:                          BASE_URL=http://localhost:4100 node scripts/e2e-passkeys.mjs
+//   run:   node scripts/e2e-passkeys.mjs              (passkey required for the General Manager, the default)
+//          node scripts/e2e-passkeys.mjs --mode=off   (TWO_FACTOR_REQUIRED_ROLES_INITIAL='': password alone)
 //
-//   With a demo server started WITHOUT DEMO_TWO_FACTOR:   node scripts/e2e-passkeys.mjs --mode=off
-//   (checks that the demo signs the General Manager in with the password alone).
+// The script starts its OWN server on a fresh, empty database (REM-3: no demo accounts exist any more),
+// bootstraps the first General Manager and replaces the one-time password through the API
+// (scripts/lib/e2e-world.mjs).
 //
 // Playwright is not a project dependency: it is resolved from the project, then from the global
 // npm modules (npm i -g playwright). Exit code 0 = every step passed.
@@ -14,6 +15,7 @@
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
+import { PEOPLE, prepareGm, startEmptyServer } from './lib/e2e-world.mjs';
 
 function loadPlaywright() {
   const tries = [process.cwd() + '/', path.join(execSync('npm root -g').toString().trim(), '/')];
@@ -28,9 +30,9 @@ function loadPlaywright() {
 }
 
 const { chromium } = loadPlaywright();
-const BASE = process.env.BASE_URL ?? 'http://localhost:4100';
+let BASE = '';
 const MODE = process.argv.includes('--mode=off') ? 'off' : 'on';
-const GM = { username: 'general.manager', password: process.env.GM_PASSWORD ?? 'demo-gm-2026' };
+const GM = { username: PEOPLE.gm.username, password: PEOPLE.gm.password };
 const NEW_PASSWORD = 'Fresh-Strong-Pass-2026!';
 const SAFARI_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15';
 const FIREFOX_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0';
@@ -68,6 +70,10 @@ async function signOut(page) {
 const atHome = (page) => page.waitForURL((u) => ['/overview', '/dashboard', '/pos'].includes(u.pathname), { timeout: 15_000 });
 
 async function main() {
+  const srv = await startEmptyServer({ withBranch: false, env: MODE === 'off' ? { TWO_FACTOR_REQUIRED_ROLES_INITIAL: '' } : {} });
+  BASE = srv.base;
+  await (await prepareGm(srv)).dispose();
+  ok('empty server bootstrapped; the General Manager replaced the one-time password');
   const browser = await chromium.launch();
   try {
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -76,7 +82,7 @@ async function main() {
     if (MODE === 'off') {
       await signInPassword(page);
       await atHome(page);
-      check(!(await page.getByTestId('second-step').count()), 'demo without DEMO_TWO_FACTOR: password alone opens the General Manager account');
+      check(!(await page.getByTestId('second-step').count()), 'second factor not required: password alone opens the General Manager account');
       check(!(await page.getByTestId('enforcement-off-banner').count()), 'demo: no "second factor off" banner');
       return;
     }
@@ -101,8 +107,9 @@ async function main() {
     await page.click('[data-testid=codes-done]');
     await atHome(page);
     ok('enrollment complete: the dashboard opens');
-    await page.getByTestId('second-passkey-nag').waitFor({ timeout: 10_000 });
-    ok('non-blocking banner asks for a second passkey');
+    // UI-B (D-ui-18): the reminder is an information line of the attention list on the home, not a notice above it.
+    await page.locator('[data-testid=home-attention-line][data-code=S1]').waitFor({ timeout: 10_000 });
+    check((await page.getByTestId('second-passkey-nag').count()) === 0, 'non-blocking: the attention list asks for a second passkey (no notice above the page)');
 
     // ── two-step sign-in ──
     await signOut(page);
@@ -157,11 +164,13 @@ async function main() {
     await page.click('[data-testid=add-passkey]');
     await page.fill('[data-testid=add-passkey-nickname]', 'My phone');
     await page.click('[data-testid=add-passkey-confirm]');
-    await page.getByText('My phone').first().waitFor();
+    // Wait for the list itself (the name also appears in the success message before the list reloads).
+    await page.getByTestId('passkey-list').locator('li', { hasText: 'My phone' }).first().waitFor().catch(() => {});
     const rows = await page.getByTestId('passkey-list').locator('li').count();
     check(rows === 2, 'second device registered (within the step-up window): 2 passkeys listed');
     await page.waitForTimeout(300);
-    check(!(await page.getByTestId('second-passkey-nag').count()), 'second-passkey banner gone');
+    const s1 = await page.evaluate(async () => (await (await fetch('/api/attention')).json()).signals.filter((x) => x.code === 'S1').length);
+    check(s1 === 0, 'the second-passkey line left the attention list');
     const phoneCreds = (await phone.cdp.send('WebAuthn.getCredentials', { authenticatorId: phone.id })).credentials;
     await phone.cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId: phone.id });
     auth = await virtualAuthenticator(page);
@@ -201,6 +210,7 @@ async function main() {
     await page.click('[data-testid=not-me-confirm]');
     await page.waitForURL((u) => u.pathname === '/login', { timeout: 10_000 });
     ok('"This wasn’t me" signs this browser out');
+    check(!(await page.getByTestId('account-locked-note').count()), 'LOCK-1: a passkey sign-in reported (no lock): the sign-in page shows no lock note');
     const otherStatus = await otherPage.evaluate(async () => (await fetch('/api/auth/me')).status);
     check(otherStatus === 401, 'the other browser’s session is ended too');
     await other.close();
@@ -246,12 +256,24 @@ async function main() {
     ok('recovery-code sign-in reported: the confirmation warns that the account will be locked');
     await page.click('[data-testid=not-me-confirm]');
     await page.waitForURL((u) => u.pathname === '/login', { timeout: 10_000 });
+    await page.getByTestId('account-locked-note').waitFor({ timeout: 10_000 });
+    ok('LOCK-1: the person who secured the account sees, in this tab, why they cannot sign in');
+    // Anyone else (the thief's browser, any other tab) sees the ordinary sign-in page.
+    await thiefPage.goto(`${BASE}/login`);
+    await thiefPage.locator('input[autocomplete=username]').waitFor();
+    check(!(await thiefPage.getByTestId('account-locked-note').count()), 'LOCK-1: another browser’s sign-in page reveals nothing');
+    const otherTab = await page.context().newPage();
+    await otherTab.goto(`${BASE}/login`);
+    await otherTab.locator('input[autocomplete=username]').waitFor();
+    check(!(await otherTab.getByTestId('account-locked-note').count()), 'LOCK-1: not even another tab of the same browser shows the note');
+    await otherTab.close();
     await thief.close();
     await signInPassword(page, NEW_PASSWORD);
     await page.getByText(/Sign-in failed\. Check your username|تعذّر تسجيل الدخول\. تحقّق/).first().waitFor({ timeout: 10_000 });
     check(new URL(page.url()).pathname === '/login' && !(await page.getByTestId('second-step').count()), 'security-locked: the right password gets the ordinary sign-in failure, no second step');
   } finally {
     await browser.close();
+    await srv.stop();
   }
 }
 

@@ -47,7 +47,7 @@ Details and reasons are in `docs/decisions.md` and `docs/DEPLOYMENT.md`.
 - No word "expense" or "مصروف" is visible anywhere in either language.
 - Routes return 404; the permission matrix, generated tests and the field registry are updated.
 - The reconciliation equals the old result for sales, scrap purchases, making charges and settlements.
-- Depends on Q-6 only for CSH-2 (what replaces it), not for the removal.
+- Depends on Q-6 only for CSH-3 (what replaces it; named CSH-2 before the funding work), not for the removal.
 - The daily reconciliation keeps the SPEC §18 invariant: its lines sum exactly to each account's movement in the ledger; event types without a line of their own (e.g. a historical `EXPENSE` entry) appear under "Other".
 
 **Done:** routes, service, permissions (deleted from existing databases by migration 0013), setting, notification, dashboard and report figures (with "contribution", which equalled gross profit once expenses were gone), Cash-screen lines, i18n, seed and tests removed. The `expenses` table, its CHECKs and the `EXPENSE` ledger event type stay for history; migration 0013 adds triggers that refuse new expense rows and new `EXPENSE` ledger entries. See `docs/decisions.md` D-rem1-*.
@@ -65,7 +65,7 @@ Details and reasons are in `docs/decisions.md` and `docs/DEPLOYMENT.md`.
 **Done:** the module, pages, `integrations/hasad` workspace package (lockfile regenerated: pure removals), simulator, mock mode, counter sessions, weight-difference settlements, Hasad delivery receipt, `hasad.*` / `mockHasad.*` settings, `hasad.*` permissions, navigation, notifications, report and dashboard figures, branch Hasad code field, i18n strings, seed rows and tests. **Kept:** the HASAD payment method and its references (the invoice prints them), the `HASAD_RECEIVABLE` account and the settle-by-bank action (Q-7 still open). Sales reports show completed sales **by payment channel**. Migration 0014 releases pieces still reserved by an open counter session, deletes the permissions and refuses new rows in the historical tables (including the `hasad_mock` schema) and new `HASAD_SETTLEMENT` ledger entries; historical entries show under "Other" in the reconciliation. The mock table definitions moved to `database/src/deprecated-hasad-mock-schema.ts` only so that drizzle-kit never generates an accidental DROP. Superseding decision: `docs/decisions.md` D-rem2-*.
 **Guarded by `npm run check:hasad`** (part of `npm run typecheck`; allow-list `scripts/hasad-footprint-allowlist.json`, one reason per entry). **`grep -ri hasad` (source) still finds, besides the payment method, its references and the receivable:** the deprecated table definitions, CHECK lists, enum values and field classifications kept for history until REM-5, migrations 0013/0014, and comments explaining the removal.
 
-### REM-3 — No demo data · TODO · L · P0
+### REM-3 — No demo data · DONE · L · P0
 **Why:** the owner rejected the demo data as confusing and unrealistic, including illogical item names in the scrap-purchase dropdown (SPEC §4, §16).
 **Plan:**
 - The shipped system and `npm run demo` start with **reference data only** (roles, permissions, what bootstrap creates). A guided "first steps" checklist replaces sample content.
@@ -80,20 +80,25 @@ Details and reasons are in `docs/decisions.md` and `docs/DEPLOYMENT.md`.
 - The e2e scripts create their own data through the API.
 - All tests pass on both projects; README and DEPLOYMENT no longer describe demo content.
 
-### REM-5 — Drop the deprecated tables, columns and enum values · TODO · M · P0
-**Why:** REM-1 and REM-2 keep the expense and Hasad tables, columns and enum values (with triggers refusing new rows) so history stays valid. No production data exists yet, so dropping them before the first production deployment is the cheapest moment.
-**Scope:** one separate, final migration: the `expenses` table, the Hasad withdrawal/redemption/settlement tables, the `hasad_mock` schema together with **`database/src/deprecated-hasad-mock-schema.ts` (delete the file in the same commit, and its line in `database/drizzle.config.ts`)**, `branches.hasad_branch_code`, the deprecated item cost columns (section G), the `EXPENSE` / `HASAD_SETTLEMENT` ledger event types and other retired enum values, the matching CHECKs in `shared/src/db-checks.ts`, the field-classification entries, the leftover `settings` rows of removed keys, the triggers added by REM-1/REM-2, the DEPRECATED entries of `scripts/hasad-footprint-allowlist.json`, and the EXPENSE / HASAD_SETTLEMENT entries of `OTHER_EVENT_TYPES` once no history can contain them.
-**When:** after REM-3 and CAT-0 are proven (REH-1 green), before the first production deployment.
-**Acceptance:** fresh database and an upgraded copy both migrate; backup/restore drill passes; all gates pass.
+**Done (7 commits, `20065c0` … step 7):** tests start from their own fixture world (`backend/test/fixtures/`, never shipped; step 1 kept the count at 1,336); the e2e scripts start an empty server, bootstrap it and build their data through the API (`scripts/lib/e2e-world.mjs`); the demo seed, catalog, reset (route, CLI, `npm run db:reset`, Settings card), demo ledger backfill, simulated presence sessions, demo-only route/setting mechanism, login-page accounts, `DEMO_TWO_FACTOR` and all "Prototype" wording are deleted; `npm run demo` asks for the GM username in an interactive terminal (normal rules) or prints the bootstrap command; a neutral "Demo" badge in demo mode only; the four-step **first-steps** checklist (`GET /setup/status`, audited `POST /setup/allowed-karats`, guarded setting `inventory.allowedKaratsConfirmed`), `ALLOWED_KARATS_INITIAL`, empty states (rate chip, branch home, POS) and the inventory karat filter from the setting; **`npm run dev:sample`** (development only, marked placeholder names); gates **`check:migrations`** (destructive statements after 0015 need `-- allow-destructive: <reason>`) and **`check:test-imports`**, both in `typecheck` and unit-tested. REH-1: 93 checks, including a fresh demo-mode database. Tests: **1,400** = 680 on PGlite + 720 on real PostgreSQL, 42 test files. Decisions D-rem3-1…11; acceptance `docs/acceptance/REM-3.md`.
 
-### REM-4 — Remove duplicate transfer entry points · TODO · S · P1
+### REM-5 — Drop the deprecated tables, columns and enum values · DONE · M · P0
+**Why:** REM-1 and REM-2 keep the expense and Hasad tables, columns and enum values (with triggers refusing new rows) so history stays valid. No production data exists yet, so dropping them before the first production deployment is the cheapest moment.
+**Scope:** one separate, final migration: the `expenses` table, the Hasad withdrawal/redemption/settlement tables, the `hasad_mock` schema together with **`database/src/deprecated-hasad-mock-schema.ts` (delete the file in the same commit, and its line in `database/drizzle.config.ts`)**, `branches.hasad_branch_code`, the deprecated item cost columns (section G), the `EXPENSE` / `HASAD_SETTLEMENT` ledger event types and other retired enum values, the matching CHECKs in `shared/src/db-checks.ts`, the field-classification entries, the leftover `settings` rows of removed keys, the triggers added by REM-1/REM-2, the `sessions.is_simulated` column (no longer written since REM-3), the DEPRECATED entries of `scripts/hasad-footprint-allowlist.json`, and the EXPENSE / HASAD_SETTLEMENT entries of `OTHER_EVENT_TYPES` once no history can contain them.
+**When:** after REM-3 and CAT-0 are proven (REH-1 green), before the first production deployment.
+**Acceptance:** fresh database and an upgraded copy both migrate; backup/restore drill passes; all gates pass. Every destructive statement carries its own `-- allow-destructive: <reason>` comment (`check:migrations`, D-rem3-6).
+**Done (3 commits, `348c219`, `40bee23`, step 3; plan `docs/plans/REM-5.md`, decisions D-rem5-1…7, acceptance `docs/acceptance/REM-5.md`):** migration **0016** with a guard that stops (and changes nothing) when any row still uses a removed table or value; the expense and Hasad tables, `hasad_mock`, the old item cost and reservation columns, `sessions.is_simulated`, `branches.hasad_branch_code`, RESERVED/REDEEMED, `HASAD_REDEMPTION`, `EXPENSE`/`HASAD_SETTLEMENT`, the deprecation triggers and function and the leftover `hasad.enabledPerBranch` row are gone; `UNIQUE (purchase_items.item_id)`; item cost derived from `acquisition_cost` and the supplier line. New gate `check:drizzle`. Hasad allow-list 251 → 174 allowed lines, 10 → 7 entries, none added (the 4 new lines are REH-1's REM-5 checks, under the existing GUARD entry). Tests: **1,476** = 718 on PGlite + 758 on real PostgreSQL (3 drizzle-gate tests run in the PGlite project only), 46 test files.
+
+### REM-4 — Remove duplicate transfer entry points · DONE · S · P1
 After FIX-1: remove the inventory multi-select transfer bar and the Transfers page's "New transfer" dialog. **Sub-question for the owner:** keep a GM emergency override (password plus reason, audited) somewhere out of the way, or drop it?
+**Done with FIX-1 (`17300b7`, D-rem4-1).** Owner decision: the General Manager **keeps** "New transfer" on the Transfers screen as the GM's only start point, under the same rules as the POS transfer. Removed: the Inventory "Select & transfer" card view and the branch manager's "Select pieces in Inventory" button. Start points are exactly the BM's POS cart and the GM's "New transfer".
 
 ---
 
 ## C. Fix
 
-### FIX-1 — Transfer button in the POS cart · TODO · M · P0
+### FIX-1 — Transfer button in the POS cart · DONE · M · P0
+**Done (`17300b7`, D-fix-1, plan `docs/plans/POS-FIXES.md`, acceptance `docs/acceptance/POS-FIXES.md`):** "Transfer to branch" below "Complete sale" for the branch manager; courier's name required (`transfers.courier_name`, migration 0019); all or nothing with row locks (`ITEMS_UNAVAILABLE`, nothing changed); Idempotency-Key required and claimed in the transaction; races tested on PostgreSQL.
 **Misreading to correct:** the owner asked for the button **in the sales cart, below the pay button**. The earlier build put multi-select on the inventory screen and a "New transfer" button on the Transfers page.
 **Requirements (SPEC §8):**
 - Visible only to branch managers (permission `inventory.transfer`, own branch), never to cashiers.
@@ -102,7 +107,8 @@ After FIX-1: remove the inventory multi-select transfer bar and the Transfers pa
 - The Transfers page remains a log, with the confirm-receipt action for incoming transfers.
 **Acceptance:** a branch manager adds 3 items, transfers them from the cart, and the log shows one transfer with 3 items; a cashier never sees the button (role test); a double click creates one transfer; the receiving manager confirms and the items move with their data.
 
-### FIX-2 — Bank transfer reference number · TODO · M · P0
+### FIX-2 — Bank transfer reference number · DONE · M · P0
+**Done (`1a14985`, D-fix-2):** required for Bank transfer, normalized (Arabic-Indic and Persian digits, spaces, case) and validated (4–40); stored in the existing `payment_ref_transaction` (Hasad references unchanged; no per-method migration needed); duplicates in the branch warn with 409 and are audited when confirmed; shown on the invoice and receipt, sale detail and list, and the Cash drill-down "Bank-transfer sales"; validated database check after a guard (migration 0018). The list does not need a separate export: the Cash drill-down and the sales list (CSV) show the references.
 **Why:** selecting Bank transfer shows no transaction-number field; that causes trouble at review.
 **Requirements:**
 - Mandatory reference when the method is Bank transfer (trimmed, 3–40 characters). Store it on the sale; a generic `payment_reference` is preferred over per-method columns (migrate the Hasad reference fields consistently).
@@ -156,8 +162,21 @@ In the invoice summary a negative discount renders as "32,000−" while the line
 ### LBL-1 — Barcode labels for physical pieces · BLOCKED (Q-9) · M · P1
 Print a label (code, karat, weight, Code128 or QR) for each piece, from the opening import and from every receipt. Needs the printer model and label size.
 
-### CSH-2 — Cash-out entry for the operating amount · BLOCKED (Q-6) · S · P1
-If the operating amount leaves the drawer: a minimal audited cash-out record (amount, reason, actor) posted to the ledger. Not an expenses module.
+### CSH-2 — The General Manager's funding of a branch, split payment on scrap, negative balances · DONE · M · P0
+**Done (plan `docs/plans/CSH-2.md`, decisions D-csh-1…9, `docs/acceptance/CSH-2.md`):** GM_ADVANCE / GM_REPAYMENT per branch into or out of the drawer or the bank, with "owed to the General Manager" derived from an `OWED_TO_GM` ledger account (migration 0020), corrections by reversal, GM only (Cash page); counter scrap purchases paid part cash, part bank transfer (migration 0021); CASH outflows blocked below zero, BANK below zero raises attention A17; the first step "Fund the branch". **Open with the client (Q11):** is the General Manager's funding a loan to be repaid or capital? Until answered, opening money recorded as an advance is a debt of the branch to him.
+
+### CSH-3 — Cash-out entry for the operating amount · BLOCKED (Q-6) · S · P1
+(Was CSH-2 before the funding work took that name.) If the operating amount leaves the drawer: a minimal audited cash-out record (amount, reason, actor) posted to the ledger. Not an expenses module. It may turn out to be one more General Manager ↔ branch movement (see CSH-2).
+
+### SCR-VOID — Correct a wrong counter scrap purchase · TODO · S · P1 (before real operation)
+A wrong scrap purchase cannot be corrected today: `scrap_purchases` is append-only and has no void. A General-Manager-only void that reverses the ledger entries (both parts of a split payment: `reverseRef` already does it, tested in `scrap-split.test.ts`), the inventory piece or the pool weight, with a reason and the password re-confirmation. Needed before the shop works on the system.
+
+### MKC-1 — Supplier making charges paid personally by the General Manager · TODO · M · P1 (after CSH-2)
+**Client facts (2026-10-10):** a making charge is **always one full bank transfer** (never cash, never split); the owner/General Manager pays it from his **personal** account, not from the branch bank account, **outside the branch's working day**; **creating supplier orders is General-Manager-only**; a single company bank account across all branches is a **future wish** (build nothing for it now, hard-code nothing that would block it). Today a making charge leaves the branch's drawer (default) or bank at once (D-4-4), which contradicts these facts: it should not move branch money at all when the General Manager pays personally. **Open with the client:** is a making charge the General Manager pays personally reimbursed by the branch (then it is an advance in CSH-2 terms, owed to him) or is it the company's cost carried by him? CSH-2 changed nothing here (owner answer Q2).
+**How CSH-2 interacts with these facts until MKC-1 is built:**
+- *OWED_TO_GM:* if the branch reimburses him, the faithful record today is an **advance into the branch bank**, marked "paid directly to a seller" with the order number, followed by the order paid "from the bank". The branch bank nets to zero and the branch owes him the charge. If the charge is the company's cost carried by him, recording it as an advance would overstate what the branch owes. The client's answer decides which.
+- *BANK WARN (A17):* an order recorded "from the bank" with no matching advance takes the branch bank below zero, and A17 (urgent) shows every day until an advance is recorded. That is correct for a branch account and wrong for his personal account, which the system does not hold. A future single company account would be a new account scope; nothing in CSH-2 assumes one bank per branch beyond today's ledger accounts.
+- *A5 / A4 and the drawer BLOCK:* an order recorded "from the drawer" outside the working day is a CASH movement of that business day. It can raise A5 ("no cash count yesterday") for a day the branch was closed, or an A4 difference when it lands after the count. On an unfunded drawer it is refused (BLOCK). Recorded "from the bank", it touches neither the drawer nor A4/A5.
 
 ### SPL-1 — Split payments · BLOCKED (Q-7) · M · P2
 If a prepaid Hasad balance can fall short of the price, one sale must carry several payments (for example Hasad plus cash). Ledger entries per payment, one reference per payment.
@@ -169,7 +188,27 @@ A claim by the sender, confirmation by the receiver, through `FUNDS_IN_TRANSIT`,
 Name, phone, optionally an ID number, and a printed receipt for the customer.
 
 ### RPT-1 — Report review after the removals · TODO · M · P1
-Re-verify every report after REM-1, REM-2 and PRC-1; add reporting by payment channel and the bank-reference list; confirm no report shows cost to non-GM roles.
+Re-verify every report after REM-1, REM-2 and PRC-1; add reporting by payment channel and the bank-reference list; confirm no report shows cost to non-GM roles. Add the **scrap bought at an override price** list (A8, report only, D-ux-9).
+
+### WGT-1 — Weight precision per deployment · DEFERRED · M · P3
+**Q-14 closed (owner):** this client's scales read to **0.001 g** (1 mg), which is exactly how the system already works (integer milligrams, three decimals). **Nothing changes for this client.** Build WGT-1 only if another client weighs to two decimals: then a per-deployment setting for the number of weight decimals, input validation on every form, import and the API, one formatter everywhere, and documented totals.
+**No quantisation of the pure-24K debt is needed:** at milligram precision the 24K equivalent of a net weight is rounded to the nearest milligram, and every integer debt can be settled exactly: for every karat 1–24 the conversion step (`round((n+1)·k/24) − round(n·k/24)`) is at most one milligram, so every integer owed value is reached by some whole-milligram weight. REM-3 adds a property test for this.
+**PRC-1 note:** the computed price (rate per gram × net weight in mg / 1000) applies its rounding rule (Q-2) once, after the multiplication.
+
+### SEC-2 — Void re-confirmation and reasons for price changes · DONE · S · P1
+**Done (`97a07f5`, D-sec2-1, D-sec2-2):** `sales.voidReauthAboveAmount` (default **0** = every void asks, owner decision; GM only); one reason per sale for any price change (`SALE_PRICE_CHANGED`, `sales.price_change_reason`, migration 0017, never printed); item price-edit reason required. **Also in this bundle, LOCK-1 (`bd478fb`, D-lock-1):** managers see security-locked accounts as the first notice; the reporter sees a note in their own tab only.
+**Owner decision D-ux-10.** (1) Voiding a sale **above an amount set in Settings** (GM setting, default to be proposed) requires the **password re-confirmation** used elsewhere (and the passkey where the role requires it). (2) Changing a piece's selling price requires a **reason** (today optional). Both audited as today. Not part of any UI phase.
+**Acceptance:** a void above the threshold without re-confirmation is refused (403 with the re-auth code), below it is unchanged; a price change without a reason is refused; tests on both projects; route matrix and permission tests updated.
+
+### BE-1 — Attention endpoint · DONE · M · P1
+**Done (UI-B commits `200aa14`, `9f24345`, D-ui-17, D-ui-18):** `GET /api/attention` with the pilot set below plus S1 (only one passkey) and S2 (touch-only keys), which moved out of the shell's notice area; A9 backups is **critical** for the GM on every page. Settings `cash.countDifferenceTolerance` (0) and `purchases.supplierDebtMaxAgeDays` (30) in Settings › Business rules. Each signal raises and clears in `attention.test.ts` (both projects); no line carries a cost or a supplier money amount; the statement count is constant with more branches. `GET /notifications` (the bell) is removed.
+**Owner decision D-ux-14.** One extensible endpoint **`/api/attention`**, role- and scope-aware (GM: all branches; BM: own branch; cashier: none). Each signal: type, **severity** (critical / warning / info), **count**, **branch**, **link**, short text key + params. Thresholds are **GM settings** (D-ux-12).
+**Pilot minimum set** (`docs/ux/ANALYSIS.md` §3): **A1** transfers in transit, **A2** transfer stale (`transfers.pendingClaimStaleHours`), **A4** cash-count difference (+ `cash.countDifferenceTolerance`, default 0), **A5** missing cash count, **A6** supplier gold owed per supplier and its age (+ `purchases.supplierDebtMaxAgeDays`, default 30), **A9** backup health, **A10** sign-in from a new device, **A11** failed sign-ins, **A12** locked accounts, **A15** stock does not reconcile, **A16** no gold/scrap rate set. **Deferred:** A3 (needs a dispute feature), A7 (depends on Q-7), A8 (report only, RPT-1), A13, A14; A17 not now.
+**Acceptance:** each signal has a test that raises and clears it; **tests prove a branch manager never receives a signal that exposes a COST field** (field-classification registry); the route is in the route matrix with its scope.
+
+### BE-7 — Server-side pagination and sorting · TODO · M · P1
+**Owner decision D-ux-15.** Sales, inventory, audit, purchases, scrap purchases and transfers page and sort on the server (50 rows per page, max 200), with the filters of R11. Today inventory loads up to 1,000 rows into the browser. CSV export keeps exporting the whole filtered result.
+**Acceptance:** lists stay correct and fast with 10,000 pieces and 20,000 sales on real PostgreSQL; cost-visibility tests still pass on every page.
 
 ### TAX-1 — Official tax invoice · BLOCKED (Q-9) · ? · P2
 Only if the client is legally required to issue one.
@@ -181,18 +220,36 @@ Do not build. Keep permission identifiers granular and centralized.
 
 ## E. User interface redesign
 
-Reference: Figma mockups in `docs/design-reference/` (login, dashboard, branches, sales list, login background), exported SVG assets, and `tokens.md`. Figma's generated CSS is a reference for values only.
+**Design source (D-ux-0):** the owner approved the static mockups in `docs/ux/mockups/`; **their CSS variables are the source of truth for the tokens**, written out in `docs/design-reference/tokens.md`. No Figma export files will be provided; the Figma screenshots shown earlier are not in the repository. Hierarchy, density and role focus: `docs/ux/BRIEF.md` and `docs/ux/ANALYSIS.md` (rules R1–R16 as decided in `docs/decisions.md` §14).
 
-Do this **after** REM-1/2/3, FIX-1/2, CAT-1, PRC-1 and OPN-1 so the screens being restyled are the final ones.
+**Order (D-ux-13):** UI-A1 and UI-A2 come **right after REM-3** and **before** PRC-1, OPN-1 and FIX-1/FIX-2, so the new screens are built on the new design system. UI-B and UI-C follow the functional items they depend on.
 
-### UI-A — Design system, shell, login · TODO · M · P1
-CSS-variable tokens in one place; locally bundled fonts; the app shell with a grouped sidebar by permission, distinct icons, collapsible to icons; top bar with the 21K rate chip, language toggle and user menu; login page with the image panel, logo and tagline from settings (new branding setting); restyled shared components. Fix the mockup typos; dark text on gold; AA contrast; RTL as the primary layout. Do not touch the print documents. Keep every e2e script green. Screenshots at 1366×768 and 1920×1080 in Arabic and English.
+### UX-0 — UX analysis · DONE
+`docs/ux/ANALYSIS.md`, baseline screenshots `docs/ux/baseline/` (at commit `00d0f89`; `scripts/capture-ui-baseline.mjs`), static mockups `docs/ux/mockups/`. Approved with decisions D-ux-0 … D-ux-16.
 
-### UI-B — Dashboard, branches, sales list · TODO · M · P1 · Q-10
-As in the mockups. The GM's dashboard shows sales, purchases, stock and values per branch with the branch palette; the branch manager's dashboard excludes cost figures. Branch color field or automatic palette. USD chip only if Q-10 says yes.
+### UI-A1 — Design system, app shell and plain login · DONE
+Done on 2026-10-09 (plan `docs/plans/UI-A1.md`, decisions D-ui-1 … D-ui-9, acceptance `docs/acceptance/UI-A1.md`). The owner moved the **shell and a plain login into UI-A1** (instruction of 2026-10-09).
+- Tokens from `tokens.md` in `frontend/src/index.css` (the old colour names point at the new values until UI-B/UI-C), contrast test; white page and flat grey panels everywhere.
+- Base components split per file; outlined danger buttons (filled red only for the last confirm in a dialog); dialog focus trap; toasts announced; `/ui` page in development only with `scripts/capture-ui-kit.mjs` (screenshots, keyboard checks, axe-core).
+- English labels for every code (`lib/i18n-en.ts`, enforced by `i18n:check`); the stray "$" on the branch dashboard.
+- App shell per role as in the mockups (`layout/nav.ts`): no POS link for the GM, Active users for the branch manager, icons only for the cashier; rate chip, Demo badge, bell, language pill, avatar menu; no clock; security banners unchanged; no cost or profit in the shell for non-GM roles (REH-1).
+- Plain centred sign-in, one frame for sign-in, password change and passkey enrolment.
+- Before/after screenshots at 1366×768, 1536×864 and 1920×1080: `docs/ux/baseline-ui-a1/` at commit `36e4e1e`; the slim WebP selection in `docs/ux/screens/` (D-ui-10).
+
+### UI-A2 — Screen states, notices, sign-in tagline · DONE
+Done on 2026-10-09 (plan `docs/plans/UI-A2.md`, decisions D-ui-10 … D-ui-16, acceptance `docs/acceptance/UI-A2.md`).
+- **Screenshots policy:** only the latest "after" set, WebP, in `docs/ux/screens/`; `check:assets` (4 MB, 150 KB per image); the old sets left the working copy (history not rewritten).
+- **One state contract on every screen:** skeleton on first load (title and filters stay), previous rows kept while filters reload, empty texts with next actions, neutral prompts, errors with Try again, API refusals as no-access, missing records as not-found, a crash page with a reference id (details to the server log). Audit bugs fixed and tested (Settings endless spinner, errors shown as "empty", vanishing filters, POS "no pieces" before branches, reports by address).
+- **Notice area:** all security and system notices in one compact place on every screen, two lines then "+ N more", the new-sign-in alert first; nothing dismissible.
+- **Sign-in:** tagline from the new settings (public endpoint reduced to an allow-list), "Welcome back" and the tagline in self-hosted Amiri.
+- **Still open, decided elsewhere:** GM branch switcher and the attention list (UI-B); login image panel only if a licensed image is added; USD chip until Q-10.
+
+### UI-B — Homes, branches, sales list · HOMES DONE · M · P1 · UI-A2, BE-1, BE-7
+**Homes done (commits `200aa14` to `98f0848` and the UI-B docs commit; D-ui-17…22, `docs/acceptance/UI-B.md`):** the GM home (Sales dark card, one surface, attention list, branch strips, 14-day sales line instead of the branch bars, gold position; Today by default, remembered; scope pill `/overview?branchId=`; empty versions) and the branch manager's home (expected cash with the last count, stock, gold owed in grams, attention, Team today; no cost); the attention control replaces the bell; the home figures tied to the Sales report, the list and the ledger by entry date; home requests p95 ≤ 86 ms on 60,000 sales without a new index. **Still open, a separate plan (owner answer Q13), next, before UI-C:** **UI-B3** the Branches page and the sales list with filter pills, on **BE-7** server-side pagination. The cashier's POS layout is UI-C1 (D-ui-22).
+GM home and BM home as in `docs/ux/mockups/gm-home.html` and `bm-home.html`: **Sales as its own dark card**, the other three figures on one light surface (D-ux-1); default period **Today**, remembered per user in the browser; GM level 1 shows grams and value together; attention list from BE-1; branch bars **labelled by branch name** in the palette of `tokens.md`. The branch manager's home has no cost figures. Branches page and sales list with filter pills and server-side pagination (BE-7). Level 1 fits 1366×768 without scrolling (R14).
 
 ### UI-C — All other screens · TODO · L · P1
-POS first (speed and clarity for the cashier, owner reviews a screenshot before the build), then scrap and supplier purchases, cash, transfers, inventory, settings, security, users, reports.
+POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fields only when Hasad is selected; owner reviews a screenshot before the build; built with FIX-1 and FIX-2), then scrap (form first) and supplier purchases, a Suppliers page (gold owed per supplier, A6), cash, transfers (no horizontal overflow), inventory (7 default columns + drawer), settings, security, users, reports. Empty states as in `docs/ux/ANALYSIS.md` §8.
 
 ---
 
@@ -200,7 +257,7 @@ POS first (speed and clarity for the cashier, owner reviews a screenshot before 
 
 | ID | Item | Owner | Priority | Depends on |
 |---|---|---|---|---|
-| **REH-1** | **Empty-database rehearsal script** (`npm run rehearsal`, Playwright). Bootstraps an empty database in **production mode on real PostgreSQL**, behind a local TLS proxy with a self-signed certificate that the script starts itself (passkey RP `localhost`; the production start-up checks are not relaxed), then runs: branch → users → item types → opening import → sale by cash, bank (with reference) and Hasad → print and reprint → void → scrap purchase (clean and broken) → supplier order and settlement → transfer from the cart and receipt → cash count → backup and verify. Build it incrementally and run it before accepting any phase. **PARTIAL:** bootstrap → GM first sign-in (password change, passkey, recovery codes) → branch → branch manager and cashier → their first sign-in → no expense wording on any screen in Arabic or English, expense routes gone, no Hasad withdrawal wording or menu entry, Hasad routes and report gone, the POS offers Cash / Bank transfer / Hasad, reconciliation lines add up → audit trail (63 checks). | Engineering | **P0** | grows with each phase |
+| **REH-1** | **Empty-database rehearsal script** (`npm run rehearsal`, Playwright). Bootstraps an empty database in **production mode on real PostgreSQL**, behind a local TLS proxy with a self-signed certificate that the script starts itself (passkey RP `localhost`; the production start-up checks are not relaxed), then runs: branch → users → item types → opening import → sale by cash, bank (with reference) and Hasad → print and reprint → void → scrap purchase (clean and broken) → supplier order and settlement → transfer from the cart and receipt → cash count → backup and verify. Build it incrementally and run it before accepting any phase. **PARTIAL:** bootstrap → GM first sign-in (password change, passkey, recovery codes) → branch → branch manager and cashier → their first sign-in → no expense wording on any screen in Arabic or English, expense routes gone, no Hasad withdrawal wording or menu entry, Hasad routes and report gone, the POS offers Cash / Bank transfer / Hasad, reconciliation lines add up → CAT-0 catalog entry in the forms → audit trail; REM-3: first-steps checklist (karats confirmed, gold and scrap rates, branch, staff), empty states, no Demo badge in production, and a fresh demo-mode database that is empty, lists no accounts and shows the Demo badge; the New branch and New user dialogs keep typing in the field the person chose, checked deterministically with paused timers; REM-5: the production database has none of the removed objects, all 17 migrations applied, one supplier line per piece; UI-A1: the plain sign-in page, the sidebar per role equal to the mockups (no POS for the GM, icons only for the cashier), no cost or profit word or figure in the shell for the branch manager and the cashier in both languages, "Bank transfer" in the English POS; UI-A2: every list's empty text in both languages, the shell notices (one line each, none for the branch manager, no USD chip), the sign-in tagline in self-hosted Amiri, the public answer limited to the branding allow-list (130 checks). | Engineering | **P0** | grows with each phase |
 | HOST-1 | Decide hosting (Q-11): managed PostgreSQL (paid), region, domain, Shell access for operator commands; separate staging and production. The domain must be final before any passkey is registered. | Owner | **P0** | |
 | DEP-1 | Staging deployment in production mode: `STRICT_DB_ROLES=true`, `TRUST_PROXY` verified (real client IPs in the audit log), health monitor on `/api/health`. | Owner + engineering | P1 | HOST-1 |
 | BKP-1 | Backup key pair stored in two places; off-site target; daily schedule; weekly drill on a separate machine; **a restore performed by someone other than the developer**; result recorded. | Owner | **P0** | HOST-1 |
@@ -210,14 +267,16 @@ POS first (speed and clarity for the cashier, owner reviews a screenshot before 
 | PIL-1 | Two-week parallel run with paper using the checklist. Proposed go/no-go: daily sales total, item count and stock weight match the paper records for 10 consecutive business days. | Owner + client | P1 | all of the above |
 | SEC-1 | Independent human security review and `docs/SECURITY.md` (threat model, pass/fail checklist, residual risks) before a second branch. | Owner + reviewer | P2 | |
 | LEG-1 | Written agreement with the client (Q-13): hosting cost, support hours, who holds keys and credentials, continuity if the developer is unavailable. | Owner | P1 | |
+| **DEMO-1** | **A plan for a public demo.** The old hosted demo (a service started with `npm start` in demo mode, which seeded fictional data and listed demo accounts) cannot run from the default branch since REM-3: `npm start` creates no General Manager and no data, so it starts empty and nobody can sign in; `npm run demo` needs a terminal; PGlite on an ephemeral disk is lost at every deploy. Decide before showing the system publicly: where it runs (its own service and database, never next to production), who bootstraps it, which sample data (client-approved names, see `dev:sample`), how and how often it is reset, and that it never shares credentials or data with production. | Owner + Engineering | P2 | REM-3 |
 
 ---
 
 ## G. Technical debt and known limits
 
 - The per-IP sign-in limiter lives in process memory: run **one server instance** until it moves to the database.
-- Deprecated cost columns on `jewelry_items` (`purchase_cost`, `making_cost`, `other_cost`, `total_cost`) and the deprecated tables from REM-1/REM-2: drop in a later migration once nothing reads them.
-- `README.md` still describes a "Client Demo Prototype"; `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md` and `docs/DEMO_SCRIPT.md` date from the prototype stage. Update or delete after REM-3.
+- `README.md`, `docs/DEPLOYMENT.md` and `docs/DEMO_SCRIPT.md` were rewritten in REM-3. `docs/ARCHITECTURE.md` and `docs/DATA_MODEL.md` still date from the prototype stage (seed, Hasad simulator, expenses): update or delete them.
+- `scripts/i18n-check.mjs` still has a scan for English text in `/seed/` files; no such folder exists since REM-3 (harmless; remove when the script is next touched).
+- The test fixture world (copied from the old demo seed) is built relative to *today* in Khartoum time, so its content changes with the weekday and the hour. REM-3 step 7 fixed the three date-dependent failures it found: a fixed supplier-settlement weight exceeding the debt on one weekday in seven; an audit lookup that assumed today's purchase exists in the first minutes after midnight; and sale-line counts that included a voided sale of the same piece. It was then checked on 14 consecutive dates at three hours of the day. A fixed clock for the world would remove the class of problem (open).
 - The silent-printing `.cmd` template is untested on Windows; CSS page size on a given thermal driver is a request, not a guarantee.
 - ~~Hasad double-notification risk (D-2a-8)~~: **resolved by scope change** (REM-2 removed the Hasad integration).
 - Single-role database deployments still work but log a security warning.
@@ -226,18 +285,21 @@ POS first (speed and clarity for the cashier, owner reviews a screenshot before 
 
 ## H. Suggested sequence
 
+Updated after UX-0 (D-ux-13, D-ux-14, D-ux-15).
+
 | Step | Items | Why this order |
 |---|---|---|
 | 0 | Commit `SPEC.md` and `BACKLOG.md`; start REH-1 with the bootstrap → branch → users part | The rehearsal grows with the system |
-| 1 | REM-1, REM-2, CAT-0, REM-3 (FIX-3 already done) | Shrink the surface before adding to it; CAT-0 before the seed goes, so stock can always be entered |
-| 1b | REM-5 | Drop the deprecated schema once REM-3 and CAT-0 are proven, before the first production deployment |
-| 2 | FIX-1, FIX-2, REM-4 | Small, visible corrections the owner already asked for |
-| 3 | CAT-1 | An empty production system cannot receive stock without it |
-| 4 | PRC-1 | Needs Q-1, Q-2, Q-5 answered |
-| 5 | OPN-1 (+ LBL-1) | Needs CAT-1 and Q-4 |
-| 6 | CSH-2, SPL-1, MNY-1, SCR-1, RPT-1 | According to the answers |
-| 7 | UI-A, UI-B, UI-C | Restyle the final screens |
-| 8 | HOST-1, DEP-1, BKP-1, 2FA-1, HW-1, TRN-1, LEG-1 | Owner tasks that run in parallel with steps 1–7 |
-| 9 | PIL-1, then SEC-1 | Before relying on the system and before a second branch |
+| 1 | REM-1, REM-2, CAT-0, UX-0, REM-3 (all done) | Shrink the surface before adding to it; CAT-0 before the seed goes, so stock can always be entered |
+| 1b | REM-5 (done) | Drop the deprecated schema once REM-3 and CAT-0 are proven, before the first production deployment |
+| 2 | **UI-A1**, **UI-A2** (done) | The design system and shell before any new screen is built (D-ux-13); UI-A1 also delivered the shell and a plain login |
+| 3 | FIX-1, FIX-2, REM-4, SEC-2 | Small, visible corrections the owner asked for, built on the new design system |
+| 4 | CAT-1 | Item types and free-text descriptions (Q-3) |
+| 5 | PRC-1 | Needs Q-1, Q-2, Q-5 |
+| 6 | OPN-1 (+ LBL-1) | Needs CAT-1 and Q-4 |
+| 7 | **BE-1, BE-7** (P1, before the pilot), then UI-B, UI-C | The homes need the attention endpoint; the lists need server-side pagination |
+| 8 | SCR-VOID, MKC-1 (P1, before real operation); CSH-3, SPL-1, MNY-1, SCR-1, RPT-1 | According to the answers |
+| 9 | HOST-1, DEP-1, BKP-1, 2FA-1, HW-1, TRN-1, LEG-1 | Owner tasks that run in parallel with steps 1–8 |
+| 10 | PIL-1, then SEC-1 | Before relying on the system and before a second branch |
 
-**Questions to put to the client first** (they unblock steps 4–6): Q-1, Q-2, Q-3, Q-4, Q-5, Q-6, Q-7, Q-8, Q-9.
+**Questions to put to the client first** (they unblock steps 4–8): Q-1, Q-2, Q-3, Q-4, Q-5, Q-6, Q-7, Q-8, Q-9.

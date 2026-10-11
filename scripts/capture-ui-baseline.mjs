@@ -1,36 +1,45 @@
 #!/usr/bin/env node
-// UX baseline screenshots (UX-0). Repeatable: run it again after a UI phase to compare.
+// UX screenshots of every main screen (UX-0). Repeatable: run it again after a UI phase to compare.
 //
-//   node scripts/capture-ui-baseline.mjs                      # demo + empty production database
+//   node scripts/capture-ui-baseline.mjs                      # demo + empty production database, into .ux-shots/
 //   node scripts/capture-ui-baseline.mjs --only=demo          # demo database only
 //   node scripts/capture-ui-baseline.mjs --only=empty         # empty production database only (needs REHEARSAL_ADMIN_URL)
-//   node scripts/capture-ui-baseline.mjs --skip-build --out=docs/ux/baseline
+//   node scripts/capture-ui-baseline.mjs --publish --changed='04-gm-sales|06-gm-inventory'
+//                                                             # also write the slim WebP set to docs/ux/screens/
+//   node scripts/capture-ui-baseline.mjs --publish-only --from=<folder>   # only convert an existing capture
 //
-// demo:  a fresh demo database (embedded PGlite, 30 days of seeded activity) served in demo mode; every
+// The full JPEG capture goes to the git-ignored `.ux-shots/` (--out to change). Only the WebP selection of
+// scripts/lib/screens.mjs is committed, in docs/ux/screens/ (D-ui-10; `npm run check:assets` caps it).
+//
+// demo:  a fresh demo-mode database filled by `npm run dev:sample` (REM-3: no demo data ships; marked sample
+//        names from backend/src/dev/sample-names.json) and served in demo mode; every
 //        main screen and the catalog dialogs, as the General Manager, a branch manager and a cashier.
 // empty: the REH-1 rehearsal (production mode, real PostgreSQL behind TLS) with UI_BASELINE_DIR set, which
 //        photographs each role's home right after its first sign-in (scripts/rehearsal/rehearsal.mjs).
-// Each screen: Arabic (RTL) and English (LTR), at 1366x768 and 1920x1080. At 1366 wide, a screen whose
+// Each screen: Arabic (RTL) and English (LTR), at 1366x768, 1536x864 and 1920x1080. At 1366 wide, a screen whose
 // content scrolls also gets a "-full" image of the whole page. JPEG, quality 72.
 //
 // Reads only; changes no application code. The demo database lives in a temporary folder and is deleted.
 
 import { createRequire } from 'node:module';
-import { execSync, spawn, spawnSync } from 'node:child_process';
+import { execFileSync, execSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { publishScreens } from './lib/screens.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
 const ARGS = new Set(argv);
 const opt = (name, dflt) => argv.find((a) => a.startsWith(`--${name}=`))?.split('=')[1] ?? dflt;
-const OUT = path.resolve(ROOT, opt('out', 'docs/ux/baseline'));
+const OUT = path.resolve(ROOT, opt('out', '.ux-shots'));
+const SCREENS_DIR = path.join(ROOT, 'docs/ux/screens');
 const ONLY = opt('only', 'all');
 const LANGS = ['ar', 'en'];
-const SIZES = [[1366, 768], [1920, 1080]];
+// 1536x864 = a 1920x1080 Windows laptop at its default 125 % scaling (UI-A1).
+const SIZES = [[1366, 768], [1536, 864], [1920, 1080]];
 
 function loadModule(name) {
   for (const base of [ROOT + '/', path.join(ROOT, 'backend') + '/', path.join(execSync('npm root -g').toString().trim(), '/')]) {
@@ -63,12 +72,8 @@ async function waitFor(fn, what, ms = 180_000) {
   throw new Error(`timed out waiting for ${what}`);
 }
 
-// Demo accounts (backend/src/seed/catalog.ts).
-const ROLES = {
-  gm: { username: 'general.manager', password: 'demo-gm-2026' },
-  bm: { username: 'branch.manager.kh', password: 'demo-bm-2026' },
-  cashier: { username: 'cashier.kh.01', password: 'demo-cashier-2026' },
-};
+// Accounts created by `npm run dev:sample` (passwords generated per run); filled in by captureDemo().
+const ROLES = {};
 
 /**
  * What to photograph. `path` may be a function of the page (to find a real sale or purchase id);
@@ -82,7 +87,9 @@ const SCREENS = [
   { role: 'gm', name: 'branches', path: '/branches' },
   { role: 'gm', name: 'branch-detail', path: async (page) => `/branches/${(await page.evaluate(async () => (await fetch('/api/branches')).json()))[0].id}` },
   { role: 'gm', name: 'sales', path: '/sales' },
-  { role: 'gm', name: 'sale-detail', path: firstId('/api/sales?limit=1') },
+  // `/api/sales` takes no `limit` (strict query: `?limit=1` was refused, so this screen used to show an error). A
+  // bank-transfer sale when there is one, so the reference shows (FIX-2).
+  { role: 'gm', name: 'sale-detail', path: firstId('/api/sales', (b) => (b.find((s) => s.paymentMethod === 'BANK_TRANSFER') ?? b[0])?.id) },
   { role: 'gm', name: 'inventory', path: '/inventory' },
   { role: 'gm', name: 'types-and-products', path: '/catalog' },
   { role: 'gm', name: 'supplier-purchases', path: '/purchases' },
@@ -141,17 +148,18 @@ async function shoot(page, file, full) {
 async function captureDemo(browser) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jerp-ux-'));
   const port = await freePort();
-  const server = spawn('npx', ['tsx', 'src/server.ts'], {
-    cwd: path.join(ROOT, 'backend'),
-    env: { ...process.env, APP_MODE: 'demo', PORT: String(port), PGLITE_DIR: path.join(tmp, 'pglite'), DATABASE_URL: '', LOG_LEVEL: 'warn' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  // No passkey for the sample GM (first start only), so screenshots need no authenticator.
+  const env = { ...process.env, APP_MODE: 'demo', PORT: String(port), PGLITE_DIR: path.join(tmp, 'pglite'), DATABASE_URL: '', LOG_LEVEL: 'warn', TWO_FACTOR_REQUIRED_ROLES_INITIAL: '' };
+  // Fill the empty database BEFORE the server opens it (an embedded database is never shared by two processes).
+  const sample = JSON.parse(execFileSync('npx', ['tsx', 'src/dev/sample-cli.ts', '--json'], { cwd: path.join(ROOT, 'backend'), env, encoding: 'utf8' }).trim().split('\n').pop());
+  Object.assign(ROLES, { gm: sample.gm, bm: sample.branchManagers[0], cashier: sample.cashiers[0] });
+  const server = spawn('npx', ['tsx', 'src/server.ts'], { cwd: path.join(ROOT, 'backend'), env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   let log = '';
   server.stdout.on('data', (d) => (log += d));
   server.stderr.on('data', (d) => (log += d));
   const base = `http://127.0.0.1:${port}`;
   try {
-    await waitFor(async () => (await fetch(`${base}/api/health`)).ok, 'the demo server (seeding takes a minute)');
+    await waitFor(async () => (await fetch(`${base}/api/health`)).ok, 'the demo server');
     let n = 0;
     const counter = new Map();
     for (const lang of LANGS) {
@@ -161,6 +169,12 @@ async function captureDemo(browser) {
           await ctx.addInitScript((l) => localStorage.setItem('jerp.lang', l), lang);
           const page = await ctx.newPage();
           await page.goto(`${base}/login`);
+          // The sign-in page (UI-A2: tagline and display font), once per language and size.
+          if (role === 'gm') {
+            await page.getByTestId('welcome-back').waitFor();
+            await settle(page);
+            await shoot(page, path.join(OUT, 'demo', `${lang}-${w}x${h}`, '00-login.jpg'), false);
+          }
           await page.fill('input[autocomplete=username]', ROLES[role].username);
           await page.fill('input[autocomplete=current-password]', ROLES[role].password);
           await page.click('button[type=submit]');
@@ -187,7 +201,12 @@ async function captureDemo(browser) {
     console.error(log.slice(-3000));
     throw e;
   } finally {
-    server.kill('SIGTERM');
+    try {
+      process.kill(-server.pid, 'SIGTERM'); // npx starts the real server as a child: stop the whole group
+    } catch {
+      /* already gone */
+    }
+    await new Promise((r) => (server.exitCode !== null ? r() : server.once('exit', r)));
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
@@ -200,6 +219,21 @@ function captureEmpty() {
     stdio: 'inherit',
   });
   if (r.status !== 0) throw new Error('the rehearsal failed: no empty-database screenshots');
+}
+
+async function publish(from) {
+  const browser = await chromium.launch();
+  try {
+    const r = await publishScreens({ browser, from, to: SCREENS_DIR, changed: opt('changed', '') });
+    console.log(`published ${r.count} WebP screenshots (${(r.bytes / 1024 / 1024).toFixed(1)} MB) to ${path.relative(ROOT, SCREENS_DIR)}/`);
+  } finally {
+    await browser.close();
+  }
+}
+
+if (ARGS.has('--publish-only')) {
+  await publish(path.resolve(ROOT, opt('from', '.ux-shots')));
+  process.exit(0);
 }
 
 if (!ARGS.has('--skip-build') || !fs.existsSync(path.join(ROOT, 'frontend/dist/index.html'))) {
@@ -219,3 +253,4 @@ if (ONLY !== 'demo') {
   captureEmpty();
 }
 console.log(`screenshots in ${path.relative(ROOT, OUT)}/`);
+if (ARGS.has('--publish')) await publish(OUT);

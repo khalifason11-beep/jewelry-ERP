@@ -12,8 +12,8 @@ import { loadConfig } from '../src/config';
 import type { Ctx } from '../src/core/context';
 import { resetThrottleMemory } from '../src/auth/lockout';
 import { operatorResetSecondFactor, operatorUnlockSecurityLock } from '../src/modules/ops/service';
-import { seedDemo } from '../src/seed/demo';
-import { DEMO_PASSWORDS } from '../src/seed/catalog';
+import { seedWorld } from './fixtures/world';
+import { DEMO_PASSWORDS } from './fixtures/world-data';
 import { openTestDatabase } from './helpers';
 import { SoftAuthenticator } from './soft-authenticator';
 
@@ -53,7 +53,7 @@ const lastAudit = async (action: string) => (await ctx.db.select().from(t.auditL
 beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx, undefined, { twoFactor: true });
+  await seedWorld(ctx, undefined, { twoFactor: true });
   app = createApp(ctx, loadConfig({ VITEST: '1', APP_ORIGIN: ORIGIN } as NodeJS.ProcessEnv));
   gmId = (await ctx.db.select().from(t.users).where(eq(t.users.username, GM.username)))[0].id;
   // Enroll the GM: passkey on the shop PC + 10 recovery codes.

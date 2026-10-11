@@ -53,6 +53,9 @@ export const PERMISSIONS = {
   'scrap.override': 'Approve a scrap price beyond the allowed tolerance from the scrap buying rate',
   'purchases.settle': 'Record a supplier settlement paid with broken-scrap weight',
   'backups.view': 'See the age and status of the latest backup and restore drill',
+  // CSH-2 (D-csh-5): the General Manager's advances to a branch and the branch's repayments. General Manager only.
+  'funding.view': 'See what each branch owes the General Manager and the history of advances and repayments',
+  'funding.manage': 'Record an advance to a branch, a repayment from a branch, or correct one of them',
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;

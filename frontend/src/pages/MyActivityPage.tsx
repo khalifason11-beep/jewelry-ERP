@@ -4,7 +4,7 @@ import { get } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { dateTime, deviceText, money, todayKey, currencyLabel } from '../lib/format';
 import { useI18n } from '../lib/i18n';
-import { Card, CardHeader, KeyValue, Kpi, Mono, PageHeader } from '../components/ui';
+import { Card, CardHeader, KeyValue, Kpi, Mono, PageHeader, Skeleton } from '../components/ui';
 import { DateRange, useRangeParams } from '../components/Filters';
 import { SalesTable, type SaleRow } from './sales/SalesPages';
 import { SessionsTable } from './admin/SessionsPage';
@@ -22,7 +22,14 @@ export function MyActivityPage() {
     <div className="p-5 lg:p-6">
       <PageHeader title={t('My Activity')} subtitle={`${me.user.fullName} · ${L(me.user.role.name, me.user.role.nameAr)} · ${me.user.branch ? L(me.user.branch.name, me.user.branch.nameAr) : t('All branches')}`} />
       <div className="mb-5 grid gap-3 md:grid-cols-3">
-        <Kpi tone="dark" label={t('My sales today')} value={money(done.reduce((s, r) => s + r.total, 0), false)} sub={t('{n} invoice(s) · {currency}', { n: done.length, currency: currencyLabel() })} icon={<Receipt className="size-4" />} />
+        {/* UI-A2: no false 0 while loading or after a failure. */}
+        <Kpi
+          tone="dark"
+          label={t('My sales today')}
+          value={todaySales.data ? money(done.reduce((s, r) => s + r.total, 0), false) : todaySales.isError ? '—' : <Skeleton className="h-7 w-24 bg-navy-2" />}
+          sub={todaySales.data ? t('{n} invoice(s) · {currency}', { n: done.length, currency: currencyLabel() }) : todaySales.isError ? t('Could not load this information') : undefined}
+          icon={<Receipt className="size-4" />}
+        />
         <Card className="md:col-span-2">
           <div className="mb-3 flex items-center gap-2 text-[13px] font-semibold"><MonitorSmartphone className="size-4 text-ink-500" /> {t('My current session')}</div>
           {me.session && (

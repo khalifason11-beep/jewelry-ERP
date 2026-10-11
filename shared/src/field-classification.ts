@@ -25,22 +25,11 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
     // read time for callers without profit.view (cost-named params hidden, description re-rendered).
     safe: words('id at user_id username user_full_name role branch_id action entity_type entity_id description description_key description_params metadata session_id ip_address'),
   },
-  branches: { safe: words('id code name name_ar city address phone hasad_branch_code is_active created_at') },
+  branches: { safe: words('id code name name_ar city address phone is_active created_at') },
   branding_assets: { safe: words('id kind mime bytes sha256 size width height uploaded_by uploaded_at') },
   categories: { safe: words('id code name name_ar is_active created_at created_by name_ar_norm') },
   document_sequences: { safe: words('scope next') },
-  expenses: { safe: words('id number branch_id category amount expense_date description status created_by created_at reviewed_by reviewed_at review_note paid_from') },
   gold_rates: { safe: words('id karat price_per_gram effective_at set_by') },
-  hasad_redemption_items: { cost: ['unit_cost'], safe: words('id redemption_id item_id net_weight_mg karat active added_at released_at') },
-  hasad_redemptions: {
-    cost: ['items_cost'],
-    safe: words('id number withdrawal_id branch_id cashier_id status entitled_weight_mg delivered_weight_mg difference_mg settlement_direction settlement_amount rate_per_gram customer_verified created_at completed_at aborted_at abort_reason'),
-  },
-  hasad_withdrawals: {
-    safe: words(
-      'id external_id hasad_customer_id customer_name customer_name_ar customer_phone customer_national_id_masked entitled_weight_mg entitlement_karat branch_id status external_status pickup_code requested_at received_at opened_at opened_by completed_at completed_by cancelled_at cancelled_by cancel_reason last_synced_at',
-    ),
-  },
   // Stored responses are replayed only to the user who made the request, already filtered for them;
   // a GM's stored response can hold cost figures, hence COST.
   idempotency_keys: { cost: ['response_body'], safe: words('id user_id key route request_hash status response_status created_at completed_at') },
@@ -48,8 +37,8 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   item_status_history: { safe: words('id item_id from_status to_status branch_id ref_type ref_id ref_number user_id note at') },
   jewelry_items: {
     // Phase 2b cost model: acquisition cost, the making charge inside it, and whether it is an estimate.
-    cost: words('purchase_cost making_cost other_cost total_cost acquisition_cost making_charge cost_is_estimated'),
-    safe: words('id code barcode product_id karat gross_weight_mg net_weight_mg selling_price branch_id status purchase_id reservation_ref reserved_at reserved_by created_at updated_at origin supplier_id supplier_invoice_ref'),
+    cost: words('acquisition_cost making_charge cost_is_estimated'),
+    safe: words('id code barcode product_id karat gross_weight_mg net_weight_mg selling_price branch_id status purchase_id created_at updated_at origin supplier_id supplier_invoice_ref'),
   },
   permissions: { safe: words('code description') },
   products: { safe: words('id sku name name_ar category_id karat description created_at is_active created_by name_ar_norm') },
@@ -72,17 +61,16 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   },
   sales: {
     cost: ['cost_total'],
-    safe: words('id number branch_id cashier_id session_id customer_name customer_name_ar customer_phone subtotal discount_total total payment_method status voided_at voided_by void_reason created_at payment_ref_invoice payment_ref_transaction original_printed_at reprint_count'),
+    safe: words('id number branch_id cashier_id session_id customer_name customer_name_ar customer_phone subtotal discount_total total payment_method status voided_at voided_by void_reason created_at payment_ref_invoice payment_ref_transaction original_printed_at reprint_count price_change_reason'),
   },
   sessions: {
-    safe: words('id user_id branch_id login_at last_activity_at user_agent device ip_address current_module status ended_at ended_reason absolute_expires_at reauth_at csrf_token is_simulated sign_in_method passkey_reauth_at passkey_reauth_uv'),
+    safe: words('id user_id branch_id login_at last_activity_at user_agent device ip_address current_module status ended_at ended_reason absolute_expires_at reauth_at csrf_token sign_in_method passkey_reauth_at passkey_reauth_uv'),
   },
   settings: { safe: words('key value version updated_at updated_by') },
   settings_history: { safe: words('id key old_value new_value version actor_id actor_username reason at') },
-  settlements: { safe: words('id number type redemption_id branch_id direction weight_mg rate_per_gram amount payment_method confirmed_by confirmed_at') },
   suppliers: { safe: words('id name name_ar phone created_at created_by name_norm') },
   transfer_items: { safe: words('transfer_id item_id') },
-  transfers: { safe: words('id number from_branch_id to_branch_id status notes created_by created_at received_by received_at') },
+  transfers: { safe: words('id number from_branch_id to_branch_id status notes created_by created_at received_by received_at courier_name') },
   users: {
     safe: words('id username full_name full_name_ar role_id branch_id must_change_password password_changed_at status phone last_login_at failed_login_count locked_until created_at created_by mfa_failed_count mfa_locked_until recovery_codes_generated_at recovery_codes_acknowledged_at security_locked_at security_lock_reason'),
     secret: words('password_hash webauthn_user_handle'),
@@ -104,7 +92,7 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   scrap_rates: { safe: words('id karat price_per_gram effective_at set_by') },
   scrap_purchases: {
     safe: words(
-      'id number branch_id kind karat gross_weight_mg net_weight_mg scrap_rate_per_gram agreed_rate_per_gram deviation_bp override_approved amount payment_method item_id customer_name customer_phone customer_id_ref note created_by created_at',
+      'id number branch_id kind karat gross_weight_mg net_weight_mg scrap_rate_per_gram agreed_rate_per_gram deviation_bp override_approved amount payment_method cash_amount bank_amount bank_reference item_id customer_name customer_phone customer_id_ref note created_by created_at',
     ),
   },
   scrap_weight_entries: { safe: words('id branch_id karat weight_mg event_type ref_type ref_id ref_number actor_id session_id idempotency_key note at') },
@@ -116,6 +104,11 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   backup_runs: { safe: words('id kind status file_name size_bytes sha256 encrypted uploaded detail host started_at finished_at') },
   // Hasad bank transfers received (Phase 4 follow-up): a money movement between two branch accounts, like the ledger.
   hasad_receivable_settlements: { safe: words('id number branch_id amount bank_reference note actor_id session_id idempotency_key at') },
+  // CSH-2 (D-csh-5): the General Manager's funding of a branch. Money movements, not cost or profit: SAFE. Who sees
+  // them is decided by permission (`funding.view`, General Manager only), not by this registry.
+  gm_funding_events: {
+    safe: words('id number branch_id kind account amount reason bank_reference paid_directly_to_seller linked_ref reverses_event_id actor_id session_id idempotency_key at'),
+  },
 };
 
 /** Response field names that carry cost, acquisition cost, margin or profit. */
@@ -149,7 +142,7 @@ export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
 export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
   words(`
     abortReason abortedAt absDifferenceMg action actions active activeSessions actual address addedAt allowSelfPasswordChange
-    allowedKarats alreadyOpen amount appMode ar asOf at attention availableItems availableWeightMg
+    allowedKarats allowedKaratsConfirmed alreadyOpen amount appMode ar asOf at attention availableItems availableWeightMg
     balanceGrams barcode basis branch branchAddress branchCode branchId branchName branchNameAr branchPhone branches branding
     byCategory cancelReason cancelled cancelledAt cancelledBy cashierId cashierName cashierNameAr cashierUsername cashiers
     category categoryCode categoryId categoryName categoryNameAr city closing closingItems closingWeightMg code codes
@@ -160,9 +153,9 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     descriptionKey descriptionParams device differenceMg direction discount discountTotal discounts draft driver durationMs
     effectiveAt en endedAt endedReason entityId entityType enum
     error failedLoginCount failedLogins filters finalPrice firstLogin from
-    fromBranchId fromBranchName fromStatus fullName fullNameAr goldRateScope grossWeightMg hasad hasadBranchCode
+    fromBranchId fromBranchName fromStatus fullName fullNameAr goldRateScope grossWeightMg hasad
     history hour hourly id idleMinutes inProgress
-    inventory inventoryByKarat inventoryRetail invoiceFooterAr invoiceFooterEn ip ipAddress isActive isCurrent
+    inventory inventoryByKarat inventoryRetail invoiceFooterAr invoiceFooterEn loginTaglineAr loginTaglineEn tagline ip ipAddress isActive isCurrent
     isSystem item itemCode itemCodes itemCount itemId items itemsSold karat key kind kpis label labelAr labelEn lastActivity
     lastActivityAt lastLoginAt lines link listPrice liveSessions lockedUntil lockoutBaseMinutes
     lockoutMaxMinutes lockoutThreshold loginAt logins logoAssetId logoUrl maxDiscountPercent maxDiscountPercentByRole mg
@@ -172,11 +165,11 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     period permissions phone presence pricePerGram productId productName
     productNameAr purchaseId purchasedItems purchases purchasesCount queue rank rate rateChangeMaxPct rateKarats ratePerGram
     rates reason reauthWindowMinutes receivedAt receivedBy receivedByName recent
-    ref refId refNumber refType request requestedAt requireGmApprovalForScrapOverride reservationRef
-    reservedAt reservedBy reservedCount reservedItems response responseStatus returns revenue
+    ref refId refNumber refType request requestedAt requireGmApprovalForScrapOverride
+    response responseStatus returns revenue
     reviewNote reviewedAt reviewedBy role roleCode roleName roleRank rows saleId sales salesByCategory salesCount salesTotal
     scrapPriceTolerancePct security sellingPrice session sessionAbsoluteHours sessionId sessionIdleMinutes sessionRef setBy
-    settings settlement settlementAmount settlementDirection settlementNumber severity sku
+    settings settlement severity sku
     staffCount status subtotal supplierCreditEnabled supplierId supplierInvoiceNo supplierName timeline
     timezone title to toBranchId toBranchName toStatus total totalNetWeightMg totals transferId transfers transfersIn
     transfersInTransit transfersOut trend type updatedAt user userAgent userFullName userId userName username validForMinutes
@@ -199,8 +192,14 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     goldOwedMgPure24 owedAfterMgPure24 goldDebtMgPure24 settledKarat settledWeightMg settledPureMg24 bankReference hasadReceivableToBank hasadReceivableBalance
     cashLines bankLines bankMovement line
     isActive categoryAr supplierNameAr productNameAr existing
-    otherOut isSimulated
+    setupSteps steps done complete
     scrapPurchasesCash scrapPurchasesBank makingChargesCash makingChargesBank tolerancePct requireGmApproval rates
+    lockedAccounts lockedAt securityLockedAt
+    voidReauthAboveAmount priceChangeReason
+    bankTransferSales reference bankTransfer confirmDuplicateReference scrapPurchases scrapPurchaseId
+    courierName unavailable
+    supplierDebtMaxAgeDays countDifferenceTolerance cashAmount bankAmount account paidDirectlyToSeller linkedRef reversesEventId offset owedToGm totalOwedToGm events hasMore corrected gmAdvancesCash gmAdvancesBank gmRepaymentsCash gmRepaymentsBank cash signals severity critical warning info generatedAt counts since
+    inTransit goldOwed salesLine lastCount orders fullNameAr
   `),
 );
 

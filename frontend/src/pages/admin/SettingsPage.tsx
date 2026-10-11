@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ImageUp, Printer, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { ImageUp, Printer, Save, Trash2 } from 'lucide-react';
 import { KARATS, PAYMENT_METHODS, settingValue, type InvoiceFormat, type SettingKey, type SystemSettings } from '@jerp/shared';
 import { del, get, post, put, upload } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -12,7 +12,7 @@ import { useToast } from '../../lib/toast';
 import { printDocument } from '../../lib/print';
 import { CalibrationPrint } from '../../print/documents';
 import { errorText as apiErrorText } from '../../lib/api';
-import { Alert, Button, Card, CardHeader, Dialog, Field, Input, Loading, PageHeader, Select, Textarea } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, ErrorState, Field, Input, PageHeader, Select, SkeletonRows, Textarea } from '../../components/ui';
 
 interface SettingsResponse {
   settings: SystemSettings;
@@ -26,15 +26,12 @@ export function SettingsPage() {
   const { t, lang } = useI18n();
   const toast = useToast();
   const qc = useQueryClient();
-  const { logout, me } = useAuth();
-  const isDemo = me?.appMode === 'demo';
   const branding = useBranding();
   const s = useQuery({ queryKey: ['settings'], queryFn: () => get<SettingsResponse>('/settings') });
   const rates = useGoldRates();
   const [draft, setDraft] = useState<SystemSettings | null>(null);
   const [reason, setReason] = useState('');
   const [rateDraft, setRateDraft] = useState<Record<string, string>>({});
-  const [resetOpen, setResetOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (s.data) setDraft(s.data.settings);
@@ -92,20 +89,20 @@ export function SettingsPage() {
     },
     onError: (e) => toast.fromError(e),
   });
-  const reset = useMutation({
-    mutationFn: () => post('/demo/reset'),
-    onSuccess: async () => {
-      toast.success(t('Demo data rebuilt'), t('Please sign in again.'));
-      await logout().catch(() => undefined);
-      window.location.href = '/login';
-    },
-    onError: (e) => toast.fromError(e),
-  });
 
-  if (!draft) return <Loading />;
+  // UI-A2: a failed load is an error with Try again, never a spinner that turns forever (audit bug).
+  if (!draft)
+    return (
+      <div className="p-5 lg:p-6">
+        <PageHeader title={t('Settings')} subtitle={t('Business rules the client will confirm. Configurable here, not hard-coded.')} />
+        <Card padded={false}>
+          {s.isError ? <ErrorState error={s.error} onRetry={() => s.refetch()} /> : <SkeletonRows rows={8} className="p-5" />}
+        </Card>
+      </div>
+    );
   const set = <K extends keyof SystemSettings>(k: K, v: Partial<SystemSettings[K]>) => setDraft({ ...draft, [k]: { ...draft[k], ...v } });
-  const saveBtn = (keys: SettingKey[]) => (
-    <Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={save.isPending && JSON.stringify(save.variables) === JSON.stringify(keys)} onClick={() => save.mutate(keys)}>
+  const saveBtn = (keys: SettingKey[], testId?: string) => (
+    <Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={save.isPending && JSON.stringify(save.variables) === JSON.stringify(keys)} onClick={() => save.mutate(keys)} data-testid={testId}>
       {t('Save')}
     </Button>
   );
@@ -133,7 +130,7 @@ export function SettingsPage() {
           <CardHeader
             title={t('Company & branding')}
             subtitle={t('Shown on the login page, the header, the browser title and printed invoices')}
-            actions={saveBtn(['company.nameEn', 'company.nameAr', 'company.currencyLabelEn', 'company.currencyLabelAr', 'branding.invoiceFooterEn', 'branding.invoiceFooterAr'])}
+            actions={saveBtn(['company.nameEn', 'company.nameAr', 'company.currencyLabelEn', 'company.currencyLabelAr', 'branding.invoiceFooterEn', 'branding.invoiceFooterAr', 'branding.loginTaglineAr', 'branding.loginTaglineEn'], 'save-company')}
           />
           <div className="grid gap-3 p-5 sm:grid-cols-2">
             <Field label={t('Company name (English)')}>
@@ -147,6 +144,13 @@ export function SettingsPage() {
             </Field>
             <Field label={t('Currency label (Arabic)')}>
               <Input value={draft.company.currencyLabelAr} maxLength={12} onChange={(e) => set('company', { currencyLabelAr: e.target.value })} />
+            </Field>
+            {/* UI-A2 (D-ui-14): one line under the company name on the sign-in page; public, so nothing private. */}
+            <Field label={t('Sign-in tagline (Arabic)')} hint={t('Shown to anyone who opens the sign-in page. One line, up to 120 characters. Leave empty for none.')}>
+              <Input value={draft.branding.loginTaglineAr} maxLength={120} onChange={(e) => set('branding', { loginTaglineAr: e.target.value })} data-testid="tagline-ar" />
+            </Field>
+            <Field label={t('Sign-in tagline (English)')} hint={t('Optional: English shows the Arabic one when this is empty.')}>
+              <Input value={draft.branding.loginTaglineEn} maxLength={120} onChange={(e) => set('branding', { loginTaglineEn: e.target.value })} data-testid="tagline-en" />
             </Field>
             <Field label={t('Invoice footer (English)')} className="sm:col-span-2">
               <Textarea rows={2} value={draft.branding.invoiceFooterEn} maxLength={300} onChange={(e) => set('branding', { invoiceFooterEn: e.target.value })} />
@@ -181,21 +185,24 @@ export function SettingsPage() {
           </div>
         </Card>
 
-        {/* ── Gold rates ── */}
+        {/* ── Gold rates ── (anchor: the attention list's "no rate" line links here, UI-B) */}
+        <span id="rates" className="-mb-5 block scroll-mt-4" />
         <Card padded={false}>
           <CardHeader
             title={t('Gold rates ({currency} per gram)', { currency: currencyLabel() })}
             subtitle={t('The selling rate per gram, shown to cashiers')}
-            actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={saveRates.isPending} onClick={() => saveRates.mutate()}>{t('Save rates')}</Button>}
+            actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={saveRates.isPending} onClick={() => saveRates.mutate()} data-testid="save-gold-rates">{t('Save rates')}</Button>}
           />
           <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
             {draft.inventory.allowedKarats.map((k) => (
               <Field key={k} label={`${k}K`}>
-                <Input type="number" value={rateDraft[k] ?? ''} onChange={(e) => setRateDraft({ ...rateDraft, [k]: e.target.value })} className="num" />
+                <Input type="number" value={rateDraft[k] ?? ''} onChange={(e) => setRateDraft({ ...rateDraft, [k]: e.target.value })} className="num" data-testid={`gold-rate-${k}`} />
               </Field>
             ))}
           </div>
           <div className="scroll-thin max-h-48 overflow-y-auto border-t border-line">
+            {rates.isError && <ErrorState error={rates.error} onRetry={() => rates.refetch()} />}
+            {rates.data && rates.data.history.length === 0 && <p className="px-5 py-3 text-meta text-ink-3">{t('No rate has been set yet.')}</p>}
             <table className="w-full text-[12.5px]">
               <tbody className="divide-y divide-line">
                 {rates.data?.history.slice(0, 16).map((h) => (
@@ -219,7 +226,7 @@ export function SettingsPage() {
           <CardHeader
             title={t('Business rules')}
             subtitle={t('Purchases, scrap, rates and transfers')}
-            actions={saveBtn(['purchases.supplierCreditEnabled', 'purchases.scrapPriceTolerancePct', 'purchases.requireGmApprovalForScrapOverride', 'rates.goldRateScope', 'rates.rateChangeMaxPct', 'transfers.pendingClaimStaleHours', 'inventory.allowedKarats'])}
+            actions={saveBtn(['purchases.supplierCreditEnabled', 'purchases.scrapPriceTolerancePct', 'purchases.requireGmApprovalForScrapOverride', 'rates.goldRateScope', 'rates.rateChangeMaxPct', 'transfers.pendingClaimStaleHours', 'inventory.allowedKarats', 'cash.countDifferenceTolerance', 'purchases.supplierDebtMaxAgeDays'], 'save-business-rules')}
           />
           <div className="grid gap-3 p-5 sm:grid-cols-2">
             <div className="sm:col-span-2">{checkbox(draft.purchases.supplierCreditEnabled, (v) => set('purchases', { supplierCreditEnabled: v }), t('Allow supplier purchases on credit (creates a supplier payable)'))}</div>
@@ -238,6 +245,13 @@ export function SettingsPage() {
             </Field>
             <Field label={t('Flag pending transfers/claims after (hours)')}>
               {numberInput(draft.transfers.pendingClaimStaleHours, (n) => set('transfers', { pendingClaimStaleHours: n }), { min: 1, max: 720 })}
+            </Field>
+            {/* UI-B (D-ux-12): thresholds of the attention list. */}
+            <Field label={t('Cash count: accepted difference ({currency})', { currency: currencyLabel() })} hint={t('A count that differs from the expected cash by more than this appears under Needs attention. 0 = any difference.')}>
+              <span data-testid="count-tolerance" className="block">{numberInput(draft.cash.countDifferenceTolerance, (n) => set('cash', { countDifferenceTolerance: n }), { min: 0, step: 1000 })}</span>
+            </Field>
+            <Field label={t('Gold owed to a supplier: warn after (days)')} hint={t('Older supplier gold debts appear as a warning under Needs attention.')}>
+              <span data-testid="supplier-debt-days" className="block">{numberInput(draft.purchases.supplierDebtMaxAgeDays, (n) => set('purchases', { supplierDebtMaxAgeDays: n }), { min: 1, max: 3650 })}</span>
             </Field>
             <Field label={t('Allowed karats')} className="sm:col-span-2">
               <div className="flex flex-wrap gap-3">
@@ -264,7 +278,7 @@ export function SettingsPage() {
 
         {/* ── Sales ── */}
         <Card padded={false}>
-          <CardHeader title={t('Sales')} actions={saveBtn(['sales.maxDiscountPercentByRole', 'sales.posPaymentMethods'])} />
+          <CardHeader title={t('Sales')} actions={saveBtn(['sales.maxDiscountPercentByRole', 'sales.posPaymentMethods', 'sales.voidReauthAboveAmount'], 'save-sales')} />
           <div className="grid gap-3 p-5 sm:grid-cols-3">
             <Field label={t('Payment methods at the counter')} className="sm:col-span-3" hint={t('What the cashier can choose at the POS. Hasad asks for the Hasad invoice number.')}>
               <div className="flex flex-wrap gap-4 pt-1">
@@ -282,10 +296,17 @@ export function SettingsPage() {
                 {numberInput(v, (n) => set('sales', { maxDiscountPercentByRole: { ...draft.sales.maxDiscountPercentByRole, [role]: n } }), { min: 0, max: 100 })}
               </Field>
             ))}
+            {/* SEC-2 (D-sec2-1): General Manager only, like every setting; saving it needs the password. */}
+            <Field label={t('Ask for the password to cancel a sale above ({currency})', { currency: currencyLabel() })} hint={t('0 = every cancellation asks for the password again.')} className="sm:col-span-3">
+              <span data-testid="void-reauth-amount" className="block max-w-xs">
+                {numberInput(draft.sales.voidReauthAboveAmount, (n) => set('sales', { voidReauthAboveAmount: n }), { min: 0, step: 1000 })}
+              </span>
+            </Field>
           </div>
         </Card>
 
-        {/* ── Backups (Phase 2c) ── */}
+        {/* ── Backups (Phase 2c) ── (anchor: the attention list's backup line links here, UI-B) */}
+        <span id="backups" className="-mb-5 block scroll-mt-4" />
         <Card padded={false}>
           <CardHeader title={t('Backups')} subtitle={t('The dashboard warns the General Manager when backups or restore drills are older than this.')} actions={saveBtn(['backup.maxAgeHours', 'backup.maxVerifyAgeDays'])} />
           <div className="grid gap-3 p-5 sm:grid-cols-2">
@@ -386,29 +407,9 @@ export function SettingsPage() {
           </div>
         </Card>
 
+        <span id="second-factor" className="-mb-5 block scroll-mt-4" />
         <SecondFactorCard />
-
-        {isDemo && (
-          <Card padded={false}>
-            <CardHeader title={t('Demo data')} />
-            <div className="p-5">
-              <Alert tone="warning" className="mb-3">
-                {t('Rebuilds the entire demo database relative to the current date and time: branches, users, 30 days of transactions. All current data and sessions are discarded.')}
-              </Alert>
-              <Button variant="danger" icon={<RotateCcw className="size-4" />} onClick={() => setResetOpen(true)}>{t('Reset demo data')}</Button>
-            </div>
-          </Card>
-        )}
       </div>
-      <Dialog
-        open={resetOpen}
-        onClose={() => setResetOpen(false)}
-        title={t('Reset all demo data?')}
-        subtitle={t('Everyone will be signed out.')}
-        footer={<><Button onClick={() => setResetOpen(false)}>{t('Cancel')}</Button><Button variant="danger" loading={reset.isPending} onClick={() => reset.mutate()}>{t('Reset now')}</Button></>}
-      >
-        <p className="text-[13px] text-ink-600">{t('This takes a few seconds.')}</p>
-      </Dialog>
     </div>
   );
 }
@@ -456,6 +457,9 @@ function ScrapRatesCard() {
           </Button>
         }
       />
+      {q.isError && <ErrorState error={q.error} onRetry={() => q.refetch()} />}
+      {q.data === undefined && !q.isError && <SkeletonRows rows={2} className="p-5" />}
+      {q.data && (
       <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
         {shown.map((k) => {
           const cur = q.data?.rates.find((r) => r.karat === k);
@@ -466,6 +470,7 @@ function ScrapRatesCard() {
           );
         })}
       </div>
+      )}
       <div className="flex items-end gap-2 border-t border-line px-5 py-3">
         <Field label={t('Add another karat (1–24)')}>
           <Input type="number" min={1} max={24} step={1} value={extra} onChange={(e) => setExtra(e.target.value)} className="w-28 num" />

@@ -9,7 +9,7 @@ import type { DatabaseHandle } from '@jerp/database';
 import { createContext } from '../../src/bootstrap';
 import type { Ctx } from '../../src/core/context';
 import { rows } from '../../src/core/sql';
-import { seedDemo } from '../../src/seed/demo';
+import { seedWorld } from '../fixtures/world';
 import { openTestDatabase, PG_MODE } from '../helpers';
 
 const LEDGERS = ['audit_logs', 'inventory_movements', 'item_status_history', 'gold_rates', 'settings_history'];
@@ -25,7 +25,7 @@ beforeAll(async () => {
   if (!PG_MODE) throw new Error('test/pg/** must run in the postgres project');
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
 });
 afterAll(async () => handle?.close());
 

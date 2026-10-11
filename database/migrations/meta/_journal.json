@@ -113,6 +113,48 @@
       "when": 1791280684968,
       "tag": "0015_catalog_entry",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791454945910,
+      "tag": "0016_rem5_drop_deprecated",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791580834388,
+      "tag": "0017_sale_price_change_reason",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791582532730,
+      "tag": "0018_bank_transfer_reference",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791584366684,
+      "tag": "0019_transfer_courier",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791668674013,
+      "tag": "0020_csh2_gm_funding",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791672353558,
+      "tag": "0021_csh2_scrap_split_payment",
+      "breakpoints": true
     }
   ]
 }

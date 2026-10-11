@@ -9,7 +9,7 @@ import { createContext } from '../../src/bootstrap';
 import type { Ctx } from '../../src/core/context';
 import { resetThrottleMemory } from '../../src/auth/lockout';
 import { login } from '../../src/modules/auth/service';
-import { seedDemo } from '../../src/seed/demo';
+import { seedWorld } from '../fixtures/world';
 import { openTestDatabase, PG_MODE } from '../helpers';
 
 vi.mock('../../src/auth/password', async (orig) => {
@@ -25,7 +25,7 @@ beforeAll(async () => {
   if (!PG_MODE) throw new Error('test/pg/** must run in the postgres project');
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
 });
 afterAll(async () => handle?.close());
 

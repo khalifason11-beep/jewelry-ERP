@@ -205,6 +205,8 @@ export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: P
             {doc.hasad.transactionRef && <Row label={t('Hasad transaction reference')} value={<span className="pd-mono">{doc.hasad.transactionRef}</span>} />}
           </>
         )}
+        {/* FIX-2: the customer's bank-transfer reference (a sale recorded before FIX-2 shows "—"). */}
+        {doc.bankTransfer && <Row label={t('Bank transfer reference')} value={<span className="pd-mono" data-testid="print-bank-reference">{doc.bankTransfer.reference ?? '—'}</span>} />}
       </div>
       <Barcode value={doc.number} />
       <PrintFooter />

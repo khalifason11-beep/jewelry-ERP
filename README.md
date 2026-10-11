@@ -1,35 +1,72 @@
-# Jewelry Retail ERP — Client Demo Prototype
+# Jewelry Retail ERP
 
 A multi-branch jewelry retail ERP: item-level inventory, point of sale (cash, bank transfer and Hasad as
 payment channels), purchases from suppliers and customers, a money ledger per branch, branch profitability,
 executive dashboards, user & password administration, active-session monitoring and a full audit trail.
 
-> **Demo scope.** All data in `APP_MODE=demo` is fictional demo data (removed by BACKLOG REM-3). There is
-> **no connection** to any external system: Hasad is a payment method with manually typed references.
+> **No demo data.** Every database, in demo mode as in production, starts **empty**: no items, sales, customers,
+> suppliers or accounts (BACKLOG REM-3). There is **no connection** to any external system: Hasad is a payment method
+> with manually typed references.
 
 ## Quick start
 
 Requirements: **Node.js 20+** (nothing else — the database is embedded).
 
-**No local install:** on GitHub open the repository → **Code → Codespaces → Create codespace**. Dependencies
-and demo data are set up automatically, the app starts on port 4000 and opens in a browser tab
-(`.devcontainer/devcontainer.json`). Set the port's visibility to *Public* in the **Ports** tab to open it on a phone.
-
 Locally (Node.js ≥ 20):
 
 ```bash
 npm install
-npm run demo          # builds the UI and starts everything on http://localhost:4000
+npm run demo          # builds the UI, creates the first General Manager if needed, starts http://localhost:4000
 ```
 
-On first start the embedded PostgreSQL (PGlite) database is created in `.data/` and filled with
-~30 days of realistic demo activity relative to *today*. To rebuild the demo data at any time:
+`APP_MODE=demo` (the default) is a local trial installation: an embedded PostgreSQL (PGlite) database in `.data/`,
+plain `http://localhost`, and a small neutral **Demo** badge in the header. It starts **empty**, exactly like
+production. On the first run `npm run demo` sees that no General Manager exists and:
+
+- **in an interactive terminal**, asks for the General Manager's username (the normal rules: at least 8 characters,
+  letters, digits, `.`, `-`, `_`, no role-style words such as "admin" or "manager"), runs the real bootstrap and
+  prints a **one-time password** (changed at first sign-in); then the server starts;
+- **without a terminal** (Codespaces start-up, CI), prints the full bootstrap command and exits without starting:
+
+  ```bash
+  npm run bootstrap -w @jerp/backend -- --username <your.name> --full-name "<Your Name>" [--full-name-ar "<الاسم>"]
+  npm run demo
+  ```
+
+Then sign in as the General Manager. A General Manager needs a **passkey** at first sign-in (the default security
+setting; passkeys work on `http://localhost`). To try the app without one, start the server the first time with
+`TWO_FACTOR_REQUIRED_ROLES_INITIAL=` (empty), which sets the stored setting once (`TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm run demo`).
+
+The home screen then shows the **first steps** checklist:
+
+1. **Allowed karats** (mandatory): confirm the karats the shop works with (default 18, 21, 22 and 24;
+   `ALLOWED_KARATS_INITIAL=21` sets the initial list on the first start).
+2. **Today's gold rate and the scrap rates** (Settings).
+3. **The first branch** (Branches).
+4. **A branch manager and a cashier** (Users).
+
+Until stock exists, the branch dashboard and the point of sale say so instead of showing empty tables.
+
+To start over, stop the server and delete the `.data/` folder (the embedded database is single-process).
+
+**No local install:** on GitHub open the repository → **Code → Codespaces → Create codespace**
+(`.devcontainer/devcontainer.json`). The codespace installs the dependencies; in its terminal run `npm run demo`
+and answer the username question, then open port 4000 (set its visibility to *Public* in the **Ports** tab to open
+it on a phone).
+
+### A populated local database (screenshots, trials)
 
 ```bash
-npm run db:reset      # stop the server first (the embedded DB is single-process)
+PGLITE_DIR=.data/sample npm run dev:sample                       # fill a NEW, empty demo-mode database
+PGLITE_DIR=.data/sample TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm start   # serve it (no passkey needed)
 ```
 
-…or, while the app is running, sign in as General Manager → **Settings → Reset demo data**.
+`dev:sample` is a development tool: it refuses `APP_MODE=production` and any database that already has a user. It
+creates two branches, staff, types, products, a supplier order per branch, a few sales (cash, bank transfer, Hasad),
+scrap purchases and one transfer in transit, all through the real services. Names come from
+`backend/src/dev/sample-names.json` and are **marked placeholders** (`[عينة] …`) until the owner supplies real,
+client-approved names. Generated passwords are printed once (`--json` prints the accounts as JSON).
+`scripts/capture-ui-baseline.mjs` uses it for the screenshot baseline.
 
 Development mode (hot reload, UI on http://localhost:5173):
 
@@ -61,7 +98,7 @@ npm run test:pg -w @jerp/backend
 - PowerShell sets environment variables with `$env:NAME="value"` (not `NAME=value` as in the Linux examples), e.g.
 
   ```powershell
-  $env:DEMO_TWO_FACTOR="true"; $env:PORT="4000"; npm start
+  $env:TWO_FACTOR_REQUIRED_ROLES_INITIAL=""; $env:PORT="4000"; npm run demo
   ```
 
 - If the backend stops at start with **"Cannot find native binding"** (from `@node-rs/argon2`), npm skipped a native
@@ -72,25 +109,10 @@ npm run test:pg -w @jerp/backend
 - `npm run check:lockfile` (also part of `npm run typecheck`) fails if `package-lock.json` lacks the Windows, Linux or
   macOS binary of any native package.
 
-## Demo accounts (fictitious credentials)
-
-| Username | Password | Role | Branch |
-|---|---|---|---|
-| `general.manager` | `demo-gm-2026` | General Manager | All branches |
-| `branch.manager.kh` | `demo-bm-2026` | Branch Manager | Khartoum |
-| `cashier.kh.01` | `demo-cashier-2026` | Cashier | Khartoum |
-| `cashier.kh.02` | `demo-cashier-2026` | Cashier | Khartoum |
-| `branch.manager.omd` | `demo-bm-2026` | Branch Manager | Omdurman |
-| `cashier.omd.01` | `demo-cashier-2026` | Cashier | Omdurman |
-
-Also available: `branch.manager.bhr`, `cashier.bhr.01`, `branch.manager.pzu`, `cashier.pzu.01`.
-The login page lists the main accounts; click one to fill the form.
-
 ## What to show the client
 
-See **[docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md)**. It is a 12-step walkthrough covering cashier, branch manager
-and general manager views, a normal sale,
-inventory movement, profit, drill-down, active sessions and the audit trail.
+See **[docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md)**: the first start on an empty database (first-steps checklist,
+empty states), then daily work for the cashier, branch manager and General Manager on a `dev:sample` database.
 
 ## Documentation
 
@@ -98,7 +120,7 @@ inventory movement, profit, drill-down, active sessions and the audit trail.
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Stack, layout, domain rules, configurable items, assumptions, plan |
 | [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Tables, relationships, traceability, ledger |
-| [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | Step-by-step client presentation |
+| [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | Step-by-step presentation on a sample database |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production behind a reverse proxy (Render): env vars, first start, operator console, verifying client IPs |
 | [docs/decisions.md](docs/decisions.md) | Every decision taken under ambiguity, with how to change it |
 
@@ -107,7 +129,7 @@ inventory movement, profit, drill-down, active sessions and the audit trail.
 ```
 shared/               domain enums, permissions & default roles, route matrix, settings defaults
 database/             Drizzle schema, client factory (PostgreSQL | PGlite), SQL migrations
-backend/              Express API: auth, authz, modules (sales, inventory, purchases, ledger, …), seed, tests
+backend/              Express API: auth, authz, modules (sales, inventory, purchases, ledger, …), dev sample, tests
 frontend/             React + Tailwind UI (POS, dashboards, reports, admin), i18n EN/AR (RTL)
 docs/                 architecture & presentation material
 scripts/i18n-check.mjs  localization scanner (`npm run i18n:check`)
@@ -115,9 +137,10 @@ scripts/i18n-check.mjs  localization scanner (`npm run i18n:check`)
 
 ### Production mode
 
-`APP_MODE=demo` (default) is the self-contained demo: embedded database, demo data, demo accounts on the
-login page and "Reset demo data". **`APP_MODE=production`** turns all of that off and refuses
-to start unless the deployment is safe:
+`APP_MODE=demo` (default) is the local trial installation described above: embedded database, plain
+`http://localhost`, the **Demo** badge; it starts empty and has no demo data, demo accounts or reset action.
+**`APP_MODE=production`** removes the badge, refuses `npm run dev:sample`, and refuses to start unless the
+deployment is safe:
 
 | Variable | Required in production | Notes |
 |---|---|---|
@@ -138,7 +161,8 @@ APP_MODE=production DATABASE_URL=… APP_ORIGIN=https://erp.example.com \
 
 This creates the roles, permissions and categories, the listed branches and the first General Manager, and prints
 a one-time password (it must be changed at first sign-in). It refuses to run again once a General Manager exists.
-The server also refuses to start while any demo account still accepts its published demo password.
+The server also refuses to start while any account from the old (pre-REM-3) demo data still accepts its published
+demo password.
 
 Authentication: Argon2id password hashes, lockout after 5 failures (15 → 30 → 60 min, the GM can unlock), per-IP
 throttling, idle sign-out after 60 min without user input (all roles, changeable by the GM in Settings) and a 12 h absolute
@@ -248,7 +272,8 @@ npm run ops -w @jerp/backend -- reset-gm-password --username <gm user>
 - Settings → **Second factor**: who must use it (GM by default; Branch Manager optional; never cashiers) and what a
   passkey must check (`required` = fingerprint/face/PIN, or `preferred` = a touch is enough). Changes need password + passkey.
 - Lost everything: `npm run ops -w @jerp/backend -- reset-second-factor --username <u> --confirm` (shell only).
-- **Demo:** no second factor by default. Start with `DEMO_TWO_FACTOR=true` to try it (works on `http://localhost`).
+- **Demo mode** follows the same rules (works on `http://localhost`). `TWO_FACTOR_REQUIRED_ROLES_INITIAL=` (empty) on
+  the first start sets "nobody must use it" once, to try the app without a passkey.
   Browser check with a virtual authenticator: `scripts/e2e-passkeys.mjs`.
 - Setup, domain warning, hardware and the lost-device procedure: [docs/DEPLOYMENT.md §8](docs/DEPLOYMENT.md).
 
@@ -273,8 +298,7 @@ Amounts and weights always use Western digits; dates use Arabic month names in A
 stable `key` + `params` so the client shows them in the active language. Audit-log entries work the same way:
 `writeAudit({ key, params })` stores `description_key` + `description_params` (money and weights stay numeric via
 `ap.money()` / `ap.mg()` and are formatted by the client); `description` keeps the English rendering as a fallback.
-Demo data is seeded in Arabic (customer names, notes and reasons).
 
 `npm run i18n:check` reports hardcoded English in JSX and toast/`done()` calls, keys without an Arabic
 translation (UI, API errors, audit keys, field labels), English template-literal `description:` values in the
-backend, and English free text in seed data (`--strict` exits non-zero).
+backend (`--strict` exits non-zero).

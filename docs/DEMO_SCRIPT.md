@@ -1,85 +1,61 @@
-# Client Demo Script (≈ 25 minutes)
+# Presentation Script (≈ 20 minutes)
 
-Preparation: `npm run demo`, open http://localhost:4000. For a clean run, reset the data first
-(`npm run db:reset` or *Settings → Reset demo data*). Use two browser windows, e.g. a normal and
-a private window, to be signed in as two users at the same time.
+Since REM-3 there is no demo data: every database starts empty. A presentation therefore uses either
+
+- **a fresh empty database**, to show the first start exactly as the client will live it (part A), or
+- **a sample database** made by `npm run dev:sample`, to show daily work with a few records (part B).
+
+The sample uses **marked placeholder names** (`[عينة] …` / `[Sample] …`) from `backend/src/dev/sample-names.json`
+until the owner supplies real, client-approved names. Say so when presenting; do not invent names on screen.
+
+Use two browser windows (e.g. a normal and a private window) to be signed in as two users at the same time.
+The UI opens in Arabic; the header switch shows English.
 
 ---
 
-### 1. "This is what the cashier sees"
-Sign in as **cashier.kh.01** / `demo-cashier-2026`.
+## Part A — the first start (empty database)
 
-- The POS opens: product grid on the left, current invoice on the right.
-- Top bar: branch, user, date/time, the **21K gold price**, notifications.
-- The dark band at the top is the separate **HASAD GOLD WITHDRAWALS** section.
-- Point out: the cashier sees **only Khartoum** stock and **no cost or profit figures**.
+Preparation:
 
-### 2. "This is how a normal jewelry sale works"
-- Type `J-10` or a product name, or scan a barcode and press Enter. Filter by karat or category.
-- Click a piece to add it; show the weight, price and the discount field (capped at 3% for cashiers).
-- Choose a payment method and click **Complete Sale**. The invoice appears with a *Print* button.
-- The piece disappears from the grid: status **AVAILABLE → SOLD**.
+```bash
+rm -rf .data/pglite                                   # only a local trial database
+TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm run demo       # asks for the GM username, prints a one-time password
+```
 
-### 3. "This is how a Hasad Gold customer withdrawal works"
-- Click **HG-10025 · Ahmed Mohamed · 4.200 g** in the Hasad band.
-- Explain: Hasad sent only an *entitlement* (4.200 g, 21K). **No piece has been chosen.**
-- Enter pickup code **482913** and click *Verify & start*.
+(Omit `TWO_FACTOR_REQUIRED_ROLES_INITIAL=` to show the passkey registration as well; it works on `http://localhost`.)
 
-### 4. "The system does not reserve inventory until the customer selects a real item"
-- The *Inventory impact* panel reads **None**. Browsing and filtering pieces reserves nothing.
-- Click *Select for customer* on **J-1002 · Gold Ring · 4.180 g**. Only now does J-1002 become **RESERVED**.
-  In the other window (e.g. cashier.kh.02 at the POS) it shows as reserved and cannot be sold.
+1. **Sign in as the General Manager** with the one-time password and choose a new password.
+2. **First steps.** The home screen shows the four-step checklist and nothing else:
+   allowed karats → today's gold rate and scrap rates → first branch → branch manager and cashier.
+   The header says "Set today's rate".
+3. **Allowed karats** (mandatory): tick 21 only, confirm with the password. The audit log records it.
+4. **Settings**: enter today's gold rate for 21K and a scrap rate. The header now shows the rate.
+5. **Branches → New branch**, then **Users**: a branch manager and a cashier (temporary passwords shown once).
+   The checklist disappears when the four steps are done.
+6. Sign in as the branch manager: the dashboard explains there is **no stock yet**. Sign in as the cashier: the
+   point of sale says the same. Stock arrives with the first supplier order (part B).
 
-### 5. "This is how weight differences are handled"
-- **Case A:** 4.200 g entitled, 4.180 g delivered, difference −0.020 g → **Branch pays customer**
-  (0.020 g × 190,000 = **3,800 SDG**).
-- Click *Release* and select **J-1003 · 4.350 g** instead. J-1002 goes back to AVAILABLE.
-- **Case B:** difference +0.150 g → **Customer pays branch 28,500 SDG**.
-- Click *Review settlement & complete*, tick the customer-acknowledgement box and confirm.
-  The piece becomes **REDEEMED**, Hasad is notified, and the settlement is recorded.
-- Optional: *Customer left — release* shows RESERVED → AVAILABLE when a customer walks away.
-  Reservations also auto-release after 30 minutes (configurable).
+## Part B — daily work (sample database)
 
-### 6. "This is how branch inventory changes"
-Sign in as **branch.manager.kh** / `demo-bm-2026`.
-- Dashboard → **Inventory movement**: Opening + Purchases + Transfers in − Sales − Hasad
-  redemptions − Transfers out = Closing, in **pieces and grams**, with a *Reconciled* badge.
-- Click through to *Inventory* → a piece → its **lifecycle** (PURCHASED → RECEIVED → AVAILABLE →
-  RESERVED → REDEEMED) with the documents and users behind every step.
-- *Transfers*: a transfer from Bahri is **in transit**. Click *Confirm receipt*.
+Preparation:
 
-### 7. "This is how branch profit is calculated"
-- KPI *Gross Profit* = selling price after discount − item total cost (purchase + making + other).
-- *Contribution* = gross profit − approved branch expenses. Show *Expenses → New expense*.
-- *Reports → Profit Report*, grouped by branch, category, karat, cashier or day.
+```bash
+PGLITE_DIR=.data/sample npm run dev:sample                         # prints the accounts and passwords once
+PGLITE_DIR=.data/sample TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm start
+```
 
-### 8. "This is what the branch manager sees"
-- Hasad section: new requests, waiting, completed, cancelled, amounts **paid to** and
-  **collected from** customers. Cashier activity table.
-- Try to open another branch's data (e.g. change `branchId` in the URL): the API returns **403**.
+The sample has two branches, a General Manager (`sample.alpha`), a branch manager (`sample.bravo.a`, `.b`) and a
+cashier (`sample.charlie.a`, `.b`) per branch, supplier orders, three sales (cash, bank transfer, Hasad), two scrap
+purchases and one transfer in transit.
 
-### 9. "This is how the general manager sees all branches"
-Sign in as **general.manager** / `demo-gm-2026`.
-- **Executive Overview**: six KPIs, the *Branch Performance* table, daily sales by branch,
-  items needing attention (a pending expense approval, a transfer in transit).
-- **Drill-down:** click *Khartoum*, then the *Sales* tab, then an invoice (items, cost, profit,
-  cashier, timestamp), then a piece (its full lifecycle).
-
-### 10. "This is how user activity and active sessions are monitored"
-- **Active Users**: who is signed in, role, branch, login time, last activity, device, IP,
-  current module. Note **cashier.pzu.01 is signed in on two devices**. It is flagged, because the
-  system always shows the account that actually signed in. Sessions can be ended.
-- **Users**: create a user (a temporary password is shown once), **reset password** (never
-  retrievable, only reset), disable an account. Sessions end immediately.
-
-### 11. "This is how the audit trail works"
-- **Audit Log**: filter by user, branch or action (e.g. `HASAD_WITHDRAWAL_COMPLETED`, `LOGIN_FAILED`).
-  Every event carries timestamp, user, role, branch, entity, IP and session reference.
-
-### 12. Integration & configuration
-- **Hasad Simulator**: act as a customer in the Hasad app. Pick *Yousif Kheir* (8.400 g) and send a
-  request to Khartoum. It appears in the cashier's Hasad band within seconds, and again **nothing
-  is reserved**. The integration log shows every call the ERP made to the Hasad API.
-- **Settings**: gold rates, settlement basis, discount limits, expense approval threshold, session
-  timeouts, and a *simulated Hasad outage* switch that shows how failures are handled safely.
-- Switch the UI to **العربية** to show the right-to-left layout.
+1. **Cashier** (`sample.charlie.a`): the point of sale shows only the own branch's stock and **no cost or profit
+   figures**. Add a piece, choose the payment method (Hasad needs its reference), complete the sale, print the
+   invoice. The piece leaves the grid (AVAILABLE → SOLD).
+2. **Branch manager** (`sample.bravo.a`): dashboard, inventory with each piece's lifecycle, a **new supplier
+   order** (new types, products and suppliers can be created inside the form), a **scrap purchase**, the
+   **transfer** in transit, and **Cash** (daily reconciliation of drawer and bank).
+   Another branch's data is refused (403).
+3. **General Manager** (`sample.alpha`): the company overview, then drill down: a branch → its sales → an invoice
+   → a piece. **Reports**, **Active users** (sessions can be ended), **Users** (reset a password: never
+   retrievable, only reset), the **Audit log** (every action with user, branch, IP and session) and **Settings**.
+4. Switch to English to show the left-to-right layout.

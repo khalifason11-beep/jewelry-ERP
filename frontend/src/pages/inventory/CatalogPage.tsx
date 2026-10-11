@@ -11,7 +11,7 @@ import { karatLabel } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import type { Category, Product } from '../../lib/types';
-import { Badge, Button, Card, Dialog, ErrorState, Field, Input, Loading, Mono, PageHeader, Tabs } from '../../components/ui';
+import { Badge, Button, Card, Dialog, Field, Input, Mono, PageHeader, Tabs } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { NewProductDialog, NewTypeDialog } from '../../components/Catalog';
 
@@ -29,7 +29,7 @@ export function CatalogPage() {
   const types = useQuery({ queryKey: ['categories', 'all', manage], queryFn: () => get<Category[]>('/categories', manage ? { includeInactive: 'true' } : {}) });
   const products = useQuery({ queryKey: ['products', 'all', manage], queryFn: () => get<Product[]>('/products', manage ? { includeInactive: 'true' } : {}) });
 
-  const state = (active: boolean) => (active ? <Badge tone="bg-emerald-50 text-emerald-700 ring-emerald-600/20">{t('Active')}</Badge> : <Badge>{t('Deactivated')}</Badge>);
+  const state = (active: boolean) => (active ? <Badge tone="ok">{t('Active')}</Badge> : <Badge>{t('Deactivated')}</Badge>);
   const toggle = (r: Target) =>
     manage && (
       <Button size="sm" variant="ghost" onClick={() => setTarget(r)} data-testid={`toggle-${r.kind}-${r.id}`}>
@@ -37,7 +37,6 @@ export function CatalogPage() {
       </Button>
     );
 
-  const q = tab === 'products' ? products : types;
   return (
     <div className="p-5 lg:p-6">
       <PageHeader
@@ -60,16 +59,14 @@ export function CatalogPage() {
         ]}
       />
       <Card padded={false}>
-        {q.isLoading ? (
-          <Loading />
-        ) : q.isError ? (
-          <ErrorState error={q.error} onRetry={() => q.refetch()} />
-        ) : tab === 'products' ? (
+        {tab === 'products' ? (
           <DataTable
-            rows={products.data!}
+            query={products}
+            rows={products.data ?? []}
             rowKey={(r) => r.id}
             exportName="products"
             emptyTitle={t('No products yet')}
+            emptyBody={t('A product is one design in one karat, for example "plain ring 21K". Create a type first if there is none.')}
             columns={[
               { key: 'sku', header: t('Code'), render: (r) => <Mono>{r.sku}</Mono> },
               { key: 'name', header: t('Product'), value: (r) => L(r.name, r.nameAr), render: (r) => L(r.name, r.nameAr) },
@@ -81,10 +78,12 @@ export function CatalogPage() {
           />
         ) : (
           <DataTable
-            rows={types.data!}
+            query={types}
+            rows={types.data ?? []}
             rowKey={(r) => r.id}
             exportName="types"
             emptyTitle={t('No types yet')}
+            emptyBody={t('A type groups pieces, for example rings or bracelets. Create the first one with New type.')}
             columns={[
               { key: 'code', header: t('Code'), render: (r) => <Mono>{r.code}</Mono> },
               { key: 'name', header: t('Type'), value: (r) => L(r.name, r.nameAr), render: (r) => L(r.name, r.nameAr) },
@@ -131,7 +130,7 @@ function ActiveDialog({ target, onClose }: { target: Target; onClose: () => void
       footer={
         <>
           <Button onClick={onClose}>{t('Cancel')}</Button>
-          <Button variant={target.active ? 'danger' : 'primary'} disabled={reason.trim().length < 3} loading={m.isPending} onClick={() => m.mutate()} data-testid="confirm-toggle">
+          <Button variant={target.active ? 'danger-solid' : 'primary'} disabled={reason.trim().length < 3} loading={m.isPending} onClick={() => m.mutate()} data-testid="confirm-toggle">
             {target.active ? t('Deactivate') : t('Reactivate')}
           </Button>
         </>

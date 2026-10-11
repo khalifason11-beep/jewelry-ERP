@@ -15,8 +15,8 @@ import type { Ctx } from '../src/core/context';
 import { rows } from '../src/core/sql';
 import { resetThrottleMemory } from '../src/auth/lockout';
 import { bootstrapProduction } from '../src/modules/bootstrap/service';
-import { seedDemo } from '../src/seed/demo';
-import { DEMO_PASSWORDS } from '../src/seed/catalog';
+import { seedWorld } from './fixtures/world';
+import { DEMO_PASSWORDS } from './fixtures/world-data';
 import { openTestDatabase, withIdempotencyKeys } from './helpers';
 
 let handle: DatabaseHandle;
@@ -38,7 +38,7 @@ const line = (productId: number, net = 4_000) => ({ productId, grossWeightMg: ne
 beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
   app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
 });
 afterAll(async () => handle.close());
@@ -262,9 +262,6 @@ describe('English name optional: displays fall back to the Arabic name', () => {
     const moves = (await gm.get(`/api/reports/inventory-ledger?q=${encodeURIComponent(item.code)}`)).body;
     expect(moves.rows.length).toBeGreaterThan(0);
     expect(moves.rows.every((r: { productName: string }) => r.productName === 'كف مشغول')).toBe(true);
-    // Sales by type on the company dashboard: one row per type, with both names.
-    const dash = (await gm.get('/api/dashboard/company')).body;
-    expect(dash.salesByCategory.find((c: { categoryAr: string }) => c.categoryAr === 'كفوف')).toMatchObject({ category: 'كفوف' });
     // Profit by type groups by the type itself and carries the Arabic companion for the report table.
     const profit = (await gm.get('/api/reports/profit?group=category')).body;
     expect(profit.rows.filter((r: { labelAr: string }) => r.labelAr === 'كفوف')).toEqual([expect.objectContaining({ label: 'كفوف', labelAr: 'كفوف' })]);

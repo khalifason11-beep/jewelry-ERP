@@ -1,7 +1,7 @@
 // Report engine: every report returns the same shape (columns + rows + totals) so the UI
 // renders, searches, sorts and exports all of them with one component.
 
-import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import { PAYMENT_METHODS, sumInt, type ReportKey } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
@@ -171,7 +171,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
         rows: rowsAll,
         totals: totalsOf(rowsAll, ['netWeightMg', 'purchaseCost', 'totalCost', 'sellingPrice']),
         summary: stockSummary((await stockWeight(ctx.db, scope)).total),
-        filters: { dateRange: false, branch: true, user: false, status: ['AVAILABLE', 'RESERVED', 'SOLD', 'REDEEMED', 'TRANSFERRED', 'DAMAGED', 'RETURNED'] },
+        filters: { dateRange: false, branch: true, user: false, status: ['AVAILABLE', 'SOLD', 'TRANSFERRED', 'DAMAGED', 'RETURNED'] },
       };
     }
     case 'stock-weight': {
@@ -187,7 +187,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
         columns: [
           c('branchName', 'Branch', 'text', '/branches/:branchId'),
           c('karat', 'Karat', 'number'),
-          c('itemsWeightMg', 'Pieces (available + reserved)', 'weight'),
+          c('itemsWeightMg', 'Pieces (available)', 'weight'),
           c('brokenScrapWeightMg', 'Broken scrap', 'weight'),
           c('totalWeightMg', 'Total weight', 'weight'),
           c('totalPureMg24', '24K equivalent', 'weight'),
@@ -213,19 +213,17 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
         transfersIn: L(m, 'TRANSFER_IN').items,
         returns: L(m, 'RETURN').items + L(m, 'ADJUSTMENT_IN').items,
         sales: L(m, 'SALE').items,
-        // Deliveries of the removed Hasad workspace (historical only, REM-2) stay in the equation.
-        otherOut: L(m, 'HASAD_REDEMPTION').items,
         transfersOut: L(m, 'TRANSFER_OUT').items,
         damaged: L(m, 'DAMAGE').items + L(m, 'ADJUSTMENT_OUT').items,
         closingItems: m.closing.items,
         closingWeightMg: m.closing.weightMg,
         weightIn: L(m, 'PURCHASE').weightMg + L(m, 'TRANSFER_IN').weightMg + L(m, 'RETURN').weightMg + L(m, 'ADJUSTMENT_IN').weightMg,
-        weightOut: L(m, 'SALE').weightMg + L(m, 'HASAD_REDEMPTION').weightMg + L(m, 'TRANSFER_OUT').weightMg + L(m, 'DAMAGE').weightMg + L(m, 'ADJUSTMENT_OUT').weightMg,
+        weightOut: L(m, 'SALE').weightMg + L(m, 'TRANSFER_OUT').weightMg + L(m, 'DAMAGE').weightMg + L(m, 'ADJUSTMENT_OUT').weightMg,
       }));
       return {
         key: 'inventory-movement',
         title: 'Inventory Movement',
-        description: 'Opening stock + purchases + transfers in − sales − transfers out − other = closing stock. Derived from the ledger.',
+        description: 'Opening stock + purchases + transfers in − sales − transfers out − damaged = closing stock. Derived from the ledger.',
         columns: [
           c('branchName', 'Branch'),
           c('openingItems', 'Opening', 'number'),
@@ -234,14 +232,13 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('transfersIn', '+ Transfers in', 'number'),
           c('returns', '+ Returns/adj.', 'number'),
           c('sales', '− Sales', 'number'),
-          c('otherOut', '− Other', 'number'),
           c('transfersOut', '− Transfers out', 'number'),
           c('damaged', '− Damaged/adj.', 'number'),
           c('closingItems', '= Closing', 'number'),
           c('closingWeightMg', 'Closing wt', 'weight'),
         ],
         rows: rowsAll,
-        totals: totalsOf(rowsAll, ['openingItems', 'openingWeightMg', 'purchases', 'transfersIn', 'returns', 'sales', 'otherOut', 'transfersOut', 'damaged', 'closingItems', 'closingWeightMg']),
+        totals: totalsOf(rowsAll, ['openingItems', 'openingWeightMg', 'purchases', 'transfersIn', 'returns', 'sales', 'transfersOut', 'damaged', 'closingItems', 'closingWeightMg']),
         filters: { dateRange: true, branch: true, user: false },
       };
     }
@@ -454,6 +451,9 @@ export async function listAudit(
   if (q.userId) where.push(eq(t.auditLogs.userId, q.userId));
   if (q.action) where.push(inArray(t.auditLogs.action, q.action.split(',')));
   if (q.entityType) where.push(eq(t.auditLogs.entityType, q.entityType));
+  // CSH-2 (D-csh-5): the General Manager's funding of a branch is his own business; without `funding.view` (the
+  // branch manager reading their branch's log) those rows are left out, so nothing reveals what is owed to him.
+  if (!actor.permissions.has('funding.view')) where.push(ne(t.auditLogs.entityType, 'gm_funding_event'));
   if (q.q?.trim()) {
     const s = `%${q.q.trim()}%`;
     where.push(or(ilike(t.auditLogs.description, s), ilike(t.auditLogs.entityId, s), ilike(t.auditLogs.username, s))!);

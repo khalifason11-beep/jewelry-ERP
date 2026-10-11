@@ -9,7 +9,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, KARATS, PAYMENT_METHODS, SCRAP_KINDS, SCRAP_PAYMENT_METHODS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
+import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, KARATS, PAYMENT_METHODS, SCRAP_KINDS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
@@ -26,7 +26,9 @@ import * as sales from './modules/sales/service';
 import * as printing from './modules/print/service';
 import * as purchases from './modules/purchases/service';
 import * as catalog from './modules/catalog/service';
+import * as setup from './modules/setup/service';
 import * as transfers from './modules/transfers/service';
+import { attentionFor } from './modules/attention/service';
 import * as dashboard from './modules/dashboard/service';
 import * as reports from './modules/reports/service';
 import * as branding from './modules/branding/service';
@@ -38,13 +40,12 @@ import * as passkeys from './modules/auth/passkeys';
 import { relyingParty } from './auth/webauthn';
 import * as backups from './modules/backups/status';
 import * as scrap from './modules/scrap/service';
+import * as funding from './modules/funding/service';
 import * as supplierSettlements from './modules/supplier-settlements/service';
 import { runIdempotent } from './core/idempotency';
+import { log } from './core/logger';
 import { defineRoutes } from './core/guard';
 import { costRedaction } from './core/cost-redaction';
-import { notificationsFor } from './modules/notifications/service';
-import { resetDemoData } from './seed/reset';
-import { DEMO_PASSWORDS, USERS } from './seed/catalog';
 
 // ───────── shared validators ─────────
 /** 1 trillion SDG: far above any real amount, far below JS/bigint limits. */
@@ -63,6 +64,21 @@ const zStatusList = z.preprocess((v) => (typeof v === 'string' && v ? v.split(',
 const zBool = z.preprocess((v) => v === 'true' || v === '1' || v === true, z.boolean());
 const zQ = zText(100).optional();
 const zPhone = zText(30).regex(/^[+\d\s()-]*$/);
+
+/** At most 20 crash reports per session per hour reach the log (a looping crash cannot flood it). */
+const clientErrors = new Map<string, { n: number; since: number }>();
+function clientErrorBudget(sessionId: string | number | null | undefined): boolean {
+  const key = String(sessionId ?? 'none');
+  const now = Date.now();
+  const e = clientErrors.get(key);
+  if (!e || now - e.since > 3600_000) {
+    if (clientErrors.size > 5000) clientErrors.clear();
+    clientErrors.set(key, { n: 1, since: now });
+    return true;
+  }
+  e.n += 1;
+  return e.n <= 20;
+}
 
 export function apiRouter(ctx: Ctx, config: Config): Router & { registered: RouteRule[] } {
   const r = Router();
@@ -129,20 +145,12 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     res.json({ ok: true });
   });
 
-  /** Public, non-sensitive app metadata for the login screen. Demo credentials only in demo mode. */
+  /**
+   * Public, before sign-in: ONLY the allow-list of publicBranding (company name, logo, sign-in tagline, both
+   * languages; UI-A2, D-ui-14). No setting, account, mode or credential (REM-3).
+   */
   route('GET', '/meta', async (_req, res) => {
-    res.json({
-      appMode: config.appMode,
-      branding: publicBranding(await ctx.settings.get()),
-      demoAccounts: demo
-        ? USERS.filter((u) => ['general.manager', 'branch.manager.kh', 'cashier.kh.01', 'cashier.kh.02', 'branch.manager.omd', 'cashier.omd.01'].includes(u.username)).map((u) => ({
-            username: u.username,
-            password: DEMO_PASSWORDS[u.role],
-            role: u.role,
-            branch: u.branch,
-          }))
-        : [],
-    });
+    res.json({ branding: publicBranding(await ctx.settings.get()) });
   });
 
   route('GET', '/health', async (_req, res) => {
@@ -320,7 +328,6 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
         actor: { id: actor.userId, username: actor.username },
         reason: body.reason,
         expectedVersions: body.expectedVersions,
-        allowDemoOnly: demo,
       });
       if (changed.length) {
         await writeAudit(tx, actor, {
@@ -393,6 +400,17 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
 
   // ─────────── sessions ───────────
   route('POST', '/sessions/heartbeat', async (_req, res) => res.json({ ok: true }));
+  // UI-A2 (D-ui-12): the crash page shows the person only a reference id; the details go to the server log
+  // (never to the database, never back to the browser). Capped in size and in number per session.
+  route('POST', '/client-errors', async (req, res) => {
+    const body = parse(
+      z.object({ ref: z.string().regex(/^ERR-[A-Z0-9]{4,12}$/), path: zText(200), message: zText(500), stack: zText(4000).optional() }).strict(),
+      req.body,
+    );
+    const actor = actorOf(req);
+    if (clientErrorBudget(actor.sessionId)) log.warn('client render error', { ...body, userId: actor.userId, username: actor.username });
+    res.json({ ok: true });
+  });
   route('GET', '/sessions', async (req, res) => {
     const q = parse(z.object({ scope: z.enum(['active', 'recent']).default('active'), branchId: zOptId, mine: zBool.optional() }).strict(), req.query);
     res.json(await sessions.listSessions(ctx, actorOf(req), q));
@@ -473,7 +491,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   });
   route('GET', '/inventory/items/:id', async (req, res) => res.json(await inventory.getItemDetail(ctx, actorOf(req), parse(zId, req.params.id))));
   route('POST', '/inventory/items/:id/price', async (req, res) => {
-    const body = parse(z.object({ sellingPrice: zPositiveMoney, reason: zText(500).default('') }).strict(), req.body);
+    // SEC-2 (Q7): the reason is required.
+    const body = parse(z.object({ sellingPrice: zPositiveMoney, reason: zText(500).min(3) }).strict(), req.body);
     res.json(await inventory.changePrice(ctx, actorOf(req), parse(zId, req.params.id), body.sellingPrice, body.reason));
   });
   route('POST', '/inventory/items/:id/adjust', async (req, res) => {
@@ -494,6 +513,10 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           paymentRefTransaction: zText(80).min(1).optional(),
           customerName: zText(120).optional(),
           customerPhone: zPhone.optional(),
+          // SEC-2 (D-sec2-2): required by the service when a final price differs from the list price.
+          priceChangeReason: zText(200).optional(),
+          // FIX-2: after the duplicate-reference warning, the cashier confirms.
+          confirmDuplicateReference: z.boolean().optional(),
         })
         .strict(),
       req.body,
@@ -518,7 +541,11 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('POST', '/sales/:id/void', async (req, res) => {
     const body = parse(z.object({ reason: zText(500).min(3) }).strict(), req.body);
     const id = parse(zId, req.params.id);
-    res.json(await runIdempotent(ctx, req, res, (idem) => sales.voidSale(ctx, actorOf(req), id, body.reason, { idem })));
+    // SEC-2 (D-sec2-1): above the General Manager's amount (0 = always), a fresh password confirmation first. The
+    // refusal happens before the idempotency key is claimed, so the retry after the dialog uses the same key.
+    const gate = await sales.voidNeedsReauth(ctx, actorOf(req), id);
+    if (gate.needed) await requireRecentReauth(ctx, req);
+    res.json(await runIdempotent(ctx, req, res, (idem) => sales.voidSale(ctx, actorOf(req), id, body.reason, { idem, ...(gate.needed ? { reauth: { threshold: gate.threshold } } : {}) })));
   });
 
   // ─────────── purchases / transfers ───────────
@@ -585,7 +612,11 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           grossWeightMg: zWeightMg,
           netWeightMg: zWeightMg,
           agreedRatePerGram: zPositiveMoney.optional(),
-          paymentMethod: z.enum(SCRAP_PAYMENT_METHODS),
+          // CSH-2 (D-csh-7): the cash and bank parts, or one method for the whole amount; a bank part needs its reference.
+          paymentMethod: z.enum(['CASH', 'BANK_TRANSFER']).optional(),
+          cashAmount: z.number().int().min(0).max(MAX_MONEY).optional(),
+          bankAmount: z.number().int().min(0).max(MAX_MONEY).optional(),
+          bankReference: zText(80).optional(),
           productId: zIdBody.optional(),
           sellingPrice: zPositiveMoney.optional(),
           customerName: zText(120).optional(),
@@ -630,23 +661,61 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     res.json(await runIdempotent(ctx, req, res, (idem) => ledger.settleHasadReceivable(ctx, actorOf(req), body, { idem })));
   });
 
+  // ─────────── CSH-2: GM funding (advances, repayments, corrections) ───────────
+  const zFunding = z
+    .object({
+      branchId: zIdBody,
+      account: z.enum(CASH_OR_BANK),
+      amount: zPositiveMoney,
+      reason: zText(300).min(3),
+      bankReference: zText(80).optional(),
+      paidDirectlyToSeller: z.boolean().optional(),
+      linkedRef: zText(40).optional(),
+    })
+    .strict();
+  route('GET', '/funding', async (req, res) => {
+    const q = parse(z.object({ branchId: zOptId, offset: z.coerce.number().int().min(0).max(1_000_000).optional() }).strict(), req.query);
+    res.json(await funding.fundingView(ctx, actorOf(req), q));
+  });
+  route('POST', '/funding/advances', async (req, res) => {
+    const body = parse(zFunding, req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => funding.recordAdvance(ctx, actorOf(req), body, { idem })));
+  });
+  route('POST', '/funding/repayments', async (req, res) => {
+    const body = parse(zFunding, req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => funding.recordRepayment(ctx, actorOf(req), body, { idem })));
+  });
+  route('POST', '/funding/:id/correct', async (req, res) => {
+    const id = parse(zId, req.params.id);
+    const body = parse(z.object({ reason: zText(300).min(3) }).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => funding.correctFunding(ctx, actorOf(req), id, body, { idem })));
+  });
+
   route('GET', '/transfers', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId, status: z.enum(['IN_TRANSIT', 'RECEIVED', 'CANCELLED']).optional() }).strict(), req.query);
     res.json(await transfers.listTransfers(ctx, actorOf(req), q));
   });
   route('POST', '/transfers', async (req, res) => {
     const body = parse(
-      z.object({ fromBranchId: zIdBody.optional(), toBranchId: zIdBody, itemIds: z.array(zIdBody).min(1).max(500), notes: zText(1000).optional() }).strict(),
+      z
+        .object({ fromBranchId: zIdBody.optional(), toBranchId: zIdBody, itemIds: z.array(zIdBody).min(1).max(500), courierName: zText(80).min(2), notes: zText(1000).optional() })
+        .strict(),
       req.body,
     );
-    res.json(await transfers.createTransfer(ctx, actorOf(req), body));
+    // FIX-1 (D-fix-1): key claimed inside the transfer's transaction; a refusal consumes none.
+    res.json(await runIdempotent(ctx, req, res, (idem) => transfers.createTransfer(ctx, actorOf(req), body, { idem })));
   });
   route('POST', '/transfers/:id/receive', async (req, res) => res.json(await transfers.receiveTransfer(ctx, actorOf(req), parse(zId, req.params.id))));
 
-  // ─────────── dashboards, reports, audit, notifications ───────────
+  // ─────────── dashboards, reports, audit, attention ───────────
   route('GET', '/dashboard/branch', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId, date: zDay.optional() }).strict(), req.query);
     res.json(await dashboard.branchDashboard(ctx, actorOf(req), q));
+  });
+  // UI-B (BE-1, D-ui-17): the attention list; a branch manager only for their own branch, a cashier not at all.
+  route('GET', '/attention', async (req, res) => {
+    const q = parse(z.object({ branchId: zOptId }).strict(), req.query);
+    res.json(await attentionFor(ctx, actorOf(req), q));
   });
   route('GET', '/dashboard/company', async (req, res) => {
     const q = parse(z.object({ from: zDay.optional(), to: zDay.optional() }).strict(), req.query);
@@ -673,7 +742,13 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     const data = await reports.listAudit(ctx, actorOf(req), q);
     res.json(data.map(({ sessionId, ...a }) => ({ ...a, sessionRef: sessionId ? sessions.sessionRef(sessionId) : null })));
   });
-  route('GET', '/notifications', async (req, res) => res.json(await notificationsFor(ctx, actorOf(req))));
+
+  // First steps on an empty system (REM-3).
+  route('GET', '/setup/status', async (req, res) => res.json(await setup.setupStatus(ctx, actorOf(req))));
+  route('POST', '/setup/allowed-karats', async (req, res) => {
+    const body = parse(z.object({ allowedKarats: z.array(z.number().int().min(8).max(24)).min(1).max(10) }).strict(), req.body);
+    res.json(await setup.confirmAllowedKarats(ctx, actorOf(req), body.allowedKarats));
+  });
 
   // Branch-scoped quick lookup used by the drill-down header.
   route('GET', '/branches/:id', async (req, res) => {
@@ -686,13 +761,5 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     res.json({ ...b, staffCount: staff.length });
   });
 
-  // ─────────── demo tooling: NOT registered in production (security item 2) ───────────
-  if (demo) {
-    route('POST', '/demo/reset', async (req: Request, res: Response) => {
-      await resetDemoData(ctx);
-      res.clearCookie(config.cookieName, { path: '/' });
-      res.json({ ok: true });
-    });
-  }
   return Object.assign(r, { registered });
 }

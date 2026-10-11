@@ -1,7 +1,7 @@
 import { gramsToMg, pureGoldMg, type CashOrBank } from '@jerp/shared';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -9,7 +9,7 @@ import { dateTime, grams, karatLabel, money } from '../../lib/format';
 import { useBranches, useGoldRates } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import { Alert, Button, Card, CardHeader, Dialog, ErrorState, Field, Input, KeyValue, Loading, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, DetailPending, Dialog, Field, Input, KeyValue, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
 import { Crumbs } from '../sales/SalesPages';
@@ -50,18 +50,19 @@ export function PurchasesTable({ branchId, from, to, toolbar }: { branchId?: num
   const { t, L, lang } = useI18n();
   const showCost = useAuth().can('profit.view');
   const navigate = useNavigate();
-  const q = useQuery({ queryKey: ['purchases', branchId, from, to], queryFn: () => get<PurchaseRow[]>('/purchases', { branchId, from, to }) });
-  if (q.isLoading) return <Loading />;
-  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
-  const rows = q.data!;
+  // Filters stay on screen across reloads (UI-A2): the table shows the states and keeps the previous rows.
+  const q = useQuery({ queryKey: ['purchases', branchId, from, to], queryFn: () => get<PurchaseRow[]>('/purchases', { branchId, from, to }), placeholderData: keepPreviousData });
+  const rows = q.data ?? [];
   return (
     <DataTable
+      query={q}
       rows={rows}
       rowKey={(r) => r.id}
       onRowClick={(r) => navigate(`/purchases/${r.id}`)}
       exportName="purchases"
       toolbar={toolbar}
       emptyTitle={t('No purchases in this period')}
+      emptyBody={t('Choose another period above.')}
       columns={[
         { key: 'number', header: t('Purchase'), render: (r) => <Mono className="font-semibold text-ink-900">{r.number}</Mono> },
         { key: 'createdAt', header: t('Date'), render: (r) => dateTime(r.createdAt, lang) },
@@ -310,8 +311,7 @@ export function PurchaseDetailPage() {
         }
       >(`/purchases/${id}`),
   });
-  if (q.isLoading) return <Loading />;
-  if (q.isError) return <div className="p-6"><ErrorState error={q.error} /></div>;
+  if (!q.data) return <DetailPending query={q} backTo="/purchases" backLabel={t('Back to purchases')} notFoundTitle={t('This purchase does not exist')} />;
   const p = q.data!;
   return (
     <div className="p-5 lg:p-6">

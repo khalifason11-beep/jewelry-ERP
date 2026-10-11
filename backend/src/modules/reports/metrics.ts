@@ -26,7 +26,6 @@ export interface BranchMetrics {
   purchasesCost: number;
   availableItems: number;
   availableWeightMg: number;
-  reservedItems: number;
   inventoryCost: number;
   inventoryRetail: number;
 }
@@ -36,17 +35,22 @@ const iso = (d: Date) => d.toISOString();
 export async function branchMetrics(exec: Executor, p: Period, branchId: number | null): Promise<Map<number, BranchMetrics>> {
   const bFilter = (col: string) => (branchId != null ? sql.raw(`AND ${col} = ${Number(branchId)}`) : sql``);
 
-  const [branchesR, salesR, purchR, invR] = await Promise.all([
+  // UI-B (D-ui-21): grouped queries only. The pieces and weight sold come from one join of the period's sales with
+  // their lines (it used to be a sub-query per sale, 16 s on 60,000 sales).
+  const [branchesR, salesR, linesR, purchR, invR] = await Promise.all([
     exec.execute(sql`SELECT id FROM branches WHERE is_active ${bFilter('id')} ORDER BY id`),
     exec.execute(sql`
       SELECT s.branch_id,
              count(*) AS sales_count,
              coalesce(sum(s.total),0) AS revenue,
              coalesce(sum(s.discount_total),0) AS discounts,
-             coalesce(sum(s.cost_total),0) AS cost,
-             coalesce(sum((SELECT count(*) FROM sale_items si WHERE si.sale_id = s.id)),0) AS items,
-             coalesce(sum((SELECT sum(si.net_weight_mg) FROM sale_items si WHERE si.sale_id = s.id)),0) AS weight
+             coalesce(sum(s.cost_total),0) AS cost
       FROM sales s
+      WHERE s.status = 'COMPLETED' AND s.created_at >= ${iso(p.start)} AND s.created_at < ${iso(p.end)} ${bFilter('s.branch_id')}
+      GROUP BY s.branch_id`),
+    exec.execute(sql`
+      SELECT s.branch_id, count(*) AS items, coalesce(sum(si.net_weight_mg),0) AS weight
+      FROM sales s JOIN sale_items si ON si.sale_id = s.id
       WHERE s.status = 'COMPLETED' AND s.created_at >= ${iso(p.start)} AND s.created_at < ${iso(p.end)} ${bFilter('s.branch_id')}
       GROUP BY s.branch_id`),
     exec.execute(sql`
@@ -57,10 +61,9 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
     exec.execute(sql`
       SELECT branch_id,
              count(*) FILTER (WHERE status = 'AVAILABLE') AS available,
-             coalesce(sum(net_weight_mg) FILTER (WHERE status IN ('AVAILABLE','RESERVED')),0) AS weight,
-             count(*) FILTER (WHERE status = 'RESERVED') AS reserved,
-             coalesce(sum(total_cost) FILTER (WHERE status IN ('AVAILABLE','RESERVED')),0) AS cost,
-             coalesce(sum(selling_price) FILTER (WHERE status IN ('AVAILABLE','RESERVED')),0) AS retail
+             coalesce(sum(net_weight_mg) FILTER (WHERE status = 'AVAILABLE'),0) AS weight,
+             coalesce(sum(acquisition_cost) FILTER (WHERE status = 'AVAILABLE'),0) AS cost,
+             coalesce(sum(selling_price) FILTER (WHERE status = 'AVAILABLE'),0) AS retail
       FROM jewelry_items
       WHERE true ${bFilter('branch_id')}
       GROUP BY branch_id`),
@@ -72,14 +75,18 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
       branchId: Number(b.id),
       salesCount: 0, itemsSold: 0, weightSoldMg: 0, revenue: 0, discounts: 0, costOfSales: 0, grossProfit: 0,
       purchasesCount: 0, purchasedItems: 0, purchasesCost: 0,
-      availableItems: 0, availableWeightMg: 0, reservedItems: 0, inventoryCost: 0, inventoryRetail: 0,
+      availableItems: 0, availableWeightMg: 0, inventoryCost: 0, inventoryRetail: 0,
     });
   }
   const get = (id: unknown) => out.get(Number(id));
   for (const r of rows<Record<string, unknown>>(salesR)) {
     const m = get(r.branch_id); if (!m) continue;
     m.salesCount = num(r.sales_count); m.revenue = num(r.revenue); m.discounts = num(r.discounts);
-    m.costOfSales = num(r.cost); m.itemsSold = num(r.items); m.weightSoldMg = num(r.weight);
+    m.costOfSales = num(r.cost);
+  }
+  for (const r of rows<Record<string, unknown>>(linesR)) {
+    const m = get(r.branch_id); if (!m) continue;
+    m.itemsSold = num(r.items); m.weightSoldMg = num(r.weight);
   }
   for (const r of rows<Record<string, unknown>>(purchR)) {
     const m = get(r.branch_id); if (!m) continue;
@@ -87,7 +94,7 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
   }
   for (const r of rows<Record<string, unknown>>(invR)) {
     const m = get(r.branch_id); if (!m) continue;
-    m.availableItems = num(r.available); m.availableWeightMg = num(r.weight); m.reservedItems = num(r.reserved);
+    m.availableItems = num(r.available); m.availableWeightMg = num(r.weight);
     m.inventoryCost = num(r.cost); m.inventoryRetail = num(r.retail);
   }
   for (const m of out.values()) {
@@ -96,8 +103,14 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
   return out;
 }
 
+const ZERO_METRICS: Omit<BranchMetrics, 'branchId'> = {
+  salesCount: 0, itemsSold: 0, weightSoldMg: 0, revenue: 0, discounts: 0, costOfSales: 0, grossProfit: 0, purchasesCount: 0,
+  purchasedItems: 0, purchasesCost: 0, availableItems: 0, availableWeightMg: 0, inventoryCost: 0, inventoryRetail: 0,
+};
+
+/** Totals over branches; with no branches every figure is 0 (an empty company shows zeros, not "—"). */
 export function sumMetrics(list: BranchMetrics[]): Omit<BranchMetrics, 'branchId'> {
-  const total = {} as Record<string, number>;
+  const total = { ...ZERO_METRICS } as Record<string, number>;
   for (const m of list) for (const [k, v] of Object.entries(m)) if (k !== 'branchId') total[k] = (total[k] ?? 0) + (v as number);
   return total as unknown as Omit<BranchMetrics, 'branchId'>;
 }
@@ -107,7 +120,7 @@ export interface MovementSummary {
   opening: { items: number; weightMg: number; cost: number };
   lines: Record<string, { items: number; weightMg: number }>;
   closing: { items: number; weightMg: number; cost: number };
-  /** Live count of items in AVAILABLE/RESERVED (only meaningful when the period ends now). */
+  /** Live count of items in stock, AVAILABLE (only meaningful when the period ends now). */
   actual?: { items: number; weightMg: number };
 }
 
@@ -123,7 +136,7 @@ export async function movementSummary(exec: Executor, p: Period, branchId: numbe
     exec.execute(sql`SELECT branch_id, coalesce(sum(direction),0) AS items, coalesce(sum(direction*net_weight_mg),0) AS weight, coalesce(sum(direction*cost_value),0) AS cost
                      FROM inventory_movements WHERE at < ${iso(p.end)} ${bFilter} GROUP BY branch_id`),
     exec.execute(sql`SELECT branch_id, count(*) AS items, coalesce(sum(net_weight_mg),0) AS weight FROM jewelry_items
-                     WHERE status IN ('AVAILABLE','RESERVED') ${bFilter} GROUP BY branch_id`),
+                     WHERE status = 'AVAILABLE' ${bFilter} GROUP BY branch_id`),
   ]);
   const zero = () => ({ items: 0, weightMg: 0, cost: 0 });
   const res = new Map<number, MovementSummary>();

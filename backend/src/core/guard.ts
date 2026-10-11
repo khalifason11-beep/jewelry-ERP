@@ -43,7 +43,6 @@ export function defineRoutes(router: Router, ctx: Ctx, opts: { demo: boolean }):
     route(method, path, ...handlers) {
       const rule = findRouteRule(method, path);
       if (!rule) throw new Error(`Route ${routeId(method, path)} is not in ROUTE_MATRIX (shared/src/route-matrix.ts)`);
-      if (rule.demoOnly && !opts.demo) return;
       if (rule.destructive && !opts.demo) throw new Error(`Destructive route ${routeId(method, path)} cannot be registered outside demo mode`);
       registered.push(rule);
       const guard = async (req: Request, _res: Response, next: NextFunction) => {

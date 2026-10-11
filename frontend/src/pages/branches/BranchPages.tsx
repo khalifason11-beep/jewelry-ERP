@@ -11,7 +11,7 @@ import { branchColor, useBranches } from '../../lib/hooks';
 import { useToast } from '../../lib/toast';
 import { useI18n } from '../../lib/i18n';
 import type { Branch } from '../../lib/types';
-import { Button, Card, CardHeader, Dialog, ErrorState, Field, Input, Loading, Mono, PageHeader, StatusBadge, Tabs } from '../../components/ui';
+import { Button, Card, CardHeader, DetailPending, Dialog, Empty, ErrorState, Field, Input, Mono, PageHeader, QueryState, SkeletonRows, StatusBadge, Tabs } from '../../components/ui';
 import { DateRange, useRangeParams } from '../../components/Filters';
 import { BranchDashboard } from '../dashboard/BranchDashboardPage';
 import { SalesTable, Crumbs } from '../sales/SalesPages';
@@ -36,13 +36,15 @@ export function BranchesPage() {
         subtitle={t('Month-to-date results. Open a branch to drill into its sales, inventory, purchases and staff.')}
         actions={can('branches.manage') ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')} data-testid="new-branch">{t('New branch')}</Button> : undefined}
       />
-      {q.isLoading ? (
-        <Loading />
-      ) : q.isError ? (
-        <ErrorState error={q.error} />
-      ) : (
+      <QueryState query={q} loading={<SkeletonRows rows={4} />}>
+        {(d) =>
+          d.branches.length === 0 ? (
+            <Card>
+              <Empty title={t('No branches yet')} body={t('Each branch has its own stock, cash and staff.')} action={can('branches.manage') ? <Button size="sm" onClick={() => setEditing('new')}>{t('New branch')}</Button> : undefined} />
+            </Card>
+          ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          {q.data!.branches.map((b) => (
+          {d.branches.map((b) => (
             <Link key={b.branchId} to={`/branches/${b.branchId}`} className="group">
               <Card className="h-full transition-colors group-hover:border-gold-400">
                 <div className="flex items-start justify-between">
@@ -69,7 +71,9 @@ export function BranchesPage() {
             </Link>
           ))}
         </div>
-      )}
+          )
+        }
+      </QueryState>
       {can('branches.manage') && <BranchRegister onEdit={setEditing} />}
       {editing && <BranchDialog branch={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
     </div>
@@ -83,6 +87,9 @@ function BranchRegister({ onEdit }: { onEdit: (b: Branch) => void }) {
   return (
     <Card padded={false} className="mt-5">
       <CardHeader title={t('Branch register')} subtitle={t('Branch codes are permanent: they appear in every document number.')} />
+      {q.data === undefined ? (
+        q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : <SkeletonRows rows={3} className="p-5" />
+      ) : (
       <table className="w-full text-[13px]">
         <thead className="bg-[#f7f8fa] text-ink-500">
           <tr>
@@ -109,6 +116,7 @@ function BranchRegister({ onEdit }: { onEdit: (b: Branch) => void }) {
           ))}
         </tbody>
       </table>
+      )}
     </Card>
   );
 }
@@ -191,8 +199,7 @@ export function BranchDetailPage() {
   };
   const { from, to, set } = useRangeParams(30);
   const branch = useQuery({ queryKey: ['branch', id], queryFn: () => get<Branch & { staffCount: number }>(`/branches/${id}`) });
-  if (branch.isLoading) return <Loading />;
-  if (branch.isError) return <div className="p-6"><ErrorState error={branch.error} /></div>;
+  if (!branch.data) return <DetailPending query={branch} backTo={isGlobal ? '/branches' : '/dashboard'} backLabel={isGlobal ? t('Back to branches') : t('Back to my home')} notFoundTitle={t('This branch does not exist')} />;
   const b = branch.data!;
   const rangeBar = (
     <DateRange from={from} to={to} onChange={(r) => set(r)} />

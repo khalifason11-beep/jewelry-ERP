@@ -1,15 +1,14 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import { ArrowRight, PackageCheck, Plus } from 'lucide-react';
-import { get, postOnce } from '../../lib/api';
+import { ApiError, get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams } from '../../lib/format';
 import { useBranchDirectory, useBranches } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import type { ItemRow } from '../../lib/types';
-import { Button, Card, Dialog, Empty, ErrorState, Field, Loading, Mono, PageHeader, Select, StatusBadge, Textarea } from '../../components/ui';
+import { Alert, Button, Card, Dialog, Empty, Field, Input, Mono, PageHeader, QueryState, Select, SkeletonRows, StatusBadge, Textarea } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { useActionKeys } from '../../lib/idempotency';
 
@@ -22,6 +21,8 @@ interface TransferRow {
   toBranchName: string;
   status: string;
   notes: string | null;
+  /** FIX-1: who carries the pieces (null on transfers sent before FIX-1). */
+  courierName: string | null;
   createdAt: string;
   createdByName: string;
   receivedAt: string | null;
@@ -37,7 +38,6 @@ export function TransfersPage() {
   const toast = useToast();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const navigate = useNavigate();
   const q = useQuery({ queryKey: ['transfers'], queryFn: () => get<TransferRow[]>('/transfers') });
   const actionKeys = useActionKeys();
   const receive = useMutation({
@@ -55,49 +55,44 @@ export function TransfersPage() {
         title={t('Transfers')}
         subtitle={t('Two-step inter-branch transfers: sent pieces are in transit (TRANSFERRED) until the receiving branch confirms.')}
         actions={
-          // Phase 4: a branch manager creates transfers from the Inventory screen (select pieces →
-          // "Transfer selected"). The General Manager keeps this dialog to move stock between any branches.
+          // D-rem4-1: two start points only. The General Manager's "New transfer" here (any branch to any branch); the
+          // branch manager's POS cart ("Transfer to branch"). This screen is otherwise the log.
           isGlobal ? (
-            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setOpen(true)}>{t('New transfer')}</Button>
-          ) : (
-            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => navigate('/inventory')}>{t('Select pieces in Inventory')}</Button>
-          )
+            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setOpen(true)} data-testid="new-transfer">{t('New transfer')}</Button>
+          ) : null
         }
       />
       <Card padded={false}>
-        {q.isLoading ? (
-          <Loading />
-        ) : q.isError ? (
-          <ErrorState error={q.error} />
-        ) : (
-          <DataTable
-            rows={q.data!}
-            rowKey={(r) => r.id}
-            exportName="transfers"
-            emptyTitle={t('No transfers yet')}
-            columns={[
-              { key: 'number', header: t('Transfer'), render: (r) => <Mono className="font-semibold text-ink-900">{r.number}</Mono> },
-              { key: 'createdAt', header: t('Sent'), render: (r) => dateTime(r.createdAt, lang) },
-              { key: 'route', header: t('Route'), value: (r) => `${r.fromBranchName} → ${r.toBranchName}`, render: (r) => <span className="inline-flex items-center gap-1.5">{t(r.fromBranchName)} <ArrowRight className="size-3.5 text-ink-400 rtl:rotate-180" /> {t(r.toBranchName)}</span> },
-              { key: 'items', header: t('Items'), value: (r) => r.items.map((i) => i.code).join(' '), render: (r) => <span className="text-[12px]"><Mono>{r.items.map((i) => i.code).join(', ')}</Mono></span> },
-              { key: 'weightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.weightMg)}</span> },
-              { key: 'createdByName', header: t('Sent by') },
-              { key: 'receivedAt', header: t('Received'), render: (r) => (r.receivedAt ? `${dateTime(r.receivedAt, lang)} · ${r.receivedByName}` : '—') },
-              {
-                key: 'status',
-                header: t('Status'),
-                render: (r) =>
-                  r.status === 'IN_TRANSIT' && (isGlobal || me?.user.branch?.id === r.toBranchId) ? (
-                    <Button size="sm" variant="success" icon={<PackageCheck className="size-4" />} loading={receive.isPending && receive.variables === r.id} onClick={() => receive.mutate(r.id)}>
-                      {t('Confirm receipt')}
-                    </Button>
-                  ) : (
-                    <StatusBadge status={r.status} />
-                  ),
-              },
-            ]}
-          />
-        )}
+        <DataTable
+          query={q}
+          rows={q.data ?? []}
+          rowKey={(r) => r.id}
+          exportName="transfers"
+          emptyTitle={t('No transfers yet')}
+          emptyBody={isGlobal ? undefined : t('Send pieces from the POS cart: “Transfer to branch” below “Complete sale”.')}
+          columns={[
+            { key: 'number', header: t('Transfer'), render: (r) => <Mono className="font-semibold text-ink-900">{r.number}</Mono> },
+            { key: 'createdAt', header: t('Sent'), render: (r) => dateTime(r.createdAt, lang) },
+            { key: 'route', header: t('Route'), value: (r) => `${r.fromBranchName} → ${r.toBranchName}`, render: (r) => <span className="inline-flex items-center gap-1.5">{t(r.fromBranchName)} <ArrowRight className="size-3.5 text-ink-400 rtl:rotate-180" /> {t(r.toBranchName)}</span> },
+            { key: 'items', header: t('Items'), value: (r) => r.items.map((i) => i.code).join(' '), render: (r) => <span className="text-[12px]"><Mono>{r.items.map((i) => i.code).join(', ')}</Mono></span> },
+            { key: 'weightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.weightMg)}</span> },
+            { key: 'createdByName', header: t('Sent by') },
+            { key: 'courierName', header: t('Courier'), render: (r) => r.courierName ?? '—' },
+            { key: 'receivedAt', header: t('Received'), render: (r) => (r.receivedAt ? `${dateTime(r.receivedAt, lang)} · ${r.receivedByName}` : '—') },
+            {
+              key: 'status',
+              header: t('Status'),
+              render: (r) =>
+                r.status === 'IN_TRANSIT' && (isGlobal || me?.user.branch?.id === r.toBranchId) ? (
+                  <Button size="sm" variant="primary" icon={<PackageCheck className="size-4" />} loading={receive.isPending && receive.variables === r.id} onClick={() => receive.mutate(r.id)}>
+                    {t('Confirm receipt')}
+                  </Button>
+                ) : (
+                  <StatusBadge status={r.status} />
+                ),
+            },
+          ]}
+        />
       </Card>
       {open && isGlobal && <NewTransferDialog onClose={() => setOpen(false)} />}
     </div>
@@ -114,6 +109,9 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
   const [from, setFrom] = useState<number | ''>(me?.user.branch?.id ?? '');
   const [to, setTo] = useState<number | ''>('');
   const [notes, setNotes] = useState('');
+  const [courier, setCourier] = useState('');
+  const courierOk = courier.trim().length >= 2 && courier.trim().length <= 80;
+  const [unavailable, setUnavailable] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const items = useQuery({
     queryKey: ['transfer-items', from],
@@ -122,14 +120,24 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
   });
   const actionKeys = useActionKeys();
   const m = useMutation({
-    mutationFn: () => postOnce<{ number: string }>('/transfers', { fromBranchId: from || undefined, toBranchId: to, itemIds: [...selected], notes }, actionKeys.for('transfer')),
+    mutationFn: () => postOnce<{ number: string }>('/transfers', { fromBranchId: from || undefined, toBranchId: to, itemIds: [...selected], courierName: courier.trim(), notes: notes.trim() || undefined }, actionKeys.for('transfer')),
     onSuccess: (r) => {
       actionKeys.rotate('transfer');
       toast.success(t('Transfer {number} sent', { number: r.number }), t('{n} piece(s) are now in transit.', { n: selected.size }));
       qc.invalidateQueries();
       onClose();
     },
-    onError: (e) => toast.fromError(e),
+    onError: (e) => {
+      // FIX-1: a piece sold or moved meanwhile refuses the whole transfer; say which, and refresh the list.
+      if (e instanceof ApiError && e.code === 'ITEMS_UNAVAILABLE') {
+        const gone = ((e.details as { unavailable?: { itemId: number; code: string }[] })?.unavailable ?? []);
+        setUnavailable(gone.map((g) => g.code));
+        setSelected((s) => new Set([...s].filter((id) => !gone.some((g) => g.itemId === id))));
+        qc.invalidateQueries({ queryKey: ['transfer-items'] });
+        return;
+      }
+      toast.fromError(e);
+    },
   });
   return (
     <Dialog
@@ -137,7 +145,7 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       title={t('New inter-branch transfer')}
       width="max-w-3xl"
-      footer={<><span className="me-auto text-[13px] text-ink-600">{t('{n} piece(s) selected', { n: selected.size })}</span><Button onClick={onClose}>{t('Cancel')}</Button><Button variant="primary" disabled={!to || !selected.size} loading={m.isPending} onClick={() => m.mutate()}>{t('Send transfer')}</Button></>}
+      footer={<><span className="me-auto text-[13px] text-ink-600">{t('{n} piece(s) selected', { n: selected.size })}</span><Button onClick={onClose}>{t('Cancel')}</Button><Button variant="primary" disabled={!to || !selected.size || !courierOk} loading={m.isPending} onClick={() => m.mutate()} data-testid="send-transfer">{t('Send transfer')}</Button></>}
     >
       <div className="mb-3 grid gap-3 sm:grid-cols-2">
         <Field label={t('From')}>
@@ -155,12 +163,15 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
       </div>
       <div className="scroll-thin max-h-72 overflow-y-auto rounded-md border border-line">
         {!from ? (
-          <Empty title={t('Select the sending branch')} />
-        ) : items.isLoading ? (
-          <Loading />
+          <Empty variant="prompt" title={t('Select the sending branch')} />
         ) : (
+          <QueryState query={items} loading={<SkeletonRows rows={4} className="p-3" />}>
+            {(d) =>
+              d.items.length === 0 ? (
+                <Empty title={t('No pieces available in this branch')} />
+              ) : (
           <ul className="divide-y divide-line">
-            {items.data?.items.map((i) => (
+            {d.items.map((i) => (
               <li key={i.id}>
                 <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-[13px] hover:bg-canvas">
                   <input type="checkbox" className="size-4 accent-ink-900" checked={selected.has(i.id)} onChange={(e) => setSelected((s) => { const n = new Set(s); if (e.target.checked) n.add(i.id); else n.delete(i.id); return n; })} />
@@ -171,11 +182,24 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
               </li>
             ))}
           </ul>
+              )
+            }
+          </QueryState>
         )}
       </div>
-      <Field label={t('Notes')} className="mt-3">
-        <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
-      </Field>
+      {unavailable.length > 0 && (
+        <Alert tone="danger" className="mt-3">
+          <span data-testid="transfer-unavailable">{t('{codes} no longer available (sold or moved meanwhile). Nothing was sent: remove it and try again.', { codes: unavailable.join(', ') })}</span>
+        </Alert>
+      )}
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <Field label={t('Courier’s name (required)')}>
+          <Input value={courier} onChange={(e) => setCourier(e.target.value)} maxLength={80} data-testid="transfer-courier" />
+        </Field>
+        <Field label={t('Notes')}>
+          <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={1} />
+        </Field>
+      </div>
     </Dialog>
   );
 }

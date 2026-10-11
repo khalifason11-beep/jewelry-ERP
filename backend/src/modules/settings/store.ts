@@ -45,8 +45,6 @@ export interface ApplyOptions {
   reason?: string;
   /** Optimistic concurrency: the versions the editor saw; a mismatch is a 409. */
   expectedVersions?: Partial<Record<string, number>>;
-  /** Demo-only keys (none at present; the mechanism stays, D-1b-6) cannot be changed outside APP_MODE=demo. */
-  allowDemoOnly?: boolean;
   /** Guarded keys (second-factor policy) are applied only by their dedicated step-up flow, the seed or the first start. */
   allowGuarded?: boolean;
 }
@@ -106,8 +104,7 @@ export class SettingsStore {
     const parsed: Partial<Record<SettingKey, unknown>> = {};
     for (const key of keys) {
       if (!isSettingKey(key)) throw badRequest('Unknown setting: {key}', { key });
-      const def = SETTINGS_REGISTRY[key] as { schema: typeof SETTINGS_REGISTRY[SettingKey]['schema']; demoOnly?: boolean; guarded?: boolean };
-      if (def.demoOnly && !opts.allowDemoOnly) throw forbidden('This setting is only available in the demo');
+      const def = SETTINGS_REGISTRY[key] as { schema: typeof SETTINGS_REGISTRY[SettingKey]['schema']; guarded?: boolean };
       if (def.guarded && !opts.allowGuarded) throw forbidden('This setting is changed on the Security screen (password and passkey required)');
       const r = def.schema.safeParse(changes[key]);
       if (!r.success) throw badRequest('Invalid value for {field}', { field: key }, r.error.issues.map((i) => ({ path: [key, ...i.path].join('.'), code: i.code })));
@@ -155,7 +152,7 @@ export class SettingsStore {
 
   /** Convenience for trusted code (seed, tests): nested patch → dotted changes. */
   async update(exec: Executor, patch: Partial<Record<keyof SystemSettings, Record<string, unknown>>>, userId: number | null) {
-    const { settings } = await this.apply(exec, flattenSettings(patch), { actor: { id: userId, username: userId ? `user:${userId}` : 'system' }, allowDemoOnly: true });
+    const { settings } = await this.apply(exec, flattenSettings(patch), { actor: { id: userId, username: userId ? `user:${userId}` : 'system' } });
     return settings;
   }
 

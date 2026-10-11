@@ -4,8 +4,10 @@
 // PDF with print media emulation and the page's own @page size, exactly as Chrome would send it to
 // the Windows driver.
 //
-//   1. start a FRESH demo server (no 2FA):   PGLITE_DIR=/tmp/jerp-print PORT=4100 npm start
-//   2. run:   BASE_URL=http://localhost:4100 OUT_DIR=docs/print-check node scripts/e2e-print.mjs
+//   run:   OUT_DIR=docs/print-check node scripts/e2e-print.mjs
+//
+// The script starts its OWN server on a fresh, empty database (REM-3: no demo data exists any more),
+// bootstraps the first General Manager and builds its test data through the API (scripts/lib/e2e-world.mjs).
 //
 // The PDFs written to OUT_DIR are the artifacts of the check (A4 original, 72 mm receipt reprint,
 // 72 mm calibration page, A4 calibration page).
@@ -14,6 +16,7 @@ import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { buildSalesWorld, startEmptyServer } from './lib/e2e-world.mjs';
 
 function loadPlaywright() {
   for (const base of [process.cwd() + '/', path.join(execSync('npm root -g').toString().trim(), '/')]) {
@@ -25,8 +28,10 @@ function loadPlaywright() {
   }
   throw new Error('Playwright not found: npm i -g playwright');
 }
+// SEC-2: a distinctive reason, searched for on every printed document of the discounted sale.
+const PRICE_REASON = 'سبب-داخلي-لا-يطبع-SEC2';
 const { chromium } = loadPlaywright();
-const BASE = process.env.BASE_URL ?? 'http://localhost:4100';
+let BASE = '';
 const OUT = process.env.OUT_DIR ?? 'print-check-output';
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -180,11 +185,16 @@ async function orphans(page) {
 }
 
 async function main() {
+  // No passkey for the GM: this script checks printing, not sign-in.
+  const srv = await startEmptyServer({ env: { TWO_FACTOR_REQUIRED_ROLES_INITIAL: '' } });
+  BASE = srv.base;
+  const world = await buildSalesWorld(srv, { pieces: 10 });
+  ok('empty server bootstrapped; branch manager, cashier, rates and 10 pieces created through the API');
   const browser = await chromium.launch();
   try {
     // ── cashier: sale at the POS, original printed once (A4 default) ──
     const cashier = await newPage(browser);
-    await signIn(cashier, 'cashier.kh.01', 'demo-cashier-2026');
+    await signIn(cashier, world.cashier.username, world.cashier.password);
     await cashier.goto(`${BASE}/pos`);
     await cashier.locator('[data-testid=pos-product]:not([disabled])').first().click();
     await cashier.getByRole('button', { name: /إتمام البيع|Complete Sale/ }).click();
@@ -203,7 +213,7 @@ async function main() {
     check(p1.length >= 1 && Math.abs(p1[0].w - 210) < 1 && Math.abs(p1[0].h - 297) < 1, `A4 page: ${p1[0].w.toFixed(1)} × ${p1[0].h.toFixed(1)} mm`);
     check(await cashier.getByTestId('pos-print').isDisabled(), 'the cashier cannot print it a second time (button disabled)');
     const saleNo = (text.match(/[A-Z]{3}-[A-Z0-9-]+/) ?? [''])[0];
-    const footer = (await api(cashier, 'GET', '/meta')).body.branding.invoiceFooterAr;
+    const footer = (await api(cashier, 'GET', '/auth/me')).body.branding.invoiceFooterAr;
     check(footer === 'شكراً لتسوقكم معنا', 'configured footer is the thank-you message');
     check(footerShown === footer, 'footer area contains exactly the configured footer, nothing else');
     check(!FORBIDDEN.test(text), 'no "making charges", "prototype" or "tax invoice" text anywhere on the invoice');
@@ -213,10 +223,11 @@ async function main() {
     const stock = (await api(cashier, 'GET', `/inventory/items?branchId=${me.user.branch.id}&status=AVAILABLE&limit=20`)).body.items;
     const five = stock.slice(0, 5);
     const disc = Math.floor((five[2].sellingPrice * Math.max(1, me.maxDiscountPercent)) / 100 / 1000) * 1000 || 1000;
-    const sale5 = await api(cashier, 'POST', '/sales', { items: five.map((it, i) => ({ itemId: it.id, discount: i === 2 ? disc : 0 })), paymentMethod: 'CASH', customerName: 'عميل اختبار الطباعة' });
+    const sale5 = await api(cashier, 'POST', '/sales', { items: five.map((it, i) => ({ itemId: it.id, discount: i === 2 ? disc : 0 })), paymentMethod: 'CASH', customerName: 'عميل اختبار الطباعة', priceChangeReason: PRICE_REASON });
     check(sale5.status === 200 && sale5.body.items.length === 5 && sale5.body.discountTotal > 0, `5-line sale ${sale5.body.number} with a discounted line`);
     await withNames(cashier, [null, 'سوار ذهب عيار 21 مشغول يدوياً بنقشة سودانية تقليدية مع فصوص زركون وحجر كريم في الوسط — وصف طويل يجب أن يلتف داخل خانته']);
     await cashier.goto(`${BASE}/sales/${sale5.body.id}`);
+    const printResp5 = cashier.waitForResponse((r) => r.url().endsWith(`/api/sales/${sale5.body.id}/print`));
     await cashier.getByTestId('sale-print').click();
     await cashier.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
     await cashier.emulateMedia({ media: 'print' });
@@ -258,13 +269,27 @@ async function main() {
     check(s0.count >= 2 && s0.bad.length === 0, `A4: every negative amount reads "−32,000" (${s0.count} checked: table and summary)`);
     const o0 = await orphans(cashier);
     check(o0.length === 0, `A4 invoice: no code, karat, date or digit broken onto its own line${o0.length ? ` (found: ${o0.join(' | ')})` : ''}`);
+    // SEC-2 (D-sec2-2): the reason for the price change is internal: never in the print payload or on the paper.
+    const payload5 = await (await printResp5).text();
+    check(payload5.includes(sale5.body.number) && !payload5.includes(PRICE_REASON) && !(await printRootText(cashier)).includes(PRICE_REASON), 'SEC-2: the price-change reason is neither in the print payload nor on the A4 invoice');
     const five4 = await exportPdf(cashier, 'invoice-A4-5-lines.pdf');
     check(Math.abs(pages(five4.pdf)[0].w - 210) < 1, 'A4 PDF of the 5-line invoice exported');
+    check(!(await printRootText(cashier)).includes('مرجع التحويل البنكي'), 'FIX-2: a cash invoice has no bank-transfer reference');
+
+    // FIX-2 (D-fix-2): a bank-transfer sale prints its reference (typed with Arabic-Indic digits, stored normalized).
+    const bankSale = await api(cashier, 'POST', '/sales', { items: [{ itemId: stock[5].id }], paymentMethod: 'BANK_TRANSFER', paymentRefTransaction: ' trf ٧٧٨٨-e2e ' });
+    check(bankSale.status === 200 && bankSale.body.paymentRefTransaction === 'TRF 7788-E2E', `bank-transfer sale ${bankSale.body.number} recorded with the normalized reference "TRF 7788-E2E"`);
+    await cashier.emulateMedia({ media: 'screen' });
+    await cashier.goto(`${BASE}/sales/${bankSale.body.id}`);
+    await cashier.getByTestId('sale-print').click();
+    await cashier.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
+    const bankA4 = await printRootText(cashier);
+    check(bankA4.includes('مرجع التحويل البنكي') && bankA4.includes('TRF 7788-E2E'), 'FIX-2: the A4 invoice of a bank-transfer sale shows "Bank transfer reference: TRF 7788-E2E"');
 
     // ── GM: switch to a 72 mm receipt, reprint the same sale → COPY 1 ──
     const gm = await newPage(browser);
-    await signIn(gm, 'general.manager', 'demo-gm-2026');
-    check((await api(gm, 'POST', '/auth/reauth', { password: 'demo-gm-2026' })).status === 200, 'GM re-confirms the password for the settings change');
+    await signIn(gm, world.gm.username, world.gm.password);
+    check((await api(gm, 'POST', '/auth/reauth', { password: world.gm.password })).status === 200, 'GM re-confirms the password for the settings change');
     const v = (await api(gm, 'GET', '/settings')).body.versions;
     const put = await api(gm, 'PUT', '/settings', {
       changes: { 'print.invoiceFormat': 'RECEIPT', 'print.receiptWidthMm': 72 },
@@ -300,10 +325,37 @@ async function main() {
     await gm.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
     const s1 = await misplacedSigns(gm);
     check(s1.count >= 2 && s1.bad.length === 0, `72 mm receipt: every negative amount reads "−32,000" (${s1.count} checked: line and summary)`);
+    check(!(await printRootText(gm)).includes(PRICE_REASON), 'SEC-2: the price-change reason is not on the 72 mm receipt either');
     const o3 = await orphans(gm);
     check(o3.length === 0, `72 mm discounted receipt: no orphaned token${o3.length ? ` (found: ${o3.join(' | ')})` : ''}`);
     const rd = await exportPdf(gm, 'receipt-72mm-discount.pdf');
     check(pages(rd.pdf).length === 1, 'receipt PDF of the discounted 5-line sale exported');
+    // UI-A1 (D-ui-8): an English invoice names the payment method in words, never the code. The print response is
+    // rewritten to a bank-transfer sale (layout fixture, as withNames does); the server data is untouched.
+    await gm.evaluate(() => localStorage.setItem('jerp.lang', 'en'));
+    await gm.goto(`${BASE}/sales/${sale5.body.id}`);
+    await gm.route('**/api/sales/*/print', async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      body.document.paymentMethod = 'BANK_TRANSFER';
+      await route.fulfill({ response: res, json: body });
+      await gm.unroute('**/api/sales/*/print');
+    });
+    await gm.getByTestId('sale-print').click();
+    await gm.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
+    const etext = await printRootText(gm);
+    await gm.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
+    check(/Bank transfer/.test(etext) && !/BANK_TRANSFER/.test(etext), 'English invoice: the payment method reads "Bank transfer", not the code');
+    // FIX-2: the real bank-transfer sale as a 72 mm receipt (reprint).
+    await gm.emulateMedia({ media: 'screen' });
+    await gm.goto(`${BASE}/sales/${bankSale.body.id}`);
+    await gm.getByTestId('sale-print').click();
+    await gm.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
+    const bankRc = await printRootText(gm);
+    check(bankRc.includes('مرجع التحويل البنكي') && bankRc.includes('TRF 7788-E2E'), 'FIX-2: the 72 mm receipt of the bank-transfer sale shows its reference');
+    const ob = await orphans(gm);
+    check(ob.length === 0, `72 mm bank-transfer receipt: no orphaned token${ob.length ? ` (found: ${ob.join(' | ')})` : ''}`);
+    await gm.emulateMedia({ media: 'screen' });
     const audit = (await api(gm, 'GET', '/audit?entityType=sale&limit=50')).body;
     check(audit.some((a) => a.action === 'INVOICE_REPRINTED' && a.entityId === sale.number), 'INVOICE_REPRINTED audit entry for the sale');
 
@@ -337,6 +389,7 @@ async function main() {
     await gm.context().close();
   } finally {
     await browser.close();
+    await srv.stop();
   }
 }
 

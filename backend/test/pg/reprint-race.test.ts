@@ -10,7 +10,7 @@ import type { Actor, Ctx } from '../../src/core/context';
 import { loadActor } from '../../src/modules/sessions/service';
 import { createSale } from '../../src/modules/sales/service';
 import { printSale } from '../../src/modules/print/service';
-import { seedDemo } from '../../src/seed/demo';
+import { seedWorld } from '../fixtures/world';
 import { openTestDatabase, PG_MODE } from '../helpers';
 
 let handle: DatabaseHandle;
@@ -24,7 +24,7 @@ beforeAll(async () => {
   if (!PG_MODE) throw new Error('test/pg/** must run in the postgres project');
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
 });
 afterAll(async () => handle?.close());
 

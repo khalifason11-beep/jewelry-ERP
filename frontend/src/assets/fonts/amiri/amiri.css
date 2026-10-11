@@ -1,0 +1,25 @@
+/*
+ * Amiri 400 (UI-A2, D-ui-15): the display font of the SIGN-IN PAGE ONLY (the "Welcome back" line and the company
+ * tagline). Self-hosted from this folder (no CDN: the strict Content-Security-Policy allows same-origin fonts
+ * only), two subsets: Arabic and basic Latin. The browser downloads a file only when a glyph in its range is drawn
+ * with this family, so the rest of the application never loads it. font-display: swap (text shows at once in the
+ * fallback, then switches). Source: @fontsource/amiri 5.3.0, files unchanged. Licence: SIL Open Font License 1.1,
+ * ./OFL.txt.
+ */
+@font-face {
+  font-family: 'Amiri';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url(./amiri-arabic-400-normal.woff2) format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC;
+}
+
+@font-face {
+  font-family: 'Amiri';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url(./amiri-latin-400-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}

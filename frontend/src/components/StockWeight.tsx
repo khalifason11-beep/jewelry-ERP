@@ -26,7 +26,7 @@ export function StockWeightCard({ s, reportQuery = '' }: { s: StockWeight; repor
     <Card padded={false}>
       <CardHeader
         title={t('Total stock weight')}
-        subtitle={t('Sellable pieces (available + reserved) plus the broken-scrap pool')}
+        subtitle={t('Sellable pieces (available) plus the broken-scrap pool')}
         actions={<Link to={`/reports/stock-weight${reportQuery}`} className="text-[13px] font-medium text-gold-700 hover:underline">{t('Stock Weight')}</Link>}
       />
       <table className="w-full text-[13px]" data-testid="stock-weight">

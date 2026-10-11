@@ -13,7 +13,7 @@
 import { and, asc, desc, eq, gte, lt, sql, type SQL } from 'drizzle-orm';
 import { assertProductsUsable } from '../catalog/service';
 import { t, type Executor } from '@jerp/database';
-import { ap, divRound, pureGoldMg, sumInt, valueOfWeight, type ScrapKind, type ScrapPaymentMethod, type ScrapWeightEventType } from '@jerp/shared';
+import { ap, divRound, pureGoldMg, sumInt, validBankReference, valueOfWeight, type ScrapKind, type ScrapPaymentMethod, type ScrapWeightEventType } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requireAny, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
@@ -24,7 +24,7 @@ import { rows } from '../../core/sql';
 import { dayRange } from '../../core/time';
 import type { TxIdempotency } from '../../core/idempotency';
 import { recordMovement } from '../inventory/ledger';
-import { post } from '../ledger/service';
+import { lockDrawerFor, post } from '../ledger/service';
 
 // ───────────────────────── scrap buying rates ─────────────────────────
 
@@ -155,7 +155,15 @@ export interface ScrapPurchaseInput {
   netWeightMg: number;
   /** Price per gram agreed with the customer (defaults to today's scrap rate). */
   agreedRatePerGram?: number;
-  paymentMethod: ScrapPaymentMethod;
+  /**
+   * How the customer is paid (CSH-2 piece A, D-csh-7). Either the two parts, which must add up to the amount exactly
+   * (cash from the drawer + bank transfer), or `paymentMethod` CASH / BANK_TRANSFER = the whole amount that way.
+   */
+  cashAmount?: number;
+  bankAmount?: number;
+  paymentMethod?: Exclude<ScrapPaymentMethod, 'SPLIT'>;
+  /** The bank's reference of the transfer to the customer; required when the bank part is > 0 (FIX-2 rules). */
+  bankReference?: string;
   /** SELLABLE only: the model the piece is filed under, and its selling price. */
   productId?: number;
   sellingPrice?: number;
@@ -196,6 +204,7 @@ export async function buyScrap(ctx: Ctx, actor: Actor, input: ScrapPurchaseInput
     }
     const amount = valueOfWeight(input.netWeightMg, agreed);
     if (amount <= 0) throw badRequest('Invalid value for {field}', { field: 'netWeightMg' });
+    const pay = paymentParts(input, amount);
     const [branch] = await tx.select().from(t.branches).where(eq(t.branches.id, branchId));
     const number = await nextNumber(tx, branch.code, 'SCR');
 
@@ -217,11 +226,6 @@ export async function buyScrap(ctx: Ctx, actor: Actor, input: ScrapPurchaseInput
           karat: product.karat,
           grossWeightMg: input.grossWeightMg,
           netWeightMg: input.netWeightMg,
-          // Deprecated cost columns mirror the acquisition cost (D-2b-1).
-          purchaseCost: amount,
-          makingCost: 0,
-          otherCost: 0,
-          totalCost: amount,
           origin: 'SCRAP',
           acquisitionCost: amount,
           makingCharge: 0,
@@ -251,7 +255,10 @@ export async function buyScrap(ctx: Ctx, actor: Actor, input: ScrapPurchaseInput
         deviationBp,
         overrideApproved: beyond,
         amount,
-        paymentMethod: input.paymentMethod,
+        paymentMethod: pay.label,
+        cashAmount: pay.cash,
+        bankAmount: pay.bank,
+        bankReference: pay.reference,
         itemId,
         customerName: input.customerName?.trim() || null,
         customerPhone: input.customerPhone?.trim() || null,
@@ -277,10 +284,15 @@ export async function buyScrap(ctx: Ctx, actor: Actor, input: ScrapPurchaseInput
       await postWeight(tx, { branchId, karat: input.karat, weightMg: input.netWeightMg, eventType: 'SCRAP_PURCHASE', ref, at }, by);
     }
 
-    // The money paid to the customer leaves the drawer or the bank.
+    // The money paid to the customer leaves the drawer (cash part) and the bank (bank part); a part of 0 posts nothing.
+    // CSH-2 (Q7): the drawer must hold the cash part (BLOCK, under its lock); the bank part is never blocked (A17 warns).
+    await lockDrawerFor(tx, branchId, pay.cash, 'SCRAP_PURCHASE');
     await post(
       tx,
-      [{ branchId, kind: input.paymentMethod === 'CASH' ? 'CASH' : 'BANK', amount: -amount, eventType: 'SCRAP_PURCHASE', paymentMethod: input.paymentMethod, ref, at }],
+      [
+        { branchId, kind: 'CASH', amount: -pay.cash, eventType: 'SCRAP_PURCHASE', paymentMethod: 'CASH', ref, at },
+        { branchId, kind: 'BANK', amount: -pay.bank, eventType: 'SCRAP_PURCHASE', paymentMethod: 'BANK_TRANSFER', ref, at },
+      ],
       by,
     );
     await writeAudit(tx, actor, {
@@ -293,13 +305,37 @@ export async function buyScrap(ctx: Ctx, actor: Actor, input: ScrapPurchaseInput
         input.kind === 'SELLABLE'
           ? 'Scrap {number}: sellable piece {code} bought ({weight}, {karat}) for {amount} ({payment})'
           : 'Scrap {number}: broken scrap bought ({weight}, {karat}) for {amount} ({payment}); added to the scrap pool',
-      params: { number, code: itemCode ?? '', weight: ap.mg(input.netWeightMg), karat: ap.karat(input.karat), amount: ap.money(amount), payment: ap.enum(input.paymentMethod) },
-      metadata: { kind: input.kind, scrapRatePerGram: rate, agreedRatePerGram: agreed, deviationBp, overrideApproved: beyond },
+      params: { number, code: itemCode ?? '', weight: ap.mg(input.netWeightMg), karat: ap.karat(input.karat), amount: ap.money(amount), payment: ap.enum(pay.label) },
+      metadata: { kind: input.kind, scrapRatePerGram: rate, agreedRatePerGram: agreed, deviationBp, overrideApproved: beyond, cashAmount: pay.cash, bankAmount: pay.bank, bankReference: pay.reference },
     });
     const result = { ...row, itemCode };
     await opts.idem?.complete(tx, result);
     return result;
   });
+}
+
+/**
+ * The two payment parts of a scrap purchase and their label (D-csh-7): both whole SDG and ≥ 0, adding up to the
+ * amount exactly; a bank part needs the bank's reference (normalized, 4–40, FIX-2). `paymentMethod` alone means the
+ * whole amount that way. The label is CASH, BANK_TRANSFER or SPLIT, from the parts.
+ */
+export function paymentParts(input: Pick<ScrapPurchaseInput, 'cashAmount' | 'bankAmount' | 'paymentMethod' | 'bankReference'>, amount: number) {
+  const explicit = input.cashAmount != null || input.bankAmount != null;
+  if (explicit && input.paymentMethod) throw badRequest('Give either the payment method or the cash and bank parts, not both');
+  const cash = explicit ? (input.cashAmount ?? 0) : input.paymentMethod === 'CASH' ? amount : 0;
+  const bank = explicit ? (input.bankAmount ?? 0) : input.paymentMethod === 'BANK_TRANSFER' ? amount : 0;
+  if (!explicit && !input.paymentMethod) throw badRequest('Say how the customer is paid');
+  if (!Number.isSafeInteger(cash) || !Number.isSafeInteger(bank) || cash < 0 || bank < 0) throw badRequest('Invalid value for {field}', { field: 'cashAmount' });
+  if (cash + bank !== amount) {
+    throw badRequest('The cash and bank parts must add up to the amount paid ({amount}); they add up to {sum}', { amount: amount.toLocaleString('en-US'), sum: (cash + bank).toLocaleString('en-US') });
+  }
+  let reference: string | null = null;
+  if (bank > 0) {
+    reference = validBankReference(input.bankReference);
+    if (!reference) throw badRequest('Enter the bank transfer reference (4 to 40 letters or digits)');
+  }
+  const label: ScrapPaymentMethod = cash > 0 && bank > 0 ? 'SPLIT' : bank > 0 ? 'BANK_TRANSFER' : 'CASH';
+  return { cash, bank, reference, label };
 }
 
 export async function listScrapPurchases(ctx: Ctx, actor: Actor, q: { branchId?: number; from?: string; to?: string; kind?: ScrapKind }) {
@@ -328,6 +364,9 @@ export async function listScrapPurchases(ctx: Ctx, actor: Actor, q: { branchId?:
       overrideApproved: t.scrapPurchases.overrideApproved,
       amount: t.scrapPurchases.amount,
       paymentMethod: t.scrapPurchases.paymentMethod,
+      cashAmount: t.scrapPurchases.cashAmount,
+      bankAmount: t.scrapPurchases.bankAmount,
+      bankReference: t.scrapPurchases.bankReference,
       itemId: t.scrapPurchases.itemId,
       customerName: t.scrapPurchases.customerName,
       createdAt: t.scrapPurchases.createdAt,

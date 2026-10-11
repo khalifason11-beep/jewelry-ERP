@@ -22,6 +22,8 @@ export interface Me {
   csrfToken: string | null;
   allowSelfPasswordChange: boolean;
   maxDiscountPercent: number;
+  /** SEC-2: voids above this total ask for the password again (0 = every void). */
+  voidReauthAboveAmount: number;
   /** Payment methods offered at the counter (setting sales.posPaymentMethods). */
   posPaymentMethods: import('@jerp/shared').PaymentMethod[];
   /** Karats this deployment sells (setting inventory.allowedKarats). */
@@ -30,6 +32,16 @@ export interface Me {
   print: { invoiceFormat: import('@jerp/shared').InvoiceFormat; receiptWidthMm: number; autoPrintAfterSale: boolean };
   /** Second factor (passkeys) for this account (Phase 2fa). */
   secondFactor: SecondFactor;
+  /** LOCK-1: security-locked accounts this viewer may see (users.view; own branch for a manager). */
+  lockedAccounts: LockedAccount[];
+}
+
+export interface LockedAccount {
+  id: number;
+  username: string;
+  fullName: string;
+  fullNameAr: string | null;
+  lockedAt: string;
 }
 
 export interface SignInAlert {
@@ -76,6 +88,58 @@ interface AuthCtx {
 
 const Ctx = createContext<AuthCtx | null>(null);
 
+const SESSION_ENDED = 'jerp.sessionEnded';
+/** Remembered for this tab only, so the sign-in page can say why the person is there. */
+export function markSessionEnded() {
+  try {
+    sessionStorage.setItem(SESSION_ENDED, '1');
+  } catch {
+    /* storage unavailable: the sign-in page simply shows no note */
+  }
+}
+export function clearSessionEnded() {
+  try {
+    sessionStorage.removeItem(SESSION_ENDED);
+  } catch {
+    /* ignore */
+  }
+}
+export function sessionEnded(): boolean {
+  try {
+    return sessionStorage.getItem(SESSION_ENDED) === '1';
+  } catch {
+    return false;
+  }
+}
+
+const ACCOUNT_LOCKED = 'jerp.accountLocked';
+/**
+ * LOCK-1 (D-lock-1): set only in the tab where the person has just confirmed "This wasn't me" and the server
+ * answered that the account is now security-locked. The sign-in page of THAT tab explains the lock; nothing comes
+ * from the server, so no other browser or tab can learn that an account is locked. Cleared by the next sign-in.
+ */
+export function markAccountLocked() {
+  try {
+    sessionStorage.setItem(ACCOUNT_LOCKED, '1');
+  } catch {
+    /* storage unavailable: the sign-in page shows no note */
+  }
+}
+export function accountLockedHere(): boolean {
+  try {
+    return sessionStorage.getItem(ACCOUNT_LOCKED) === '1';
+  } catch {
+    return false;
+  }
+}
+function clearAccountLocked() {
+  try {
+    sessionStorage.removeItem(ACCOUNT_LOCKED);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const q = useQuery({
@@ -101,6 +165,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () =>
       onAuthError((e) => {
         if (e.status === 401) {
+          // UI-A2: a session that ended while signed in (expired, revoked) is explained on the sign-in page.
+          if (qc.getQueryData(['me'])) markSessionEnded();
           setCsrfToken(null);
           qc.setQueryData(['me'], null);
         }
@@ -110,6 +176,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const install = (res: Me) => {
+    clearSessionEnded();
+    clearAccountLocked();
     setCsrfToken(res.csrfToken);
     // Drop the previous user's cached data but keep the live `me` query observed by this provider.
     qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });

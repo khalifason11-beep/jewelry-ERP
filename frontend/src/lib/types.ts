@@ -37,8 +37,6 @@ export interface ItemRow {
   branchName: string;
   branchNameAr: string;
   status: string;
-  reservationRef: string | null;
-  reservedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

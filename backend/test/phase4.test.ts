@@ -24,8 +24,8 @@ import { buyScrap, poolBalances, setScrapRates } from '../src/modules/scrap/serv
 import { settleWithScrap } from '../src/modules/supplier-settlements/service';
 import { balances, settleHasadReceivable } from '../src/modules/ledger/service';
 import { stockWeight } from '../src/modules/stock/weight';
-import { seedDemo } from '../src/seed/demo';
-import { DEMO_PASSWORDS } from '../src/seed/catalog';
+import { seedWorld } from './fixtures/world';
+import { DEMO_PASSWORDS } from './fixtures/world-data';
 import { openTestDatabase, withIdempotencyKeys } from './helpers';
 
 let handle: DatabaseHandle;
@@ -94,7 +94,7 @@ async function stockUp(code: string, karat: number, weightMg: number) {
 beforeAll(async () => {
   handle = await openTestDatabase();
   ctx = createContext(handle);
-  await seedDemo(ctx);
+  await seedWorld(ctx);
   app = createApp(ctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
 });
 afterAll(async () => handle.close());
@@ -202,7 +202,7 @@ describe('broken-scrap weight pool', () => {
     const before = await pool(omd, 22);
     const bal = async () => Object.fromEntries((await balances(ctx.db, omd)).map((a) => [a.kind, a.balance]));
     const money = await bal();
-    const r = await buyScrap(ctx, bm, { branchId: omd, kind: 'BROKEN', karat: 22, grossWeightMg: 4120, netWeightMg: 4100, paymentMethod: 'BANK_TRANSFER' });
+    const r = await buyScrap(ctx, bm, { branchId: omd, kind: 'BROKEN', karat: 22, grossWeightMg: 4120, netWeightMg: 4100, paymentMethod: 'BANK_TRANSFER', bankReference: 'TRF-SCR-0205' });
     expect(await pool(omd, 22)).toBe(before + 4100);
     const after = await bal();
     expect(after.BANK).toBe(money.BANK - r.amount);
@@ -298,11 +298,11 @@ describe('supplier purchase: making charge in money, gold debt in 24K', () => {
   });
 
   it('is refused when supplier credit is turned off', async () => {
-    await ctx.settings.apply(ctx.db, { 'purchases.supplierCreditEnabled': false }, { actor: { id: null, username: 'test' }, allowDemoOnly: true });
+    await ctx.settings.apply(ctx.db, { 'purchases.supplierCreditEnabled': false }, { actor: { id: null, username: 'test' } });
     try {
       expect(await errorOf(newPurchase('KRT', [5_000]))).toMatchObject({ status: 400, key: 'Supplier purchases on gold credit are turned off in the settings' });
     } finally {
-      await ctx.settings.apply(ctx.db, { 'purchases.supplierCreditEnabled': true }, { actor: { id: null, username: 'test' }, allowDemoOnly: true });
+      await ctx.settings.apply(ctx.db, { 'purchases.supplierCreditEnabled': true }, { actor: { id: null, username: 'test' } });
     }
   });
 });
@@ -621,7 +621,7 @@ describe('branch manager transfer of several selected items', () => {
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
     const items = await freshItems('KRT', 3);
     const before = (await ctx.db.select({ n: count() }).from(t.transfers))[0].n;
-    const res = await bm.post('/api/transfers').send({ toBranchId: await branchId('OMD'), itemIds: items.map((i) => i.id) });
+    const res = await bm.post('/api/transfers').send({ toBranchId: await branchId('OMD'), itemIds: items.map((i) => i.id), courierName: 'مندوب الفرع' });
     expect(res.status).toBe(200);
     expect((await ctx.db.select({ n: count() }).from(t.transfers))[0].n).toBe(before + 1);
     const lines = await ctx.db.select().from(t.transferItems).where(eq(t.transferItems.transferId, res.body.id));

@@ -54,6 +54,8 @@ export interface PrintableSale extends NoCost {
   paymentMethod: string;
   hasadInvoiceRef: string | null;
   hasadTransactionRef: string | null;
+  /** FIX-2: the bank-transfer reference (the customer's own payment, so it is printed). */
+  bankTransferRef?: string | null;
   lines: PrintableSaleLine[];
 }
 
@@ -74,6 +76,8 @@ export interface InvoicePrintData {
   paymentMethod: string;
   /** Only when the payment method is HASAD. */
   hasad: { invoiceRef: string | null; transactionRef: string | null } | null;
+  /** FIX-2: only when the payment method is BANK_TRANSFER (null reference = a sale recorded before FIX-2). */
+  bankTransfer: { reference: string | null } | null;
   /** null = the original; otherwise the reprint number and when it was printed. */
   copy: { n: number; printedAt: string } | null;
 }
@@ -131,6 +135,7 @@ export function buildInvoicePrintData(sale: PrintableSale, copy: { n: number; pr
     total: sale.total,
     paymentMethod: sale.paymentMethod,
     hasad: sale.paymentMethod === 'HASAD' ? { invoiceRef: sale.hasadInvoiceRef, transactionRef: sale.hasadTransactionRef } : null,
+    bankTransfer: sale.paymentMethod === 'BANK_TRANSFER' ? { reference: sale.bankTransferRef ?? null } : null,
     copy: copy ? { n: copy.n, printedAt: iso(copy.printedAt) } : null,
   };
   assertPrintable(data, 'print output');

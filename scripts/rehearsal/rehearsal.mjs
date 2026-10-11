@@ -18,7 +18,7 @@
 // Playwright is resolved from the project, then from the global npm modules (npm i -g playwright).
 
 import { createRequire } from 'node:module';
-import { execFileSync, execSync, spawn } from 'node:child_process';
+import { execFileSync, execSync, spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -27,6 +27,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { prepareGm, PEOPLE as E2E, startEmptyServer } from '../lib/e2e-world.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const ARGS = new Set(process.argv.slice(2));
@@ -163,6 +164,17 @@ async function confirmIfAsked(page, password) {
   if (await page.getByTestId('reauth-passkey').count()) await page.click('[data-testid=reauth-passkey]');
 }
 
+/** A write through the API as the signed-in person (CSRF token and a fresh Idempotency-Key), for data set-up only. */
+const apiSend = (page, method, url, body) =>
+  page.evaluate(
+    async ({ method, url, body }) => {
+      const me = await (await fetch('/api/auth/me')).json();
+      const r = await fetch(url, { method, headers: { 'content-type': 'application/json', 'x-csrf-token': me.csrfToken ?? '', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify(body) });
+      return { status: r.status, body: await r.json().catch(() => null) };
+    },
+    { method, url, body },
+  );
+
 const apiGet = (page, url) => page.evaluate(async (u) => {
   const r = await fetch(u);
   return { status: r.status, body: await r.json().catch(() => null) };
@@ -177,7 +189,7 @@ async function captureBaseline(page, name) {
   if (!dir) return;
   const back = new URL(page.url()).pathname;
   for (const lang of ['ar', 'en']) {
-    for (const [w, h] of [[1366, 768], [1920, 1080]]) {
+    for (const [w, h] of [[1366, 768], [1536, 864], [1920, 1080]]) {
       await page.setViewportSize({ width: w, height: h });
       await page.evaluate((l) => localStorage.setItem('jerp.lang', l), lang);
       await page.reload();
@@ -192,6 +204,28 @@ async function captureBaseline(page, name) {
   await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
   await page.goto(new URL(back, page.url()).href);
   await page.waitForLoadState('networkidle');
+}
+
+/**
+ * Deterministic check of a dialog's autofocus (the cause of the "Save stays disabled" flake in REH-1): with the
+ * page's timers paused, the person opens the dialog, clicks the SECOND field, then every pending timer runs and
+ * they type. The text must stay in the field they chose, and the first field must stay empty. Before the fix, a
+ * 30 ms autofocus timer moved focus (and the typing) into the first field on a busy PC.
+ */
+async function dialogKeepsChosenField(page, { open, first, second, text, what }) {
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1_000); // the page's (fake) clock, not ours
+  try {
+    await page.click(`[data-testid=${open}]`);
+    const autofocus = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'));
+    await page.click(`[data-testid=${second}]`);
+    await page.clock.runFor(1_000);
+    await page.keyboard.type(text);
+    const got = { first: await page.inputValue(`[data-testid=${first}]`), second: await page.inputValue(`[data-testid=${second}]`) };
+    check(autofocus === first && got.first === '' && got.second === text, `${what}: opens with the first field focused, and a field the person chose keeps the typing (${JSON.stringify(got)})`);
+    await page.fill(`[data-testid=${second}]`, '');
+  } finally {
+    await page.clock.resume();
+  }
 }
 
 const pathIs = (page, paths) => page.waitForURL((u) => paths.includes(u.pathname), { timeout: 15_000 });
@@ -213,6 +247,191 @@ async function noWords(page, base, paths, who, words, what, selector = 'body') {
   await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
 }
 const noExpenseWords = (page, base, paths, who) => noWords(page, base, paths, who, EXPENSE_WORDS, 'expense wording');
+
+// UI-A1: the sidebar per role equals the approved mockups (docs/ux/mockups/*-home.html; the branch manager also
+// sees Active users, owner answer Q6). Listed as the nav test ids, in order.
+const SHELL_NAV = {
+  gm: ['overview', 'sales', 'inventory', 'transfers', 'scrap', 'catalog', 'purchases', 'cash', 'branches', 'reports', 'users', 'sessions', 'audit', 'settings'],
+  bm: ['dashboard', 'pos', 'sales', 'inventory', 'transfers', 'scrap', 'catalog', 'purchases', 'cash', 'reports', 'users', 'sessions', 'audit'],
+  cashier: ['pos', 'me'],
+};
+const COST_WORDS = /cost|profit|margin|تكلفة|التكلفة|ربح|أرباح|الربح|هامش/i;
+/** A money figure: thousands separators or two or more decimals (the IP address and small counts are not). */
+const MONEY_FIGURE = /\d{1,3}(?:[,٬]\d{3})+|\d+[.٫]\d{2,}/;
+/** A weight such as "12.345 g" / "12.345 جم" (grams of gold are not money). */
+const WEIGHT_FIGURE = /\d[\d,٬]*[.٫]\d{3}\s*(?:g|جم)/g;
+/**
+ * The app shell for one role: the sidebar items in order, and (for the branch manager and the cashier) no cost or
+ * profit word or figure anywhere in the sidebar and the top bar — the opened user menu and the attention control's
+ * list included (UI-B: it replaced the bell) — in both languages. The rate chip shows the public selling rate and is
+ * the only money figure allowed. A cashier has no attention control (D-ux-14).
+ */
+async function checkShell(page, base, who, role, home) {
+  await page.goto(`${base}${home}`);
+  await page.getByTestId('sidebar').waitFor({ timeout: 15_000 });
+  const nav = await page.locator('[data-testid=sidebar] a[data-testid^=nav-]').evaluateAll((as) => as.map((a) => a.dataset.testid.slice(4)));
+  check(JSON.stringify(nav) === JSON.stringify(SHELL_NAV[role]), `${who}: the sidebar is ${nav.join(', ')} (as in the mockup)`);
+  if (role === 'gm') check(!nav.includes('pos'), `${who}: no Point of Sale in the sidebar`);
+  if (role === 'cashier') {
+    check((await page.getByTestId('sidebar-toggle').count()) === 0 && (await page.getByTestId('sidebar').boundingBox()).width <= 72, `${who}: icons only, no expand button`);
+    check((await page.locator('[data-testid=sidebar] nav').innerText()).trim() === '', `${who}: the icon menu shows no text (names on hover)`);
+  }
+  if (role === 'gm') return;
+  for (const lang of ['ar', 'en']) {
+    await page.evaluate((l) => localStorage.setItem('jerp.lang', l), lang);
+    await page.goto(`${base}${home}`);
+    await page.waitForLoadState('networkidle');
+    await page.getByTestId('user-menu').click();
+    const userMenu = await page.getByTestId('topbar').innerText();
+    if (role === 'cashier') {
+      check((await page.getByTestId('attention-button').count()) === 0, `${who} (${lang}): no attention control in the cashier's shell`);
+    } else {
+      // On the home the control only shows the count (the list is on the page); its list opens on any other page.
+      await page.goto(`${base}/sales`);
+      await page.waitForLoadState('networkidle');
+      await page.getByTestId('attention-button').click();
+      await page.getByTestId('attention-menu').waitFor();
+      await page.locator('[data-testid=attention-menu] [data-testid=attention-line], [data-testid=attention-empty]').first().waitFor({ timeout: 15_000 });
+      const codes = await page.locator('[data-testid=attention-menu] [data-testid=attention-line]').evaluateAll((els) => els.map((e) => e.dataset.code));
+      check(!codes.some((c) => ['A9', 'A10', 'A16', 'S2'].includes(c)), `${who} (${lang}): the attention list has no company or General Manager line (${codes.join(', ') || 'empty'})`);
+    }
+    const shell = [await page.getByTestId('sidebar').innerText(), userMenu, await page.getByTestId('topbar').innerText()].join('\n');
+    const rate = await page.getByTestId('rate-chip').innerText();
+    const rest = shell.split(rate).join(' ').replace(WEIGHT_FIGURE, ' ');
+    check(!COST_WORDS.test(shell) && !MONEY_FIGURE.test(rest), `${who} (${lang}): no cost or profit word or money figure in the sidebar, top bar, user menu or attention list`);
+    await page.keyboard.press('Escape');
+  }
+  await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
+}
+
+/**
+ * UI-B (docs/plans/UI-B.md §4.4): the GM home after real sales. The dark card equals the API for the same period;
+ * level 1 (down to the branch strips) fits the 1366×768 window in Arabic and English; a cash count with a difference
+ * raises A4 and a corrected count clears it.
+ */
+async function homeChecks(page, base, branchId) {
+  for (const lang of ['ar', 'en']) {
+    await page.evaluate((l) => { localStorage.setItem('jerp.lang', l); Object.keys(localStorage).filter((k) => k.startsWith('jerp.home.period')).forEach((k) => localStorage.removeItem(k)); }, lang);
+    await page.goto(`${base}/overview`);
+    await page.getByTestId('home-branch-strip').first().waitFor({ timeout: 15_000 });
+    await page.locator('[data-testid=home-attention-line], [data-testid=attention-none]').first().waitFor({ timeout: 15_000 });
+    const bottom = await page.getByTestId('home-branches').evaluate((e) => e.getBoundingClientRect().bottom + window.scrollY);
+    check(bottom <= 768, `level 1 fits 1366×768 (${lang}): the branch strips end at ${Math.round(bottom)} px`);
+  }
+  await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
+  const today = (await apiGet(page, '/api/dashboard/company')).body.period.to;
+  const api = (await apiGet(page, `/api/dashboard/company?from=${today}&to=${today}`)).body;
+  await page.goto(`${base}/overview`);
+  await waitFor(async () => (await page.getByTestId('home-sales-value').innerText()).replace(/\D/g, '') === String(api.totals.revenue), 'the dark card', 15_000);
+  check(api.totals.revenue > 0 && api.totals.salesCount > 0, `the dark card equals the API for today (${api.totals.revenue}, ${api.totals.salesCount} invoices)`);
+  // A4: a count 35,000 over the expected cash, then a corrected count. Since CSH-2 the main branch's drawer is funded,
+  // so the check runs there (a counted amount can never be negative).
+  const drawers = (await apiGet(page, '/api/cash/drawer')).body.branches;
+  const target = drawers.filter((b) => b.expectedCash >= 0).sort((a, z) => (a.branchId === branchId ? -1 : 0) - (z.branchId === branchId ? -1 : 0))[0];
+  check(target?.branchId === branchId, `the main branch's drawer is the one counted (${drawers.map((b) => `${b.branchCode} ${b.expectedCash}`).join(', ')})`);
+  const a4 = async () => (await apiGet(page, '/api/attention')).body.signals.filter((x) => x.code === 'A4' && x.branchId === target.branchId);
+  const over = await apiSend(page, 'POST', '/api/cash/counts', { branchId: target.branchId, day: today, countedAmount: target.expectedCash + 35_000 });
+  const raised = await a4();
+  check(over.status === 200 && raised.length === 1 && raised[0].params.amount === 35_000, `a cash count 35,000 over the expected cash raises the A4 line with the difference (${over.status} ${JSON.stringify(raised.map((x) => x.params))})`);
+  await page.goto(`${base}/overview`);
+  await page.locator('[data-testid=home-attention-line][data-code=A4]').waitFor({ timeout: 15_000 });
+  ok('the A4 line shows on the GM home');
+  const fixed = await apiSend(page, 'POST', '/api/cash/counts', { branchId: target.branchId, day: today, countedAmount: target.expectedCash });
+  check(fixed.status === 200 && (await a4()).length === 0, 'a corrected count clears it');
+}
+
+/**
+ * UI-B (§5.3): the branch manager's home after the rehearsal sale. The dark card and the expected cash equal the API
+ * (and Cash); the gold owed is the supplier order's 24K grams; level 1 (down to "Team today") fits 1366×768; no
+ * cost or profit word, and no profit or stock-value figure, in Arabic or English.
+ */
+async function bmHomeChecks(page, base, branchId) {
+  await fundingRefused(page, 'branch manager', branchId);
+  const api = (await apiGet(page, '/api/dashboard/branch')).body;
+  const drawer = (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId);
+  const signedDigits = (s) => Number(s.replace(/[^\d−-]/g, '').replace('−', '-'));
+  for (const lang of ['ar', 'en']) {
+    await page.evaluate((l) => localStorage.setItem('jerp.lang', l), lang);
+    await page.goto(`${base}/dashboard`);
+    await page.getByTestId('home-team-row').first().waitFor({ timeout: 15_000 });
+    await page.locator('[data-testid=home-attention-line], [data-testid=attention-none]').first().waitFor({ timeout: 15_000 });
+    const bottom = await page.getByTestId('home-team').evaluate((e) => e.getBoundingClientRect().bottom + window.scrollY);
+    check(bottom <= 768, `branch manager (${lang}): level 1 fits 1366×768, "Team today" ends at ${Math.round(bottom)} px`);
+    const text = await page.locator('main').innerText();
+    check(!COST_WORDS.test(text) && (await page.locator('[data-testid=home-profit], [data-testid=home-stock-value]').count()) === 0, `branch manager (${lang}): no cost or profit word or figure on the home`);
+  }
+  await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
+  const sales = signedDigits(await page.getByTestId('home-sales-value').innerText());
+  check(sales === api.kpis.salesTotal && api.kpis.salesTotal > 0, `branch manager: the dark card equals the API (${sales})`);
+  const cash = signedDigits(await page.locator('[data-testid=home-expected-cash] .text-kpi').innerText());
+  check(cash === drawer.expectedCash && api.expectedCash === drawer.expectedCash, `branch manager: expected cash = Cash (${cash})`);
+  const owedMg = Number((await page.locator('[data-testid=home-gold-owed] .text-kpi').innerText()).replace(/\D/g, ''));
+  const purchases = (await apiGet(page, '/api/purchases')).body;
+  const list = Array.isArray(purchases) ? purchases : (purchases.rows ?? purchases.items ?? []);
+  const details = await Promise.all(list.map(async (p) => (await apiGet(page, `/api/purchases/${p.id}`)).body));
+  const owed = details.map((p) => p.goldOwedMgPure24 ?? p.purchase?.goldOwedMgPure24 ?? 0).filter((w) => w > 0);
+  check(
+    owedMg === api.goldOwed.pureMg24 && owedMg === owed.reduce((a, w) => a + w, 0) && api.goldOwed.orders === owed.length,
+    `branch manager: gold owed = the supplier orders still owed (${owedMg} mg of 24K, ${api.goldOwed.orders} order(s))`,
+  );
+  const attention = (await apiGet(page, '/api/attention')).body.signals;
+  check(attention.every((x) => !Object.keys(x.params).some((k) => /cost|profit|price|amountOwed|money/i.test(k))), 'branch manager: no attention line carries a cost, profit or supplier money amount');
+}
+
+/** CSH-2: test amounts of the General Manager's opening advances (never a client figure). */
+const FUND = { cash: 2_000_000, bank: 1_500_000 };
+
+/** Record an advance through Cash › Funding (password re-confirmation as for every money action of the GM). */
+async function fundBranch(page, base, { branchId, account, amount, reason, bankReference, kind = 'advance' }) {
+  await page.goto(`${base}/cash`);
+  await page.getByTestId(kind === 'advance' ? 'funding-advance' : 'funding-repayment').click({ timeout: 15_000 });
+  await page.selectOption('[data-testid=funding-branch]', String(branchId));
+  if (account === 'BANK') await page.locator('[data-testid=funding-account] [role=radio]').nth(1).click();
+  await page.fill('[data-testid=funding-amount]', String(amount));
+  if (bankReference) await page.fill('[data-testid=funding-bank-ref]', bankReference);
+  await page.fill('[data-testid=funding-reason]', reason);
+  const before = (await apiGet(page, '/api/funding')).body.events.length;
+  await page.click('[data-testid=funding-submit]');
+  await confirmIfAsked(page, GM.password);
+  await waitFor(async () => (await apiGet(page, '/api/funding')).body.events.length > before, `the ${kind} recorded`, 15_000);
+  ok(`General Manager: ${kind} of ${amount.toLocaleString('en-US')} ${kind === 'advance' ? 'into' : 'from'} the ${account === 'CASH' ? 'drawer' : 'bank'} recorded from Cash › Funding`);
+}
+
+/** CSH-2: every funding route answers 403 to anyone but the General Manager (D-csh-5). */
+async function fundingRefused(page, who, branchId) {
+  const body = { branchId, account: 'CASH', amount: 1, reason: 'probe' };
+  const codes = [
+    (await apiGet(page, '/api/funding')).status,
+    (await apiSend(page, 'POST', '/api/funding/advances', body)).status,
+    (await apiSend(page, 'POST', '/api/funding/repayments', body)).status,
+    (await apiSend(page, 'POST', '/api/funding/1/correct', { reason: 'probe' })).status,
+  ];
+  check(codes.every((c) => c === 403), `${who}: every funding route answers 403 (${codes.join(', ')})`);
+  // The drawer lines "Advances from / Repayments to the General Manager" stay (without them the drawer would not add
+  // up, SPEC §18.10); what is owed to him, the reasons and the history never show (Q10).
+  await page.goto(`${page.url().split('/').slice(0, 3).join('/')}/cash`).catch(() => {});
+  await page.waitForLoadState('networkidle');
+  const text = await page.locator('main').innerText().catch(() => '');
+  check((await page.getByTestId('funding-panel').count()) === 0 && !/مستحق للمدير العام|Owed to the General Manager/.test(text), `${who}: Cash shows nothing of what is owed to the General Manager`);
+}
+
+/** Empty screens on a new database (UI-A2): the exact English text, and in Arabic no English text left in the block. */
+async function emptyStates(page, base, who, screens) {
+  for (const lang of ['en', 'ar']) {
+    await page.evaluate((l) => localStorage.setItem('jerp.lang', l), lang);
+    for (const [p, texts] of screens) {
+      await page.goto(`${base}${p}`);
+      await page.locator('main [data-state=empty], main [data-state=prompt]').first().waitFor({ timeout: 15_000 });
+      await page.waitForLoadState('networkidle');
+      const blocks = await page.locator('main [data-state=empty], main [data-state=prompt]').allInnerTexts();
+      const main = await page.locator('main').innerText();
+      const generic = /Nothing to show|Loading…|لا يوجد ما يُعرض/.test(main);
+      if (lang === 'en') check(texts.every((x) => blocks.some((b) => b.includes(x))) && !generic, `${who}: ${p} (en) says "${texts.join('" and "')}"`);
+      else check(blocks.length >= texts.length && blocks.every((b) => !/[A-Za-z]{4,}/.test(b)) && !generic, `${who}: ${p} (ar) shows its empty text in Arabic`);
+    }
+  }
+  await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
+}
 
 // ── the rehearsal ──
 async function main() {
@@ -236,7 +455,7 @@ async function main() {
     dbUrl.pathname = `/${dbName}`;
     const [appPort, proxyPort] = [await freePort(), await freePort()];
     const origin = `https://localhost:${proxyPort}`;
-    const env = { APP_MODE: 'production', DATABASE_URL: dbUrl.toString(), APP_ORIGIN: origin, TRUST_PROXY: '1', PORT: String(appPort), LOG_LEVEL: 'warn' };
+    const env = { APP_MODE: 'production', DATABASE_URL: dbUrl.toString(), APP_ORIGIN: origin, TRUST_PROXY: '1', PORT: String(appPort), LOG_LEVEL: 'warn', ALLOWED_KARATS_INITIAL: '21' };
     for (const k of ['MIGRATION_DATABASE_URL', 'PGLITE_DIR', 'COOKIE_SECURE', 'WEBAUTHN_RP_ID', 'STRICT_DB_ROLES']) delete process.env[k];
 
     // 1. Bootstrap (the operator's one-time command): reference data + the first GM, no branch.
@@ -245,12 +464,17 @@ async function main() {
     check(!!otp, 'bootstrap on an empty PostgreSQL database prints a one-time password for the first General Manager');
 
     // 2. The server in production mode, behind the TLS proxy.
-    const server = spawn('npx', ['tsx', 'src/server.ts'], { cwd: path.join(ROOT, 'backend'), env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    // detached: npx starts the real server as a child, so stop the whole process group (else it outlives the script).
+    const server = spawn('npx', ['tsx', 'src/server.ts'], { cwd: path.join(ROOT, 'backend'), env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     let serverLog = '';
     server.stdout.on('data', (d) => (serverLog += d));
     server.stderr.on('data', (d) => (serverLog += d));
     cleanup.unshift(async () => {
-      server.kill('SIGTERM');
+      try {
+        process.kill(-server.pid, 'SIGTERM');
+      } catch {
+        /* already gone */
+      }
       if (failed && serverLog) console.error(`\n--- server log ---\n${serverLog.slice(-4000)}`);
     });
     const proxy = await startProxy(selfSignedCert(tmp), proxyPort, appPort);
@@ -272,6 +496,18 @@ async function main() {
 
     section('General Manager: first sign-in');
     await virtualAuthenticator(page);
+    // UI-A1 (owner answer Q2): a plain centred sign-in on a white page: the logo, the company name and the form;
+    // no marketing panel (1366x768, the narrowest supported laptop size).
+    await page.goto(`${origin}/login`);
+    await page.locator('input[autocomplete=username]').waitFor();
+    const login = await page.evaluate(() => {
+      const form = document.querySelector('form').getBoundingClientRect();
+      return { text: document.body.innerText, bg: getComputedStyle(document.querySelector('[data-testid=auth-frame]')).backgroundColor, offset: Math.abs(form.left + form.width / 2 - innerWidth / 2) };
+    });
+    check(
+      !/every piece accounted|Multi-branch|متعددة الفروع|كل قطعة محسوبة|قابل للتدقيق/.test(login.text) && login.bg === 'rgb(255, 255, 255)' && login.offset < 4,
+      `the sign-in page is plain: white, the form centred (${login.offset.toFixed(1)} px off), no marketing panel`,
+    );
     await signIn(page, origin, GM.username, otp);
     await changePassword(page, otp, GM.password);
     ok('one-time password accepted, a personal password is set');
@@ -300,10 +536,110 @@ async function main() {
     check(users0.status === 200 && users0.body.length === 1, 'the only user is the General Manager');
     const drawer0 = await apiGet(page, '/api/cash/drawer');
     check(drawer0.status === 200 && drawer0.body.branches.length === 0, 'no ledger accounts with money (no branches, no opening cash)');
+    // UI-B (D-ui-18, owner condition Q2): the missing backup is a CRITICAL line of the attention list, and the top
+    // bar's count shows it on every page; only the lock, "Was this you?" and second-factor-off notices stay above
+    // the page. The one-passkey reminder is an information line of the same list.
+    await page.goto(`${origin}/settings`);
+    await waitFor(async () => (await page.getByTestId('attention-button').getAttribute('data-severity')) === 'critical', 'the attention count turns critical', 15_000);
+    const badge = page.getByTestId('attention-count');
+    check(Number(await badge.innerText()) >= 1 && /\bbg-crit\b/.test((await badge.getAttribute('class')) ?? ''), `General Manager on Settings (not the home): the attention count is critical, in the critical colour (${await badge.innerText()})`);
+    check((await page.locator('[data-testid=notices]').count()) === 0, 'no notice above the page: the backup and one-passkey notices left the shell notice area');
+    check((await page.getByTestId('notice-dot').count()) === 0, 'no dot on the avatar (no open notice)');
+    await page.getByTestId('attention-button').click();
+    await page.getByTestId('attention-menu').waitFor();
+    const gmLines = await page.locator('[data-testid=attention-menu] [data-testid=attention-line]').evaluateAll((els) => els.map((e) => `${e.dataset.code}:${e.dataset.severity}`));
+    check(gmLines.includes('A9:critical') && gmLines.includes('S1:info'), `the attention list holds the backup line (critical) and the one-passkey line (information) (${gmLines.join(', ')})`);
+    await page.keyboard.press('Escape');
+    check(!/USD|\$/.test(await page.getByTestId('topbar').innerText()), 'no USD chip in the top bar (D-ux-3, until Q-10)');
+    for (const p of ['/inventory', '/reports']) {
+      await page.goto(`${origin}${p}`);
+      await waitFor(async () => (await page.getByTestId('attention-button').getAttribute('data-severity')) === 'critical', `the critical count on ${p}`, 15_000);
+    }
+    ok('the critical backup count shows on every page for the General Manager (Inventory, Reports)');
+    await page.goto(`${origin}/overview`);
+    await page.getByTestId('attention-button').waitFor();
+    check((await page.locator('[data-testid=backup-banner], [data-testid=second-passkey-nag], [data-testid=uv-preferred-banner]').count()) === 0, 'no backup, one-passkey or touch-only notice anywhere above the page');
+    // UI-B (§4.3): no branch and no staff yet → the home is the first steps and the attention list, nothing else.
+    await page.getByTestId('home-first-run').waitFor({ timeout: 15_000 });
+    await page.locator('[data-testid=home-attention-line][data-code=A9]').waitFor({ timeout: 15_000 });
+    const emptyHome = await page.locator('main').innerText();
+    check(
+      (await page.getByTestId('first-steps').count()) === 1 && (await page.locator('[data-testid=home-figures], [data-testid=home-sales], [data-testid=home-branches]').count()) === 0 && !/—/.test(emptyHome),
+      'empty production database: the GM home is the first steps and the attention list only (backup line in it), no figures and no "—"',
+    );
+    // UI-A2 (D-ui-14/15): the General Manager's tagline on the public sign-in page, in the self-hosted Amiri font.
+    const TAGLINE = 'ذهب سوداني منذ ١٩٨٠';
+    const saveTagline = async (v) => {
+      await page.goto(`${origin}/settings`);
+      await page.getByTestId('tagline-ar').waitFor({ timeout: 15_000 });
+      await page.fill('[data-testid=tagline-ar]', v);
+      await page.click('[data-testid=save-company]');
+      await confirmIfAsked(page, GM.password);
+      await waitFor(async () => (await (await page.request.get(`${origin}/api/meta`)).json()).branding.tagline.ar === v, 'the tagline saved', 15_000);
+    };
+    await saveTagline(TAGLINE);
+    const anon = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1366, height: 768 } });
+    const lp = await anon.newPage();
+    const foreign = [];
+    lp.on('request', (r) => !r.url().startsWith(origin) && !r.url().startsWith('data:') && foreign.push(r.url()));
+    await lp.goto(`${origin}/login`);
+    await lp.getByTestId('login-tagline').waitFor({ timeout: 15_000 });
+    const amiri = await lp.evaluate(async () => {
+      await document.fonts.ready;
+      return [...document.fonts].filter((f) => f.family.replace(/"/g, '') === 'Amiri' && f.status === 'loaded').length;
+    });
+    check((await lp.getByTestId('login-tagline').innerText()) === TAGLINE && amiri > 0 && foreign.length === 0, `signed out, the sign-in page shows the tagline in Amiri (self-hosted: ${foreign.length} requests elsewhere)`);
+    await lp.evaluate(() => localStorage.setItem('jerp.lang', 'en'));
+    await lp.reload();
+    await lp.getByTestId('welcome-back').waitFor();
+    check((await lp.getByTestId('login-tagline').innerText()) === TAGLINE && /Welcome back/.test(await lp.getByTestId('welcome-back').innerText()), 'in English, "Welcome back" and the Arabic tagline (no English one set)');
+    await page.reload();
+    await page.getByTestId('tagline-ar').waitFor();
+    const amiriInApp = await page.evaluate(async () => {
+      await document.fonts.ready;
+      return [...document.fonts].filter((f) => f.family.replace(/"/g, '') === 'Amiri' && f.status === 'loaded').length;
+    });
+    check(amiriInApp === 0, 'inside the application Amiri is never downloaded (sign-in page only)');
+    await saveTagline('');
+    await lp.reload();
+    await lp.getByTestId('welcome-back').waitFor();
+    check((await lp.getByTestId('login-tagline').count()) === 0, 'an empty tagline shows nothing on the sign-in page');
+    await anon.close();
+
+    // UI-A2 (D-ui-11): every list says what is empty, in the screen's own words, in both languages; no generic
+    // "Nothing to show", no "Loading…" left behind, no table of zeros.
+    await emptyStates(page, origin, 'General Manager', [
+      ['/sales', ['No sales in this period']],
+      ['/purchases', ['No purchases in this period']],
+      ['/inventory', ['No pieces in stock']],
+      ['/catalog', ['No products yet']],
+      ['/transfers', ['No transfers yet']],
+      ['/scrap', ['Choose a branch to buy scrap', 'No scrap bought yet']],
+    ]);
+
+    section('REM-3: first steps on an empty system');
+    const inv0 = (await apiGet(page, '/api/settings')).body.settings.inventory;
+    check(JSON.stringify(inv0.allowedKarats) === '[21]' && inv0.allowedKaratsConfirmed === false, 'ALLOWED_KARATS_INITIAL=21 applied on the first start, not yet confirmed by the General Manager');
+    await page.goto(`${origin}/overview`);
+    await page.getByTestId('first-steps').waitFor({ timeout: 15_000 });
+    const stepState = async () => Object.fromEntries(await Promise.all(['karats', 'rates', 'branch', 'staff', 'fund'].map(async (k) => [k, await page.getAttribute(`[data-testid=step-${k}]`, 'data-done')])));
+    check(Object.values(await stepState()).every((v) => v === 'false'), 'the GM home shows the five first steps (karats, rates, branch, staff, fund the branch), none done');
+    const chip = await page.getByTestId('rate-chip').innerText();
+    check(/حدّد سعر اليوم/.test(chip) && !/—/.test(chip), 'the rate chip says "Set today’s rate" instead of "—/g"');
+    check((await page.getByTestId('demo-badge').count()) === 0, 'production mode shows no "Demo" badge');
+    await page.click('[data-testid=step-karats-action]');
+    check(await page.isChecked('[data-testid=karat-21]'), 'the confirmation dialog proposes 21K (from ALLOWED_KARATS_INITIAL)');
+    await page.click('[data-testid=confirm-karats]');
+    await confirmIfAsked(page, GM.password);
+    await waitFor(async () => (await page.getAttribute('[data-testid=step-karats]', 'data-done')) === 'true', 'step 1 done', 15_000);
+    ok('the General Manager confirms the allowed karats (password re-confirmation): step 1 done');
+    await noWords(page, origin, ['/overview', '/settings', '/users'], 'General Manager', /prototype|نموذج أولي|demo account|حسابات تجريبية/i, 'prototype or demo-account wording');
 
     section('General Manager: branch and staff');
+    await page.clock.install(); // fake timers that flow normally; paused only inside dialogKeepsChosenField
     await page.goto(`${origin}/branches`);
-    await page.click('[data-testid=new-branch]');
+    await page.getByTestId('new-branch').waitFor();
+    await dialogKeepsChosenField(page, { open: 'new-branch', first: 'branch-code', second: 'branch-name', text: BRANCH.name, what: 'New branch dialog' });
     await page.fill('[data-testid=branch-code]', BRANCH.code);
     await page.fill('[data-testid=branch-name]', BRANCH.name);
     await page.fill('[data-testid=branch-name-ar]', BRANCH.nameAr);
@@ -315,11 +651,27 @@ async function main() {
     const branchId = (await apiGet(page, '/api/branches')).body.find((b) => b.code === BRANCH.code).id;
     const accounts = (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId);
     check(accounts && accounts.expectedCash === 0 && accounts.bank === 0, 'the new branch starts at zero cash and zero bank');
+    await page.goto(`${origin}/overview`);
+    await page.getByTestId('step-fund').waitFor({ timeout: 15_000 });
+    check((await page.getAttribute('[data-testid=step-fund]', 'data-done')) === 'false' && (await page.getByTestId('step-fund-action').count()) === 1, 'a branch without an advance into its drawer: the first step "Fund the branch" is open, with a link to Cash');
+    // CSH-2 (D-csh-6): the money the General Manager puts in is recorded as advances, through the Cash page, before
+    // anything is paid out. Test values only. This is why the drawer no longer goes negative (it showed −335,000).
+    await fundBranch(page, origin, { branchId, account: 'CASH', amount: FUND.cash, reason: 'رصيد الدرج: سُلّم صباح اليوم' });
+    await fundBranch(page, origin, { branchId, account: 'BANK', amount: FUND.bank, reason: 'تمويل الحساب البنكي للفرع', bankReference: 'reh ١٠٠١' });
+    const funded = (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId);
+    check(funded.expectedCash === FUND.cash && funded.bank === FUND.bank, `the advances moved the drawer (${funded.expectedCash}) and the bank (${funded.bank})`);
+    await page.goto(`${origin}/cash`);
+    const owedText = await page.getByTestId(`owed-${BRANCH.code}`).innerText({ timeout: 15_000 });
+    check(owedText.replace(/\D/g, '') === String(FUND.cash + FUND.bank) && (await page.getByTestId('owed-total').innerText()).replace(/\D/g, '') === String(FUND.cash + FUND.bank), `Cash › Funding: the branch owes the General Manager ${owedText} (the two advances), and the total says the same`);
+    const history = await page.getByTestId('funding-panel').innerText();
+    check(/REH 1001/.test(history) && /رصيد الدرج/.test(history), 'the history lists both advances with the reason and the normalized bank reference');
 
     const temps = {};
     for (const u of [BM, CASHIER]) {
       await page.goto(`${origin}/users`);
-      await page.click('[data-testid=new-user]');
+      await page.getByTestId('new-user').waitFor();
+      if (u === BM) await dialogKeepsChosenField(page, { open: 'new-user', first: 'user-username', second: 'user-full-name', text: u.fullName, what: 'New user dialog' });
+      else await page.click('[data-testid=new-user]');
       await page.fill('[data-testid=user-username]', u.username);
       await page.fill('[data-testid=user-full-name]', u.fullName);
       await page.selectOption('[data-testid=user-role]', u.role);
@@ -341,6 +693,19 @@ async function main() {
     await confirmIfAsked(page, GM.password);
     await waitFor(async () => (await apiGet(page, '/api/scrap-rates')).body.rates.some((r) => r.karat === 21 && r.pricePerGram === CAT.scrapRate21), 'the 21K scrap rate', 15_000);
     ok('the General Manager sets the 21K scrap buying rate in Settings');
+    await page.fill('[data-testid=gold-rate-21]', '190000');
+    await page.click('[data-testid=save-gold-rates]');
+    await confirmIfAsked(page, GM.password);
+    await waitFor(async () => (await apiGet(page, '/api/gold-rates')).body.current['21']?.pricePerGram === 190_000, 'the 21K gold rate', 15_000);
+    await page.goto(`${origin}/overview`);
+    await page.waitForLoadState('networkidle');
+    check((await page.getByTestId('first-steps').count()) === 0 && /190,000/.test(await page.getByTestId('rate-chip').innerText()), 'gold rate set: all five first steps done, the checklist disappears and the rate chip shows the rate');
+    await page.getByTestId('home-sales').waitFor({ timeout: 15_000 });
+    const zeroHome = await page.locator('main').innerText();
+    check(
+      (await page.getByTestId('home-sales-value').innerText()).trim() === '0' && /لا مبيعات بعد في هذه الفترة/.test(zeroHome) && (await page.getByTestId('home-branch-strip').count()) >= 1 && !/—/.test(zeroHome),
+      'branches, no sales: the GM home shows 0 with "No sales yet in this period", the branch strips with zeros, never "—"',
+    );
     await signOut(page);
 
     section('Staff: first sign-in');
@@ -348,6 +713,8 @@ async function main() {
     await changePassword(page, temps[BM.username], BM.password);
     await pathIs(page, ['/dashboard']);
     ok('branch manager sets a personal password and lands on the branch dashboard');
+    await page.getByTestId('no-stock-yet').waitFor({ timeout: 15_000 });
+    ok('the branch dashboard says "Your branch has no stock yet" (with New purchase / Buy scrap), not tables of zeros');
     await captureBaseline(page, '02-branch-manager-home');
     const bmSelf = await apiGet(page, '/api/auth/me');
     check(bmSelf.body.user.branch?.id === branchId, 'the branch manager is bound to the new branch');
@@ -357,7 +724,11 @@ async function main() {
     await changePassword(page, temps[CASHIER.username], CASHIER.password);
     await pathIs(page, ['/pos']);
     ok('cashier sets a personal password and lands on the point of sale');
+    await page.getByTestId('pos-no-stock').waitFor({ timeout: 15_000 });
+    ok('the POS says "No pieces in this branch yet" (not "no matching pieces")');
     await captureBaseline(page, '03-cashier-home');
+    await checkShell(page, origin, 'cashier', 'cashier', '/pos');
+    await fundingRefused(page, 'cashier', branchId);
     const cashierUsers = await apiGet(page, '/api/users');
     check(cashierUsers.status === 403, 'the cashier cannot open the user list (403)');
     await signOut(page);
@@ -371,6 +742,11 @@ async function main() {
       check(r.status === 404 || r.status === 400, `branch manager: ${p} answers ${r.status} (no such route or report)`);
     }
     await noExpenseWords(page, origin, ['/dashboard', '/cash', '/reports'], 'branch manager');
+    await page.goto(`${origin}/dashboard`);
+    await page.waitForLoadState('networkidle');
+    check((await page.locator('[data-testid=enforcement-off-banner]').count()) === 0, 'branch manager: no General Manager notice above the page');
+    const bmAttention = await apiGet(page, '/api/attention');
+    check(bmAttention.status === 200 && !bmAttention.body.signals.some((x) => ['A9', 'A10', 'A16', 'S2'].includes(x.code)), 'branch manager: the attention list has no backup, new-device, rates or touch-only line');
 
     section('REM-2: Hasad only as a payment channel');
     for (const p of ['/api/hasad/withdrawals', '/api/hasad/simulator/customers', '/api/reports/hasad']) {
@@ -383,6 +759,14 @@ async function main() {
     await page.getByTestId('pos-payment-methods').waitFor();
     const methods = await page.getByTestId('pos-payment-methods').innerText();
     check(/نقد/.test(methods) && /تحويل بنكي/.test(methods) && /حصاد/.test(methods), 'the POS offers Cash, Bank transfer and Hasad as payment methods');
+    // UI-A1 (D-ui-8): in English the methods read as words, never as the codes the server sends.
+    await page.evaluate(() => localStorage.setItem('jerp.lang', 'en'));
+    await page.goto(`${origin}/pos`);
+    await page.getByTestId('pos-payment-methods').waitFor();
+    const methodsEn = await page.getByTestId('pos-payment-methods').innerText();
+    await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
+    check(/Bank transfer/.test(methodsEn) && /Cash/.test(methodsEn) && !/BANK_TRANSFER|\bCASH\b|\bHASAD\b/.test(methodsEn), `in English the POS shows "Bank transfer", not the code (${methodsEn.replace(/\s+/g, ' ').trim()})`);
+    await checkShell(page, origin, 'branch manager', 'bm', '/dashboard');
     const me = await apiGet(page, '/api/auth/me');
     check(!('hasadMode' in me.body) && me.body.posPaymentMethods.join(',') === 'CASH,BANK_TRANSFER,HASAD', 'no Hasad integration mode; the counter methods are Cash, Bank transfer, Hasad');
 
@@ -406,10 +790,19 @@ async function main() {
     ok(`type "${CAT.type}" and product "${CAT.product}" (21K) created inline from the purchase line and selected`);
     await page.fill('[data-testid=line-gross-0]', '5.2');
     await page.fill('[data-testid=line-net-0]', '5');
+    // With today's gold rate set, leaving the net weight pre-fills the costs from the rate (editable):
+    // wait for that suggestion, as a person would see it, then replace it.
+    await page.locator('[data-testid=line-net-0]').blur();
+    await waitFor(async () => (await page.inputValue('[data-testid=line-cost-0]')) !== '', 'the cost suggested from the gold rate', 10_000);
+    ok(`with today's gold rate set, the purchase line suggests the cost from the rate (${await page.inputValue('[data-testid=line-cost-0]')})`);
     await page.fill('[data-testid=line-cost-0]', '1000000');
     await page.fill('[data-testid=line-price-0]', '1500000');
     await page.click('[data-testid=purchase-save]');
-    await page.waitForURL((u) => /^\/purchases\/\d+$/.test(u.pathname), { timeout: 15_000 });
+    await page.waitForURL((u) => /^\/purchases\/\d+$/.test(u.pathname), { timeout: 15_000 }).catch(async (e) => {
+      const vals = await Promise.all(['line-gross-0', 'line-net-0', 'line-cost-0', 'line-price-0'].map((id) => page.inputValue(`[data-testid=${id}]`).catch(() => '?')));
+      console.error('purchase form at the time of failure:', JSON.stringify(vals), JSON.stringify(await page.locator('[role=status]').allInnerTexts()));
+      throw e;
+    });
     const poId = Number(new URL(page.url()).pathname.split('/').pop());
     const supplierShown = (await page.getByTestId('purchase-supplier-name').innerText()).trim();
     const owedShown = await page.getByTestId('gold-owed').count();
@@ -441,6 +834,52 @@ async function main() {
     await waitFor(async () => (await apiGet(page, `/api/inventory/items?branchId=${branchId}&categoryId=${typeId}`)).body.items.length === 2, 'two pieces of the new type', 15_000);
     ok(`a sellable scrap piece is bought with product "${CAT.scrapProduct}" created inline (karat fixed to 21K); filtering stock by the new type finds both pieces`);
 
+    // CSH-2 piece A: broken scrap paid part from the drawer, part by bank transfer (2 g × 95,000 = 190,000; test values).
+    await page.goto(`${origin}/scrap`);
+    await page.click('[data-testid=scrap-kind-BROKEN]');
+    await page.fill('[data-testid=scrap-karat-any]', '21');
+    await page.fill('[data-testid=scrap-net]', '2');
+    await page.fill('[data-testid=scrap-cash-part]', '120000');
+    check((await page.inputValue('[data-testid=scrap-bank-part]')) === '70000', 'the scrap form fills the bank part with the rest of the amount (190,000 − 120,000 = 70,000)');
+    check(await page.getByTestId('scrap-buy').isDisabled(), 'a bank part without its transfer reference cannot be saved');
+    await page.fill('[data-testid=scrap-bank-ref]', 'reh scr ٢');
+    const scrapBefore = (await apiGet(page, '/api/scrap-purchases')).body.length;
+    await page.click('[data-testid=scrap-buy]');
+    await waitFor(async () => (await apiGet(page, '/api/scrap-purchases')).body.length > scrapBefore, 'the split scrap purchase', 15_000);
+    const split = (await apiGet(page, '/api/scrap-purchases')).body.find((x) => x.paymentMethod === 'SPLIT');
+    check(split && split.cashAmount === 120_000 && split.bankAmount === 70_000 && split.bankReference === 'REH SCR 2', `split scrap purchase ${split?.number}: 120,000 from the drawer + 70,000 by bank transfer (reference normalized to "REH SCR 2")`);
+    const paidBy = await page.getByTestId(`scrap-paid-by-${split.number}`).innerText({ timeout: 15_000 });
+    check(/120,000/.test(paidBy) && /70,000/.test(paidBy) && /REH SCR 2/.test(paidBy), `the "Paid by" column shows both parts and the reference ("${paidBy.replace(/\s+/g, ' ')}")`);
+    const recSplit = (await apiGet(page, `/api/cash/reconciliation?branchId=${branchId}`)).body;
+    const scrapLine = (lines) => lines.find((x) => x.line === 'SCRAP_PURCHASES').amount;
+    const partsOf = (account) => recSplit.scrapPurchases.filter((x) => x.account === account).reduce((s, x) => s + x.amount, 0);
+    check(
+      partsOf('CASH') === scrapLine(recSplit.cashLines) && partsOf('BANK') === scrapLine(recSplit.bankLines) && scrapLine(recSplit.bankLines) === -70_000,
+      `Cash: the drawer's scrap line (${scrapLine(recSplit.cashLines)}) counts only the cash parts, the bank's (${scrapLine(recSplit.bankLines)}) only the bank part; each drill-down adds up to its line`,
+    );
+    await page.goto(`${origin}/cash`);
+    await page.click('[data-testid=scrap-purchases-bank-toggle]', { timeout: 15_000 });
+    const bankDrill = await page.getByTestId('scrap-purchases-bank').innerText();
+    check(bankDrill.includes(split.number) && /REH SCR 2/.test(bankDrill), 'the Cash drill-down "Scrap purchases" under the bank lists the purchase with its transfer reference');
+
+    // CSH-2 piece C (Q7): the drawer cannot pay out more than it holds. All in cash, a purchase above the drawer is
+    // refused on the form with the shortfall and what to do; nothing is recorded.
+    const drawerNow = (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId).expectedCash;
+    const grams = Math.ceil((drawerNow + 500_000) / CAT.scrapRate21);
+    const shortBy = grams * CAT.scrapRate21 - drawerNow;
+    await page.goto(`${origin}/scrap`);
+    await page.click('[data-testid=scrap-kind-BROKEN]');
+    await page.fill('[data-testid=scrap-karat-any]', '21');
+    await page.fill('[data-testid=scrap-net]', String(grams));
+    const scrapCount = (await apiGet(page, '/api/scrap-purchases')).body.length;
+    await page.click('[data-testid=scrap-buy]');
+    const shortText = await page.getByTestId('scrap-drawer-short').innerText({ timeout: 15_000 });
+    check(
+      shortText.includes(shortBy.toLocaleString('en-US')) && shortText.includes(drawerNow.toLocaleString('en-US')) && /المدير العام/.test(shortText) && /تحويل بنكي/.test(shortText),
+      `a cash payment above the drawer (${drawerNow.toLocaleString('en-US')}) is refused on the form: "${shortText}"`,
+    );
+    check((await apiGet(page, '/api/scrap-purchases')).body.length === scrapCount && (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId).expectedCash === drawerNow, 'the refused purchase recorded nothing: same purchases, same drawer');
+
     await page.evaluate(() => localStorage.setItem('jerp.lang', 'en'));
     await page.goto(`${origin}/catalog`);
     await page.waitForLoadState('networkidle');
@@ -455,6 +894,7 @@ async function main() {
     await page.click('[data-testid=use-passkey]');
     await pathIs(page, ['/overview']);
     ok('the General Manager signs in again with password + passkey');
+    await checkShell(page, origin, 'General Manager', 'gm', '/overview');
     await noExpenseWords(page, origin, ['/overview', '/branches', '/cash', '/reports', '/settings'], 'General Manager');
     await noWords(page, origin, ['/overview', '/branches', '/reports'], 'General Manager', HASAD_WORDS, 'Hasad withdrawal wording');
     await noWords(page, origin, ['/overview'], 'General Manager (menu)', HASAD_WORDS, 'Hasad entry in the menu', 'nav');
@@ -471,6 +911,315 @@ async function main() {
     const actions = new Set(rows.map((r) => r.action));
     check(['BRANCH_CREATED', 'USER_CREATED'].every((a) => actions.has(a)), 'the audit log shows the branch and the users created');
     check(['SUPPLIER_CREATED', 'ITEM_TYPE_CREATED', 'PRODUCT_CREATED', 'SCRAP_RATE_CHANGED'].every((a) => actions.has(a)), 'the audit log shows the supplier, type and products created and the scrap rate set');
+    check(actions.has('ALLOWED_KARATS_CONFIRMED'), 'the audit log shows the confirmation of the allowed karats');
+
+    section('LOCK-1: a security-locked account is shown to managers, and to nobody else');
+    // The lock is what "This wasn't me" on a recovery-code sign-in sets (D-2fa-13); set it directly here.
+    const sqlAs = async (q, params) => {
+      const c = new pg.Client({ connectionString: dbUrl.toString() });
+      await c.connect();
+      try {
+        return (await c.query(q, params)).rows;
+      } finally {
+        await c.end();
+      }
+    };
+    await sqlAs(`UPDATE users SET security_locked_at = now(), security_lock_reason = 'REH-1: reported recovery-code sign-in' WHERE username = $1`, [CASHIER.username]);
+    await page.goto(`${origin}/overview`);
+    await page.getByTestId('security-locked-banner').waitFor({ timeout: 15_000 });
+    const firstNotice = await page.locator('[data-testid=notices] > [data-level]').first().evaluate((e) => `${e.dataset.testid}:${e.dataset.level}`);
+    check(firstNotice === 'security-locked-banner:lock' && (await page.getByTestId('security-locked-banner').innerText()).includes(CASHIER.username), `General Manager: the security-locked notice comes first and names the account (${firstNotice})`);
+    await page.goto(`${origin}/users`);
+    await page.getByTestId('security-locked-badge').waitFor({ timeout: 15_000 });
+    ok('the Users list marks the account "Security-locked since …"');
+    await signOut(page);
+    await signIn(page, origin, BM.username, BM.password);
+    await pathIs(page, ['/dashboard']);
+    await page.getByTestId('security-locked-banner').waitFor({ timeout: 15_000 });
+    ok('the branch manager of that branch sees the notice too');
+    await signOut(page);
+    await signIn(page, origin, CASHIER.username, CASHIER.password);
+    await page.getByText(/تعذّر تسجيل الدخول|Sign-in failed/).first().waitFor({ timeout: 15_000 });
+    check((await page.getByTestId('account-locked-note').count()) === 0, 'the locked account with the right password gets the ordinary sign-in failure; no lock note in another browser');
+    const unlockOut = run('npx', ['tsx', 'src/ops-cli.ts', 'unlock-security-lock', '--username', CASHIER.username, '--confirm'], env, path.join(ROOT, 'backend'));
+    const otp2 = /One-time password[^:]*:\s*(\S+)/.exec(unlockOut)?.[1];
+    check(!!otp2, 'only the operator console lifts the lock (unlock-security-lock prints a new one-time password)');
+    await signIn(page, origin, CASHIER.username, otp2);
+    await changePassword(page, otp2, CASHIER.password);
+    await pathIs(page, ['/pos']);
+    check((await page.getByTestId('security-locked-banner').count()) === 0, 'the cashier is back at the POS; the notice is gone');
+    await signOut(page);
+    await signIn(page, origin, GM.username, GM.password);
+    await page.getByTestId('second-step').waitFor();
+    await page.click('[data-testid=use-passkey]');
+    await pathIs(page, ['/overview']);
+    check((await page.getByTestId('security-locked-banner').count()) === 0, 'General Manager: no security-locked notice once the lock is lifted');
+
+    section('SEC-2: a changed price needs a reason; every void asks for the password (default 0)');
+    await page.goto(`${origin}/settings`);
+    await page.getByTestId('void-reauth-amount').waitFor({ timeout: 15_000 });
+    check((await page.locator('[data-testid=void-reauth-amount] input').inputValue()) === '0', 'Settings › Sales: "Ask for the password to cancel a sale above" is 0 by default (every void asks)');
+    await signOut(page);
+    const PRICE_REASON = 'خصم متفق عليه مع العميل (REH-1)';
+    await signIn(page, origin, CASHIER.username, CASHIER.password);
+    await pathIs(page, ['/pos']);
+    await page.getByTestId('pos-product').first().click();
+    const disc = page.getByTestId('pos-discount').first();
+    await disc.fill('1000');
+    await page.getByTestId('price-change-reason').waitFor();
+    check(await page.getByTestId('pos-complete').isDisabled(), 'cashier: a discounted line asks for the reason; "Complete sale" stays disabled without it');
+    await page.fill('[data-testid=price-change-reason]', PRICE_REASON);
+    const saleResp = page.waitForResponse((r) => r.url().endsWith('/api/sales') && r.request().method() === 'POST');
+    await page.click('[data-testid=pos-complete]');
+    const discSale = await (await saleResp).json();
+    check(discSale.priceChangeReason === PRICE_REASON && discSale.discountTotal === 1000, `the sale ${discSale.number} is recorded with its reason for the price change`);
+    await page.keyboard.press('Escape');
+    await signOut(page);
+    await signIn(page, origin, BM.username, BM.password);
+    await pathIs(page, ['/dashboard']);
+    await page.goto(`${origin}/sales/${discSale.id}`);
+    await page.getByTestId('sale-price-change-reason').waitFor({ timeout: 15_000 });
+    ok('branch manager: the sale detail shows the reason (marked internal, not printed)');
+    const pc = await apiGet(page, '/api/audit?action=SALE_PRICE_CHANGED&limit=5');
+    const pcRows = Array.isArray(pc.body) ? pc.body : (pc.body?.rows ?? pc.body?.items ?? []);
+    check(pcRows.some((r) => r.entityId === discSale.number) && !/cost|profit/i.test(JSON.stringify(pcRows)), 'the audit log has SALE_PRICE_CHANGED for it, with prices only (no cost)');
+    await page.click('[data-testid=sale-void]');
+    await page.getByTestId('void-reauth-hint').waitFor();
+    await page.fill('[data-testid=void-reason]', 'العميل أعاد القطعة (REH-1)');
+    await page.click('[data-testid=void-confirm]');
+    await page.locator('#reauth-form').waitFor({ timeout: 15_000 });
+    ok('branch manager: cancelling the sale asks for the password again');
+    await page.fill('#reauth-form input[type=password]', BM.password);
+    await page.click('button[form=reauth-form]');
+    await waitFor(async () => (await apiGet(page, `/api/sales/${discSale.id}`)).body.status === 'VOIDED', 'the void', 15_000);
+    ok('after the password the sale is cancelled and the piece is back in stock');
+    await signOut(page);
+    await signIn(page, origin, GM.username, GM.password);
+    await page.getByTestId('second-step').waitFor();
+    await page.click('[data-testid=use-passkey]');
+    await pathIs(page, ['/overview']);
+
+    section('FIX-2: a bank transfer needs its reference; the same reference twice asks first');
+    await signOut(page);
+    await signIn(page, origin, CASHIER.username, CASHIER.password);
+    await pathIs(page, ['/pos']);
+    const bankSaleAt = async (ref) => {
+      await page.getByTestId('pos-product').first().click();
+      await page.getByTestId('pos-payment-methods').getByText('تحويل بنكي').click();
+      await page.getByTestId('bank-reference').waitFor();
+      const disabled = await page.getByTestId('pos-complete').isDisabled();
+      await page.fill('[data-testid=bank-reference]', ref);
+      return disabled;
+    };
+    const wasDisabled = await bankSaleAt('حوالة ٩٠١٢-REH');
+    check(wasDisabled, 'cashier: "Bank transfer" shows the reference field; "Complete sale" is disabled until it is filled');
+    check(await page.getByTestId('pos-complete').isDisabled(), 'Arabic letters are not a valid reference: still disabled');
+    await page.fill('[data-testid=bank-reference]', ' trf ٩٠١٢-reh ');
+    let resp = page.waitForResponse((r) => r.url().endsWith('/api/sales') && r.request().method() === 'POST');
+    await page.click('[data-testid=pos-complete]');
+    const bankSale1 = await (await resp).json();
+    check(bankSale1.paymentRefTransaction === 'TRF 9012-REH', `sale ${bankSale1.number}: the reference is stored normalized ("TRF 9012-REH", Arabic-Indic digits → ASCII)`);
+    await page.keyboard.press('Escape');
+    await bankSaleAt('TRF 9012-REH');
+    resp = page.waitForResponse((r) => r.url().endsWith('/api/sales') && r.request().method() === 'POST');
+    await page.click('[data-testid=pos-complete]');
+    check((await (await resp).json()).error?.code === 'DUPLICATE_BANK_REFERENCE', 'a second sale with the same reference is not recorded at once…');
+    await page.getByTestId('bank-reference-confirm').waitFor();
+    resp = page.waitForResponse((r) => r.url().endsWith('/api/sales') && r.request().method() === 'POST');
+    await page.click('[data-testid=bank-reference-confirm]');
+    const bankSale2 = await (await resp).json();
+    check(bankSale2.paymentRefTransaction === 'TRF 9012-REH' && bankSale2.number !== bankSale1.number, `…the cashier confirms and it is recorded (${bankSale2.number}); the audit log notes the duplicate`);
+    await page.keyboard.press('Escape');
+    await signOut(page);
+    await signIn(page, origin, BM.username, BM.password);
+    await pathIs(page, ['/dashboard']);
+    await page.goto(`${origin}/sales/${bankSale1.id}`);
+    check((await page.getByTestId('sale-bank-reference').innerText({ timeout: 15_000 })).trim() === 'TRF 9012-REH', 'branch manager: the sale detail shows the bank transfer reference');
+    await page.goto(`${origin}/cash`);
+    await page.getByTestId('bank-transfer-sales-toggle').click({ timeout: 15_000 });
+    const drill = await page.getByTestId('bank-transfer-sale').allInnerTexts();
+    const recB = (await apiGet(page, '/api/cash/reconciliation')).body;
+    const bankLine = recB.salesByMethod.find((m) => m.paymentMethod === 'BANK_TRANSFER').amount;
+    check(
+      drill.length === 2 && drill.every((x) => x.includes('TRF 9012-REH')) && recB.bankTransferSales.reduce((a, x) => a + x.amount, 0) === bankLine,
+      `Cash: "Bank-transfer sales" lists both sales with their reference; they add up to the bank-transfer sales line (${bankLine})`,
+    );
+    await signOut(page);
+    await signIn(page, origin, GM.username, GM.password);
+    await page.getByTestId('second-step').waitFor();
+    await page.click('[data-testid=use-passkey]');
+    await pathIs(page, ['/overview']);
+
+    section('FIX-1 / REM-4: the branch manager sends the POS cart; the General Manager keeps "New transfer"; no other start point');
+    const BRANCH_B = { code: 'RHB', name: 'Rehearsal Branch B', nameAr: 'فرع التجربة ب', city: 'Rehearsal City' };
+    await page.goto(`${origin}/branches`);
+    await page.click('[data-testid=new-branch]');
+    await page.fill('[data-testid=branch-code]', BRANCH_B.code);
+    await page.fill('[data-testid=branch-name]', BRANCH_B.name);
+    await page.fill('[data-testid=branch-name-ar]', BRANCH_B.nameAr);
+    await page.fill('[data-testid=branch-city]', BRANCH_B.city);
+    await page.click('[data-testid=branch-save]');
+    await confirmIfAsked(page, GM.password);
+    await waitFor(async () => (await apiGet(page, '/api/branches')).body.some((b) => b.code === BRANCH_B.code), 'the second branch', 15_000);
+    const branchB = (await apiGet(page, '/api/branches')).body.find((b) => b.code === BRANCH_B.code).id;
+    // CSH-2 (Q8): a new branch without an advance into its drawer opens "Fund the branch" again; recording it closes it.
+    await page.goto(`${origin}/overview`);
+    await page.getByTestId('step-fund').waitFor({ timeout: 15_000 });
+    check((await page.getAttribute('[data-testid=step-fund]', 'data-done')) === 'false', 'a second branch without an advance into its drawer opens the first step "Fund the branch" again');
+    await fundBranch(page, origin, { branchId: branchB, account: 'CASH', amount: 500_000, reason: 'رصيد درج الفرع الثاني' });
+    await page.goto(`${origin}/overview`);
+    await page.getByTestId('home-branches').waitFor({ timeout: 15_000 });
+    check((await page.getByTestId('first-steps').count()) === 0, 'once the second branch is funded the first steps are complete again');
+    await signOut(page);
+    await signIn(page, origin, BM.username, BM.password);
+    await pathIs(page, ['/dashboard']);
+    await bmHomeChecks(page, origin, branchId);
+    // Stock for the cart (set-up through the API; purchases themselves are rehearsed above).
+    const productId = (await apiGet(page, '/api/products')).body[0].id;
+    const supplierId = (await apiGet(page, '/api/suppliers')).body[0].id;
+    const line = { productId, grossWeightMg: 4_200, netWeightMg: 4_000, purchaseCost: 700_000, makingCost: 0, otherCost: 0, sellingPrice: 1_100_000 };
+    const stockPo = await apiSend(page, 'POST', '/api/purchases', { supplierId, lines: [line, line, line] });
+    check(stockPo.status === 200, 'branch manager: three new pieces in stock for the transfer');
+    await page.goto(`${origin}/pos`);
+    await page.getByTestId('pos-product').first().waitFor({ timeout: 15_000 });
+    const cards = page.getByTestId('pos-product');
+    for (let i = 0; i < 3; i++) await cards.nth(i).click();
+    await page.getByTestId('pos-transfer').waitFor();
+    const order = await page.evaluate(() => {
+      const c = document.querySelector('[data-testid=pos-complete]');
+      const tr = document.querySelector('[data-testid=pos-transfer]');
+      return !!(c && tr && c.compareDocumentPosition(tr) & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    check(order, 'branch manager: "Transfer to branch" sits below "Complete sale" in the POS cart');
+    await page.click('[data-testid=pos-transfer]');
+    await page.selectOption('[data-testid=pos-transfer-to]', String(branchB));
+    check(await page.getByTestId('pos-transfer-send').isDisabled(), 'the transfer cannot be sent without the courier’s name');
+    await page.fill('[data-testid=pos-transfer-courier]', 'مندوب التجربة');
+    const trResp = page.waitForResponse((r) => r.url().endsWith('/api/transfers') && r.request().method() === 'POST');
+    await page.click('[data-testid=pos-transfer-send]');
+    const sent = await (await trResp).json();
+    check(sent.status === 'IN_TRANSIT' && sent.courierName === 'مندوب التجربة', `transfer ${sent.number} sent from the cart, courier recorded`);
+    await page.getByText(/السلة فارغة|Cart is empty/).first().waitFor({ timeout: 10_000 });
+    const log = (await apiGet(page, '/api/transfers')).body.find((x) => x.id === sent.id);
+    check(log.itemCount === 3 && log.items.length === 3, 'one transfer holds the three pieces; the cart is empty');
+    await page.goto(`${origin}/transfers`);
+    await page.getByText('مندوب التجربة').first().waitFor({ timeout: 15_000 });
+    check((await page.getByTestId('new-transfer').count()) === 0 && (await page.getByText(/حدّد القطع من المخزون|Select pieces in Inventory/).count()) === 0, 'Transfers (branch manager): the log with the courier; no other start point');
+    await page.goto(`${origin}/inventory`);
+    await page.waitForLoadState('networkidle');
+    check((await page.getByText(/تحديد وتحويل|Select & transfer|Transfer selected/).count()) === 0 && (await page.getByTestId('transfer-selected').count()) === 0, 'Inventory (branch manager): the "Select & transfer" card view is gone (REM-4)');
+    await signOut(page);
+    await signIn(page, origin, CASHIER.username, CASHIER.password);
+    await pathIs(page, ['/pos']);
+    await page.getByTestId('pos-product').first().click().catch(() => {});
+    check((await page.getByTestId('pos-transfer').count()) === 0, 'cashier: no "Transfer to branch" in the POS');
+    await signOut(page);
+    await signIn(page, origin, GM.username, GM.password);
+    await page.getByTestId('second-step').waitFor();
+    await page.click('[data-testid=use-passkey]');
+    await pathIs(page, ['/overview']);
+    const a1 = async () => (await apiGet(page, '/api/attention')).body.signals.filter((x) => x.code === 'A1' && x.branchId === branchB);
+    check((await a1()).length === 1 && (await a1())[0].count >= 1, 'UI-B: the transfer in transit is an attention line (A1) for the receiving branch');
+    await page.goto(`${origin}/transfers`);
+    await page.getByRole('button', { name: /تأكيد الاستلام|Confirm receipt/ }).first().click({ timeout: 15_000 });
+    await waitFor(async () => (await apiGet(page, '/api/transfers')).body.find((x) => x.id === sent.id).status === 'RECEIVED', 'the receipt', 15_000);
+    ok('the receipt is confirmed for the receiving branch; the pieces are AVAILABLE there');
+    check((await a1()).length === 0, 'UI-B: the A1 line leaves on receipt');
+    await page.click('[data-testid=new-transfer]');
+    await page.locator('[role=dialog] select').first().selectOption(String(branchB));
+    await page.locator('[role=dialog] select').nth(1).selectOption(String(branchId));
+    await page.locator('[role=dialog] input[type=checkbox]').first().check({ timeout: 15_000 });
+    check(await page.getByTestId('send-transfer').isDisabled(), 'General Manager: "New transfer" also needs the courier’s name');
+    await page.fill('[data-testid=transfer-courier]', 'سائق الشركة');
+    const gmResp = page.waitForResponse((r) => r.url().endsWith('/api/transfers') && r.request().method() === 'POST');
+    await page.click('[data-testid=send-transfer]');
+    const gmSent = await (await gmResp).json();
+    check(gmSent.status === 'IN_TRANSIT' && gmSent.courierName === 'سائق الشركة', `General Manager: "New transfer" ${gmSent.number} sent with its courier (same rules)`);
+
+    section('CSH-2: a repayment to the General Manager and a correction');
+    const owedNow = async () => (await apiGet(page, `/api/funding?branchId=${branchId}`)).body.branches[0].owedToGm;
+    const owed0 = await owedNow();
+    await fundBranch(page, origin, { branchId, account: 'CASH', amount: 100_000, reason: 'سُدّد للمدير العام عند الإغلاق', kind: 'repayment' });
+    check((await owedNow()) === owed0 - 100_000, `the repayment lowers what the branch owes (${owed0} → ${await owedNow()})`);
+    await fundBranch(page, origin, { branchId, account: 'CASH', amount: 50_000, reason: 'سُجّلت بالخطأ' });
+    const wrong = (await apiGet(page, `/api/funding?branchId=${branchId}`)).body.events[0];
+    await page.goto(`${origin}/cash`);
+    await page.click(`[data-testid=funding-correct-${wrong.number}]`, { timeout: 15_000 });
+    await page.fill('[data-testid=funding-correct-reason]', 'لم تُسلَّم هذه السلفة');
+    await page.click('[data-testid=funding-correct-submit]');
+    await confirmIfAsked(page, GM.password);
+    await waitFor(async () => (await apiGet(page, `/api/funding?branchId=${branchId}`)).body.events.some((e) => e.reversesEventId === wrong.id), 'the correction', 15_000);
+    check((await owedNow()) === owed0 - 100_000, 'the correction reverses the wrong advance in what is owed');
+    const recFund = (await apiGet(page, `/api/cash/reconciliation?branchId=${branchId}`)).body;
+    const lineOf = (lines, l) => lines.find((x) => x.line === l)?.amount;
+    check(
+      lineOf(recFund.cashLines, 'GM_ADVANCES') === FUND.cash && lineOf(recFund.cashLines, 'GM_REPAYMENTS') === -100_000 && lineOf(recFund.bankLines, 'GM_ADVANCES') === FUND.bank && lineOf(recFund.cashLines, 'OTHER') === 0,
+      `today's reconciliation: "Advances from the General Manager" ${lineOf(recFund.cashLines, 'GM_ADVANCES')} (the correction nets inside the line, not under Other), "Repayments" ${lineOf(recFund.cashLines, 'GM_REPAYMENTS')}`,
+    );
+    const drawerA = (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId).expectedCash;
+    check(drawerA >= 0, `the main drawer is ${drawerA}, not negative: the money that paid for the scrap and the making charge was recorded`);
+
+    section('UI-B: the General Manager home after the rehearsal sales and transfers');
+    await homeChecks(page, origin, branchId);
+    // The General Manager's view of one branch: the branch layout plus profit and stock value.
+    await page.goto(`${origin}/overview?branchId=${branchId}`);
+    await page.getByTestId('home-expected-cash').waitFor({ timeout: 15_000 });
+    check((await page.getByTestId('home-profit').count()) === 1 && (await page.getByTestId('home-stock-value').count()) === 1 && (await page.getByTestId('home-team').count()) === 1, 'the GM’s branch view (/overview?branchId=): the branch layout plus gross profit and stock value at cost');
+    // The incoming transfer is an attention line for the receiving branch's manager.
+    await signOut(page);
+    await signIn(page, origin, BM.username, BM.password);
+    await pathIs(page, ['/dashboard']);
+    await page.locator('[data-testid=home-attention-line][data-code=A1]').waitFor({ timeout: 15_000 });
+    ok(`branch manager: the incoming transfer ${gmSent.number} is an attention line (A1) on the home`);
+    await signOut(page);
+
+    section('REM-5: no deprecated schema left');
+    const rdb = new pg.Client({ connectionString: dbUrl.toString() });
+    await rdb.connect();
+    try {
+      const one = async (q) => (await rdb.query(q)).rows;
+      const gone = await one(`SELECT
+          (SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('expenses', 'hasad_withdrawals', 'hasad_redemptions', 'hasad_redemption_items', 'settlements'))::int AS tables,
+          (SELECT count(*) FROM pg_namespace WHERE nspname = 'hasad_mock')::int AS schema,
+          (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND (
+             (table_name = 'jewelry_items' AND column_name IN ('purchase_cost', 'making_cost', 'other_cost', 'total_cost', 'reservation_ref', 'reserved_at', 'reserved_by'))
+             OR (table_name = 'sessions' AND column_name = 'is_simulated') OR (table_name = 'branches' AND column_name = 'hasad_branch_code')))::int AS columns,
+          (SELECT count(*) FROM pg_proc WHERE proname = 'jerp_refuse_deprecated_insert')::int AS fn,
+          (SELECT count(*) FROM settings WHERE key = 'hasad.enabledPerBranch')::int AS setting`);
+      check(Object.values(gone[0]).every((n) => n === 0), `the production database has none of the removed tables, schema, columns, function or settings row (${JSON.stringify(gone[0])})`);
+      const [m] = await one('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations');
+      const [u] = await one(`SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'purchase_items_item_id_unique'`);
+      const expected = JSON.parse(fs.readFileSync(path.join(ROOT, 'database/migrations/meta/_journal.json'), 'utf8')).entries.length;
+      check(m.n === expected && expected >= 18 && u.n === 1, `all ${expected} migrations applied (0000–${String(expected - 1).padStart(4, '0')}), one supplier line per piece enforced (${m.n} migrations)`);
+    } finally {
+      await rdb.end();
+    }
+
+    section('REM-3: a fresh demo-mode database');
+    // `npm run demo` without a terminal: prints the bootstrap command and stops cleanly (no GM is invented).
+    const demoDir = path.join(tmp, 'demo-cli');
+    const cli = spawnSync('npx', ['tsx', 'src/demo-cli.ts'], { cwd: path.join(ROOT, 'backend'), env: { ...process.env, APP_MODE: 'demo', PGLITE_DIR: demoDir, DATABASE_URL: '' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    check(cli.status === 10 && /npm run bootstrap -w @jerp\/backend -- --username/.test(cli.stdout), '`npm run demo` without a terminal prints the bootstrap command and creates nobody');
+    const demo = await startEmptyServer({ withBranch: true, env: { TWO_FACTOR_REQUIRED_ROLES_INITIAL: '' } });
+    cleanup.unshift(() => demo.stop());
+    const dgm = await prepareGm(demo);
+    const counts = {};
+    for (const [k, url] of [['items', '/inventory/items'], ['sales', '/sales'], ['purchases', '/purchases'], ['suppliers', '/suppliers'], ['products', '/products'], ['types', '/categories'], ['scrap', '/scrap-purchases']]) {
+      const r = await dgm.call('GET', url);
+      counts[k] = Array.isArray(r.body) ? r.body.length : (r.body?.items ?? r.body?.rows ?? []).length;
+    }
+    await dgm.dispose();
+    check(Object.values(counts).every((n) => n === 0), `a fresh demo-mode database holds no items, sales (customers exist only on sales), purchases, suppliers, products, types or scrap (${JSON.stringify(counts)})`);
+    const dctx = await browser.newContext({ viewport: { width: 1366, height: 768 } });
+    const dpage = await dctx.newPage();
+    const dmeta = await (await dpage.request.get(`${demo.base}/api/meta`)).json();
+    // UI-A2 (D-ui-14): the public answer is only the branding allow-list, in demo mode too.
+    check(JSON.stringify(Object.keys(dmeta)) === '["branding"]' && dmeta.demoAccounts === undefined, 'the demo login page lists no accounts either (the public answer is the branding allow-list only)');
+    await signIn(dpage, demo.base, E2E.gm.username, E2E.gm.password);
+    await dpage.waitForURL((u) => u.pathname !== '/login', { timeout: 15_000 });
+    await dpage.getByTestId('demo-badge').waitFor({ timeout: 15_000 });
+    ok('demo mode shows the small neutral "Demo" badge');
+    await dctx.close();
   } catch (e) {
     failed = true;
     throw e;
@@ -482,7 +1231,10 @@ async function main() {
 }
 
 main()
-  .then(() => console.log(`\nREHEARSAL PASSED: ${step} checks.`))
+  .then(() => {
+    console.log(`\nREHEARSAL PASSED: ${step} checks.`);
+    process.exit(0); // nothing may keep the run alive (open sockets of the proxy or the browser)
+  })
   .catch((e) => {
     console.error(`\nREHEARSAL FAILED after ${step} checks:`, e.message ?? e);
     process.exit(1);

@@ -1,14 +1,11 @@
-import { and, eq, ne, sql } from 'drizzle-orm';
-import { t } from '@jerp/database';
 import { config } from './config';
 import { createApp } from './app';
 import { createContext, isEmpty, openDatabase } from './bootstrap';
 import { log } from './core/logger';
 import { demoCredentialsInUse, productionConfigProblems, runtimeRoleProblems, unvalidatedConstraints } from './core/startup';
-import { seedDemo } from './seed/demo';
-import { backfillDemoLedger } from './seed/ledger-backfill';
 import { applyInitialSecuritySettings, purgeExpiredSecondFactorState } from './modules/auth/passkeys';
 import { replaceLegacyInvoiceFooters } from './modules/settings/legacy-footer';
+import { applyInitialInventorySettings } from './modules/setup/service';
 
 // ── Refuse unsafe production configurations before touching the database (security item 2).
 const problems = productionConfigProblems(config);
@@ -25,18 +22,10 @@ if (notValidated.length) {
   log.warn('integrity constraints left NOT VALID: existing rows violate them (new rows are still checked); correct the rows, then run ALTER TABLE … VALIDATE CONSTRAINT', { constraints: notValidated });
 }
 
+// REM-3: no demo data. A demo-mode database starts empty, exactly like production; `npm run demo`
+// asks for the first General Manager's username and runs the real bootstrap (scripts/demo.mjs).
 if (config.appMode === 'demo') {
-  if (!(await isEmpty(ctx))) {
-    // Demo databases created before Phase 2b: recreate the ledger from the demo history (demo only).
-    const r = await backfillDemoLedger(ctx);
-    if (r.entries) log.info('demo ledger recreated from the demo history', r);
-  }
-  if (await isEmpty(ctx)) {
-    log.info('empty database: loading demo data');
-    const started = Date.now();
-    await seedDemo(ctx);
-    log.info('demo data loaded', { seconds: Number(((Date.now() - started) / 1000).toFixed(1)) });
-  }
+  if (await isEmpty(ctx)) log.warn('no users yet: run `npm run demo` (asks for the first General Manager) or `npm run bootstrap -w @jerp/backend`');
 } else {
   // Least privilege (D-2a-13): the runtime role must not own or be able to alter the append-only tables.
   const roles = await runtimeRoleProblems(handle.db);
@@ -69,6 +58,9 @@ const footers = await replaceLegacyInvoiceFooters(ctx);
 if (footers.length) log.info('unedited default invoice footer replaced by the new default', { keys: footers });
 const initial = await applyInitialSecuritySettings(ctx, { uv: config.webauthnUvInitial, roles: config.twoFactorRolesInitial });
 if (initial.length) log.info('second-factor settings initialised from the environment (first start)', { keys: initial.map((c) => c.key) });
+// Allowed karats: ALLOWED_KARATS_INITIAL applies on the very first start only (REM-3); the GM still confirms them.
+const karatsInit = await applyInitialInventorySettings(ctx, { allowedKarats: config.allowedKaratsInitial });
+if (config.allowedKaratsInitial && karatsInit.length) log.info('allowed karats initialised from the environment (first start)', { allowedKarats: config.allowedKaratsInitial });
 const { security: sec } = await ctx.settings.get();
 log.info('second factor', { rpId: config.webauthnRpId ?? '(demo: from each request)', userVerification: sec.webauthnUserVerification, requiredRoles: sec.twoFactorRequiredRoles });
 
@@ -80,13 +72,6 @@ app.listen(config.port, () => {
 // Background housekeeping.
 setInterval(() => {
   purgeExpiredSecondFactorState(ctx.db).catch((e) => log.error('second-factor sweep failed', { err: e }));
-  if (config.appMode !== 'demo') return;
-  // Demo presence: keep the clearly-labelled simulated sessions "alive" (except the idle example).
-  ctx.db
-    .update(t.sessions)
-    .set({ lastActivityAt: sql`now() - (random() * interval '90 seconds')` })
-    .where(and(eq(t.sessions.isSimulated, true), eq(t.sessions.status, 'ACTIVE'), ne(t.sessions.currentModule, 'dashboard')))
-    .catch(() => undefined);
 }, 60_000);
 
 const shutdown = async () => {

@@ -1,8 +1,17 @@
+// Data table used by the list screens (sort, search, CSV, totals). Restyled with the UI-A1 tokens: white table on
+// the grey card (mockup: white rows inside panels), 13 px headers, 15 px cells (R16).
+// UI-A2 (D-ui-11): pass the list's `query` and the table shows its states itself, below a toolbar that never
+// disappears: skeleton rows on the first load, the previous rows with a thin bar while a filter change reloads,
+// the error (with Try again, no access or not found) in place of the rows, the `prompt` while the query waits
+// for a choice, and the screen's own empty text with its next action.
 import { useMemo, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { ArrowDown, ArrowUp, ChevronsUpDown, Download, Search } from 'lucide-react';
 import { useI18n } from '../../lib/i18n';
-import { Button, Empty, Input } from './index';
+import { Button } from './Button';
+import { Input } from './Field';
+import { Empty, ErrorState, SkeletonRows } from './States';
+import { RefreshBar, viewState, type QueryLike } from './QueryState';
 
 export interface Column<T> {
   key: string;
@@ -26,8 +35,11 @@ export function DataTable<T>({
   searchable = true,
   searchPlaceholder,
   initialSort,
-  emptyTitle = 'Nothing to show',
+  emptyTitle,
   emptyBody,
+  emptyAction,
+  query,
+  prompt,
   exportName,
   toolbar,
   dense,
@@ -41,8 +53,15 @@ export function DataTable<T>({
   searchable?: boolean;
   searchPlaceholder?: string;
   initialSort?: { key: string; dir: 'asc' | 'desc' };
-  emptyTitle?: string;
+  /** What is empty, in the screen's words (ANALYSIS §8). Required: there is no generic "Nothing to show". */
+  emptyTitle: string;
   emptyBody?: ReactNode;
+  /** The next action offered when the list is empty (only actions the person may take). */
+  emptyAction?: ReactNode;
+  /** The list's query: the table then shows loading, refresh, error and idle states itself. */
+  query?: QueryLike<unknown>;
+  /** Shown while `query` waits for a choice (a disabled query), e.g. "Choose a branch". */
+  prompt?: ReactNode;
   exportName?: string;
   toolbar?: ReactNode;
   dense?: boolean;
@@ -50,6 +69,7 @@ export function DataTable<T>({
   rowClassName?: (row: T) => string | undefined;
 }) {
   const { t } = useI18n();
+  const state = query ? viewState(query) : 'ready';
   const [q, setQ] = useState('');
   const [sort, setSort] = useState(initialSort ?? null);
 
@@ -103,12 +123,12 @@ export function DataTable<T>({
         <div className="no-print flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">
           {searchable && (
             <div className="relative w-full max-w-xs">
-              <Search className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-400" />
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder ?? t('Search')} className="h-8 ps-8" aria-label={t('Search')} />
+              <Search className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder ?? t('Search')} className="h-9 ps-8" aria-label={t('Search')} />
             </div>
           )}
           <div className="flex flex-1 flex-wrap items-center gap-2">{toolbar}</div>
-          <span className="text-xs text-ink-500 num">{t(filtered.length === 1 ? '{n} row' : '{n} rows', { n: filtered.length.toLocaleString('en-US') })}</span>
+          {state === 'ready' && <span className="text-meta text-ink-3 num">{t(filtered.length === 1 ? '{n} row' : '{n} rows', { n: filtered.length.toLocaleString('en-US') })}</span>}
           {exportName && (
             <Button size="sm" variant="ghost" icon={<Download className="size-4" />} onClick={exportCsv}>
               {t('Export CSV')}
@@ -116,26 +136,34 @@ export function DataTable<T>({
           )}
         </div>
       )}
-      {filtered.length === 0 ? (
-        <Empty title={q ? t('No results for “{q}”', { q }) : t(emptyTitle)} body={q ? t('Try a different search term.') : emptyBody} />
+      {query && <RefreshBar active={!!query.isPlaceholderData && query.isFetching} />}
+      {state === 'loading' ? (
+        <SkeletonRows rows={6} className="p-4" />
+      ) : state === 'error' ? (
+        <ErrorState error={query!.error} onRetry={() => query!.refetch()} />
+      ) : state === 'idle' ? (
+        <>{prompt ?? null}</>
+      ) : filtered.length === 0 ? (
+        <Empty title={q ? t('No results for “{q}”', { q }) : t(emptyTitle)} body={q ? t('Try a different search term.') : emptyBody} action={q ? undefined : emptyAction} />
       ) : (
-        <div className="scroll-thin overflow-auto" style={{ maxHeight }}>
-          <table className="w-full border-collapse text-[13px]">
-            <thead className="sticky top-0 z-10 bg-[#f7f8fa]">
+        <div className="scroll-thin overflow-auto bg-surface" style={{ maxHeight }}>
+          <table className="w-full border-collapse text-[15px]">
+            <thead className="sticky top-0 z-10 bg-surface">
               <tr>
                 {columns.map((c) => {
                   const active = sort?.key === c.key;
-                  const canSort = c.sortable !== false;
+                  // An action column has no header text: nothing to sort by, and a nameless sort button would fail axe.
+                  const canSort = c.sortable !== false && c.header !== '';
                   return (
                     <th
                       key={c.key}
                       scope="col"
-                      className={clsx('whitespace-nowrap border-b border-line px-3 py-2 font-medium text-ink-500', alignCls(c.align), c.className)}
+                      className={clsx('whitespace-nowrap border-b border-line px-3 py-2 text-meta font-medium text-ink-3', alignCls(c.align), c.className)}
                       aria-sort={active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : undefined}
                     >
                       {canSort ? (
                         <button
-                          className={clsx('inline-flex items-center gap-1 hover:text-ink-900', active && 'text-ink-900')}
+                          className={clsx('inline-flex items-center gap-1 hover:text-ink', active && 'text-ink')}
                           onClick={() => setSort(active ? (sort!.dir === 'asc' ? { key: c.key, dir: 'desc' } : null) : { key: c.key, dir: 'asc' })}
                         >
                           {c.header}
@@ -154,10 +182,10 @@ export function DataTable<T>({
                 <tr
                   key={rowKey(r, i)}
                   onClick={onRowClick ? () => onRowClick(r) : undefined}
-                  className={clsx('border-b border-line/70 last:border-0', onRowClick && 'cursor-pointer hover:bg-gold-50/60', rowClassName?.(r))}
+                  className={clsx('border-b border-line/70 last:border-0', onRowClick && 'cursor-pointer hover:bg-panel', rowClassName?.(r))}
                 >
                   {columns.map((c) => (
-                    <td key={c.key} className={clsx('px-3 text-ink-800', dense ? 'py-1.5' : 'py-2.5', alignCls(c.align), c.className ?? 'whitespace-nowrap')}>
+                    <td key={c.key} className={clsx('px-3 text-ink', dense ? 'py-1.5' : 'py-2', alignCls(c.align), c.className ?? 'whitespace-nowrap')}>
                       {c.render ? c.render(r) : String(valueOf(c, r) ?? '—')}
                     </td>
                   ))}
@@ -165,10 +193,10 @@ export function DataTable<T>({
               ))}
             </tbody>
             {hasFooter && (
-              <tfoot className="sticky bottom-0 bg-[#f7f8fa]">
+              <tfoot className="sticky bottom-0 bg-surface">
                 <tr>
                   {columns.map((c) => (
-                    <td key={c.key} className={clsx('border-t border-line-strong px-3 py-2 font-semibold text-ink-900 num', alignCls(c.align))}>
+                    <td key={c.key} className={clsx('border-t border-line-strong px-3 py-2 font-semibold text-ink num', alignCls(c.align))}>
                       {c.footer}
                     </td>
                   ))}

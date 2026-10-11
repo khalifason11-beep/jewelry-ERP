@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { PackageX, Pencil, RotateCcw, Truck } from 'lucide-react';
 import { ITEM_STATUSES } from '@jerp/shared';
@@ -12,15 +12,14 @@ import { noteText } from '../../lib/audit';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import type { ItemRow } from '../../lib/types';
-import { Button, Card, CardHeader, Dialog, ErrorState, Field, Input, ItemThumb, KeyValue, Loading, Mono, PageHeader, Select, StatusBadge, Textarea } from '../../components/ui';
+import { Button, Card, CardHeader, DetailPending, Dialog, Field, Input, ItemThumb, KeyValue, Mono, PageHeader, Select, StatusBadge, Textarea } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect } from '../../components/Filters';
 import { Crumbs } from '../sales/SalesPages';
-import { InventorySelect } from './InventorySelect';
 
 export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarExtra }: { branchId?: number; initialStatus?: string; toolbarExtra?: React.ReactNode }) {
   const { t, L } = useI18n();
-  const { can, isGlobal } = useAuth();
+  const { can, isGlobal, me } = useAuth();
   const navigate = useNavigate();
   const [status, setStatus] = useState(initialStatus);
   const [karat, setKarat] = useState<number | ''>('');
@@ -32,17 +31,36 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
   const query = useQuery({
     queryKey: ['inventory', branchId, status, karat, category, origin, dq],
     queryFn: () => get<{ items: ItemRow[]; total: number }>('/inventory/items', { branchId, status, karat, categoryId: category || undefined, origin: origin || undefined, q: dq, limit: 1000 }),
+    placeholderData: keepPreviousData,
   });
   const rows = query.data?.items ?? [];
   const cost = can('profit.view');
+  // UI-A2: an error is shown as an error (never as "no items"), and "nothing in stock" differs from "filters hide it".
+  const filtered = !!(karat || category || origin || dq || status !== initialStatus);
+  const clearFilters = () => {
+    setStatus(initialStatus);
+    setKarat('');
+    setCategory('');
+    setOrigin('');
+    setQ('');
+  };
   return (
     <DataTable
+      query={query}
       rows={rows}
       rowKey={(r) => r.id}
       onRowClick={(r) => navigate(`/inventory/${r.id}`)}
       exportName="inventory"
       searchable={false}
-      emptyTitle={query.isLoading ? t('Loading…') : t('No items match these filters')}
+      emptyTitle={filtered ? t('No items match these filters') : t('No pieces in stock')}
+      emptyBody={filtered ? undefined : t('Receive a supplier order or buy scrap to add stock.')}
+      emptyAction={
+        filtered ? (
+          <Button size="sm" onClick={clearFilters} data-testid="clear-filters">
+            {t('Clear filters')}
+          </Button>
+        ) : undefined
+      }
       toolbar={
         <>
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Code, barcode or product…')} className="h-8 w-56 text-[13px]" />
@@ -53,7 +71,8 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
           </Select>
           <Select value={karat} onChange={(e) => setKarat(e.target.value ? Number(e.target.value) : '')} className="h-8 w-24 text-[13px]" aria-label={t('Karat')}>
             <option value="">{t('Karat')}</option>
-            {[18, 21, 22, 24].map((k) => <option key={k} value={k}>{karatLabel(k)}</option>)}
+            {/* REM-3: the karats this deployment sells (setting), not a hardcoded list. */}
+            {(me?.allowedKarats ?? []).map((k) => <option key={k} value={k}>{karatLabel(k)}</option>)}
           </Select>
           <Select value={category} onChange={(e) => setCategory(e.target.value)} className="h-8 w-36 text-[13px]" aria-label={t('Category')}>
             <option value="">{t('Category')}</option>
@@ -90,38 +109,17 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
 
 export function InventoryPage() {
   const { t } = useI18n();
-  const { can, isGlobal } = useAuth();
   const [sp, setSp] = useSearchParams();
   const branchId = sp.get('branchId') ? Number(sp.get('branchId')) : undefined;
-  // Branch managers get the card view with multi-select transfer (Phase 4); the table stays one click away.
-  const cardsAvailable = can('inventory.transfer') && !isGlobal;
-  const [view, setView] = useState<'cards' | 'table'>(cardsAvailable ? 'cards' : 'table');
+  // REM-4 (D-rem4-1): the "Select & transfer" card view is gone; a branch manager sends pieces from the POS cart.
   return (
     <div className="p-5 lg:p-6">
-      <PageHeader
-        title={t('Inventory')}
-        subtitle={t('Item-level inventory. Each piece has its own ID, barcode, weights, cost components and lifecycle.')}
-        actions={
-          cardsAvailable && (
-            <div className="flex rounded-md border border-line-strong p-0.5" role="radiogroup" aria-label={t('View')}>
-              {([['cards', t('Select & transfer')], ['table', t('Table')]] as const).map(([v, label]) => (
-                <button key={v} role="radio" aria-checked={view === v} onClick={() => setView(v)} className={clsx('h-8 rounded px-3 text-[13px] font-medium', view === v ? 'bg-ink-900 text-white' : 'text-ink-600 hover:bg-canvas')}>
-                  {label}
-                </button>
-              ))}
-            </div>
-          )
-        }
-      />
+      <PageHeader title={t('Inventory')} subtitle={t('Item-level inventory. Each piece has its own ID, barcode, weights, cost components and lifecycle.')} />
       <Card padded={false}>
-        {cardsAvailable && view === 'cards' ? (
-          <InventorySelect />
-        ) : (
-          <InventoryTable
-            branchId={branchId}
-            toolbarExtra={<BranchSelect value={branchId} onChange={(v) => setSp(v ? { branchId: String(v) } : {}, { replace: true })} />}
-          />
-        )}
+        <InventoryTable
+          branchId={branchId}
+          toolbarExtra={<BranchSelect value={branchId} onChange={(v) => setSp(v ? { branchId: String(v) } : {}, { replace: true })} />}
+        />
       </Card>
     </div>
   );
@@ -166,8 +164,7 @@ export function ItemDetailPage() {
   const priceM = useMutation({ mutationFn: () => post(`/inventory/items/${id}/price`, { sellingPrice: Number(price), reason }), onSuccess: () => done(t('Price updated')), onError: (e) => toast.fromError(e) });
   const adjM = useMutation({ mutationFn: () => post(`/inventory/items/${id}/adjust`, { action: adjust, reason }), onSuccess: () => done(t('Inventory adjusted')), onError: (e) => toast.fromError(e) });
 
-  if (q.isLoading) return <Loading />;
-  if (q.isError) return <div className="p-6"><ErrorState error={q.error} /></div>;
+  if (!q.data) return <DetailPending query={q} backTo="/inventory" backLabel={t('Back to inventory')} notFoundTitle={t('This piece does not exist')} />;
   const { item: i, history, movements } = q.data!;
   const margin = i.totalCost ? ((i.sellingPrice - i.totalCost) / i.sellingPrice) * 100 : null;
   const saleRef = history.find((h) => h.toStatus === 'SOLD');
@@ -192,7 +189,7 @@ export function ItemDetailPage() {
         subtitle={`${L(i.categoryName, i.categoryNameAr)} · ${karatLabel(i.karat)} · ${L(i.branchName, i.branchNameAr)}`}
         actions={
           <>
-            {can('inventory.price_edit') && ['AVAILABLE', 'RESERVED'].includes(i.status) && (
+            {can('inventory.price_edit') && i.status === 'AVAILABLE' && (
               <Button icon={<Pencil className="size-4" />} onClick={() => { setPrice(String(i.sellingPrice)); setPriceOpen(true); }}>{t('Change price')}</Button>
             )}
             {can('inventory.adjust') && i.status === 'AVAILABLE' && (
@@ -260,7 +257,7 @@ export function ItemDetailPage() {
           <Card padded={false}>
             <CardHeader title={t('Lifecycle')} subtitle={t('Every status change of this piece, with the document that caused it')} />
             {history.length === 0 ? (
-              <div className="px-5 py-6 text-[13px] text-ink-500">{t('Lifecycle is visible to managers.')}</div>
+              <div className="px-5 py-6 text-[13px] text-ink-500">{can('inventory.view') ? t('No status change recorded yet.') : t('Lifecycle is visible to managers.')}</div>
             ) : (
               <ol className="px-5 py-4">
                 {history.map((h, idx) => (
@@ -320,14 +317,14 @@ export function ItemDetailPage() {
         onClose={() => setPriceOpen(false)}
         title={t('Change selling price · {code}', { code: i.code })}
         subtitle={t('Recorded as PRICE_CHANGED in the audit log. Past sales keep their original price.')}
-        footer={<><Button onClick={() => setPriceOpen(false)}>{t('Cancel')}</Button><Button variant="primary" loading={priceM.isPending} disabled={!Number(price)} onClick={() => priceM.mutate()}>{t('Save')}</Button></>}
+        footer={<><Button onClick={() => setPriceOpen(false)}>{t('Cancel')}</Button><Button variant="primary" loading={priceM.isPending} disabled={!Number(price) || reason.trim().length < 3} onClick={() => priceM.mutate()} data-testid="price-save">{t('Save')}</Button></>}
       >
         <div className="space-y-3">
           <Field label={t('New selling price ({currency})', { currency: currencyLabel() })} hint={i.totalCost != null ? t('Total cost {cost} · current price {price}', { cost: money(i.totalCost), price: money(i.sellingPrice) }) : undefined}>
             <Input type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="num" />
           </Field>
-          <Field label={t('Reason')}>
-            <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('e.g. Gold rate increase')} />
+          <Field label={t('Reason (required)')}>
+            <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('e.g. Gold rate increase')} data-testid="price-reason" />
           </Field>
         </div>
       </Dialog>
