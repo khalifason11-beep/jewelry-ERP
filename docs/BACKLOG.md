@@ -228,6 +228,15 @@ visible fallback before the session loads). A business-day key is formatted as t
 moved by one day in zones more than 12 h from UTC). Test `backend/test/display-zone.test.ts`. The backend already used
 `company.timezone` everywhere. The Arabic dictionary entries of the old fixture branch and city names are removed.
 
+### CLN-3 — Codespaces and proxies that rewrite Origin · DONE · S · P0
+**Done (plan `docs/plans/CLN-3.md`, decisions D-cln3-1, D-cln3-2, no migration):** behind the Codespaces port forwarder
+(which rewrites Origin and Host), passkeys now use the public host from the trusted forwarded headers when
+`TRUST_PROXY` is on and `APP_ORIGIN` is unset (`backend/src/core/origin.ts`); production (APP_ORIGIN required) is
+unchanged. The Codespace sets `TRUST_PROXY=1`; the docs say never to set `APP_ORIGIN` there. A browser with a leftover
+valid session cookie can sign in again (the sign-in steps need no CSRF token but keep the Origin check; the old session
+is ended). DEPLOYMENT §6 checks that the reverse proxy passes Origin unchanged. Tests `proxy-origin.test.ts`,
+`login-stale-cookie.test.ts` (both projects).
+
 ### SPL-1 — Split payments · BLOCKED (Q-7) · M · P2
 If a prepaid Hasad balance can fall short of the price, one sale must carry several payments (for example Hasad plus cash). Ledger entries per payment, one reference per payment.
 
