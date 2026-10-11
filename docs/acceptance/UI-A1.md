@@ -35,8 +35,9 @@ Screenshots of every main screen, before and after, at 1366×768, 1536×864 and 
 
 ## B. In a Codespace, from the Windows browser (about 15 minutes)
 
-**Open it.** On GitHub, open the repository, switch to the branch `claude/hopeful-sagan-lehxyp`, then
-**Code → Codespaces → Create codespace on claude/hopeful-sagan-lehxyp**. Wait until the terminal says the
+**Open it.** On GitHub, open the repository, then **Code → Codespaces → Create codespace on main** (`main` is the
+default branch). A codespace created earlier on `claude/hopeful-sagan-lehxyp` can be moved to `main` in its terminal:
+`git fetch origin`, then `git checkout main`, `git pull` and `npm install`. Wait until the terminal says the
 dependencies are installed.
 
 **1. The component page (`/ui`).** It exists only in development and is never in the production app.

@@ -10,7 +10,7 @@ Version 1.0 · 2026-10-05 · Place this file at `docs/BACKLOG.md`. Read `docs/SP
 
 1. **One phase at a time.** Propose a plan for the phase first (files, migrations, risks, questions) and wait for approval. Stop after each phase with a report.
 2. **Do not reopen [BUILT] items** unless a backlog item says so. Do not guess [OPEN] questions: ask, or implement a setting with the conservative default and flag it.
-3. **Every phase ends with:** typecheck, tests on PGlite and real PostgreSQL, build, `npm run i18n:check`, migration applied to a copy of an existing database, docs and `docs/decisions.md` updated, push, and **a short manual acceptance script** the owner can follow in a desktop browser.
+3. **Every phase ends with:** typecheck (including `check:docs`), tests on PGlite and real PostgreSQL, build, `npm run i18n:check`, migration applied to a copy of an existing database, docs updated (`README.md`, `docs/FEATURES.md`, `docs/DATA_MODEL.md` for any schema change) and `docs/decisions.md` updated, push, and **a short manual acceptance script** the owner can follow in a desktop browser.
 4. **Acceptance of any user-facing flow includes the empty-database rehearsal (REH-1).** Automated tests passed for every earlier phase and still missed that an empty production database cannot receive stock. Do not repeat that.
 5. When a client-facing flow is ambiguous, show the owner a screenshot or a sketch **before** building the whole flow. Two earlier misreadings (the transfer button, the hidden pricing gap) cost more than a sketch would have.
 6. Update the status of every item in this file at the end of each phase.
@@ -203,6 +203,14 @@ have arrived at the branch. The gold side (debt in pure 24K, settled only with b
 (and paying the order "from the bank") was a way to keep the branch's money right before MKC-1. Do not use it any more:
 it would make the branch owe the owner a cost he bears himself.
 
+### DOC-1 — README as a description of the system; docs brought up to date · DONE · S · P1
+**Done (plan `docs/plans/DOC-1.md`, documentation only, no migration, no behaviour change):** `README.md` rewritten by
+capability (status: pre-production until §F is done); new `docs/FEATURES.md`; `docs/ARCHITECTURE.md` replaced and
+`docs/DATA_MODEL.md` rewritten to the current schema (migrations 0000–0022, ledger accounts and event types,
+append-only tables); `docs/DEMO_SCRIPT.md` and `docs/DEPLOYMENT.md` corrected (hosting undecided, neutral example
+names); the acceptance scripts open the codespace on `main`. New gate `npm run check:docs` (in `typecheck`): every
+migration and append-only table named in DATA_MODEL, every permission code in FEATURES.
+
 ### SPL-1 — Split payments · BLOCKED (Q-7) · M · P2
 If a prepaid Hasad balance can fall short of the price, one sale must carry several payments (for example Hasad plus cash). Ledger entries per payment, one reference per payment.
 
@@ -299,7 +307,13 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
 ## G. Technical debt and known limits
 
 - The per-IP sign-in limiter lives in process memory: run **one server instance** until it moves to the database.
-- `README.md`, `docs/DEPLOYMENT.md` and `docs/DEMO_SCRIPT.md` were rewritten in REM-3. `docs/ARCHITECTURE.md` and `docs/DATA_MODEL.md` still date from the prototype stage (seed, Hasad simulator, expenses): update or delete them.
+- ~~`docs/ARCHITECTURE.md` and `docs/DATA_MODEL.md` date from the prototype~~: **resolved by DOC-1** (rewritten; `check:docs` guards migrations, append-only tables and permission codes).
+- `APPEND_ONLY_TABLES` (`backend/src/core/startup.ts`) lacks `gm_funding_events` (CSH-2): the start-up report of what the runtime role could alter does not cover it. The table's triggers and `jerp_lock_append_only` exist (migration 0020). Fix: add it to the list and a test that the list equals the migrations' locked tables (found in DOC-1).
+- The first-steps panel ends with "Then the branch manager records the first supplier order"; since MKC-1 only the General Manager can (UI text, found in DOC-1).
+- The top bar's rate chip always shows the **21K** rate (`frontend/src/components/layout/TopBar.tsx`), whatever the allowed karats: client-specific in code (found in DOC-1).
+- The settings `rates.rateChangeMaxPct` and `rates.goldRateScope` can be edited but nothing reads them (found in DOC-1): enforce or remove.
+- Example usernames in code comments and the `npm run demo` prompt still use a client-like name (`backend/src/bootstrap-cli.ts`, `backend/src/demo-cli.ts`); the docs use `first.lastname` since DOC-1.
+- The root package is still named `jewelry-erp-prototype` (`package.json`).
 - `scripts/i18n-check.mjs` still has a scan for English text in `/seed/` files; no such folder exists since REM-3 (harmless; remove when the script is next touched).
 - The test fixture world (copied from the old demo seed) is built relative to *today* in Khartoum time, so its content changes with the weekday and the hour. REM-3 step 7 fixed the three date-dependent failures it found: a fixed supplier-settlement weight exceeding the debt on one weekday in seven; an audit lookup that assumed today's purchase exists in the first minutes after midnight; and sale-line counts that included a voided sale of the same piece. It was then checked on 14 consecutive dates at three hours of the day. A fixed clock for the world would remove the class of problem (open).
 - The silent-printing `.cmd` template is untested on Windows; CSS page size on a given thermal driver is a request, not a guarantee.

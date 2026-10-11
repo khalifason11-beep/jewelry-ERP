@@ -1,9 +1,14 @@
-# Deployment behind a reverse proxy (Render or similar)
+# Deployment behind a reverse proxy
 
-This guide covers a production deployment where the app runs behind a managed reverse proxy or load
-balancer that terminates HTTPS, for example a Render Web Service with a Render PostgreSQL database.
-The app is a single Node.js service: the API serves the built React app too, so no separate static
-site is needed.
+This guide covers a production deployment where the app runs behind a reverse proxy or load balancer that
+terminates HTTPS, with a managed PostgreSQL database. The app is a single Node.js service: the API serves the built
+React app too, so no separate static site is needed.
+
+> **Hosting is not decided** (BACKLOG HOST-1). What the app needs from any host: one Node.js 20+ process (one
+> instance for now), a managed PostgreSQL with separate owner and runtime roles, HTTPS at a final domain (before any
+> passkey is registered), shell access for the operator commands and the bootstrap, and a schedule for backups with
+> an off-site copy. Sections 1 and 2 use Render as **one worked example** only; the variables and checks apply to
+> any host.
 
 > Production mode refuses to start while the configuration is unsafe (see D-1a-10 in
 > [decisions.md](decisions.md)). If the service does not come up, read the start-up log first: it lists
@@ -19,7 +24,7 @@ site is needed.
 > is reset, and how it stays separate from production. Until then, show the system from a local `npm run demo` or a
 > `dev:sample` database (docs/DEMO_SCRIPT.md).
 
-## 1. Services
+## 1. Services (example: Render)
 
 | Render resource | Settings |
 |---|---|
@@ -30,7 +35,7 @@ site is needed.
 | Health check path | `/api/health` |
 | Instances | **1** for now. The per-IP sign-in throttle and the login counters for unknown usernames are kept in process memory, and each instance keeps its own settings cache for up to 5 s. See "Remaining limits" below. |
 
-## 2. Environment variables
+## 2. Environment variables (example values: Render)
 
 | Variable | Value on Render | Why |
 |---|---|---|
@@ -66,8 +71,8 @@ Backup variables (`BACKUP_*`) are listed in section 7; they belong to the backup
 2. Open the service's **Shell** tab and create the first General Manager and the branches:
 
    ```bash
-   npm run bootstrap -w @jerp/backend -- --username o.abdelrahman --full-name "Owner Name" --full-name-ar "اسم المالك" \
-     --branch "KRT:Khartoum Branch:فرع الخرطوم:Khartoum"
+   npm run bootstrap -w @jerp/backend -- --username first.lastname --full-name "Owner Name" --full-name-ar "اسم المالك" \
+     --branch "MAIN:Main Branch:الفرع الرئيسي:City"
    ```
 
    It prints a one-time password that must be changed at the first sign-in, and refuses to run again once a
@@ -101,19 +106,19 @@ you need the Render Shell (or SSH) for the service:
 
 ```bash
 # Lift a sign-in lock (any user)
-npm run ops -w @jerp/backend -- unlock --username o.abdelrahman
+npm run ops -w @jerp/backend -- unlock --username first.lastname
 
 # Reset the General Manager's password (GM accounts only); prints a one-time password,
 # ends all of that user's sessions and forces a password change at the next sign-in
-npm run ops -w @jerp/backend -- reset-gm-password --username o.abdelrahman
+npm run ops -w @jerp/backend -- reset-gm-password --username first.lastname
 
 # Lost every passkey AND the recovery codes: revoke all passkeys, invalidate the recovery codes,
 # end the sessions; the next sign-in registers a new passkey (section 8.6)
-npm run ops -w @jerp/backend -- reset-second-factor --username o.abdelrahman --confirm
+npm run ops -w @jerp/backend -- reset-second-factor --username first.lastname --confirm
 
 # Account SECURITY-LOCKED after "This wasn't me" on a recovery-code sign-in (section 8.6): lifts the lock,
 # revokes passkeys and codes, prints a NEW one-time password, ends sessions; new password + new enrollment
-npm run ops -w @jerp/backend -- unlock-security-lock --username o.abdelrahman --confirm
+npm run ops -w @jerp/backend -- unlock-security-lock --username first.lastname --confirm
 ```
 
 All of them refuse to run unless `APP_MODE=production` and the production configuration is safe (pass
@@ -139,7 +144,7 @@ Do this once after the first deploy, and again after any change to the proxy, CD
 curl -s -o /dev/null -w '%{http_code}\n' https://erp.example.com/api/auth/login \
   -H 'Origin: https://erp.example.com' -H 'Content-Type: application/json' \
   -H 'X-Forwarded-For: 203.0.113.77' \
-  -d '{"username":"o.abdelrahman","password":"wrong-password"}'
+  -d '{"username":"first.lastname","password":"wrong-password"}'
 ```
 
 It answers `401`. In **Audit log**, the matching `LOGIN_FAILED` entry must show **your computer's real IP**,
@@ -361,8 +366,9 @@ future migration that cannot transform a row is redesigned, not shipped with a g
 - New append-only tables (`scrap_rates`, `scrap_purchases`, `scrap_weight_entries`, `supplier_settlements`) are
   locked like the other ledgers by the migration (`jerp_lock_append_only`); with separate owner and runtime roles
   (section 5) the start-up check covers them too.
-- API clients: `POST /purchases` now stores its idempotency record in the same transaction (it pays the making
-  charge), like scrap purchases and supplier settlements; a retry with the same key never pays or settles twice.
+- API clients: `POST /purchases` stores its idempotency record in the same transaction, like scrap purchases and
+  supplier settlements; a retry with the same key never records or settles twice. (Since MKC-1 an order no longer
+  pays its making charge from branch money: see the MKC-1 section above.)
 
 ## 6. After every deploy
 
@@ -497,8 +503,8 @@ BACKUP_UPLOAD_COMMAND='rsync -a -e "ssh -i /etc/jerp/backup_ed25519 -o StrictHos
 0 3 * * 0   cd /srv/jerp && npm run backup:verify >> /var/log/jerp-backup-verify.log 2>&1
 ```
 
-**Render**: add a **Cron Job** service from the same repository, schedule `30 23 * * *` (UTC = 01:30 in
-Khartoum), build command `npm ci`, command `npm run backup`, with the variables of 7.4 (no secret key).
+**Render**: add a **Cron Job** service from the same repository, schedule `30 23 * * *` (UTC; 01:30 at UTC+2:
+adjust to the company time zone), build command `npm ci`, command `npm run backup`, with the variables of 7.4 (no secret key).
 Its disk is temporary, so the off-site copy is the real one. Run the weekly drill on a machine you control
 (an office computer or a small VPS with PostgreSQL 16 and age): download the latest three files from the
 off-site storage into `BACKUP_DIR`, then `npm run backup:verify` with `BACKUP_AGE_IDENTITY_FILE`,

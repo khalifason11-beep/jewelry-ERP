@@ -85,8 +85,9 @@ No new index at any point.
 
 ## B. In a Codespace, from the Windows browser (about 20 minutes)
 
-On GitHub: switch to the branch `claude/hopeful-sagan-lehxyp`, then **Code → Codespaces → Create codespace on
-claude/hopeful-sagan-lehxyp**. Wait for the dependencies to install, then in the terminal:
+On GitHub: **Code → Codespaces → Create codespace on main** (`main` is the default branch). A codespace created
+earlier on `claude/hopeful-sagan-lehxyp` can be moved to `main` in its terminal: `git fetch origin`, then
+`git checkout main`, `git pull` and `npm install`. Wait for the dependencies to install, then in the terminal:
 
 ```bash
 npm run build
