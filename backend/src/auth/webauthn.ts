@@ -21,6 +21,7 @@ import {
   type RegistrationResponseJSON,
 } from '@simplewebauthn/server';
 import type { Config } from '../config';
+import { publicOrigin } from '../core/origin';
 
 export const CHALLENGE_TTL_MS = 5 * 60_000;
 /** Browser ceremony timeout (what the browser shows), inside the server-side TTL. */
@@ -42,15 +43,9 @@ export function relyingParty(config: Config, req: Request): RelyingParty {
   if (config.appOrigin) {
     return { rpId: config.webauthnRpId ?? new URL(config.appOrigin).hostname, rpName: config.webauthnRpName, origin: config.appOrigin };
   }
-  let origin = `http://localhost:${config.port}`;
-  const header = req.header('origin');
-  if (header) {
-    try {
-      origin = new URL(header).origin;
-    } catch {
-      /* keep the default */
-    }
-  }
+  // CLN-3: behind a proxy that rewrites Origin (Codespaces), the public origin comes from the trusted forwarded
+  // headers when TRUST_PROXY is set; otherwise from the Origin header as before (core/origin.ts).
+  const origin = publicOrigin(config, req);
   const rpId = config.webauthnRpId ?? new URL(origin).hostname;
   return { rpId, rpName: config.webauthnRpName, origin };
 }
