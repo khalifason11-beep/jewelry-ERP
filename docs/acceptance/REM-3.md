@@ -34,7 +34,7 @@ Stop any running server, then delete the local trial database (`.data/pglite`, o
 |---|---|---|
 | 1 | In a terminal run `npm run demo`. | After the build it says the database is empty and asks for the **General Manager username**. |
 | 2 | Answer `admin1`, then `gm.manager01`. | Both are refused: the first is shorter than 8 characters, and the second has a role-style word. The same rules apply as in production, with no demo shortcut. It asks again. |
-| 3 | Answer a real-looking username, e.g. `o.abdelrahman`. | It prints a **one-time password** once, then the server starts on http://localhost:4000. |
+| 3 | Answer a personal-style username, e.g. `first.lastname`. | It prints a **one-time password** once, then the server starts on http://localhost:4000. |
 | 4 | Open the login page. | No list of accounts, no "Prototype" or fictional company name. |
 | 5 | Sign in with the one-time password and set a new password. Register a passkey and save the recovery codes, as in production. | You reach the home screen. To skip the passkey on a trial database, start the first time with `TWO_FACTOR_REQUIRED_ROLES_INITIAL= npm run demo`. |
 | 6 | Look at the header. | A small neutral **Demo** badge (تجريبي) and "Set today's rate" where the gold rate is shown. |

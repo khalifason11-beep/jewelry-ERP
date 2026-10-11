@@ -55,13 +55,13 @@ Legend: ✅ exists and fits · 🟡 exists partially / needs change · ❌ missi
 
 Branch scope **is** taken from the session (`authz/index.ts:29-36`). A branch-bound user sending another `branchId` gets 403, never other data. No IDOR was found in the read paths I traced (sales, items, purchases, withdrawals, users, sessions, reports). There is an ordering subtlety in session revoke (finding M-6).
 
-### Branding hardcodes (grep for "Loai Tabeede" / "لؤي تبيدي" and related)
+### Branding hardcodes (grep for the prototype company name and related; the name itself was removed in CLN-1)
 
 | Location | What |
 |---|---|
 | `shared/src/settings.ts:50-51` | `DEFAULT_SETTINGS.company.name/nameAr` |
 | `frontend/src/components/layout/AppShell.tsx:54` | Fallback name in header |
-| `frontend/index.html:8` | `<title>Loai Tabeede ERP</title>` |
+| `frontend/index.html:8` | `<title>` with the prototype company name |
 | `.devcontainer/devcontainer.json:4` | Codespace name (dev tooling only) |
 | `scripts/i18n-check.mjs:59` | Allow-list entry |
 | `frontend/src/components/InvoiceDocument.tsx:1,64` and `AppShell.tsx:15,50` | Logo is the hardcoded `Gem` icon |

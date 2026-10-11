@@ -156,10 +156,10 @@ describe('production mode (security item 2)', () => {
   it('bootstrap: the GM username must be chosen by the operator (≥ 8 chars, not role-style)', async () => {
     const refused = [
       'general.manager', 'generalmanager', 'admin', 'administrator', 'admin2026', 'manager1', 'gm', 'gm.owner', 'owner',
-      'root', 'root.user', 'cashier.kh', 'super.admin', 'the-boss', 'erp-admin', 'system01', 'ahmed.gm', 'ahmed', 'a1b2c3', '12345678',
+      'root', 'root.user', 'cashier.kh', 'super.admin', 'the-boss', 'erp-admin', 'system01', 'alpha.gm', 'alpha', 'a1b2c3', '12345678',
     ];
     for (const u of refused) expect(() => assertOperatorUsername(u), u).toThrow();
-    for (const u of ['omer.abdelrahman', 'huda.osman', 'm.elsayed2026', 'khalid_mustafa']) expect(() => assertOperatorUsername(u), u).not.toThrow();
+    for (const u of ['first.lastname', 'bravo.example', 'c.charlie2026', 'delta_echo']) expect(() => assertOperatorUsername(u), u).not.toThrow();
     const fresh = await openTestDatabase();
     try {
       await expect(bootstrapProduction(createContext(fresh), { username: 'general.manager', fullName: 'Owner' })).rejects.toMatchObject({ status: 400 });
@@ -174,20 +174,20 @@ describe('production mode (security item 2)', () => {
     try {
       const fctx = createContext(fresh);
       const res = await bootstrapProduction(fctx, {
-        username: 'omer.abdelrahman',
+        username: 'first.lastname',
         fullName: 'Owner',
         branches: [{ code: 'KRT', name: 'Khartoum Branch', nameAr: 'فرع الخرطوم', city: 'Khartoum' }],
       });
       expect(res.temporaryPassword).toMatch(/^Temp-/);
       expect(res.branches).toEqual(['KRT']);
-      const [gm] = await fresh.db.select().from(t.users).where(eq(t.users.username, 'omer.abdelrahman'));
+      const [gm] = await fresh.db.select().from(t.users).where(eq(t.users.username, 'first.lastname'));
       expect(gm.mustChangePassword).toBe(true);
       expect(gm.passwordHash.startsWith('$argon2id$')).toBe(true);
       expect(await demoCredentialsInUse(fresh.db)).toEqual([]);
 
       // Second run is refused and rolls back completely (the extra branch is NOT created).
       await expect(
-        bootstrapProduction(fctx, { username: 'huda.osman.2', fullName: 'Second', branches: [{ code: 'OMD', name: 'Omdurman Branch', nameAr: 'فرع أم درمان', city: 'Omdurman' }] }),
+        bootstrapProduction(fctx, { username: 'bravo.example.2', fullName: 'Second', branches: [{ code: 'OMD', name: 'Omdurman Branch', nameAr: 'فرع أم درمان', city: 'Omdurman' }] }),
       ).rejects.toMatchObject({ code: 'ALREADY_BOOTSTRAPPED' });
       expect(await fresh.db.select().from(t.branches).where(eq(t.branches.code, 'OMD'))).toHaveLength(0);
       expect(await fresh.db.select().from(t.users)).toHaveLength(1);
@@ -195,7 +195,7 @@ describe('production mode (security item 2)', () => {
       // The GM can sign in only to change the password.
       const app = createApp(fctx, loadConfig({ VITEST: '1' } as NodeJS.ProcessEnv));
       const agent = withIdempotencyKeys(request.agent(app));
-      const li = await agent.post('/api/auth/login').send({ username: 'omer.abdelrahman', password: res.temporaryPassword });
+      const li = await agent.post('/api/auth/login').send({ username: 'first.lastname', password: res.temporaryPassword });
       expect(li.status).toBe(200);
       const blocked = await agent.get('/api/users');
       expect(blocked.body.error.code).toBe('PASSWORD_CHANGE_REQUIRED');
@@ -229,11 +229,11 @@ describe('password hashing and policy', () => {
   });
 
   it('enforces the password policy', () => {
-    const ok = (p: string) => assertPasswordPolicy(p, { minLength: 10, username: 'ahmed.ali' });
+    const ok = (p: string) => assertPasswordPolicy(p, { minLength: 10, username: 'echo.foxtrot' });
     expect(() => ok('Short1')).toThrow(/at least/);
     expect(() => ok('onlyletters')).toThrow(/letters and digits/);
     expect(() => ok('1234567890123')).toThrow(/letters and digits/);
-    expect(() => ok('ahmed.ali2026x')).toThrow(/username/);
+    expect(() => ok('echo.foxtrot2026x')).toThrow(/username/);
     expect(() => ok('password123')).toThrow(/too common/);
     expect(() => ok('x'.repeat(130) + '1')).toThrow(/at most/);
     expect(() => ok('Counter-2026-xy')).not.toThrow();

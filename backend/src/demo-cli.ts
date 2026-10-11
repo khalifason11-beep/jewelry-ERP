@@ -53,7 +53,7 @@ try {
     console.log('This demo database is empty. Create the first General Manager (the same rules as in production).');
     let username = '';
     for (;;) {
-      username = (await rl.question('General Manager username (at least 8 characters, e.g. o.abdelrahman): ')).trim().toLowerCase();
+      username = (await rl.question('General Manager username (at least 8 characters, e.g. first.lastname): ')).trim().toLowerCase();
       try {
         if (!/^[a-z0-9._-]{3,40}$/.test(username)) throw new AppError(400, 'BAD_REQUEST', 'Username: 3–40 chars, letters, digits, dot, dash, underscore');
         assertOperatorUsername(username);

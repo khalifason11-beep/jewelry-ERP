@@ -290,7 +290,7 @@ export const AR: Record<string, string> = {
   "Signed in {when}": "سجّل الدخول {when}",
   "Sessions are visible to your administrators.": "الجلسات ظاهرة لمديري النظام.",
   "Use the account assigned to you by the General Manager.": "استخدم الحساب الذي خصصه لك المدير العام.",
-  "e.g. cashier.kh.01": "مثال: cashier.kh.01",
+  "e.g. first.lastname": "مثال: first.lastname",
   "e.g. cashier.kh.03": "مثال: cashier.kh.03",
   "Hide password": "إخفاء كلمة المرور",
   "Show password": "إظهار كلمة المرور",

@@ -1,5 +1,5 @@
-// npm run bootstrap -w @jerp/backend -- --username <personal name, e.g. o.abdelrahman> --full-name "Name" [--full-name-ar "الاسم"]
-//                                       [--branch KRT:"Khartoum Branch":"فرع الخرطوم":Khartoum] …
+// npm run bootstrap -w @jerp/backend -- --username <personal name, e.g. first.lastname> --full-name "Name" [--full-name-ar "الاسم"]
+//                                       [--branch MAIN:"Main Branch":"الفرع الرئيسي":City] …
 // Creates the reference data and the FIRST General Manager of a production deployment.
 // The one-time password is printed once; the GM must change it at first sign-in.
 

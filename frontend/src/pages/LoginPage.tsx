@@ -68,7 +68,7 @@ export function LoginPage() {
 
             <form onSubmit={submit} className="mt-6 space-y-4">
               <Field label={t('Username')}>
-                <Input autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t('e.g. cashier.kh.01')} required className="bg-surface" />
+                <Input autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t('e.g. first.lastname')} required className="bg-surface" />
               </Field>
               <Field label={t('Password')}>
                 <div className="relative">

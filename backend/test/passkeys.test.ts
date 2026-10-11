@@ -459,7 +459,7 @@ describe('demo mode default (REM-3)', () => {
     const h = await openTestDatabase();
     try {
       const c = createContext(h);
-      await bootstrapProduction(c, { username: 'samira.osman', fullName: 'Owner' });
+      await bootstrapProduction(c, { username: 'golf.placeholder', fullName: 'Owner' });
       expect((await c.settings.get()).security.twoFactorRequiredRoles).toEqual(['GENERAL_MANAGER']);
       expect(await applyInitialSecuritySettings(c, { roles: '' })).toEqual([expect.objectContaining({ key: 'security.twoFactorRequiredRoles' })]);
       expect((await c.settings.get()).security.twoFactorRequiredRoles).toEqual([]);

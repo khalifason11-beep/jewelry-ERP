@@ -288,7 +288,7 @@ describe('production bootstrap', () => {
   it('seeds no item types: their names come from the client (owner decision)', async () => {
     const fresh = await openTestDatabase();
     try {
-      await bootstrapProduction(createContext(fresh), { username: 'samira.osman', fullName: 'Owner' });
+      await bootstrapProduction(createContext(fresh), { username: 'golf.placeholder', fullName: 'Owner' });
       expect(await fresh.db.select().from(t.categories)).toHaveLength(0);
       expect(await fresh.db.select().from(t.products)).toHaveLength(0);
       expect(await fresh.db.select().from(t.suppliers)).toHaveLength(0);
