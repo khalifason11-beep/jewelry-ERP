@@ -124,34 +124,43 @@ async function migrateAll(h: DatabaseHandle) {
 describe.each([15, 19])('upgrade from migration %i with data', (from) => {
   it('keeps every row and every total, keeps the protections, boots, and a second migrate is a no-op', async () => {
     const h = await openAt(from);
-    await seed(h);
-    const before = await facts(h);
-    expect(before.counts.sales).toBe(2);
-    expect(before.balances.length).toBeGreaterThan(0);
-
-    await migrateAll(h);
-    const total = await appliedCount(h);
-    const after = await facts(h);
-    expect(after).toEqual(before);
-
-    // The append-only protections are present on every table and still refuse changes.
-    for (const t of APPEND_ONLY_TABLES) {
-      const triggers = Number((await one(h, `SELECT count(*) AS n FROM pg_trigger tg JOIN pg_class c ON c.oid = tg.tgrelid JOIN pg_proc p ON p.oid = tg.tgfoid WHERE c.relname = '${t}' AND p.proname = 'jerp_forbid_modification'`)).n);
-      expect(triggers, t).toBeGreaterThanOrEqual(2);
+    try {
+      await runUpgrade(h);
+    } finally {
+      // Close before the harness drops the database: a still-open pooled connection would be terminated under it.
+      await h.close();
     }
-    expect(await refused(h, `UPDATE ledger_entries SET amount = amount + 1`)).toBe(true);
-    expect(await refused(h, `DELETE FROM audit_logs`)).toBe(true);
-    expect(await refused(h, `UPDATE branches SET city = city`)).toBe(false); // an ordinary table still accepts updates: the check is meaningful
-    expect(await unvalidatedConstraints(h.db)).toEqual([]);
-
-    // The app boots on the upgraded database.
-    const app = createApp(createContext(h), loadConfig({ APP_MODE: 'demo', VITEST: '1' } as NodeJS.ProcessEnv));
-    const health = await request(app).get('/api/health');
-    expect(health.status).toBe(200);
-
-    // A second run applies nothing and changes nothing.
-    await migrateAll(h);
-    expect(await appliedCount(h)).toBe(total);
-    expect(await facts(h)).toEqual({ ...before, counts: { ...before.counts } });
   }, 180_000);
 });
+
+async function runUpgrade(h: DatabaseHandle) {
+  await seed(h);
+  const before = await facts(h);
+  expect(before.counts.sales).toBe(2);
+  expect(before.balances.length).toBeGreaterThan(0);
+
+  await migrateAll(h);
+  const total = await appliedCount(h);
+  const after = await facts(h);
+  expect(after).toEqual(before);
+
+  // The append-only protections are present on every table and still refuse changes.
+  for (const t of APPEND_ONLY_TABLES) {
+    const triggers = Number((await one(h, `SELECT count(*) AS n FROM pg_trigger tg JOIN pg_class c ON c.oid = tg.tgrelid JOIN pg_proc p ON p.oid = tg.tgfoid WHERE c.relname = '${t}' AND p.proname = 'jerp_forbid_modification'`)).n);
+    expect(triggers, t).toBeGreaterThanOrEqual(2);
+  }
+  expect(await refused(h, `UPDATE ledger_entries SET amount = amount + 1`)).toBe(true);
+  expect(await refused(h, `DELETE FROM audit_logs`)).toBe(true);
+  expect(await refused(h, `UPDATE branches SET city = city`)).toBe(false); // an ordinary table still accepts updates: the check is meaningful
+  expect(await unvalidatedConstraints(h.db)).toEqual([]);
+
+  // The app boots on the upgraded database.
+  const app = createApp(createContext(h), loadConfig({ APP_MODE: 'demo', VITEST: '1' } as NodeJS.ProcessEnv));
+  const health = await request(app).get('/api/health');
+  expect(health.status).toBe(200);
+
+  // A second run applies nothing and changes nothing.
+  await migrateAll(h);
+  expect(await appliedCount(h)).toBe(total);
+  expect(await facts(h)).toEqual({ ...before, counts: { ...before.counts } });
+}
