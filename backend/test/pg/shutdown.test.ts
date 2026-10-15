@@ -6,9 +6,6 @@
 //     every answered sale is complete, no request gets a 500, and the same invariants hold.
 // The server runs as a real child process (`tsx src/server.ts`) on the test database.
 
-import { spawn, type ChildProcess } from 'node:child_process';
-import net from 'node:net';
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
@@ -18,6 +15,7 @@ import type { Ctx } from '../../src/core/context';
 import { seedWorld } from '../fixtures/world';
 import { DEMO_PASSWORDS } from '../fixtures/world-data';
 import { openTestDatabase, PG_MODE } from '../helpers';
+import { startServer as startServerProcess } from './server-process';
 
 let handle: DatabaseHandle & { url?: string };
 let ctx: Ctx;
@@ -30,29 +28,7 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(async () => handle?.close());
 
-const freePort = () => new Promise<number>((res) => { const s = net.createServer().listen(0, () => { const p = (s.address() as net.AddressInfo).port; s.close(() => res(p)); }); });
-
-async function startServer(): Promise<{ child: ChildProcess; base: string; exited: Promise<number | null> }> {
-  const port = await freePort();
-  // `node --import tsx` (not npx/tsx, which wrap the server in a second process): the signal must reach the server itself.
-  const child = spawn(process.execPath, ['--import', 'tsx', 'src/server.ts'], {
-    cwd: path.resolve(__dirname, '../..'),
-    env: { ...process.env, APP_MODE: 'demo', DATABASE_URL: handle.url, PORT: String(port), LOG_LEVEL: 'warn', SHUTDOWN_GRACE_MS: '10000', VITEST: '' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  child.stderr!.on('data', () => {});
-  child.stdout!.on('data', () => {});
-  const exited = new Promise<number | null>((res) => child.on('exit', (code) => res(code)));
-  const base = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 200; i++) {
-    try {
-      if ((await fetch(`${base}/api/health`)).ok) return { child, base, exited };
-    } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 150));
-  }
-  child.kill('SIGKILL');
-  throw new Error('the server did not start');
-}
+const startServer = () => startServerProcess(handle.url!, { SHUTDOWN_GRACE_MS: '10000' });
 
 async function cashierSession(base: string) {
   const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'cashier.kh.01', password: DEMO_PASSWORDS.CASHIER }) });

@@ -11,6 +11,8 @@ declare module 'express-serve-static-core' {
     mustChangePassword?: boolean;
     /** Phase 2fa: required role without a passkey / confirmed recovery codes: only /auth/* is open. */
     enrollmentRequired?: boolean;
+    /** SAFE-1: random id of this request, in the X-Request-Id response header, the access log and error bodies. */
+    requestId?: string;
   }
 }
 
@@ -35,7 +37,11 @@ export const zOptId = z.preprocess((v) => (v === '' || v === 'all' ? undefined :
 export const zDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
-  // `key` + `params` let the UI translate the message; `message` is the English rendering.
+  // `key` + `params` let the UI translate the message; `message` is the English rendering. An error body never carries
+  // a stack trace, in any mode. The request id travels in the X-Request-Id header only (SAFE-1): the sign-in refusals
+  // must stay byte-for-byte identical whatever the reason (no enumeration channel), which a per-request id in the body
+  // would break.
+  const requestId = _req.requestId;
   if (err instanceof AppError) {
     res.status(err.status).json({ error: { code: err.code, message: err.message, key: err.key, params: err.params, details: err.details } });
     return;
@@ -47,6 +53,6 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     res.status(status).json({ error: { code: tooLarge ? 'PAYLOAD_TOO_LARGE' : 'BAD_REQUEST', message: tooLarge ? 'Request is too large' : 'Malformed request', key: tooLarge ? 'Request is too large' : 'Malformed request' } });
     return;
   }
-  log.error('unhandled error', { err, method: _req.method, path: _req.path });
+  log.error('unhandled error', { err, method: _req.method, path: _req.path, requestId });
   res.status(500).json({ error: { code: 'INTERNAL', message: 'Unexpected server error', key: 'Unexpected server error' } });
 }

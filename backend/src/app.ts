@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import express from 'express';
@@ -16,6 +17,25 @@ export function createApp(ctx: Ctx, config: Config = defaultConfig) {
   // Only trust X-Forwarded-* when a proxy is explicitly configured (H-6, decisions D-1a-9).
   app.set('trust proxy', config.trustProxy);
   app.disable('x-powered-by');
+
+  // Structured access log, one line per API request (no bodies, no cookies, no query strings), with a request id that
+  // is also sent back in the X-Request-Id header (SAFE-1). The id is always generated here: an incoming
+  // header is never trusted.
+  // The path is read when the request arrives: by the time it finishes, the /api mount has rewritten req.path (before
+  // SAFE-1 the check below therefore never matched and no API request was ever logged).
+  app.use((req, res, next) => {
+    const started = process.hrtime.bigint();
+    const path = req.path;
+    req.requestId = randomUUID();
+    res.setHeader('X-Request-Id', req.requestId);
+    if (path.startsWith('/api/')) {
+      res.on('finish', () => {
+        log.info('request', { requestId: req.requestId, method: req.method, path, status: res.statusCode, ms: Number((process.hrtime.bigint() - started) / 1_000_000n), user: req.actor?.userId });
+      });
+    }
+    next();
+  });
+
 
   app.use(
     helmet({
@@ -46,16 +66,6 @@ export function createApp(ctx: Ctx, config: Config = defaultConfig) {
   // Small bodies only (D-1a-13); JSON only — forms and text bodies are never parsed.
   app.use(express.json({ limit: '100kb', strict: true, type: 'application/json' }));
   app.use(cookieParser());
-
-  // Structured access log (no bodies, no cookies, no query strings).
-  app.use((req, res, next) => {
-    const started = process.hrtime.bigint();
-    res.on('finish', () => {
-      if (!req.path.startsWith('/api')) return;
-      log.info('request', { method: req.method, path: req.path, status: res.statusCode, ms: Number((process.hrtime.bigint() - started) / 1_000_000n), user: req.actor?.userId });
-    });
-    next();
-  });
 
   app.use('/api', (_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
