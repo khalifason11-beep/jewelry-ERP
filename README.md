@@ -272,6 +272,7 @@ npm run ops -w @jerp/backend -- unlock-security-lock --username <user> --confirm
 
 | Document | Contents |
 |---|---|
+| [CLAUDE.md](CLAUDE.md) | Standing rules for every change: workflow, hard rules, gates, what needs the owner's approval |
 | [docs/FEATURES.md](docs/FEATURES.md) | What the system does today, by capability |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Stack, layers, request path, security mechanisms |
 | [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Tables, migrations 0000–0022, ledger, append-only tables |
