@@ -225,13 +225,16 @@ REASSIGN OWNED BY old_role TO jerp_owner;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO jerp_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO jerp_app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO jerp_app;
--- then, as jerp_owner: step 2 above, and re-apply the append-only lock:
+-- then, as jerp_owner: step 2 above, and re-apply the append-only lock on EVERY append-only table
+-- (the list is APPEND_ONLY_TABLES in backend/src/core/startup.ts; SAFE-1 corrected an older 7-table list here):
 SELECT jerp_lock_append_only(t::regclass)
 FROM unnest(ARRAY['audit_logs','inventory_movements','item_status_history','gold_rates','settings_history',
-                   'ledger_entries','cash_counts']) AS t;
+                   'ledger_entries','cash_counts','scrap_rates','scrap_purchases','scrap_weight_entries',
+                   'supplier_settlements','hasad_receivable_settlements','backup_runs','gm_funding_events']) AS t;
 ```
 
-Start the service; the log must **not** contain `SECURITY WARNING: the database role can alter the append-only tables`.
+Check with the preflight (`node scripts/server/preflight.mjs`: the `runtime role` line must say PASS), then start the
+service; the log must **not** contain `SECURITY WARNING: the database role can alter the append-only tables`.
 A real-PostgreSQL test (`backend/test/pg/db-roles.test.ts`) builds exactly this setup and proves the runtime role can
 neither change history rows nor disable, drop or bypass the triggers, nor grant itself the privileges back.
 

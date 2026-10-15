@@ -270,6 +270,10 @@ alone).
 
 Environment variables, roles SQL, backups, passkeys and printing: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
+Step by step on a Linux server: [docs/runbooks/](docs/runbooks/) (first deployment, routine update, rollback, restore
+drill), with the environment template [.env.example](.env.example) and the read-only check
+`node scripts/server/preflight.mjs` (PASS/WARN/FAIL per check, with the fix).
+
 ## Operator commands
 
 These need shell access to the server. They refuse to run outside production unless given `--allow-non-production`,
@@ -291,6 +295,7 @@ npm run ops -w @jerp/backend -- unlock-security-lock --username <user> --confirm
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Stack, layers, request path, security mechanisms |
 | [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Tables, migrations 0000–0022, ledger, append-only tables |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production configuration, database roles, upgrades, backups, passkeys, printing; Appendix A: Render as a worked example, not a decision |
+| [docs/runbooks/](docs/runbooks/) | First deployment, routine update, rollback and restore drill, step by step (provider-neutral) |
 | [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | How to present the system |
 | [docs/BACKLOG.md](docs/BACKLOG.md) | The single backlog: done, to do, blocked on client questions, production readiness |
 | [docs/SPEC.md](docs/SPEC.md) | The specification and the open client questions (Q-n) |
