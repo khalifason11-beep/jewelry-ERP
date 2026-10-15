@@ -60,6 +60,8 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/auth/login/cancel', 'public'),
   r('GET', '/meta', 'public'),
   r('GET', '/health', 'public'),
+  // SAFE-1: readiness for the reverse proxy / uptime monitor: status only (details are logged, never sent).
+  r('GET', '/ready', 'public'),
   r('GET', '/branding/logo', 'public'),
 
   // ── own account / session

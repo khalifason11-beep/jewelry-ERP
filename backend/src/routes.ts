@@ -46,6 +46,7 @@ import { runIdempotent } from './core/idempotency';
 import { log } from './core/logger';
 import { defineRoutes } from './core/guard';
 import { costRedaction } from './core/cost-redaction';
+import { readiness } from './core/readiness';
 
 // ───────── shared validators ─────────
 /** 1 trillion SDG: far above any real amount, far below JS/bigint limits. */
@@ -159,6 +160,14 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
    */
   route('GET', '/meta', async (_req, res) => {
     res.json({ branding: publicBranding(await ctx.settings.get()) });
+  });
+
+  // SAFE-1 readiness: the database answers, every migration of this release is applied, the append-only protections are
+  // in place. 200 {ready:true} or 503 {ready:false}; what failed goes to the log only (core/readiness.ts).
+  route('GET', '/ready', async (req, res) => {
+    const r = await readiness(ctx);
+    if (!r.ready) log.warn('not ready', { problems: r.problems, requestId: req.requestId });
+    res.status(r.ready ? 200 : 503).json({ ready: r.ready });
   });
 
   route('GET', '/health', async (_req, res) => {

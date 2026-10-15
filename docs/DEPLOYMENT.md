@@ -32,7 +32,7 @@ React app too, so no separate static site is needed.
 | App service | One Node.js 20+ process (22 tested), in the same region as the database. |
 | Build command | `npm ci --include=dev && npm run build` (the start command runs TypeScript through `tsx`, a dev dependency, so dev dependencies must be installed) |
 | Start command | `npm start` |
-| Health check path | `/api/health` |
+| Health check path | `/api/health` (liveness). `/api/ready` is readiness: use it where the host distinguishes the two (section 7.7). |
 | Instances | **1** for now. The per-IP sign-in throttle and the login counters for unknown usernames are kept in process memory, and each instance keeps its own settings cache for up to 5 s. See "Remaining limits" below. |
 | Shell | Shell access to the running service (SSH or the host's console) for the bootstrap and the operator console. |
 
@@ -400,6 +400,8 @@ future migration that cannot transform a row is redesigned, not shipped with a g
 ## 6. After every deploy
 
 - `GET /api/health` returns `200`.
+- `GET /api/ready` returns `200 {"ready":true}` (database reachable, every migration of this release applied, the
+  append-only triggers present and enabled).
 - The login page shows the company name and logo from Settings, not "Jewelry ERP".
 - The login page lists no accounts, and the header shows no "Demo" badge (it appears only in `APP_MODE=demo`).
 - The start-up log has no `integrity constraints left NOT VALID` warning (see section 5).
@@ -558,6 +560,11 @@ record the drill so the health check sees it).
 - `GET /api/health` always answers HTTP 200 (a stale backup must not make the host restart a healthy
   service) and includes `"backup": {"status": "OK" | "WARNING", "backupAgeHours", "verifyAgeHours", "reasons"}`
   — ages and status only. Point an uptime monitor at it with a keyword alert on `"WARNING"`.
+- `GET /api/ready` (SAFE-1) is the **readiness** check: `200 {"ready":true}`, or `503 {"ready":false}` when the database
+  is unreachable, the applied migrations differ from what this release expects, or an append-only table's
+  protection trigger is missing or disabled. The body never says which: the reason is in the server log
+  (`not ready`, with the request id). It answers within 3 s and is never cached. Alert on any 503; do not let
+  the host restart the process on it (a restart cannot fix a schema or trigger problem).
 - The General Manager sees a warning banner on the Executive Overview when the last successful backup is
   older than *Warn after … hours* (default 26) or the last successful drill older than *… days* (default 7)
   (**Settings → Backups**). A failed upload counts as a failed backup.
@@ -801,7 +808,7 @@ Render; another host needs the same things under other names.
 | Web Service | Runtime **Node**, region the same as the database. |
 | Build command | `npm ci --include=dev && npm run build` (the start command runs TypeScript through `tsx`, a dev dependency, so dev dependencies must be installed) |
 | Start command | `npm start` |
-| Health check path | `/api/health` |
+| Health check path | `/api/health` (liveness). `/api/ready` is readiness: use it where the host distinguishes the two (section 7.7). |
 | Instances | **1** for now. The per-IP sign-in throttle and the login counters for unknown usernames are kept in process memory, and each instance keeps its own settings cache for up to 5 s. See "Remaining limits" below. |
 
 ### A.2 Environment variables on Render

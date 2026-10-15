@@ -330,6 +330,7 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'POST /auth/login': () => ({ path: '/auth/login', body: {} }),
   'GET /meta': () => ({ path: '/meta' }),
   'GET /health': () => ({ path: '/health' }),
+  'GET /ready': () => ({ path: '/ready' }),
   'GET /branding/logo': () => ({ path: '/branding/logo' }),
   'GET /auth/me': () => ({ path: '/auth/me' }),
   'POST /auth/logout': () => ({ path: '/auth/logout' }),
