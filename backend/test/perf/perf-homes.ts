@@ -5,7 +5,8 @@
 // 2. Scales it with bulk SQL to 8 branches over 2 years: about 60,000 sales (2 % voided), 90,000 pieces, their
 //    inventory movements and ledger entries, open supplier gold debts and daily cash counts.
 // 3. Times the service functions behind GET /dashboard/company (today and 30 days), /dashboard/branch and /attention
-//    (GM and branch manager): 3 warm-up runs, then 20 timed runs; p50 and p95 in milliseconds.
+//    (GM and branch manager), and (BE-7) one page of every server-paged list: the first page, the last page (the
+//    deepest offset), another sort, the branch manager's page; 3 warm-up runs, then 20 timed runs; p50 and p95 in ms.
 // 4. Prints the slowest SQL statements with EXPLAIN (ANALYZE, BUFFERS), the machine and the data size.
 // Exit code 1 when any p95 is above the budget (300 ms).
 
@@ -20,6 +21,12 @@ import { addDays, dayKey } from '../../src/core/time';
 import { loadActor } from '../../src/modules/sessions/service';
 import { branchDashboard, companyDashboard } from '../../src/modules/dashboard/service';
 import { attentionFor } from '../../src/modules/attention/service';
+import { pageSales } from '../../src/modules/sales/service';
+import { pageItems } from '../../src/modules/inventory/service';
+import { pagePurchases } from '../../src/modules/purchases/service';
+import { listScrapPurchases } from '../../src/modules/scrap/service';
+import { listTransfers } from '../../src/modules/transfers/service';
+import { pageAudit } from '../../src/modules/reports/service';
 import { rows } from '../../src/core/sql';
 import { seedWorld } from '../fixtures/world';
 import { dropTestDatabase } from '../helpers';
@@ -59,13 +66,67 @@ async function main() {
       ['GET /attention (GM)', () => attentionFor(ctx, gm)],
       ['GET /attention (BM)', () => attentionFor(ctx, bm)],
     ];
+    // BE-7: one page (50 rows) of every server-paged list; "last page" is the deepest offset of the unfiltered list.
+    const last = async (f: () => Promise<{ page: { pages: number } }>) => (await f()).page.pages;
+    const month = { from: addDays(today, -29), to: today };
+    const salesLast = await last(() => pageSales(ctx, gm, {}));
+    const itemsLast = await last(() => pageItems(ctx, gm, { status: ['AVAILABLE'] }));
+    const purchasesLast = await last(() => pagePurchases(ctx, gm, {}));
+    const auditLast = await last(() => pageAudit(ctx, gm, month));
+    cases.push(
+      ['GET /sales (GM, page 1 of all)', () => pageSales(ctx, gm, {})],
+      [`GET /sales (GM, last page ${salesLast})`, () => pageSales(ctx, gm, { page: salesLast })],
+      ['GET /sales (GM, 30 days, sort total)', () => pageSales(ctx, gm, { ...month, sort: 'total' })],
+      ['GET /sales (GM, search)', () => pageSales(ctx, gm, { q: 'S-0' })],
+      ['GET /sales (BM, page 1)', () => pageSales(ctx, bm, {})],
+      ['GET /inventory/items (GM, available, page 1)', () => pageItems(ctx, gm, { status: ['AVAILABLE'] })],
+      [`GET /inventory/items (GM, last page ${itemsLast})`, () => pageItems(ctx, gm, { status: ['AVAILABLE'], page: itemsLast })],
+      ['GET /inventory/items (GM, sort price)', () => pageItems(ctx, gm, { status: ['AVAILABLE'], sort: 'price' })],
+      ['GET /inventory/items (BM, page 1)', () => pageItems(ctx, bm, { status: ['AVAILABLE'] })],
+      ['GET /inventory/items (POS search, 200)', () => pageItems(ctx, bm, { status: ['AVAILABLE'], q: '21', pageSize: 200, sort: 'recent' })],
+      ['GET /purchases (GM, page 1)', () => pagePurchases(ctx, gm, {})],
+      [`GET /purchases (GM, last page ${purchasesLast})`, () => pagePurchases(ctx, gm, { page: purchasesLast })],
+      ['GET /purchases (BM, page 1)', () => pagePurchases(ctx, bm, {})],
+      ['GET /scrap-purchases (GM, page 1)', () => listScrapPurchases(ctx, gm, {})],
+      ['GET /scrap-purchases (BM, page 1)', () => listScrapPurchases(ctx, bm, {})],
+      ['GET /transfers (GM, page 1)', () => listTransfers(ctx, gm, {})],
+      ['GET /transfers (BM, page 1)', () => listTransfers(ctx, bm, {})],
+      ['GET /audit (GM, 30 days, page 1)', () => pageAudit(ctx, gm, month)],
+      [`GET /audit (GM, 30 days, last page ${auditLast})`, () => pageAudit(ctx, gm, { ...month, page: auditLast })],
+      ['GET /audit (BM, 30 days, page 1)', () => pageAudit(ctx, bm, month)],
+    );
     const statements = new Map<string, { q: SQL; ms: number }>();
+    // --explain-lists (BE-7): the list queries are built by the query builder, so they are caught at the pg pool:
+    // the slowest real statement of each list case, with its parameters, is explained after the timings.
+    const listStatements = new Map<string, { text: string; values: unknown[]; ms: number }>();
+    const clientQuery = pg.Pool.prototype.query;
+    let recording: string | null = null;
     const orig = ctx.db.execute.bind(ctx.db);
     let failed = false;
     console.log(`\n| endpoint | p50 ms | p95 ms | budget |\n|---|---|---|---|`);
     for (const [label, fn] of cases) {
       for (let i = 0; i < 3; i++) await fn();
       const times: number[] = [];
+      if (ARGS.has('--explain-lists') && !/^GET \/(dashboard|attention)/.test(label)) {
+        recording = label;
+        (pg.Pool.prototype as unknown as { query: unknown }).query = function (this: pg.Pool, ...a: unknown[]) {
+          const cfg = a[0] as { text?: string; values?: unknown[] } | string;
+          const text = typeof cfg === 'string' ? cfg : cfg?.text;
+          // drizzle passes ({ text, rowMode, types }, params); plain callers pass (text, params) or ({ text, values }).
+          const values = (typeof cfg === 'string' ? a[1] : (cfg?.values ?? a[1])) as unknown[] | undefined;
+          const s0 = performance.now();
+          const r = (clientQuery as (...x: unknown[]) => unknown).apply(this, a) as Promise<unknown>;
+          if (recording && text && /^select/i.test(text) && r && typeof r.then === 'function') {
+            const key = recording;
+            void r.then(() => {
+              const ms = performance.now() - s0;
+              const prev = listStatements.get(key);
+              if (!prev || prev.ms < ms) listStatements.set(key, { text, values: values ?? [], ms });
+            }, () => undefined);
+          }
+          return r;
+        };
+      }
       for (let i = 0; i < RUNS; i++) {
         (ctx.db as unknown as { execute: typeof orig }).execute = (async (q: SQL) => {
           const s = performance.now();
@@ -81,6 +142,8 @@ async function main() {
         times.push(performance.now() - s);
         (ctx.db as unknown as { execute: typeof orig }).execute = orig;
       }
+      recording = null;
+      (pg.Pool.prototype as unknown as { query: unknown }).query = clientQuery;
       times.sort((a, b) => a - b);
       const p50 = times[Math.floor(RUNS * 0.5)];
       const p95 = times[Math.min(RUNS - 1, Math.ceil(RUNS * 0.95) - 1)];
@@ -93,6 +156,15 @@ async function main() {
         const plan = rows<{ 'QUERY PLAN': string }>(await ctx.db.execute(sql`EXPLAIN (ANALYZE, BUFFERS) ${s.q}`)).map((r) => r['QUERY PLAN']);
         console.log(`\n--- ${s.ms.toFixed(1)} ms ---\n${plan.slice(0, 14).join('\n')}`);
       }
+    }
+    if (ARGS.has('--explain-lists')) {
+      const ex = new pg.Client({ connectionString: url.toString() });
+      await ex.connect();
+      for (const [label, st] of listStatements) {
+        const plan = (await ex.query(`EXPLAIN (ANALYZE, BUFFERS) ${st.text}`, st.values)).rows.map((r) => r['QUERY PLAN'] as string);
+        console.log(`\n--- ${label}: slowest statement ${st.ms.toFixed(1)} ms ---\n${st.text.slice(0, 300)}${st.text.length > 300 ? '…' : ''}\n${plan.slice(0, 18).join('\n')}`);
+      }
+      await ex.end();
     }
     console.log(failed ? `\nPERF FAILED: a p95 is above ${BUDGET_MS} ms.` : `\nPERF PASSED: every p95 within ${BUDGET_MS} ms.`);
     process.exitCode = failed ? 1 : 0;
