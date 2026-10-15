@@ -372,6 +372,25 @@ future migration that cannot transform a row is redesigned, not shipped with a g
   supplier settlements; a retry with the same key never records or settles twice. (Since MKC-1 an order no longer
   pays its making charge from branch money: see the MKC-1 section above.)
 
+### Migrations are forward-only: the rollback story (SAFE-1)
+
+- Migrations only go forward. There is no "down" migration, and an applied migration is never edited
+  (`database/migrations/checksums.json`, enforced by `npm run check:migrations`).
+- Every pending migration runs in **one transaction**: a migration that stops (one of the guards, or an error) changes
+  nothing.
+- A release **without** a new migration is rolled back by deploying the previous code.
+- A release **with** a migration cannot be undone by deploying old code: the old code would run against the new
+  schema. Recovery is to **restore the pre-deploy backup**, losing what was entered after it.
+- Therefore every deploy that carries a migration first takes a backup and **verifies** it (`npm run backup`, then
+  `npm run backup:verify`; see `docs/runbooks/update-deploy.md` and `docs/runbooks/rollback.md`).
+- `backend/test/migration-upgrade.test.ts` proves, on real PostgreSQL, that databases created at migration 0015 and
+  0019 with data upgrade cleanly:
+  - row counts, money and weight totals and ledger balances are identical;
+  - the append-only triggers are still present and refusing;
+  - no constraint is left `NOT VALID`;
+  - the app boots;
+  - a second run is a no-op.
+
 ## 6. After every deploy
 
 - `GET /api/health` returns `200`.
