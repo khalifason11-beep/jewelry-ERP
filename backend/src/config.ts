@@ -93,6 +93,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
      * The runtime database pool (SAFE-1). Explicit limits so one slow query or a forgotten transaction cannot hold the
      * pool; migrations and CLIs are not affected. 0 turns a timeout off.
      */
+    /** SAFE-1: on SIGTERM/SIGINT, how long running requests may take before their connections are cut. */
+    shutdownGraceMs: whole(env, 'SHUTDOWN_GRACE_MS', 15_000, 600_000),
     pg: {
       max: whole(env, 'PG_POOL_MAX', 10, 200) || 10,
       statementTimeoutMs: whole(env, 'PG_STATEMENT_TIMEOUT_MS', 30_000, 3_600_000),

@@ -71,18 +71,36 @@ const { security: sec } = await ctx.settings.get();
 log.info('second factor', { rpId: config.webauthnRpId ?? '(demo: from each request)', userVerification: sec.webauthnUserVerification, requiredRoles: sec.twoFactorRequiredRoles });
 
 const app = createApp(ctx, config);
-app.listen(config.port, () => {
+const server = app.listen(config.port, () => {
   log.info('server started', { port: config.port, appMode: config.appMode, db: handle.driver, webauthnRpId: config.webauthnRpId ?? '(from each request: demo without APP_ORIGIN)' });
 });
 
 // Background housekeeping.
-setInterval(() => {
+const sweep = setInterval(() => {
   purgeExpiredSecondFactorState(ctx.db).catch((e) => log.error('second-factor sweep failed', { err: e }));
 }, 60_000);
 
-const shutdown = async () => {
-  await handle.close();
-  process.exit(0);
+// Graceful shutdown (SAFE-1): a deploy restart stops accepting connections, lets the requests already running finish
+// (each money write is one database transaction, so a write is either complete or never happened), then closes the
+// database pool. After SHUTDOWN_GRACE_MS the remaining connections are cut; their transactions roll back.
+let stopping = false;
+const shutdown = (signal: string) => {
+  if (stopping) return;
+  stopping = true;
+  log.info('shutting down: no new connections, waiting for running requests', { signal, graceMs: config.shutdownGraceMs });
+  clearInterval(sweep);
+  const force = setTimeout(() => {
+    log.warn('running requests did not finish in time: closing their connections', { graceMs: config.shutdownGraceMs });
+    server.closeAllConnections();
+  }, config.shutdownGraceMs);
+  force.unref();
+  server.close(async () => {
+    clearTimeout(force);
+    await handle.close().catch((e) => log.error('closing the database pool failed', { err: e }));
+    log.info('stopped');
+    process.exit(0);
+  });
+  server.closeIdleConnections(); // idle keep-alive connections would otherwise hold server.close() open
 };
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

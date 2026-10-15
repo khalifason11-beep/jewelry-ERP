@@ -55,6 +55,7 @@ React app too, so no separate static site is needed.
 | `PG_IDLE_IN_TX_TIMEOUT_MS` | optional, default `60000` | A transaction left open and idle longer than this is ended by PostgreSQL (0 = none). |
 | `PG_CONNECT_TIMEOUT_MS` | optional, default `10000` | How long to wait for a new database connection. |
 | `PG_IDLE_TIMEOUT_MS` | optional, default `30000` | How long an idle pooled connection is kept. A connection lost when the database restarts is dropped and replaced on the next query; the app does not need a restart. |
+| `SHUTDOWN_GRACE_MS` | optional, default `15000` | On SIGTERM/SIGINT (a deploy restart) the server stops accepting connections, lets running requests finish for up to this long, then closes the database pool and exits 0. A money write is one transaction: it is either complete or never happened. Give the process manager a stop timeout longer than this (systemd `TimeoutStopSec`). |
 | `WEBAUTHN_RP_ID` | leave **unset** (= the host of `APP_ORIGIN`), or the parent domain, e.g. `example.com` | The domain passkeys belong to. Must be the host of `APP_ORIGIN` or a parent of it; anything else is refused at start-up. **Changing it later invalidates every passkey** (section 8.1). |
 | `WEBAUTHN_RP_NAME` | optional, e.g. the company name | Shown by Windows Hello / the phone when registering. Cosmetic. |
 | `WEBAUTHN_UV_INITIAL` | optional: `required` (default) or `preferred` | **First start only**: initial value of "what a passkey must check" (section 8.4). Ignored once the setting exists. |
