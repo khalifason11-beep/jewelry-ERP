@@ -226,6 +226,20 @@ Browser and system checks (they use Playwright with the pre-installed Chromium):
 - `node scripts/perf-homes.mjs` (needs `REHEARSAL_ADMIN_URL`): times the homes and the attention list on a large
   database, and fails above a p95 of 300 ms.
 
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request (no secrets, read-only permissions). Its jobs:
+
+| Check name | What it runs | Required for `main` |
+|---|---|---|
+| `typecheck` | `npm run typecheck` (every static gate, then tsc) | yes |
+| `test-pglite` | the test suites on embedded PGlite | yes |
+| `test-postgres` | the test suites on PostgreSQL 16, including the race and privilege tests | yes |
+| `build` | `npm run build` and `npm run i18n:check` | yes |
+| `smoke` | REH-1 and the headless e2e scripts | not at first (slow, browser-dependent) |
+
+Locally, `npm run verify` runs the same gates in order (`-- --full` adds REH-1, the e2e scripts and perf).
+
 ## Production mode
 
 `APP_MODE=production` removes the Demo badge, refuses `dev:sample`, and **refuses to start** while the configuration is
