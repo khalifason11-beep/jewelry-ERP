@@ -79,10 +79,22 @@ export function createApp(ctx: Ctx, config: Config = defaultConfig) {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Unknown API endpoint', key: 'Unknown API endpoint' } });
   });
 
-  // Serve the built SPA.
+  // Serve the built SPA (SAFE-1 cache headers): files under /assets carry their content hash in the name, so they never
+  // change (one year, immutable); index.html names the current hashes, so browsers revalidate it on every load and get
+  // an update at once; other root files (favicon) keep the short cache.
   if (fs.existsSync(path.join(config.frontendDist, 'index.html'))) {
-    app.use(express.static(config.frontendDist, { index: false, maxAge: '1h' }));
-    app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(config.frontendDist, 'index.html')));
+    const indexHtml = path.join(config.frontendDist, 'index.html');
+    app.use('/assets', express.static(path.join(config.frontendDist, 'assets'), { index: false, maxAge: '1y', immutable: true }));
+    app.use(
+      express.static(config.frontendDist, {
+        index: false,
+        maxAge: '1h',
+        setHeaders: (res, file) => {
+          if (file === indexHtml) res.setHeader('Cache-Control', 'no-cache');
+        },
+      }),
+    );
+    app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(indexHtml, { headers: { 'Cache-Control': 'no-cache' } }));
   }
   app.use(errorHandler);
   return app;

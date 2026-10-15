@@ -399,6 +399,8 @@ future migration that cannot transform a row is redesigned, not shipped with a g
 
 ## 6. After every deploy
 
+- Open browsers get the new version on their next page load: `index.html` is served `no-cache` and the hashed files
+  under `/assets` are `immutable` for a year (SAFE-1). A reverse proxy or CDN in front must keep these headers.
 - `GET /api/health` returns `200`.
 - `GET /api/ready` returns `200 {"ready":true}` (database reachable, every migration of this release applied, the
   append-only triggers present and enabled).
