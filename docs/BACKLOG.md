@@ -237,6 +237,16 @@ valid session cookie can sign in again (the sign-in steps need no CSRF token but
 is ended). DEPLOYMENT §6 checks that the reverse proxy passes Origin unchanged. Tests `proxy-origin.test.ts`,
 `login-stale-cookie.test.ts` (both projects).
 
+### SAFE-1 — Change safely, deploy safely · DONE · M · P0
+
+Hardening only; no screen, text, setting or number changed (plan `docs/plans/SAFE-1.md`). `CLAUDE.md` (standing rules,
+gates, what needs the owner's approval); CI on every push and pull request (required checks `typecheck`, `test-pglite`,
+`test-postgres`, `build`; `smoke` not yet required); migration checksums and a destructive-statement gate; an upgrade
+test from 0015 and 0019 with realistic data; the rollback story; pool limits and survival of a database restart;
+graceful shutdown; request id and a working API access log; `/api/ready`; explicit `TRUST_PROXY` and `STRICT_DB_ROLES`
+in production; `TZ=UTC`; cache headers; `.env.example`; `docs/runbooks/`; the read-only `scripts/server/preflight.mjs`;
+`npm run verify`.
+
 ### SPL-1 — Split payments · BLOCKED (Q-7) · M · P2
 If a prepaid Hasad balance can fall short of the price, one sale must carry several payments (for example Hasad plus cash). Ledger entries per payment, one reference per payment.
 
@@ -330,7 +340,7 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
 |---|---|---|---|---|
 | **REH-1** | **Empty-database rehearsal script** (`npm run rehearsal`, Playwright). Bootstraps an empty database in **production mode on real PostgreSQL**, behind a local TLS proxy with a self-signed certificate that the script starts itself (passkey RP `localhost`; the production start-up checks are not relaxed), then runs: branch → users → item types → opening import → sale by cash, bank (with reference) and Hasad → print and reprint → void → scrap purchase (clean and broken) → supplier order and settlement → transfer from the cart and receipt → cash count → backup and verify. Build it incrementally and run it before accepting any phase. **PARTIAL:** bootstrap → GM first sign-in (password change, passkey, recovery codes) → branch → branch manager and cashier → their first sign-in → no expense wording on any screen in Arabic or English, expense routes gone, no Hasad withdrawal wording or menu entry, Hasad routes and report gone, the POS offers Cash / Bank transfer / Hasad, reconciliation lines add up → CAT-0 catalog entry in the forms → audit trail; REM-3: first-steps checklist (karats confirmed, gold and scrap rates, branch, staff), empty states, no Demo badge in production, and a fresh demo-mode database that is empty, lists no accounts and shows the Demo badge; the New branch and New user dialogs keep typing in the field the person chose, checked deterministically with paused timers; REM-5: the production database has none of the removed objects, all 17 migrations applied, one supplier line per piece; UI-A1: the plain sign-in page, the sidebar per role equal to the mockups (no POS for the GM, icons only for the cashier), no cost or profit word or figure in the shell for the branch manager and the cashier in both languages, "Bank transfer" in the English POS; UI-A2: every list's empty text in both languages, the shell notices (one line each, none for the branch manager, no USD chip), the sign-in tagline in self-hosted Amiri, the public answer limited to the branding allow-list (130 checks). | Engineering | **P0** | grows with each phase |
 | HOST-1 | Decide hosting (Q-11): managed PostgreSQL (paid), region, domain, Shell access for operator commands; separate staging and production. The domain must be final before any passkey is registered. | Owner | **P0** | |
-| DEP-1 | Staging deployment in production mode: `STRICT_DB_ROLES=true`, `TRUST_PROXY` verified (real client IPs in the audit log), health monitor on `/api/health`. | Owner + engineering | P1 | HOST-1 |
+| DEP-1 | Staging deployment in production mode following `docs/runbooks/first-deploy.md`: `STRICT_DB_ROLES=true`, `TRUST_PROXY` verified (real client IPs in the audit log), the preflight all PASS, monitors on `/api/health` (backup warning) and `/api/ready` (any 503). Make `smoke` a required CI check once it has been green for two weeks. | Owner + engineering | P1 | HOST-1 |
 | BKP-1 | Backup key pair stored in two places; off-site target; daily schedule; weekly drill on a separate machine; **a restore performed by someone other than the developer**; result recorded. | Owner | **P0** | HOST-1 |
 | 2FA-1 | Enroll passkeys on the GM's real devices (two), print recovery codes, test the lost-device procedure on staging. | Owner | P1 | HOST-1, Q-11 |
 | HW-1 | Hardware tests on the client's real printer (the 15-item checklist in the printing report and `docs/DEPLOYMENT.md` §9), barcode scanner, silent-printing shortcut (the `.cmd` template has never run on Windows). | Owner | P1 | |
@@ -354,6 +364,22 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
 - The silent-printing `.cmd` template is untested on Windows; CSS page size on a given thermal driver is a request, not a guarantee.
 - ~~Hasad double-notification risk (D-2a-8)~~: **resolved by scope change** (REM-2 removed the Hasad integration).
 - Single-role database deployments still work but log a security warning.
+- **No rate limit on write endpoints** (SAFE-1 audit). Sign-in and passkey failures are limited (5 per account, then
+  15→60 min; 30 per IP per 15 min) and bodies are capped at 100 kB (512 kB for the logo), but an authenticated session
+  can send writes as fast as it likes. Needs an owner decision (a per-session limit, and its numbers) before a second
+  branch.
+- A request for a hashed file that no longer exists (an old browser tab after an update asks for the previous
+  `/assets/index-<old>.js`) gets `index.html` with status 200, so the tab fails to load its script instead of getting a
+  clear 404; a reload fixes it (found in SAFE-1, not changed).
+- ~~REH-1 failed now and then on the CI runner after check 66~~: **fixed in SAFE-1** (a race in the rehearsal script,
+  not in the app). The diagnostics added in SAFE-1 showed the cashier still on the change-password form with no error:
+  the URL changes before the sign-in form is replaced, so the first fill could land in the sign-in form's password field
+  and the required temporary-password field stayed empty, which makes the browser refuse the submit silently. The script
+  now waits for the change-password form alone and checks the typed values before submitting.
+- `npm run test:pg -w @jerp/backend` sets its variable with POSIX shell syntax, so it does not run in the Windows
+  command prompt (`npm test` with `TEST_DATABASE_URL` does).
+- ~~The API access log never logged a request~~ (`req.path` was read after Express rewrote it under `/api`): **fixed in
+  SAFE-1**, with a request id in the `X-Request-Id` header and every log line.
 
 ---
 
