@@ -2,15 +2,20 @@
 // reason, and no product code that imports test code. Pure functions, tested with sample SQL and sources.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { PG_MODE } from './helpers';
 
 type MigrationsGate = {
   BASELINE: number;
-  checkMigrationSql: (sql: string) => { statement: number; rule: string; text: string }[];
+  DECISION_FROM: number;
+  checkMigrationSql: (sql: string, opts?: { requireDecision?: boolean }) => { statement: number; rule: string; text: string }[];
   migrationNumber: (file: string) => number | null;
   checkMigrationsDir: (dir: string) => unknown[];
+  checksum: (text: string) => string;
+  checkManifest: (dir: string, manifest: Record<string, string>) => { file: string; kind: string }[];
+  recordNew: (dir: string, manifest: Record<string, string>) => string[];
 };
 type DrizzleGate = { checkDrizzle: (o?: { schema?: string }) => { ok: boolean; output: string; written: string[] } };
 type AssetsGate = { assetProblems: (files: { path: string; bytes: number }[]) => { problems: string[]; count: number; total: number } };
@@ -86,6 +91,55 @@ describe('migration gate', () => {
   it('would have stopped the CAT-0 drizzle-kit incident (generated DROP TABLE of live tables)', () => {
     const generated = ['DROP TABLE "jewelry_items" CASCADE;', 'DROP TABLE "item_status_history" CASCADE;', 'DROP TABLE "inventory_movements" CASCADE;'].join(BREAK);
     expect(mig.checkMigrationSql(generated)).toHaveLength(3);
+  });
+});
+
+describe('migration gate: applied migrations are frozen (SAFE-1)', () => {
+  const real = path.join(ROOT, 'database/migrations');
+  const manifest = () => JSON.parse(fs.readFileSync(path.join(real, 'checksums.json'), 'utf8')) as Record<string, string>;
+  const copy = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jerp-migsum-'));
+    for (const f of fs.readdirSync(real)) if (f.endsWith('.sql')) fs.copyFileSync(path.join(real, f), path.join(dir, f));
+    return dir;
+  };
+
+  it('the committed manifest lists every migration with its current checksum', () => {
+    expect(mig.checkManifest(real, manifest())).toEqual([]);
+    expect(Object.keys(manifest())).toHaveLength(fs.readdirSync(real).filter((f) => /^\d{4}_.*\.sql$/.test(f)).length);
+  });
+
+  it('fails when an applied migration is edited, deleted, or a new one is not recorded; --record only adds', () => {
+    const dir = copy();
+    try {
+      fs.appendFileSync(path.join(dir, '0010_passkeys.sql'), '\n-- a harmless-looking edit\n');
+      fs.rmSync(path.join(dir, '0005_least_privilege_roles.sql'));
+      fs.writeFileSync(path.join(dir, '0099_new_thing.sql'), 'ALTER TABLE "x" ADD COLUMN "y" integer;');
+      const m = manifest();
+      expect(mig.checkManifest(dir, m).sort((a, b) => a.file.localeCompare(b.file))).toEqual([
+        { file: '0005_least_privilege_roles.sql', kind: 'missing' },
+        { file: '0010_passkeys.sql', kind: 'changed' },
+        { file: '0099_new_thing.sql', kind: 'unlisted' },
+      ]);
+      // Recording adds the new file and never rewrites the edited one.
+      expect(mig.recordNew(dir, m)).toEqual(['0099_new_thing.sql']);
+      expect(mig.checkManifest(dir, m).map((p) => p.kind).sort()).toEqual(['changed', 'missing']);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('a Windows (CRLF) checkout hashes the same as LF', () => {
+    expect(mig.checksum('A;\r\nB;\r\n')).toBe(mig.checksum('A;\nB;\n'));
+  });
+
+  it('from 0023 on, a destructive statement must cite a written D-* decision', () => {
+    expect(mig.DECISION_FROM).toBe(23);
+    const reasonOnly = '-- allow-destructive: no longer needed\nDROP TABLE "x";';
+    const withDecision = '-- allow-destructive: D-abc-3 the owner approved dropping x\nDROP TABLE "x";';
+    expect(mig.checkMigrationSql(reasonOnly)).toEqual([]);
+    expect(mig.checkMigrationSql(reasonOnly, { requireDecision: true })).toHaveLength(1);
+    expect(mig.checkMigrationSql(withDecision, { requireDecision: true })).toEqual([]);
+    expect(mig.checkMigrationSql('DELETE FROM "x";', { requireDecision: true })).toHaveLength(1);
   });
 });
 
