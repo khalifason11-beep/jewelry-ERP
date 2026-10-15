@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { sql } from 'drizzle-orm';
-import { MIGRATIONS_DIR } from '@jerp/database';
+import { MIGRATIONS_DIR, type Executor } from '@jerp/database';
 import type { Ctx } from './context';
 import { rows } from './sql';
 import { APPEND_ONLY_TABLES } from './startup';
@@ -19,18 +19,23 @@ export function expectedMigrations(dir = MIGRATIONS_DIR): number {
 const EXPECTED = expectedMigrations();
 const TIMEOUT_MS = 3_000;
 
+/** Append-only tables without an enabled `jerp_forbid_modification` UPDATE trigger (also used by the preflight). */
+export async function unprotectedAppendOnlyTables(exec: Executor): Promise<string[]> {
+  const protectedTables = rows<{ t: string }>(
+    await exec.execute(sql`
+      SELECT DISTINCT c.relname AS t FROM pg_trigger tg JOIN pg_class c ON c.oid = tg.tgrelid JOIN pg_proc p ON p.oid = tg.tgfoid
+      WHERE p.proname = 'jerp_forbid_modification' AND NOT tg.tgisinternal AND tg.tgenabled <> 'D' AND (tg.tgtype::int & 16) <> 0`),
+  ).map((r) => r.t);
+  return APPEND_ONLY_TABLES.filter((t) => !protectedTables.includes(t));
+}
+
 export async function readiness(ctx: Ctx): Promise<{ ready: boolean; problems: string[] }> {
   const problems: string[] = [];
   const check = async () => {
     await ctx.db.execute(sql`SELECT 1`);
     const applied = Number(rows<{ n: string }>(await ctx.db.execute(sql`SELECT count(*) AS n FROM drizzle.__drizzle_migrations`))[0].n);
     if (applied !== EXPECTED) problems.push(`migrations applied: ${applied}, this release expects ${EXPECTED}`);
-    const protectedTables = rows<{ t: string }>(
-      await ctx.db.execute(sql`
-        SELECT DISTINCT c.relname AS t FROM pg_trigger tg JOIN pg_class c ON c.oid = tg.tgrelid JOIN pg_proc p ON p.oid = tg.tgfoid
-        WHERE p.proname = 'jerp_forbid_modification' AND NOT tg.tgisinternal AND tg.tgenabled <> 'D' AND (tg.tgtype::int & 16) <> 0`),
-    ).map((r) => r.t);
-    const missing = APPEND_ONLY_TABLES.filter((t) => !protectedTables.includes(t));
+    const missing = await unprotectedAppendOnlyTables(ctx.db);
     if (missing.length) problems.push(`append-only protection missing or disabled on: ${missing.join(', ')}`);
   };
   try {
