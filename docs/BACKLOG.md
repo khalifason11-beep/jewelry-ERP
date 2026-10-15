@@ -287,9 +287,10 @@ Re-verify every report after REM-1, REM-2 and PRC-1; add reporting by payment ch
 **Pilot minimum set** (`docs/ux/ANALYSIS.md` §3): **A1** transfers in transit, **A2** transfer stale (`transfers.pendingClaimStaleHours`), **A4** cash-count difference (+ `cash.countDifferenceTolerance`, default 0), **A5** missing cash count, **A6** supplier gold owed per supplier and its age (+ `purchases.supplierDebtMaxAgeDays`, default 30), **A9** backup health, **A10** sign-in from a new device, **A11** failed sign-ins, **A12** locked accounts, **A15** stock does not reconcile, **A16** no gold/scrap rate set. **Deferred:** A3 (needs a dispute feature), A7 (depends on Q-7), A8 (report only, RPT-1), A13, A14; A17 not now.
 **Acceptance:** each signal has a test that raises and clears it; **tests prove a branch manager never receives a signal that exposes a COST field** (field-classification registry); the route is in the route matrix with its scope.
 
-### BE-7 — Server-side pagination and sorting · TODO · M · P1
+### BE-7 — Server-side pagination and sorting · DONE · M · P1
 **Owner decision D-ux-15.** Sales, inventory, audit, purchases, scrap purchases and transfers page and sort on the server (50 rows per page, max 200), with the filters of R11. Today inventory loads up to 1,000 rows into the browser. CSV export keeps exporting the whole filtered result.
 **Acceptance:** lists stay correct and fast with 10,000 pieces and 20,000 sales on real PostgreSQL; cost-visibility tests still pass on every page.
+**Done (plan `docs/plans/BE-7.md`, D-be7-1…7):** offset pages with an id tiebreaker and a snapshot id, exact totals, fixed sort keys (cost keys GM only), whole-result table totals, CSV by walking every page, migration 0023 (`sale_items(sale_id)`). Measured on 60,140 sales and 90,376 pieces (PostgreSQL 16): every list p95 ≤ 177 ms (budget 300). `test/paging.test.ts` (every page of every list for every role), `test/business-day.test.ts` (the Khartoum midnight in every list).
 
 ### TAX-1 — Official tax invoice · BLOCKED (Q-9) · ? · P2
 Only if the client is legally required to issue one.
@@ -326,7 +327,7 @@ Done on 2026-10-09 (plan `docs/plans/UI-A2.md`, decisions D-ui-10 … D-ui-16, a
 - **Still open, decided elsewhere:** GM branch switcher and the attention list (UI-B); login image panel only if a licensed image is added; USD chip until Q-10.
 
 ### UI-B — Homes, branches, sales list · HOMES DONE · M · P1 · UI-A2, BE-1, BE-7
-**Homes done (commits `200aa14` to `98f0848` and the UI-B docs commit; D-ui-17…22, `docs/acceptance/UI-B.md`):** the GM home (Sales dark card, one surface, attention list, branch strips, 14-day sales line instead of the branch bars, gold position; Today by default, remembered; scope pill `/overview?branchId=`; empty versions) and the branch manager's home (expected cash with the last count, stock, gold owed in grams, attention, Team today; no cost); the attention control replaces the bell; the home figures tied to the Sales report, the list and the ledger by entry date; home requests p95 ≤ 86 ms on 60,000 sales without a new index. **Still open, a separate plan (owner answer Q13), next, before UI-C:** **UI-B3** the Branches page and the sales list with filter pills, on **BE-7** server-side pagination. The cashier's POS layout is UI-C1 (D-ui-22).
+**Homes done (commits `200aa14` to `98f0848` and the UI-B docs commit; D-ui-17…22, `docs/acceptance/UI-B.md`):** the GM home (Sales dark card, one surface, attention list, branch strips, 14-day sales line instead of the branch bars, gold position; Today by default, remembered; scope pill `/overview?branchId=`; empty versions) and the branch manager's home (expected cash with the last count, stock, gold owed in grams, attention, Team today; no cost); the attention control replaces the bell; the home figures tied to the Sales report, the list and the ledger by entry date; home requests p95 ≤ 86 ms on 60,000 sales without a new index. **Still open, a separate plan (owner answer Q13), next, before UI-C:** **UI-B3** the Branches page and the sales list with filter pills, on **BE-7** server-side pagination: **planned** in `docs/plans/UI-B3.md` (six questions), not built, waiting for the owner's acceptance notes on the finished screens. The cashier's POS layout is UI-C1 (D-ui-22).
 GM home and BM home as in `docs/ux/mockups/gm-home.html` and `bm-home.html`: **Sales as its own dark card**, the other three figures on one light surface (D-ux-1); default period **Today**, remembered per user in the browser; GM level 1 shows grams and value together; attention list from BE-1; branch bars **labelled by branch name** in the palette of `tokens.md`. The branch manager's home has no cost figures. Branches page and sales list with filter pills and server-side pagination (BE-7). Level 1 fits 1366×768 without scrolling (R14).
 
 ### UI-C — All other screens · TODO · L · P1
@@ -378,6 +379,12 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
   now waits for the change-password form alone and checks the typed values before submitting.
 - `npm run test:pg -w @jerp/backend` sets its variable with POSIX shell syntax, so it does not run in the Windows
   command prompt (`npm test` with `TEST_DATABASE_URL` does).
+- **The Sales, Purchases and Inventory reports read at most 1,000 rows** (found in BE-7): a report over a period with more
+  sales than that is silently cut short, totals included. BE-7 left the reports unchanged (D-be7-5); fixing it means
+  aggregating in SQL instead of over the list rows. Needs a decision on priority.
+- BE-7 limits that the screens show: the POS grid and the transfer picker hold the largest page (200 pieces) and offer
+  the search for the rest (the picker says so); a page changed under a filter by a void can still move a row (the
+  snapshot only stops new rows). The next index if sales grow far beyond 60,000: `sales(created_at, id)` (D-be7-6).
 - ~~The API access log never logged a request~~ (`req.path` was read after Express rewrote it under `/api`): **fixed in
   SAFE-1**, with a request id in the `X-Request-Id` header and every log line.
 
