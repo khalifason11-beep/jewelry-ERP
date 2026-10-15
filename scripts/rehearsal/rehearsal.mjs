@@ -149,10 +149,16 @@ async function signOut(page) {
 
 async function changePassword(page, current, next) {
   await page.waitForURL((u) => u.pathname === '/change-password', { timeout: 15_000 });
+  // The URL changes before the sign-in form is replaced. Filling then could hit the sign-in form's password field and
+  // leave the (required) temporary-password field empty, so the browser silently refuses the submit (seen on CI after
+  // check 66). Wait until the change-password form alone is on the page, and check the values before submitting.
+  await page.waitForFunction(() => document.querySelectorAll('input[type=password]').length === 3 && !document.querySelector('input[autocomplete=username]'), null, { timeout: 15_000 });
   const pw = page.locator('input[type=password]');
   await pw.nth(0).fill(current);
   await pw.nth(1).fill(next);
   await pw.nth(2).fill(next);
+  const filled = await pw.evaluateAll((els) => els.map((e) => e.value));
+  if (filled.join('\n') !== [current, next, next].join('\n')) throw new Error('the change-password fields did not keep the typed values');
   await page.click('button[type=submit]');
 }
 
