@@ -130,6 +130,9 @@ async function virtualAuthenticator(page) {
   return { cdp, id: authenticatorId };
 }
 
+/** The main page of the run, for the failure diagnostics. */
+let lastPage = null;
+
 async function signIn(page, base, username, password) {
   await page.goto(`${base}/login`);
   await page.fill('input[autocomplete=username]', username);
@@ -489,6 +492,7 @@ async function main() {
     cleanup.unshift(() => browser.close());
     const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1366, height: 768 } });
     const page = await ctx.newPage();
+    lastPage = page;
     const meta = await (await page.request.get(`${origin}/api/meta`)).json();
     check(!meta.demoAccounts || meta.demoAccounts.length === 0, 'the login page lists no demo accounts');
     const health = await (await page.request.get(`${origin}/api/health`)).json();
@@ -1308,6 +1312,21 @@ async function main() {
     await dctx.close();
   } catch (e) {
     failed = true;
+    // SAFE-1: a failure on another machine (CI) must be diagnosable from its log: where the browser was and what it
+    // showed, plus a screenshot in REHEARSAL_ARTIFACTS (uploaded by the CI job on failure).
+    if (lastPage) {
+      try {
+        console.error(`\n--- page at failure ---\nurl: ${lastPage.url()}\n${(await lastPage.locator('body').innerText({ timeout: 3_000 })).slice(0, 1_200)}`);
+        const dir = process.env.REHEARSAL_ARTIFACTS;
+        if (dir) {
+          fs.mkdirSync(dir, { recursive: true });
+          await lastPage.screenshot({ path: path.join(dir, 'rehearsal-failure.png'), fullPage: true });
+          console.error(`screenshot: ${path.join(dir, 'rehearsal-failure.png')}`);
+        }
+      } catch (diag) {
+        console.error('(could not capture the page at failure:', diag?.message ?? diag, ')');
+      }
+    }
     throw e;
   } finally {
     for (const f of cleanup) await f().catch(() => {});

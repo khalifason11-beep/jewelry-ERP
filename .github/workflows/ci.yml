@@ -129,6 +129,15 @@ jobs:
         run: node scripts/rehearsal/rehearsal.mjs --skip-build
         env:
           REHEARSAL_ADMIN_URL: ${{ env.PG_TEST_URL }}
+          REHEARSAL_ARTIFACTS: ${{ runner.temp }}/rehearsal
+      - name: Keep the REH-1 failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rehearsal-failure
+          path: ${{ runner.temp }}/rehearsal
+          if-no-files-found: ignore
+          retention-days: 7
       - run: node scripts/e2e-print.mjs
       - run: node scripts/e2e-passkeys.mjs
       - run: node scripts/e2e-passkeys.mjs --mode=off
