@@ -30,6 +30,14 @@ function allowedKaratsInitial(v: string | undefined): number[] | undefined {
   return karats;
 }
 
+/** A non-negative whole number from the environment, or the default; anything else stops the start. */
+function whole(env: NodeJS.ProcessEnv, name: string, def: number, max: number): number {
+  const v = env[name];
+  if (v === undefined || v.trim() === '') return def;
+  if (!/^\d+$/.test(v.trim()) || Number(v) > max) throw new Error(`${name} must be a whole number from 0 to ${max} (got "${v}")`);
+  return Number(v);
+}
+
 /** Express `trust proxy`: off unless explicitly configured (see docs/decisions.md D-1a-9). */
 function trustProxy(v: string | undefined): boolean | number | string {
   if (!v || v === 'false' || v === '0') return false;
@@ -81,6 +89,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     cookieName: production ? '__Host-jerp_session' : 'jerp_session',
     cookieSecure: production ? env.COOKIE_SECURE !== 'false' : env.COOKIE_SECURE === 'true',
     trustProxy: trustProxy(env.TRUST_PROXY),
+    /**
+     * The runtime database pool (SAFE-1). Explicit limits so one slow query or a forgotten transaction cannot hold the
+     * pool; migrations and CLIs are not affected. 0 turns a timeout off.
+     */
+    pg: {
+      max: whole(env, 'PG_POOL_MAX', 10, 200) || 10,
+      statementTimeoutMs: whole(env, 'PG_STATEMENT_TIMEOUT_MS', 30_000, 3_600_000),
+      idleInTxTimeoutMs: whole(env, 'PG_IDLE_IN_TX_TIMEOUT_MS', 60_000, 3_600_000),
+      connectTimeoutMs: whole(env, 'PG_CONNECT_TIMEOUT_MS', 10_000, 600_000),
+      idleTimeoutMs: whole(env, 'PG_IDLE_TIMEOUT_MS', 30_000, 3_600_000),
+    },
     logLevel: (env.LOG_LEVEL ?? (env.VITEST ? 'silent' : 'info')) as 'debug' | 'info' | 'warn' | 'error' | 'silent',
     rootDir: root,
   };

@@ -50,6 +50,11 @@ React app too, so no separate static site is needed.
 | `PORT` | the port the host routes to (many hosts set it themselves) | The app listens on it; default 4000. |
 | `MIGRATION_DATABASE_URL` | optional, recommended: the owner role (section 5) | Runs the migrations; the app then connects with `DATABASE_URL` as a runtime role that owns nothing. |
 | `STRICT_DB_ROLES` | `true` once the roles are separated | Refuse to start if the runtime role could alter the audit log or the ledgers. |
+| `PG_POOL_MAX` | optional, default `10` | Connections of the app's database pool (SAFE-1). |
+| `PG_STATEMENT_TIMEOUT_MS` | optional, default `30000` | Server-side limit for one statement of the running app (0 = none). Migrations, backups and CLIs are not limited. |
+| `PG_IDLE_IN_TX_TIMEOUT_MS` | optional, default `60000` | A transaction left open and idle longer than this is ended by PostgreSQL (0 = none). |
+| `PG_CONNECT_TIMEOUT_MS` | optional, default `10000` | How long to wait for a new database connection. |
+| `PG_IDLE_TIMEOUT_MS` | optional, default `30000` | How long an idle pooled connection is kept. A connection lost when the database restarts is dropped and replaced on the next query; the app does not need a restart. |
 | `WEBAUTHN_RP_ID` | leave **unset** (= the host of `APP_ORIGIN`), or the parent domain, e.g. `example.com` | The domain passkeys belong to. Must be the host of `APP_ORIGIN` or a parent of it; anything else is refused at start-up. **Changing it later invalidates every passkey** (section 8.1). |
 | `WEBAUTHN_RP_NAME` | optional, e.g. the company name | Shown by Windows Hello / the phone when registering. Cosmetic. |
 | `WEBAUTHN_UV_INITIAL` | optional: `required` (default) or `preferred` | **First start only**: initial value of "what a passkey must check" (section 8.4). Ignored once the setting exists. |

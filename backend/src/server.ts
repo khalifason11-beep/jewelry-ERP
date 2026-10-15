@@ -14,7 +14,13 @@ if (problems.length) {
   process.exit(1);
 }
 
-const handle = await openDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrationUrl: config.migrationDatabaseUrl });
+const handle = await openDatabase({
+  url: config.databaseUrl,
+  dataDir: config.dataDir,
+  migrationUrl: config.migrationDatabaseUrl,
+  pool: config.pg,
+  onPoolError: (err) => log.error('database connection lost; the pool replaces it on the next query', { err }),
+});
 const ctx = createContext(handle);
 
 const notValidated = await unvalidatedConstraints(handle.db);

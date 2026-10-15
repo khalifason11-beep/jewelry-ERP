@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { createDatabase, type DatabaseHandle } from '@jerp/database';
+import { createDatabase, type DatabaseHandle, type PoolErrorHandler, type PoolSettings } from '@jerp/database';
 import type { Ctx } from './core/context';
 import { rows } from './core/sql';
 import { POSTGRES_CACHE_TTL_MS, SettingsStore } from './modules/settings/store';
@@ -14,10 +14,12 @@ export function createContext(handle: DatabaseHandle): Ctx {
  * migrations run over a separate, short-lived connection as the owner role, and the returned
  * handle uses `url` (the runtime role) — D-2a-13.
  */
-export async function openDatabase(opts: { url?: string; dataDir?: string; migrationUrl?: string }) {
-  if (opts.migrationUrl && opts.url) {
-    await runMigrations({ url: opts.migrationUrl });
-    return createDatabase({ url: opts.url });
+export async function openDatabase(opts: { url?: string; dataDir?: string; migrationUrl?: string; pool?: PoolSettings; onPoolError?: PoolErrorHandler }) {
+  if (opts.url && (opts.migrationUrl || opts.pool)) {
+    // Migrations over their own short-lived connection (as the owner role when MIGRATION_DATABASE_URL is set), never
+    // under the runtime pool's statement timeout (SAFE-1).
+    await runMigrations({ url: opts.migrationUrl ?? opts.url });
+    return createDatabase({ url: opts.url, pool: opts.pool, onPoolError: opts.onPoolError });
   }
   const handle = await createDatabase(opts);
   await handle.migrate();
