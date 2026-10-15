@@ -28,6 +28,15 @@ export function productionConfigProblems(cfg: Config): string[] {
   if (!cfg.appOrigin) problems.push('APP_ORIGIN is required in production (e.g. https://erp.example.com).');
   else if (!/^https:\/\/[^/]+$/.test(cfg.appOrigin)) problems.push('APP_ORIGIN must be an https:// origin without a path.');
   if (!cfg.cookieSecure) problems.push('COOKIE_SECURE must not be false in production.');
+  // SAFE-1: two decisions an operator must make on purpose rather than inherit from a default.
+  if (!cfg.trustProxySet) {
+    problems.push('TRUST_PROXY must be set in production: the number of reverse-proxy hops in front of the app (1 for one proxy), or 0 when there is none.');
+  }
+  if (cfg.strictDbRolesValue !== 'true' && cfg.strictDbRolesValue !== 'false') {
+    problems.push('STRICT_DB_ROLES must be set in production to "true" (separate owner and runtime roles, recommended) or "false" (one role).');
+  } else if (cfg.strictDbRoles && !cfg.migrationDatabaseUrl) {
+    problems.push('STRICT_DB_ROLES=true needs MIGRATION_DATABASE_URL (the owner role that runs the migrations); DATABASE_URL is then the runtime role.');
+  }
   problems.push(...webauthnConfigProblems(cfg));
   return problems;
 }

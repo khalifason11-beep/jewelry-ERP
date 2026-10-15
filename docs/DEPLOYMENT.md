@@ -43,13 +43,13 @@ React app too, so no separate static site is needed.
 | `APP_MODE` | `production` (**required**) | **Required, no default** (D-cln1-1, superseding D-1a-2). Absent or empty stops the server and every CLI with: `Refusing to start: APP_MODE is not set. Set APP_MODE=production on a real server, or APP_MODE=demo for a local trial installation (the only two valid values).` Only the exact strings `production` and `demo` are accepted (`prod`, `Production` are refused). It turns on the start-up refusals, removes the "Demo" badge and refuses `npm run dev:sample`. (Since REM-3 there is no demo data in any mode: demo mode starts empty too.) |
 | `DATABASE_URL` | the database's private connection URL (`postgresql://user:password@host/db`) | Required in production; embedded PGlite is refused. Use a long generated password. Never reuse `postgres`, `password`, `admin`, `root`, `changeme`, `secret` or `123456`: they are refused. |
 | `APP_ORIGIN` | the final domain, e.g. `https://erp.example.com` | Exact origin the browser uses (scheme + host, no trailing slash, no path). Must be `https://`. State-changing requests from any other origin are rejected (CSRF defence). If you add a custom domain later, update this value. |
-| `TRUST_PROXY` | `1` to start with, then **verify** (section 4) | Number of proxy hops in front of the app. It decides which `X-Forwarded-For` entry becomes the client IP used in the audit log, the sessions list and the per-IP sign-in throttle. Unset means "no proxy": all users then appear with the proxy's IP. |
+| `TRUST_PROXY` | `1` to start with, then **verify** (section 4) | **Required in production** (SAFE-1): unset or empty refuses to start, so "no proxy" is a decision. Number of proxy hops in front of the app; `0` means no proxy (all users then appear with the proxy's IP if there is one). It decides which `X-Forwarded-For` entry becomes the client IP used in the audit log, the sessions list and the per-IP sign-in throttle. |
 | `COOKIE_SECURE` | leave **unset** (defaults to `true` in production) | The session cookie is `__Host-jerp_session`: `Secure`, `HttpOnly`, `SameSite=Lax`. `false` is refused in production. |
 | `LOG_LEVEL` | `info` | `warn` or `error` to reduce volume, `debug` only while diagnosing. Logs never contain bodies, query strings, cookies or passwords. |
 | `NODE_VERSION` | `22` | Node 20 or newer is required; 22 is what the project is tested on. |
 | `PORT` | the port the host routes to (many hosts set it themselves) | The app listens on it; default 4000. |
 | `MIGRATION_DATABASE_URL` | optional, recommended: the owner role (section 5) | Runs the migrations; the app then connects with `DATABASE_URL` as a runtime role that owns nothing. |
-| `STRICT_DB_ROLES` | `true` once the roles are separated | Refuse to start if the runtime role could alter the audit log or the ledgers. |
+| `STRICT_DB_ROLES` | `true` with separate roles (recommended), `false` with one role | **Required in production** (SAFE-1): exactly `true` or `false`, anything else refuses to start. `true` refuses to start if the runtime role could alter the audit log or the ledgers, and needs `MIGRATION_DATABASE_URL`. `false` only logs a `SECURITY WARNING`. |
 | `PG_POOL_MAX` | optional, default `10` | Connections of the app's database pool (SAFE-1). |
 | `PG_STATEMENT_TIMEOUT_MS` | optional, default `30000` | Server-side limit for one statement of the running app (0 = none). Migrations, backups and CLIs are not limited. |
 | `PG_IDLE_IN_TX_TIMEOUT_MS` | optional, default `60000` | A transaction left open and idle longer than this is ended by PostgreSQL (0 = none). |
@@ -817,6 +817,8 @@ Render; another host needs the same things under other names.
   strong password.
 - `APP_ORIGIN`: `https://<your-service>.onrender.com`, or the custom domain once it is final.
 - `PORT`: **do not set**; Render provides it.
+- `TRUST_PROXY`: `1` (Render's proxy), and `STRICT_DB_ROLES`: `false` with Render's single database user, `true` with the
+  separate roles of section 5. Both are required in production (SAFE-1).
 - Secrets: in the service's environment settings or an Environment Group.
 - The operator console: the service's **Shell** tab.
 

@@ -71,6 +71,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     migrationDatabaseUrl: env.MIGRATION_DATABASE_URL || undefined,
     /** Refuse to start in production when the runtime role could alter the append-only tables. */
     strictDbRoles: env.STRICT_DB_ROLES === 'true',
+    /** SAFE-1: the raw value, so production can require an explicit "true" or "false" (core/startup.ts). */
+    strictDbRolesValue: env.STRICT_DB_ROLES,
     dataDir: env.PGLITE_DIR ?? path.join(root, '.data', 'pglite'),
     frontendDist: path.join(root, 'frontend', 'dist'),
     /** Public origin of the SPA, e.g. https://erp.example.com (required in production). */
@@ -89,12 +91,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     cookieName: production ? '__Host-jerp_session' : 'jerp_session',
     cookieSecure: production ? env.COOKIE_SECURE !== 'false' : env.COOKIE_SECURE === 'true',
     trustProxy: trustProxy(env.TRUST_PROXY),
+    /** SAFE-1: production requires TRUST_PROXY to be set (0 included), so "no proxy" is a decision, not an omission. */
+    trustProxySet: (env.TRUST_PROXY ?? '').trim() !== '',
+    /** SAFE-1: on SIGTERM/SIGINT, how long running requests may take before their connections are cut. */
+    shutdownGraceMs: whole(env, 'SHUTDOWN_GRACE_MS', 15_000, 600_000),
     /**
      * The runtime database pool (SAFE-1). Explicit limits so one slow query or a forgotten transaction cannot hold the
      * pool; migrations and CLIs are not affected. 0 turns a timeout off.
      */
-    /** SAFE-1: on SIGTERM/SIGINT, how long running requests may take before their connections are cut. */
-    shutdownGraceMs: whole(env, 'SHUTDOWN_GRACE_MS', 15_000, 600_000),
     pg: {
       max: whole(env, 'PG_POOL_MAX', 10, 200) || 10,
       statementTimeoutMs: whole(env, 'PG_STATEMENT_TIMEOUT_MS', 30_000, 3_600_000),
@@ -114,6 +118,9 @@ export type Config = ReturnType<typeof loadConfig>;
  * before any database is opened, with the message alone (no stack trace).
  */
 export const config: Config = (() => {
+  // SAFE-1: the server and the CLIs that load this configuration run in UTC whatever the machine's time zone. Business
+  // days use the shop's zone explicitly (core/time.ts, Intl), never the process zone; this pins everything else.
+  process.env.TZ = 'UTC';
   try {
     return loadConfig();
   } catch (e) {

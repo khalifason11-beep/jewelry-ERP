@@ -458,7 +458,8 @@ async function main() {
     dbUrl.pathname = `/${dbName}`;
     const [appPort, proxyPort] = [await freePort(), await freePort()];
     const origin = `https://localhost:${proxyPort}`;
-    const env = { APP_MODE: 'production', DATABASE_URL: dbUrl.toString(), APP_ORIGIN: origin, TRUST_PROXY: '1', PORT: String(appPort), LOG_LEVEL: 'warn', ALLOWED_KARATS_INITIAL: '21' };
+    const env = { APP_MODE: 'production', DATABASE_URL: dbUrl.toString(), APP_ORIGIN: origin, TRUST_PROXY: '1', STRICT_DB_ROLES: 'false', PORT: String(appPort), LOG_LEVEL: 'warn', ALLOWED_KARATS_INITIAL: '21' };
+    // One role here (SAFE-1 requires STRICT_DB_ROLES explicitly in production); separate roles are proven in test/pg/db-roles.
     for (const k of ['MIGRATION_DATABASE_URL', 'PGLITE_DIR', 'COOKIE_SECURE', 'WEBAUTHN_RP_ID', 'STRICT_DB_ROLES']) delete process.env[k];
 
     // 1. Bootstrap (the operator's one-time command): reference data + the first GM, no branch.

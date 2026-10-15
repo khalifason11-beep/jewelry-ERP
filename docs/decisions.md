@@ -436,3 +436,10 @@ a warning, never a block.
 |---|---|---|---|---|
 | D-cln3-1 | Passkey relying party behind a proxy | parse X-Forwarded-* by hand vs Express trust proxy | Without `APP_ORIGIN`, and only when `TRUST_PROXY` is on, the public origin is Express 5's `req.protocol`/`req.host` (forwarded headers from a trusted hop); otherwise the `Origin` header as before. `APP_ORIGIN` always wins, so production is unchanged. The Codespace sets `TRUST_PROXY=1` (exactly one proxy hop: the GitHub port forwarder) and must not set `APP_ORIGIN`. | `publicOrigin` in `backend/src/core/origin.ts`. |
 | D-cln3-2 | Sign-in with a leftover session cookie | open login vs end old session vs token-exempt sign-in | The sign-in steps (route-matrix scope `public`) need no CSRF token even when a valid session cookie arrives; they keep the Origin check whenever `APP_ORIGIN` is set, which is exactly the protection of a sign-in without a cookie (login CSRF stays covered in production, where `APP_ORIGIN` is required). A successful sign-in ends the session the cookie pointed to (`LOGGED_OUT`). Every other route that runs on a session still needs the token. | `SIGN_IN` in `backend/src/core/csrf.ts`; `endReplacedSession` in `backend/src/routes.ts`. |
+
+## SAFE-1: change safely, deploy safely
+
+| ID | Topic | Options | Decision | How to change |
+|---|---|---|---|---|
+| D-safe1-1 | Production defaults that hide a decision | keep the silent defaults vs require explicit values | In production, `TRUST_PROXY` must be set (a hop count, `0` for no proxy) and `STRICT_DB_ROLES` must be exactly `true` or `false`; `true` needs `MIGRATION_DATABASE_URL`. A missing value refuses to start with a message naming the fix. Demo mode is unchanged. Refines D-1a-9 (proxy trust still off unless set) and D-2a-13. | `productionConfigProblems` in `backend/src/core/startup.ts`; `docs/DEPLOYMENT.md` §2. |
+| D-safe1-2 | Process time zone | host's zone vs UTC | The server and the CLIs that load `backend/src/config.ts` set `TZ=UTC` in the process. Business days already use the shop's zone explicitly (`core/time.ts`). | `backend/src/config.ts`. |

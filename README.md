@@ -250,8 +250,8 @@ unsafe. The start-up log lists every problem it finds.
 | `APP_MODE` | **Required**, exactly `production` (absent, empty or misspelt stops the server and every CLI) |
 | `DATABASE_URL` | Real PostgreSQL (PGlite and well-known default passwords are refused) |
 | `APP_ORIGIN` | The `https://` origin users open; mutations from any other origin are rejected |
-| `TRUST_PROXY` | Number of proxy hops in front of the app; decides the client IP in the audit log |
-| `MIGRATION_DATABASE_URL`, `STRICT_DB_ROLES=true` | Migrations run as the owner role; the app runs as a runtime role that owns nothing |
+| `TRUST_PROXY` | Required in production: number of proxy hops in front of the app (`0` = none); decides the client IP in the audit log |
+| `MIGRATION_DATABASE_URL`, `STRICT_DB_ROLES=true` | Migrations run as the owner role; the app runs as a runtime role that owns nothing (`STRICT_DB_ROLES` is required in production: `true` or `false`) |
 | `COOKIE_SECURE` | Defaults to `true` (`__Host-` cookie) |
 
 **Hosting is not decided yet** (BACKLOG HOST-1). The application needs:

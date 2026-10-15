@@ -27,6 +27,8 @@ const PROD_ENV = {
   APP_MODE: 'production',
   DATABASE_URL: 'postgres://erp:S3cure-Pw-2026@db.internal:5432/erp',
   APP_ORIGIN: 'https://erp.example.com',
+  TRUST_PROXY: '1',
+  STRICT_DB_ROLES: 'false',
   VITEST: '1',
 } as NodeJS.ProcessEnv;
 
@@ -100,6 +102,14 @@ describe('production mode (security item 2)', () => {
     expect(bad({ APP_ORIGIN: undefined }).join()).toMatch(/APP_ORIGIN is required/);
     expect(bad({ APP_ORIGIN: 'http://erp.example.com' }).join()).toMatch(/https/);
     expect(bad({ COOKIE_SECURE: 'false' }).join()).toMatch(/COOKIE_SECURE/);
+    // SAFE-1: no proxy and one role are allowed, but only as explicit decisions.
+    expect(bad({ TRUST_PROXY: undefined }).join()).toMatch(/TRUST_PROXY must be set/);
+    expect(bad({ TRUST_PROXY: ' ' }).join()).toMatch(/TRUST_PROXY must be set/);
+    expect(bad({ TRUST_PROXY: '0' })).toEqual([]);
+    expect(bad({ STRICT_DB_ROLES: undefined }).join()).toMatch(/STRICT_DB_ROLES must be set/);
+    expect(bad({ STRICT_DB_ROLES: 'yes' }).join()).toMatch(/STRICT_DB_ROLES must be set/);
+    expect(bad({ STRICT_DB_ROLES: 'true' }).join()).toMatch(/needs MIGRATION_DATABASE_URL/);
+    expect(bad({ STRICT_DB_ROLES: 'true', MIGRATION_DATABASE_URL: 'postgres://owner:An0ther-Pw-2026@db.internal:5432/erp' })).toEqual([]);
     expect(() => loadConfig({ APP_MODE: 'prod' } as NodeJS.ProcessEnv)).toThrow(/APP_MODE/);
     // Demo mode has no production requirements.
     expect(productionConfigProblems(loadConfig({ APP_MODE: 'demo' } as NodeJS.ProcessEnv))).toEqual([]);
