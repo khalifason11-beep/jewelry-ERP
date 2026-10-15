@@ -201,3 +201,4 @@ a conditional update on the current status.
 | `0020_csh2_gm_funding` | CSH-2: `gm_funding_events`, the `OWED_TO_GM` account, `GM_ADVANCE` and `GM_REPAYMENT` |
 | `0021_csh2_scrap_split_payment` | CSH-2: cash and bank parts and the bank reference on scrap purchases |
 | `0022_mkc1_owner_making_charge` | MKC-1: making charge paid by the owner (`OWNER_PERSONAL`), reference and date; `purchases.create` for the General Manager only |
+| `0023_be7_sale_items_sale_idx` | BE-7: index `sale_items(sale_id)` (the lines of a sale are read by sale: list pages, sale detail, void). Additive only |

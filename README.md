@@ -293,7 +293,7 @@ npm run ops -w @jerp/backend -- unlock-security-lock --username <user> --confirm
 | [CLAUDE.md](CLAUDE.md) | Standing rules for every change: workflow, hard rules, gates, what needs the owner's approval |
 | [docs/FEATURES.md](docs/FEATURES.md) | What the system does today, by capability |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Stack, layers, request path, security mechanisms |
-| [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Tables, migrations 0000–0022, ledger, append-only tables |
+| [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Tables, migrations 0000–0023, ledger, append-only tables |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production configuration, database roles, upgrades, backups, passkeys, printing; Appendix A: Render as a worked example, not a decision |
 | [docs/runbooks/](docs/runbooks/) | First deployment, routine update, rollback and restore drill, step by step (provider-neutral) |
 | [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | How to present the system |
@@ -308,7 +308,7 @@ npm run ops -w @jerp/backend -- unlock-security-lock --username <user> --confirm
 
 ```
 shared/      enums, permissions and roles, route matrix, settings registry, field classification, DB checks, money
-database/    Drizzle schema, client (PostgreSQL or PGlite), SQL migrations 0000–0022
+database/    Drizzle schema, client (PostgreSQL or PGlite), SQL migrations 0000–0023
 backend/     Express API: auth, authorization guard, modules (sales, inventory, purchases, scrap, ledger, funding,
              cash, transfers, attention, reports, …), CLIs (bootstrap, demo, migrate, ops, backup), dev sample, tests
 frontend/    React + Tailwind UI, Arabic (RTL) and English

@@ -162,6 +162,13 @@
       "when": 1791686176874,
       "tag": "0022_mkc1_owner_making_charge",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792080843192,
+      "tag": "0023_be7_sale_items_sale_idx",
+      "breakpoints": true
     }
   ]
 }

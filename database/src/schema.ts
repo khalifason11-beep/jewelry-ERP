@@ -446,30 +446,35 @@ export const sales = pgTable(
   (t) => [index('sales_branch_at_idx').on(t.branchId, t.createdAt)],
 );
 
-export const saleItems = pgTable('sale_items', {
-  id: serial('id').primaryKey(),
-  saleId: integer('sale_id').notNull().references(() => sales.id),
-  itemId: integer('item_id').notNull().references(() => jewelryItems.id),
-  productName: text('product_name').notNull(),
-  karat: smallint('karat').notNull(),
-  netWeightMg: integer('net_weight_mg').notNull(),
-  listPrice: money('list_price').notNull(),
-  discount: money('discount').notNull().default(0),
-  finalPrice: money('final_price').notNull(),
-  /** Cost snapshot so later cost edits never rewrite historical profit. DEPRECATED: see acquisition_cost. */
-  unitCost: money('unit_cost').notNull(),
-  // ── Phase 2b ──
-  /** Acquisition cost of the piece at the time of sale (snapshot). GM only. */
-  acquisitionCost: money('acquisition_cost').notNull(),
-  /** final_price − acquisition_cost, computed and stored by the server. GM only. */
-  profit: money('profit').notNull(),
-  /** FIXED_TAG today; COMPUTED (rate × weight + making) once the client decides (Q2). */
-  pricingMode: text('pricing_mode').notNull().default('FIXED_TAG'),
-  /** Price components for a computed price; NULL for a fixed tag price. */
-  priceGoldValue: money('price_gold_value'),
-  priceMakingCharge: money('price_making_charge'),
-  priceRatePerGram: money('price_rate_per_gram'),
-});
+export const saleItems = pgTable(
+  'sale_items',
+  {
+    id: serial('id').primaryKey(),
+    saleId: integer('sale_id').notNull().references(() => sales.id),
+    itemId: integer('item_id').notNull().references(() => jewelryItems.id),
+    productName: text('product_name').notNull(),
+    karat: smallint('karat').notNull(),
+    netWeightMg: integer('net_weight_mg').notNull(),
+    listPrice: money('list_price').notNull(),
+    discount: money('discount').notNull().default(0),
+    finalPrice: money('final_price').notNull(),
+    /** Cost snapshot so later cost edits never rewrite historical profit. DEPRECATED: see acquisition_cost. */
+    unitCost: money('unit_cost').notNull(),
+    // ── Phase 2b ──
+    /** Acquisition cost of the piece at the time of sale (snapshot). GM only. */
+    acquisitionCost: money('acquisition_cost').notNull(),
+    /** final_price − acquisition_cost, computed and stored by the server. GM only. */
+    profit: money('profit').notNull(),
+    /** FIXED_TAG today; COMPUTED (rate × weight + making) once the client decides (Q2). */
+    pricingMode: text('pricing_mode').notNull().default('FIXED_TAG'),
+    /** Price components for a computed price; NULL for a fixed tag price. */
+    priceGoldValue: money('price_gold_value'),
+    priceMakingCharge: money('price_making_charge'),
+    priceRatePerGram: money('price_rate_per_gram'),
+  },
+  // BE-7: the lines of a sale (list pages, sale detail, void) are read by sale; without it each read scans every line.
+  (t) => [index('sale_items_sale_idx').on(t.saleId)],
+);
 
 // ───────────────────────────── Transfers ─────────────────────────────
 

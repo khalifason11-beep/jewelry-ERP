@@ -238,7 +238,7 @@ async function salesWhere(ctx: Ctx, actor: Actor, q: SaleQuery): Promise<SQL[]> 
   return where;
 }
 
-const saleListColumns = {
+const saleListBase = {
   id: t.sales.id,
   number: t.sales.number,
   createdAt: t.sales.createdAt,
@@ -248,8 +248,6 @@ const saleListColumns = {
   cashierName: t.users.fullName,
   customerName: t.sales.customerName,
   customerNameAr: t.sales.customerNameAr,
-  itemCount: sql<number>`(select count(*) from sale_items si where si.sale_id = ${t.sales.id})`,
-  weightMg: sql<number>`(select coalesce(sum(si.net_weight_mg),0) from sale_items si where si.sale_id = ${t.sales.id})`,
   subtotal: t.sales.subtotal,
   discountTotal: t.sales.discountTotal,
   total: t.sales.total,
@@ -258,6 +256,11 @@ const saleListColumns = {
   // FIX-2: the bank-transfer reference (Hasad: its transaction reference), shown in the list.
   paymentRefTransaction: t.sales.paymentRefTransaction,
   status: t.sales.status,
+};
+const saleListColumns = {
+  ...saleListBase,
+  itemCount: sql<number>`(select count(*) from sale_items si where si.sale_id = ${t.sales.id})`,
+  weightMg: sql<number>`(select coalesce(sum(si.net_weight_mg),0) from sale_items si where si.sale_id = ${t.sales.id})`,
 };
 
 const saleListFrom = (db: Ctx['db']) =>
@@ -308,8 +311,27 @@ export async function pageSales(ctx: Ctx, actor: Actor, q: SaleQuery & PageReque
     where,
     maxId: async () => Number((await ctx.db.select({ m: maxIdOf(t.sales.id) }).from(t.sales))[0].m),
     count: async (w) => Number((await joined(w))[0].n),
-    rows: async ({ where: w, orderBy, limit, offset }) =>
-      (await saleListFrom(ctx.db).where(w).orderBy(...orderBy).limit(limit).offset(offset)).map((r) => saleListRow(actor, r)),
+    // The page first, then its lines in one grouped query: per-row sub-queries would run for every row an offset
+    // skips (seconds on a deep page of 60,000 sales).
+    rows: async ({ where: w, orderBy, limit, offset }) => {
+      const page = await ctx.db
+        .select(saleListBase)
+        .from(t.sales)
+        .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+        .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+        .where(w)
+        .orderBy(...orderBy)
+        .limit(limit)
+        .offset(offset);
+      if (!page.length) return [];
+      const lines = await ctx.db
+        .select({ saleId: t.saleItems.saleId, itemCount: sql<number>`count(*)`.mapWith(Number), weightMg: sumOf(t.saleItems.netWeightMg) })
+        .from(t.saleItems)
+        .where(inArray(t.saleItems.saleId, page.map((r) => r.id)))
+        .groupBy(t.saleItems.saleId);
+      const bySale = new Map(lines.map((l) => [l.saleId, l]));
+      return page.map((r) => saleListRow(actor, { ...r, itemCount: bySale.get(r.id)?.itemCount ?? 0, weightMg: bySale.get(r.id)?.weightMg ?? 0 }));
+    },
     // The footer adds up the completed sales of the whole filtered result (a voided sale counts for nothing).
     totals: async (w) => {
       const done = and(w, eq(t.sales.status, 'COMPLETED'));

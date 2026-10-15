@@ -75,15 +75,15 @@ export async function runPaged<K extends string, R>(actor: Actor, req: PageReque
   const number = req.page ?? 1;
   const asOfId = req.asOfId ?? (await list.maxId());
   const where = and(...list.where, lte(list.id, asOfId));
-  const total = await list.count(where);
-  const rows = await list.rows({
-    where,
-    orderBy: [orderFor(sort.spec.by, sort.dir), orderFor(list.id, sort.dir)],
-    limit: size,
-    offset: (number - 1) * size,
-  });
+  // The count, the page and the totals are independent reads of the same snapshot: run together, a search over every
+  // row costs one scan's time instead of three in a row (BE-7 perf). PGlite serialises them on its one connection.
+  const [total, rows, totals] = await Promise.all([
+    list.count(where),
+    list.rows({ where, orderBy: [orderFor(sort.spec.by, sort.dir), orderFor(list.id, sort.dir)], limit: size, offset: (number - 1) * size }),
+    list.totals ? list.totals(where) : Promise.resolve(undefined),
+  ]);
   const page = { number, size, pages: Math.max(1, Math.ceil(total / size)), sort: sort.key, dir: sort.dir, asOfId };
-  return list.totals ? { rows, total, page, totals: await list.totals(where) } : { rows, total, page };
+  return totals ? { rows, total, page, totals } : { rows, total, page };
 }
 
 /** `SELECT coalesce(max(id), 0)` for the snapshot. */

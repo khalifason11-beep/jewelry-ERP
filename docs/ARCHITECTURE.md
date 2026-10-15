@@ -12,7 +12,7 @@ npm workspaces, TypeScript everywhere, Node.js ≥ 20. It runs as one process: t
 | Package | Role | Main libraries |
 |---|---|---|
 | `shared` (`@jerp/shared`) | Code used by both server and browser: enums, permissions and roles, the route matrix, the settings registry, the field classification, the DB-check list, money and weight arithmetic | zod |
-| `database` (`@jerp/database`) | Drizzle schema (`src/schema.ts`), client factory, SQL migrations `migrations/0000…0022` | drizzle-orm, pg, @electric-sql/pglite |
+| `database` (`@jerp/database`) | Drizzle schema (`src/schema.ts`), client factory, SQL migrations `migrations/0000…0023` | drizzle-orm, pg, @electric-sql/pglite |
 | `backend` (`@jerp/backend`) | Express API, auth, central guard, business modules, CLIs, tests | express 5, helmet, @node-rs/argon2, @simplewebauthn/server, vitest |
 | `frontend` | React single-page app, Arabic RTL and English | react 19, react-router 7, @tanstack/react-query, tailwindcss 4, vite |
 
