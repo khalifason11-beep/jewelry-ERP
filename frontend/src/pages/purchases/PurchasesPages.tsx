@@ -1,7 +1,7 @@
 import { gramsToMg, normalizeBankReference, pureGoldMg, validBankReference } from '@jerp/shared';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { ApiError, get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -10,6 +10,7 @@ import { useBranches, useGoldRates } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { Alert, Button, Card, CardHeader, DetailPending, Dialog, Field, Input, KeyValue, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
+import { useServerList } from '../../lib/paging';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
 import { Crumbs } from '../sales/SalesPages';
@@ -61,17 +62,22 @@ interface SupplierDebt {
 /** References and dates read left to right inside Arabic text. */
 const ltr = (s: string) => `\u2066${s}\u2069`;
 
+/** Table column → the purchases list's server sort key (BE-7). */
+const PURCHASE_SORT_KEYS = { number: 'number', createdAt: 'date', branchName: 'branch', supplierName: 'supplier', totalNetWeightMg: 'weight', totalCost: 'totalCost' };
+
 export function PurchasesTable({ branchId, from, to, toolbar }: { branchId?: number; from: string; to: string; toolbar?: React.ReactNode }) {
   const { t, L, lang } = useI18n();
   const showCost = useAuth().can('profit.view');
   const navigate = useNavigate();
   // Filters stay on screen across reloads (UI-A2): the table shows the states and keeps the previous rows.
-  const q = useQuery({ queryKey: ['purchases', branchId, from, to], queryFn: () => get<PurchaseRow[]>('/purchases', { branchId, from, to }), placeholderData: keepPreviousData });
-  const rows = q.data ?? [];
+  // BE-7: one page at a time from the server; the footer totals cover the whole result.
+  const { query: q, rows, totals, server } = useServerList<PurchaseRow>('purchases', '/purchases', { branchId, from, to }, { sortKeys: PURCHASE_SORT_KEYS, search: true });
+  const sum = (k: string) => totals?.[k] ?? 0;
   return (
     <DataTable
       query={q}
       rows={rows}
+      server={server}
       rowKey={(r) => r.id}
       onRowClick={(r) => navigate(`/purchases/${r.id}`)}
       exportName="purchases"
@@ -84,10 +90,10 @@ export function PurchasesTable({ branchId, from, to, toolbar }: { branchId?: num
         { key: 'branchName', header: t('Branch'), render: (r) => t(r.branchName) },
         { key: 'supplierName', header: t('Supplier'), render: (r) => (r.supplierName || r.supplierNameAr ? L(r.supplierName, r.supplierNameAr) : '—') },
         { key: 'supplierInvoiceNo', header: t('Supplier invoice'), render: (r) => <Mono className="text-ink-500">{r.supplierInvoiceNo ?? '—'}</Mono> },
-        { key: 'itemCount', header: t('Items'), align: 'end', footer: rows.reduce((s, r) => s + r.itemCount, 0) },
-        { key: 'totalNetWeightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.totalNetWeightMg)}</span>, footer: grams(rows.reduce((s, r) => s + r.totalNetWeightMg, 0)) },
+        { key: 'itemCount', header: t('Items'), align: 'end', footer: sum('itemCount') },
+        { key: 'totalNetWeightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.totalNetWeightMg)}</span>, footer: grams(sum('totalNetWeightMg')) },
         // Cost figures are General Manager only (the API omits them for everyone else).
-        ...(showCost ? [{ key: 'totalCost', header: t('Total cost'), align: 'end' as const, render: (r: PurchaseRow) => <span className="font-medium num">{money(r.totalCost, false)}</span>, footer: money(rows.reduce((s, r) => s + r.totalCost, 0), false) }] : []),
+        ...(showCost ? [{ key: 'totalCost', header: t('Total cost'), align: 'end' as const, render: (r: PurchaseRow) => <span className="font-medium num">{money(r.totalCost, false)}</span>, footer: money(sum('totalCost'), false) }] : []),
         // MKC-1: the owner's transfer reference for the making charge (General Manager only).
         ...(showCost ? [{ key: 'makingChargeReference', header: t('Transfer reference'), render: (r: PurchaseRow) => <Mono className="text-ink-500">{r.makingChargeReference ? ltr(r.makingChargeReference) : '—'}</Mono> }] : []),
         { key: 'createdByName', header: t('Received by') },

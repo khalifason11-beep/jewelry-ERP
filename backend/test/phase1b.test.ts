@@ -387,7 +387,7 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'POST /users/:id/disable': () => ({ path: `/users/${NONE}/disable` }),
   'POST /users/:id/enable': () => ({ path: `/users/${NONE}/enable` }),
   'POST /users/:id/unlock': () => ({ path: `/users/${NONE}/unlock` }),
-  'GET /inventory/items': () => ({ path: '/inventory/items', query: { limit: 5 } }),
+  'GET /inventory/items': () => ({ path: '/inventory/items', query: { pageSize: 5 } }),
   'GET /inventory/items/:id': (f) => ({ path: `/inventory/items/${f.krtItem}` }),
   'POST /inventory/items/:id/price': () => ({ path: `/inventory/items/${NONE}/price`, body: {} }),
   'POST /inventory/items/:id/adjust': () => ({ path: `/inventory/items/${NONE}/adjust`, body: {} }),
@@ -422,7 +422,7 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'GET /dashboard/company': () => ({ path: '/dashboard/company' }),
   'GET /attention': () => ({ path: '/attention' }),
   'GET /reports/:key': () => ({ path: '/reports/sales' }),
-  'GET /audit': () => ({ path: '/audit', query: { limit: 5 } }),
+  'GET /audit': () => ({ path: '/audit', query: { pageSize: 5 } }),
   'GET /setup/status': () => ({ path: '/setup/status' }),
   'POST /setup/allowed-karats': () => ({ path: '/setup/allowed-karats', body: { allowedKarats: [18, 21, 22, 24] } }),
 };
@@ -658,8 +658,8 @@ describe('cost, acquisition cost and profit are GM-only (Q15)', () => {
 
   it('the General Manager does receive them', async () => {
     const gm = agents.GENERAL_MANAGER;
-    const items = await gm.get('/api/inventory/items').query({ limit: 3 });
-    expect(items.body.items[0]).toHaveProperty('totalCost');
+    const items = await gm.get('/api/inventory/items').query({ pageSize: 3 });
+    expect(items.body.rows[0]).toHaveProperty('totalCost');
     const report = await gm.get('/api/reports/sales');
     expect(report.body.columns.map((c: { key: string }) => c.key)).toContain('grossProfit');
   });

@@ -8,6 +8,7 @@ import { branchScope, can, requireAny, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
 import { badRequest, notFound } from '../../core/errors';
 import { changeStatus, itemQuery, lockItems, recordMovement } from './ledger';
+import { maxIdOf, runPaged, sumOf, type PageRequest, type SortSpec } from '../../core/paging';
 
 const COST_FIELDS = ['purchaseCost', 'makingCost', 'otherCost', 'totalCost', 'acquisitionCost', 'makingCharge', 'costIsEstimated'] as const;
 
@@ -36,7 +37,8 @@ export interface ItemSearch {
   offset?: number;
 }
 
-export async function searchItems(ctx: Ctx, actor: Actor, s: ItemSearch) {
+/** The filters of the inventory list (branch scope and the counter staff's "sellable only" included). */
+function itemsWhere(actor: Actor, s: Omit<ItemSearch, 'sort' | 'limit' | 'offset'>): SQL[] {
   requireAny(actor, 'inventory.view', 'inventory.view_available');
   const scope = branchScope(actor, s.branchId);
   const fullView = can(actor, 'inventory.view');
@@ -45,7 +47,8 @@ export async function searchItems(ctx: Ctx, actor: Actor, s: ItemSearch) {
 
   const where: SQL[] = [];
   if (scope != null) where.push(eq(t.jewelryItems.branchId, scope));
-  if (statuses?.length) where.push(inArray(t.jewelryItems.status, statuses));
+  // A counter request for a status it may not see keeps an empty status list: no rows, never all rows.
+  if (statuses) where.push(statuses.length ? inArray(t.jewelryItems.status, statuses) : sql`false`);
   if (s.karat) where.push(eq(t.jewelryItems.karat, s.karat));
   if (s.categoryId) where.push(eq(t.categories.id, s.categoryId));
   if (s.minWeightMg) where.push(sql`${t.jewelryItems.netWeightMg} >= ${s.minWeightMg}`);
@@ -64,7 +67,20 @@ export async function searchItems(ctx: Ctx, actor: Actor, s: ItemSearch) {
       )!,
     );
   }
+  return where;
+}
 
+const countItems = (exec: Ctx['db'], where: SQL | undefined) =>
+  exec
+    .select({ count: sql<number>`count(*)` })
+    .from(t.jewelryItems)
+    .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+    .innerJoin(t.categories, eq(t.categories.id, t.products.categoryId))
+    .where(where);
+
+/** The inventory report's rows (unchanged: up to 1,000 per call). */
+export async function searchItems(ctx: Ctx, actor: Actor, s: ItemSearch) {
+  const where = itemsWhere(actor, s);
   const order =
     s.sort === 'weight'
       ? [asc(t.jewelryItems.netWeightMg)]
@@ -83,14 +99,46 @@ export async function searchItems(ctx: Ctx, actor: Actor, s: ItemSearch) {
     .limit(limit)
     .offset(s.offset ?? 0);
 
-  const [{ count }] = await ctx.db
-    .select({ count: sql<number>`count(*)` })
-    .from(t.jewelryItems)
-    .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
-    .innerJoin(t.categories, eq(t.categories.id, t.products.categoryId))
-    .where(where.length ? and(...where) : undefined);
-
+  const [{ count }] = await countItems(ctx.db, where.length ? and(...where) : undefined);
   return { items: rowsAll.map((r) => redactCosts(actor, r)), total: Number(count) };
+}
+
+export const ITEM_SORT_KEYS = ['code', 'weight', 'price', 'recent', 'closest', 'karat', 'cost'] as const;
+export type ItemSortKey = (typeof ITEM_SORT_KEYS)[number];
+const itemSorts = (targetWeightMg?: number): Record<ItemSortKey, SortSpec> => ({
+  code: { by: t.jewelryItems.code, field: 'code', dir: 'asc' },
+  weight: { by: t.jewelryItems.netWeightMg, field: 'netWeightMg', dir: 'asc' },
+  price: { by: t.jewelryItems.sellingPrice, field: 'sellingPrice', dir: 'asc' },
+  recent: { by: t.jewelryItems.createdAt, field: 'createdAt', dir: 'desc' },
+  // Closest to a target weight (POS); without a target it is the weight order.
+  closest: { by: targetWeightMg ? sql`abs(${t.jewelryItems.netWeightMg} - ${targetWeightMg})` : t.jewelryItems.netWeightMg, field: 'netWeightMg', dir: 'asc' },
+  karat: { by: t.jewelryItems.karat, field: 'karat', dir: 'asc' },
+  // GM only (BE-7): ordering by cost would reveal it.
+  cost: { by: t.jewelryItems.acquisitionCost, field: 'acquisitionCost', dir: 'desc' },
+});
+
+/** BE-7: the inventory list, one page at a time (`GET /inventory/items`). */
+export async function pageItems(ctx: Ctx, actor: Actor, s: Omit<ItemSearch, 'sort' | 'limit' | 'offset'> & PageRequest<ItemSortKey>) {
+  const where = itemsWhere(actor, s);
+  return runPaged(actor, s, {
+    sorts: itemSorts(s.targetWeightMg),
+    defaultSort: 'code',
+    id: t.jewelryItems.id,
+    where,
+    maxId: async () => Number((await ctx.db.select({ m: maxIdOf(t.jewelryItems.id) }).from(t.jewelryItems))[0].m),
+    count: async (w) => Number((await countItems(ctx.db, w))[0].count),
+    rows: async ({ where: w, orderBy, limit, offset }) =>
+      (await itemQuery(ctx.db).where(w).orderBy(...orderBy).limit(limit).offset(offset)).map((r) => redactCosts(actor, r)),
+    totals: async (w) => {
+      const [s] = await ctx.db
+        .select({ netWeightMg: sumOf(t.jewelryItems.netWeightMg), sellingPrice: sumOf(t.jewelryItems.sellingPrice), totalCost: sumOf(t.jewelryItems.acquisitionCost) })
+        .from(t.jewelryItems)
+        .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+        .innerJoin(t.categories, eq(t.categories.id, t.products.categoryId))
+        .where(w);
+      return can(actor, 'profit.view') ? s : { netWeightMg: s.netWeightMg, sellingPrice: s.sellingPrice };
+    },
+  });
 }
 
 export async function getItemDetail(ctx: Ctx, actor: Actor, id: number) {

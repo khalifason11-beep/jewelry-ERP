@@ -14,6 +14,7 @@ import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { useActionKeys } from '../../lib/idempotency';
 import { Alert, Button, Card, CardHeader, Empty, Field, Input, Kpi, Mono, PageHeader, QueryState, Select, SkeletonRows } from '../../components/ui';
+import { useServerList } from '../../lib/paging';
 import { DataTable } from '../../components/ui/DataTable';
 import { NewButton, NewProductDialog } from '../../components/Catalog';
 import type { Product } from '../../lib/types';
@@ -73,13 +74,17 @@ function PaidBy({ r }: { r: ScrapRow }) {
   );
 }
 
+/** Table column → the scrap list's server sort key (BE-7). */
+const SCRAP_SORT_KEYS = { number: 'number', createdAt: 'date', branchName: 'branch', netWeightMg: 'weight', amount: 'amount' };
+
 export function ScrapPage() {
   const { t, L, lang } = useI18n();
   const { me, isGlobal } = useAuth();
   const branches = useBranches();
   const [branchId, setBranchId] = useState<number | undefined>(me?.user.branch?.id ?? undefined);
   const pool = useQuery({ queryKey: ['scrap-pool', branchId ?? 'all'], queryFn: () => get<PoolView>('/scrap-pool', { branchId }) });
-  const list = useQuery({ queryKey: ['scrap-purchases', branchId ?? 'all'], queryFn: () => get<ScrapRow[]>('/scrap-purchases', { branchId }) });
+  // BE-7: one page at a time from the server.
+  const list = useServerList<ScrapRow>('scrap-purchases', '/scrap-purchases', { branchId }, { sortKeys: SCRAP_SORT_KEYS, search: true });
 
   return (
     <div className="p-5 lg:p-6">
@@ -117,8 +122,9 @@ export function ScrapPage() {
       <Card padded={false} className="mt-5">
         <CardHeader title={t('Scrap bought')} />
         <DataTable
-          query={list}
-          rows={list.data ?? []}
+          query={list.query}
+          rows={list.rows}
+          server={list.server}
           rowKey={(r) => r.id}
           exportName="scrap-purchases"
           emptyTitle={t('No scrap bought yet')}

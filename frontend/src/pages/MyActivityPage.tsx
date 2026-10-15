@@ -7,6 +7,7 @@ import { useI18n } from '../lib/i18n';
 import { Card, CardHeader, KeyValue, Kpi, Mono, PageHeader, Skeleton } from '../components/ui';
 import { DateRange, useRangeParams } from '../components/Filters';
 import { SalesTable, type SaleRow } from './sales/SalesPages';
+import type { Page } from '@jerp/shared';
 import { SessionsTable } from './admin/SessionsPage';
 
 /** A user's own transactions and session (cashiers cannot see anyone else's). */
@@ -15,8 +16,10 @@ export function MyActivityPage() {
   const { t, L, lang } = useI18n();
   const { from, to, set } = useRangeParams(1);
   const today = todayKey();
-  const todaySales = useQuery({ queryKey: ['sales', 'mine-today', today], queryFn: () => get<SaleRow[]>('/sales', { from: today, to: today, mine: true }) });
-  const done = (todaySales.data ?? []).filter((s) => s.status === 'COMPLETED');
+  // BE-7: the totals of the list cover every completed sale of today, whatever the page size.
+  const todaySales = useQuery({ queryKey: ['sales', 'mine-today', today], queryFn: () => get<Page<SaleRow>>('/sales', { from: today, to: today, mine: true, pageSize: 1 }) });
+  const doneTotal = todaySales.data?.totals?.total ?? 0;
+  const doneCount = todaySales.data?.totals?.sales ?? 0;
   if (!me) return null;
   return (
     <div className="p-5 lg:p-6">
@@ -26,8 +29,8 @@ export function MyActivityPage() {
         <Kpi
           tone="dark"
           label={t('My sales today')}
-          value={todaySales.data ? money(done.reduce((s, r) => s + r.total, 0), false) : todaySales.isError ? '—' : <Skeleton className="h-7 w-24 bg-navy-2" />}
-          sub={todaySales.data ? t('{n} invoice(s) · {currency}', { n: done.length, currency: currencyLabel() }) : todaySales.isError ? t('Could not load this information') : undefined}
+          value={todaySales.data ? money(doneTotal, false) : todaySales.isError ? '—' : <Skeleton className="h-7 w-24 bg-navy-2" />}
+          sub={todaySales.data ? t('{n} invoice(s) · {currency}', { n: doneCount, currency: currencyLabel() }) : todaySales.isError ? t('Could not load this information') : undefined}
           icon={<Receipt className="size-4" />}
         />
         <Card className="md:col-span-2">

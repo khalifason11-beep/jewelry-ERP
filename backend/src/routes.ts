@@ -13,6 +13,7 @@ import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, KARAT
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
+import { pageQuerySchema } from './core/paging';
 import { badRequest, forbidden, notFound } from './core/errors';
 import { writeAudit } from './core/audit';
 import { branchScope, isGlobal, requirePerm } from './authz';
@@ -496,15 +497,13 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           origin: z.enum(ITEM_ORIGINS).optional(),
           minWeightMg: z.coerce.number().int().min(0).max(MAX_WEIGHT_MG).optional(),
           maxWeightMg: z.coerce.number().int().min(0).max(MAX_WEIGHT_MG).optional(),
-          sort: z.enum(['code', 'weight', 'price', 'recent', 'closest']).optional(),
           targetWeightMg: z.coerce.number().int().min(0).max(MAX_WEIGHT_MG).optional(),
-          limit: z.coerce.number().int().min(1).max(1000).optional(),
-          offset: z.coerce.number().int().min(0).max(1_000_000).optional(),
+          ...pageQuerySchema(inventory.ITEM_SORT_KEYS),
         })
         .strict(),
       req.query,
     );
-    res.json(await inventory.searchItems(ctx, actorOf(req), { ...q, status: q.status as never }));
+    res.json(await inventory.pageItems(ctx, actorOf(req), { ...q, status: q.status as never }));
   });
   route('GET', '/inventory/items/:id', async (req, res) => res.json(await inventory.getItemDetail(ctx, actorOf(req), parse(zId, req.params.id))));
   route('POST', '/inventory/items/:id/price', async (req, res) => {
@@ -544,11 +543,20 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('GET', '/sales', async (req, res) => {
     const q = parse(
       z
-        .object({ from: zDay.optional(), to: zDay.optional(), branchId: zOptId, cashierId: zOptId, q: zQ, status: z.enum(['COMPLETED', 'VOIDED']).optional(), mine: zBool.optional() })
+        .object({
+          from: zDay.optional(),
+          to: zDay.optional(),
+          branchId: zOptId,
+          cashierId: zOptId,
+          q: zQ,
+          status: z.enum(['COMPLETED', 'VOIDED']).optional(),
+          mine: zBool.optional(),
+          ...pageQuerySchema(sales.SALE_SORT_KEYS),
+        })
         .strict(),
       req.query,
     );
-    res.json(await sales.listSales(ctx, actorOf(req), q));
+    res.json(await sales.pageSales(ctx, actorOf(req), q));
   });
   route('GET', '/sales/:id', async (req, res) => res.json(await sales.getSale(ctx, actorOf(req), parse(zId, req.params.id))));
   route('POST', '/sales/:id/print', async (req, res) => {
@@ -567,8 +575,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
 
   // ─────────── purchases / transfers ───────────
   route('GET', '/purchases', async (req, res) => {
-    const q = parse(z.object({ branchId: zOptId, from: zDay.optional(), to: zDay.optional(), q: zQ }).strict(), req.query);
-    res.json(await purchases.listPurchases(ctx, actorOf(req), q));
+    const q = parse(z.object({ branchId: zOptId, from: zDay.optional(), to: zDay.optional(), q: zQ, ...pageQuerySchema(purchases.PURCHASE_SORT_KEYS) }).strict(), req.query);
+    res.json(await purchases.pagePurchases(ctx, actorOf(req), q));
   });
   route('GET', '/suppliers/:id/gold-owed', async (req, res) => res.json(await purchases.supplierOpenDebt(ctx, actorOf(req), parse(zId, req.params.id))));
   route('GET', '/purchases/:id', async (req, res) => res.json(await purchases.getPurchase(ctx, actorOf(req), parse(zId, req.params.id))));
@@ -620,7 +628,10 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     res.json(await scrap.scrapRatesView(ctx, actorOf(req)));
   });
   route('GET', '/scrap-purchases', async (req, res) => {
-    const q = parse(z.object({ branchId: zOptId, from: zDay.optional(), to: zDay.optional(), kind: z.enum(SCRAP_KINDS).optional() }).strict(), req.query);
+    const q = parse(
+      z.object({ branchId: zOptId, from: zDay.optional(), to: zDay.optional(), kind: z.enum(SCRAP_KINDS).optional(), q: zQ, ...pageQuerySchema(scrap.SCRAP_SORT_KEYS) }).strict(),
+      req.query,
+    );
     res.json(await scrap.listScrapPurchases(ctx, actorOf(req), q));
   });
   route('POST', '/scrap-purchases', async (req, res) => {
@@ -714,7 +725,19 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   });
 
   route('GET', '/transfers', async (req, res) => {
-    const q = parse(z.object({ branchId: zOptId, status: z.enum(['IN_TRANSIT', 'RECEIVED', 'CANCELLED']).optional() }).strict(), req.query);
+    const q = parse(
+      z
+        .object({
+          branchId: zOptId,
+          status: z.enum(['IN_TRANSIT', 'RECEIVED', 'CANCELLED']).optional(),
+          from: zDay.optional(),
+          to: zDay.optional(),
+          q: zQ,
+          ...pageQuerySchema(transfers.TRANSFER_SORT_KEYS),
+        })
+        .strict(),
+      req.query,
+    );
     res.json(await transfers.listTransfers(ctx, actorOf(req), q));
   });
   route('POST', '/transfers', async (req, res) => {
@@ -760,9 +783,9 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     res.json(await reports.runReport(ctx, actorOf(req), key, parse(reportQuery, req.query)));
   });
   route('GET', '/audit', async (req, res) => {
-    const q = parse(reportQuery.extend({ entityType: z.string().regex(/^[a-z_]{2,40}$/).optional(), limit: z.coerce.number().int().min(1).max(5000).optional() }), req.query);
-    const data = await reports.listAudit(ctx, actorOf(req), q);
-    res.json(data.map(({ sessionId, ...a }) => ({ ...a, sessionRef: sessionId ? sessions.sessionRef(sessionId) : null })));
+    const q = parse(reportQuery.extend({ entityType: z.string().regex(/^[a-z_]{2,40}$/).optional(), ...pageQuerySchema(reports.AUDIT_SORT_KEYS) }), req.query);
+    const data = await reports.pageAudit(ctx, actorOf(req), q);
+    res.json({ ...data, rows: data.rows.map(({ sessionId, ...a }) => ({ ...a, sessionRef: sessionId ? sessions.sessionRef(sessionId) : null })) });
   });
 
   // First steps on an empty system (REM-3).

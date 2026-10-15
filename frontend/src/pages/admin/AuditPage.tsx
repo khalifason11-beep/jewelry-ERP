@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { ScrollText } from 'lucide-react';
 import { AUDIT_ACTIONS } from '@jerp/shared';
 import { get } from '../../lib/api';
@@ -11,6 +11,7 @@ import type { AuditParams } from '@jerp/shared';
 import { auditText } from '../../lib/audit';
 import { useI18n } from '../../lib/i18n';
 import { Button, Card, Input, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
+import { useServerList } from '../../lib/paging';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
 
@@ -43,11 +44,8 @@ export function AuditPage() {
   const [q, setQ] = useState('');
   const dq = useDebounced(q, 300);
   const users = useQuery({ queryKey: ['users', branchId], queryFn: () => get<{ id: number; fullName: string }[]>('/users', { branchId }), enabled: can('users.view') });
-  const data = useQuery({
-    queryKey: ['audit', from, to, branchId, action, userId, dq],
-    queryFn: () => get<AuditRow[]>('/audit', { from, to, branchId, action, userId, q: dq }),
-    placeholderData: keepPreviousData,
-  });
+  // BE-7: one page at a time from the server.
+  const data = useServerList<AuditRow>('audit', '/audit', { from, to, branchId, action, userId, q: dq }, { sortKeys: { at: 'date', action: 'action', userFullName: 'user' } });
   const filtered = !!(action || userId || dq || branchId);
   const clearFilters = () => {
     setAction('');
@@ -75,8 +73,9 @@ export function AuditPage() {
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Search description, ID, user…')} className="h-8 w-56 text-[13px]" />
         </div>
         <DataTable
-          query={data}
-          rows={data.data ?? []}
+          query={data.query}
+          rows={data.rows}
+          server={data.server}
           rowKey={(r) => r.id}
           searchable={false}
           exportName="audit-log"

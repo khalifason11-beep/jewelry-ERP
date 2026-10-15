@@ -74,7 +74,7 @@ describe('the branch manager sends the POS cart', () => {
     const [audit] = await ctx.db.select().from(t.auditLogs).where(eq(t.auditLogs.action, 'INVENTORY_TRANSFER')).orderBy(desc(t.auditLogs.id)).limit(1);
     expect(audit.entityId).toBe(r.body.number);
     expect(audit.metadata).toMatchObject({ courierName: 'مندوب اختبار', items: items.map((i) => i.code) });
-    const list = (await bm.get('/api/transfers')).body as { id: number; courierName: string | null }[];
+    const list = (await bm.get('/api/transfers')).body.rows as { id: number; courierName: string | null }[];
     expect(list.find((x) => x.id === r.body.id)?.courierName).toBe('مندوب اختبار');
   });
 

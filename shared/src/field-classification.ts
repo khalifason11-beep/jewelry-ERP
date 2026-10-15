@@ -205,6 +205,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     courierName unavailable
     supplierDebtMaxAgeDays countDifferenceTolerance cashAmount bankAmount account paidDirectlyToSeller linkedRef reversesEventId offset owedToGm totalOwedToGm events hasMore corrected gmAdvancesCash gmAdvancesBank gmRepaymentsCash gmRepaymentsBank cash signals severity critical warning info generatedAt counts since
     inTransit goldOwed salesLine lastCount orders fullNameAr
+    page pages sort dir asOfId
   `),
 );
 

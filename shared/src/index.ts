@@ -10,3 +10,4 @@ export * from './field-classification';
 export * from './print';
 export * from './names';
 export * from './references';
+export * from './paging';

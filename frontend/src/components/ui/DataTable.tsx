@@ -4,14 +4,18 @@
 // disappears: skeleton rows on the first load, the previous rows with a thin bar while a filter change reloads,
 // the error (with Try again, no access or not found) in place of the rows, the `prompt` while the query waits
 // for a choice, and the screen's own empty text with its next action.
+// BE-7: with `server` (useServerList) the rows are one page of a list sorted, searched and counted on the server: the
+// column sort and the search box ask the server, a pager shows the place in the list, and the CSV export walks every
+// page of the filtered result.
 import { useMemo, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
-import { ArrowDown, ArrowUp, ChevronsUpDown, Download, Search } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsUpDown, Download, Search } from 'lucide-react';
 import { useI18n } from '../../lib/i18n';
 import { Button } from './Button';
 import { Input } from './Field';
 import { Empty, ErrorState, SkeletonRows } from './States';
 import { RefreshBar, viewState, type QueryLike } from './QueryState';
+import type { ServerPaging } from '../../lib/paging';
 
 export interface Column<T> {
   key: string;
@@ -45,6 +49,7 @@ export function DataTable<T>({
   dense,
   maxHeight,
   rowClassName,
+  server,
 }: {
   rows: T[];
   columns: Column<T>[];
@@ -67,15 +72,24 @@ export function DataTable<T>({
   dense?: boolean;
   maxHeight?: string;
   rowClassName?: (row: T) => string | undefined;
+  /** BE-7: a server-paged list (useServerList); the table then neither filters nor sorts the rows itself. */
+  server?: ServerPaging<T>;
 }) {
   const { t } = useI18n();
   const state = query ? viewState(query) : 'ready';
-  const [q, setQ] = useState('');
-  const [sort, setSort] = useState(initialSort ?? null);
+  const [localQ, setLocalQ] = useState('');
+  const [localSort, setLocalSort] = useState(initialSort ?? null);
+  const [exporting, setExporting] = useState(false);
+  const q = server ? (server.search?.value ?? '') : localQ;
+  const setQ = (v: string) => (server ? server.search?.onChange(v) : setLocalQ(v));
+  const sort = server ? server.sort : localSort;
+  const setSort = (s: { key: string; dir: 'asc' | 'desc' } | null) => (server ? server.onSort(s) : setLocalSort(s));
+  const showSearch = searchable && (!server || !!server.search);
 
   const valueOf = (c: Column<T>, r: T) => (c.value ? c.value(r) : (r as Record<string, unknown>)[c.key]);
 
   const filtered = useMemo(() => {
+    if (server) return rows;
     let out = rows;
     if (q.trim()) {
       const needle = q.trim().toLowerCase();
@@ -97,15 +111,25 @@ export function DataTable<T>({
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, q, sort, columns]);
+  }, [rows, q, sort, columns, server]);
 
-  const exportCsv = () => {
+  const exportCsv = async () => {
+    // A server list exports every page of the filtered result, not the page on screen.
+    let all: T[] = filtered;
+    if (server) {
+      setExporting(true);
+      try {
+        all = await server.exportAll();
+      } finally {
+        setExporting(false);
+      }
+    }
     const esc = (v: unknown) => {
       const s = v == null ? '' : v instanceof Date ? v.toISOString() : String(v);
       return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
     };
     const header = columns.map((c) => esc(c.csvHeader ?? (typeof c.header === 'string' ? c.header : c.key))).join(',');
-    const body = filtered.map((r) => columns.map((c) => esc(valueOf(c, r))).join(',')).join('\n');
+    const body = all.map((r) => columns.map((c) => esc(valueOf(c, r))).join(',')).join('\n');
     const blob = new Blob([`﻿${header}\n${body}`], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -119,18 +143,22 @@ export function DataTable<T>({
 
   return (
     <div className="flex min-h-0 flex-col">
-      {(searchable || toolbar || exportName) && (
+      {(showSearch || toolbar || exportName) && (
         <div className="no-print flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">
-          {searchable && (
+          {showSearch && (
             <div className="relative w-full max-w-xs">
               <Search className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
               <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder ?? t('Search')} className="h-9 ps-8" aria-label={t('Search')} />
             </div>
           )}
           <div className="flex flex-1 flex-wrap items-center gap-2">{toolbar}</div>
-          {state === 'ready' && <span className="text-meta text-ink-3 num">{t(filtered.length === 1 ? '{n} row' : '{n} rows', { n: filtered.length.toLocaleString('en-US') })}</span>}
+          {state === 'ready' && (
+            <span className="text-meta text-ink-3 num">
+              {t((server ? server.total : filtered.length) === 1 ? '{n} row' : '{n} rows', { n: (server ? server.total : filtered.length).toLocaleString('en-US') })}
+            </span>
+          )}
           {exportName && (
-            <Button size="sm" variant="ghost" icon={<Download className="size-4" />} onClick={exportCsv}>
+            <Button size="sm" variant="ghost" icon={<Download className="size-4" />} onClick={exportCsv} disabled={exporting} data-testid="export-csv">
               {t('Export CSV')}
             </Button>
           )}
@@ -153,7 +181,7 @@ export function DataTable<T>({
                 {columns.map((c) => {
                   const active = sort?.key === c.key;
                   // An action column has no header text: nothing to sort by, and a nameless sort button would fail axe.
-                  const canSort = c.sortable !== false && c.header !== '';
+                  const canSort = c.sortable !== false && c.header !== '' && (!server || c.key in server.sortKeys);
                   return (
                     <th
                       key={c.key}
@@ -204,6 +232,19 @@ export function DataTable<T>({
               </tfoot>
             )}
           </table>
+        </div>
+      )}
+      {server?.page && server.total > server.page.size && state !== 'loading' && state !== 'error' && (
+        <div className="no-print flex items-center justify-end gap-2 border-t border-line px-4 py-2 text-meta text-ink-3" data-testid="pager">
+          <span className="num">
+            {t('{from}–{to} of {total}', {
+              from: Math.min((server.page.number - 1) * server.page.size + 1, server.total).toLocaleString('en-US'),
+              to: Math.min(server.page.number * server.page.size, server.total).toLocaleString('en-US'),
+              total: server.total.toLocaleString('en-US'),
+            })}
+          </span>
+          <Button size="sm" variant="ghost" icon={<ChevronLeft className="size-4 rtl:rotate-180" />} disabled={server.page.number <= 1} onClick={() => server.onPage(server.page!.number - 1)} aria-label={t('Previous page')} data-testid="page-prev" />
+          <Button size="sm" variant="ghost" icon={<ChevronRight className="size-4 rtl:rotate-180" />} disabled={server.page.number >= server.page.pages} onClick={() => server.onPage(server.page!.number + 1)} aria-label={t('Next page')} data-testid="page-next" />
         </div>
       )}
     </div>

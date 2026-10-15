@@ -84,8 +84,8 @@ describe('data isolation (enforced by the API, not the UI)', () => {
 
     const items = await cashier.get('/api/inventory/items');
     expect(items.status).toBe(200);
-    expect(items.body.items.every((i: { branchId: number }) => i.branchId === krt)).toBe(true);
-    expect(items.body.items[0].totalCost).toBeUndefined(); // no cost data for cashiers
+    expect(items.body.rows.every((i: { branchId: number }) => i.branchId === krt)).toBe(true);
+    expect(items.body.rows[0].totalCost).toBeUndefined(); // no cost data for cashiers
 
     const other = krt === 1 ? 2 : 1;
     expect((await cashier.get(`/api/inventory/items?branchId=${other}`)).status).toBe(403);
@@ -99,7 +99,7 @@ describe('data isolation (enforced by the API, not the UI)', () => {
 
   it('branch manager cannot read another branch sale by id', async () => {
     const gm = await login('general.manager');
-    const sales = (await gm.get('/api/sales?from=2000-01-01&to=2100-01-01')).body as { id: number; branchName: string }[];
+    const sales = (await gm.get('/api/sales?from=2000-01-01&to=2100-01-01&pageSize=200')).body.rows as { id: number; branchName: string }[];
     const omdSale = sales.find((s) => s.branchName.startsWith('Omdurman'))!;
     const bm = await login('branch.manager.kh');
     expect((await bm.get(`/api/sales/${omdSale.id}`)).status).toBe(403);
@@ -121,7 +121,7 @@ describe('vertical slice: sale → dashboards → audit', () => {
     const beforeCompany = (await gm.get('/api/dashboard/company')).body.totals.revenue;
     const beforeBranch = (await bm.get('/api/dashboard/branch')).body.kpis;
 
-    const items = (await cashier.get('/api/inventory/items?status=AVAILABLE&sort=price')).body.items;
+    const items = (await cashier.get('/api/inventory/items?status=AVAILABLE&sort=price')).body.rows;
     const item = items.find((i: { code: string }) => !['J-1001', 'J-1002', 'J-1003'].includes(i.code));
     const sale = await cashier.post('/api/sales').send({ items: [{ itemId: item.id, discount: 0 }], paymentMethod: 'CASH', customerName: 'Test Customer' });
     expect(sale.status, JSON.stringify(sale.body)).toBe(200);
@@ -137,14 +137,14 @@ describe('vertical slice: sale → dashboards → audit', () => {
     const afterCompany = (await gm.get('/api/dashboard/company')).body.totals.revenue;
     expect(afterCompany).toBe(beforeCompany + item.sellingPrice);
 
-    const audit = (await gm.get('/api/audit?action=SALE_CREATED')).body;
+    const audit = (await gm.get('/api/audit?action=SALE_CREATED')).body.rows;
     expect(audit[0].entityId).toBe(sale.body.number);
     expect(audit[0].username).toBe('cashier.kh.01');
   });
 
   it('cashier discount above role limit is rejected', async () => {
     const cashier = await login('cashier.kh.02');
-    const items = (await cashier.get('/api/inventory/items?status=AVAILABLE')).body.items;
+    const items = (await cashier.get('/api/inventory/items?status=AVAILABLE')).body.rows;
     const item = items.find((i: { code: string }) => !['J-1001', 'J-1002', 'J-1003'].includes(i.code));
     const res = await cashier.post('/api/sales').send({ items: [{ itemId: item.id, discount: Math.round(item.sellingPrice * 0.2) }], paymentMethod: 'CASH' });
     expect(res.status).toBe(403);
@@ -153,7 +153,7 @@ describe('vertical slice: sale → dashboards → audit', () => {
   it('a prepaid Hasad pickup is an ordinary sale paid through Hasad (REM-2)', async () => {
     const cashier = await login('cashier.kh.01');
     const gm = await login('general.manager');
-    const items = (await cashier.get('/api/inventory/items?status=AVAILABLE')).body.items;
+    const items = (await cashier.get('/api/inventory/items?status=AVAILABLE')).body.rows;
     const item = items.find((i: { code: string }) => !['J-1001', 'J-1002', 'J-1003'].includes(i.code));
     // The Hasad invoice number is required; the transaction reference is optional.
     expect((await cashier.post('/api/sales').send({ items: [{ itemId: item.id }], paymentMethod: 'HASAD' })).status).toBe(400);

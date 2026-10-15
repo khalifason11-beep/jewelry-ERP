@@ -9,6 +9,7 @@ import { branchScope, can, requirePerm } from '../../authz';
 import { badRequest } from '../../core/errors';
 import { nameOrAr, rows, num } from '../../core/sql';
 import { periodFor } from '../dashboard/service';
+import { maxIdOf, runPaged, type PageRequest, type SortSpec } from '../../core/paging';
 import { searchItems } from '../inventory/service';
 import { listPurchases } from '../purchases/service';
 import { listSales } from '../sales/service';
@@ -438,11 +439,17 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
   }
 }
 
-export async function listAudit(
-  ctx: Ctx,
-  actor: Actor,
-  q: { from?: string; to?: string; branchId?: number; userId?: number; action?: string; q?: string; entityType?: string; limit?: number },
-) {
+interface AuditQuery {
+  from?: string;
+  to?: string;
+  branchId?: number;
+  userId?: number;
+  action?: string;
+  q?: string;
+  entityType?: string;
+}
+
+async function auditWhere(ctx: Ctx, actor: Actor, q: AuditQuery): Promise<SQL[]> {
   requirePerm(actor, 'audit.view');
   const scope = branchScope(actor, q.branchId);
   const period = await periodFor(ctx, q.from, q.to);
@@ -458,7 +465,11 @@ export async function listAudit(
     const s = `%${q.q.trim()}%`;
     where.push(or(ilike(t.auditLogs.description, s), ilike(t.auditLogs.entityId, s), ilike(t.auditLogs.username, s))!);
   }
-  return ctx.db
+  return where;
+}
+
+const auditListFrom = (db: Ctx['db']) =>
+  db
     .select({
       id: t.auditLogs.id,
       at: t.auditLogs.at,
@@ -478,8 +489,35 @@ export async function listAudit(
       sessionId: t.auditLogs.sessionId,
     })
     .from(t.auditLogs)
-    .leftJoin(t.branches, eq(t.branches.id, t.auditLogs.branchId))
+    .leftJoin(t.branches, eq(t.branches.id, t.auditLogs.branchId));
+
+/** The audit report's rows (unchanged: newest first, up to 5,000). */
+export async function listAudit(ctx: Ctx, actor: Actor, q: AuditQuery & { limit?: number }) {
+  const where = await auditWhere(ctx, actor, q);
+  return auditListFrom(ctx.db)
     .where(and(...where))
     .orderBy(desc(t.auditLogs.at), desc(t.auditLogs.id))
     .limit(Math.min(q.limit ?? 1500, 5000));
+}
+
+export const AUDIT_SORT_KEYS = ['date', 'action', 'user'] as const;
+export type AuditSortKey = (typeof AUDIT_SORT_KEYS)[number];
+const auditSorts: Record<AuditSortKey, SortSpec> = {
+  date: { by: t.auditLogs.at, field: 'at', dir: 'desc' },
+  action: { by: t.auditLogs.action, field: 'action', dir: 'asc' },
+  user: { by: t.auditLogs.username, field: 'username', dir: 'asc' },
+};
+
+/** BE-7: the audit log, one page at a time (`GET /audit`). */
+export async function pageAudit(ctx: Ctx, actor: Actor, q: AuditQuery & PageRequest<AuditSortKey>) {
+  const where = await auditWhere(ctx, actor, q);
+  return runPaged(actor, q, {
+    sorts: auditSorts,
+    defaultSort: 'date',
+    id: t.auditLogs.id,
+    where,
+    maxId: async () => Number((await ctx.db.select({ m: maxIdOf(t.auditLogs.id) }).from(t.auditLogs))[0].m),
+    count: async (w) => Number((await ctx.db.select({ n: sql<number>`count(*)` }).from(t.auditLogs).where(w))[0].n),
+    rows: ({ where: w, orderBy, limit, offset }) => auditListFrom(ctx.db).where(w).orderBy(...orderBy).limit(limit).offset(offset),
+  });
 }

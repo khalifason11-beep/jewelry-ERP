@@ -10,7 +10,7 @@
 //   * The broken-scrap pool: append-only `scrap_weight_entries`; balance per branch and karat =
 //     SUM(weight_mg), never cached. Its 24K equivalent uses the ONE pure-gold helper (pureGoldMg).
 
-import { and, asc, desc, eq, gte, lt, sql, type SQL } from 'drizzle-orm';
+import { asc, desc, eq, gte, ilike, lt, or, sql, type SQL } from 'drizzle-orm';
 import { assertProductsUsable } from '../catalog/service';
 import { t, type Executor } from '@jerp/database';
 import { ap, divRound, pureGoldMg, sumInt, validBankReference, valueOfWeight, type ScrapKind, type ScrapPaymentMethod, type ScrapWeightEventType } from '@jerp/shared';
@@ -18,6 +18,7 @@ import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requireAny, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
 import { badRequest, forbidden, notFound } from '../../core/errors';
+import { maxIdOf, runPaged, type PageRequest, type SortSpec } from '../../core/paging';
 import { assertSellableKarat } from '../../core/karats';
 import { nextItemCode, nextNumber } from '../../core/numbering';
 import { rows } from '../../core/sql';
@@ -338,7 +339,22 @@ export function paymentParts(input: Pick<ScrapPurchaseInput, 'cashAmount' | 'ban
   return { cash, bank, reference, label };
 }
 
-export async function listScrapPurchases(ctx: Ctx, actor: Actor, q: { branchId?: number; from?: string; to?: string; kind?: ScrapKind }) {
+export const SCRAP_SORT_KEYS = ['date', 'number', 'branch', 'weight', 'amount'] as const;
+export type ScrapSortKey = (typeof SCRAP_SORT_KEYS)[number];
+const scrapSorts: Record<ScrapSortKey, SortSpec> = {
+  date: { by: t.scrapPurchases.createdAt, field: 'createdAt', dir: 'desc' },
+  number: { by: t.scrapPurchases.number, field: 'number', dir: 'desc' },
+  branch: { by: t.branches.name, field: 'branchName', dir: 'asc' },
+  weight: { by: t.scrapPurchases.netWeightMg, field: 'netWeightMg', dir: 'desc' },
+  amount: { by: t.scrapPurchases.amount, field: 'amount', dir: 'desc' },
+};
+
+/** BE-7: the scrap purchases list, one page at a time (`GET /scrap-purchases`). */
+export async function listScrapPurchases(
+  ctx: Ctx,
+  actor: Actor,
+  q: { branchId?: number; from?: string; to?: string; kind?: ScrapKind; q?: string } & PageRequest<ScrapSortKey>,
+) {
   requireAny(actor, 'scrap.buy', 'purchases.view');
   const scope = branchScope(actor, q.branchId);
   const where: SQL[] = [];
@@ -349,33 +365,47 @@ export async function listScrapPurchases(ctx: Ctx, actor: Actor, q: { branchId?:
     const r = dayRange(q.from, q.to, company.timezone);
     where.push(gte(t.scrapPurchases.createdAt, r.start), lt(t.scrapPurchases.createdAt, r.end));
   }
-  return ctx.db
-    .select({
-      id: t.scrapPurchases.id,
-      number: t.scrapPurchases.number,
-      branchId: t.scrapPurchases.branchId,
-      branchName: t.branches.name,
-      kind: t.scrapPurchases.kind,
-      karat: t.scrapPurchases.karat,
-      netWeightMg: t.scrapPurchases.netWeightMg,
-      scrapRatePerGram: t.scrapPurchases.scrapRatePerGram,
-      agreedRatePerGram: t.scrapPurchases.agreedRatePerGram,
-      deviationBp: t.scrapPurchases.deviationBp,
-      overrideApproved: t.scrapPurchases.overrideApproved,
-      amount: t.scrapPurchases.amount,
-      paymentMethod: t.scrapPurchases.paymentMethod,
-      cashAmount: t.scrapPurchases.cashAmount,
-      bankAmount: t.scrapPurchases.bankAmount,
-      bankReference: t.scrapPurchases.bankReference,
-      itemId: t.scrapPurchases.itemId,
-      customerName: t.scrapPurchases.customerName,
-      createdAt: t.scrapPurchases.createdAt,
-      createdByName: t.users.fullName,
-    })
-    .from(t.scrapPurchases)
-    .innerJoin(t.branches, eq(t.branches.id, t.scrapPurchases.branchId))
-    .innerJoin(t.users, eq(t.users.id, t.scrapPurchases.createdBy))
-    .where(where.length ? and(...where) : undefined)
-    .orderBy(desc(t.scrapPurchases.createdAt), desc(t.scrapPurchases.id))
-    .limit(500);
+  if (q.q?.trim()) {
+    const s = `%${q.q.trim()}%`;
+    where.push(or(ilike(t.scrapPurchases.number, s), ilike(t.scrapPurchases.customerName, s))!);
+  }
+  return runPaged(actor, q, {
+    sorts: scrapSorts,
+    defaultSort: 'date',
+    id: t.scrapPurchases.id,
+    where,
+    maxId: async () => Number((await ctx.db.select({ m: maxIdOf(t.scrapPurchases.id) }).from(t.scrapPurchases))[0].m),
+    count: async (w) => Number((await ctx.db.select({ n: sql<number>`count(*)` }).from(t.scrapPurchases).where(w))[0].n),
+    rows: ({ where: w, orderBy, limit, offset }) =>
+      ctx.db
+        .select({
+          id: t.scrapPurchases.id,
+          number: t.scrapPurchases.number,
+          branchId: t.scrapPurchases.branchId,
+          branchName: t.branches.name,
+          kind: t.scrapPurchases.kind,
+          karat: t.scrapPurchases.karat,
+          netWeightMg: t.scrapPurchases.netWeightMg,
+          scrapRatePerGram: t.scrapPurchases.scrapRatePerGram,
+          agreedRatePerGram: t.scrapPurchases.agreedRatePerGram,
+          deviationBp: t.scrapPurchases.deviationBp,
+          overrideApproved: t.scrapPurchases.overrideApproved,
+          amount: t.scrapPurchases.amount,
+          paymentMethod: t.scrapPurchases.paymentMethod,
+          cashAmount: t.scrapPurchases.cashAmount,
+          bankAmount: t.scrapPurchases.bankAmount,
+          bankReference: t.scrapPurchases.bankReference,
+          itemId: t.scrapPurchases.itemId,
+          customerName: t.scrapPurchases.customerName,
+          createdAt: t.scrapPurchases.createdAt,
+          createdByName: t.users.fullName,
+        })
+        .from(t.scrapPurchases)
+        .innerJoin(t.branches, eq(t.branches.id, t.scrapPurchases.branchId))
+        .innerJoin(t.users, eq(t.users.id, t.scrapPurchases.createdBy))
+        .where(w)
+        .orderBy(...orderBy)
+        .limit(limit)
+        .offset(offset),
+  });
 }

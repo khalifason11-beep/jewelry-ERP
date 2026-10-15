@@ -237,6 +237,12 @@ export const AR: Record<string, string> = {
   "month to date": "منذ بداية الشهر",
   "{n} row": "{n} صف",
   "{n} rows": "{n} صفوف",
+  // BE-7: the pager of a server list.
+  "{from}–{to} of {total}": "{from}–{to} من {total}",
+  "Previous page": "الصفحة السابقة",
+  "Next page": "الصفحة التالية",
+  "The first {n} of {total} pieces are shown: search to find the others.": "تظهر أول {n} من {total} قطعة: ابحث لإيجاد الباقي.",
+  "You cannot sort this list by cost": "لا يمكنك ترتيب هذه القائمة حسب التكلفة",
   "No results for “{q}”": "لا نتائج لـ «{q}»",
   "Try a different search term.": "جرّب كلمة بحث أخرى.",
   "just now": "الآن",

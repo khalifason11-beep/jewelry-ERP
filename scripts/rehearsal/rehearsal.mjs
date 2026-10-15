@@ -890,7 +890,7 @@ async function main() {
     await page.fill('[data-testid=scrap-net]', '3');
     await page.fill('[data-testid=scrap-selling-price]', '900000');
     await page.click('[data-testid=scrap-buy]');
-    await waitFor(async () => (await apiGet(page, `/api/inventory/items?branchId=${branchId}&categoryId=${typeId}`)).body.items.length === 2, 'two pieces of the new type', 15_000);
+    await waitFor(async () => (await apiGet(page, `/api/inventory/items?branchId=${branchId}&categoryId=${typeId}`)).body.rows.length === 2, 'two pieces of the new type', 15_000);
     ok(`a sellable scrap piece is bought with product "${CAT.scrapProduct}" created inline (karat fixed to 21K); filtering stock by the new type finds both pieces`);
 
     // CSH-2 piece A: broken scrap paid part from the drawer, part by bank transfer (2 g × 95,000 = 190,000; test values).
@@ -902,10 +902,10 @@ async function main() {
     check((await page.inputValue('[data-testid=scrap-bank-part]')) === '70000', 'the scrap form fills the bank part with the rest of the amount (190,000 − 120,000 = 70,000)');
     check(await page.getByTestId('scrap-buy').isDisabled(), 'a bank part without its transfer reference cannot be saved');
     await page.fill('[data-testid=scrap-bank-ref]', 'reh scr ٢');
-    const scrapBefore = (await apiGet(page, '/api/scrap-purchases')).body.length;
+    const scrapBefore = (await apiGet(page, '/api/scrap-purchases')).body.total;
     await page.click('[data-testid=scrap-buy]');
-    await waitFor(async () => (await apiGet(page, '/api/scrap-purchases')).body.length > scrapBefore, 'the split scrap purchase', 15_000);
-    const split = (await apiGet(page, '/api/scrap-purchases')).body.find((x) => x.paymentMethod === 'SPLIT');
+    await waitFor(async () => (await apiGet(page, '/api/scrap-purchases')).body.total > scrapBefore, 'the split scrap purchase', 15_000);
+    const split = (await apiGet(page, '/api/scrap-purchases')).body.rows.find((x) => x.paymentMethod === 'SPLIT');
     check(split && split.cashAmount === 120_000 && split.bankAmount === 70_000 && split.bankReference === 'REH SCR 2', `split scrap purchase ${split?.number}: 120,000 from the drawer + 70,000 by bank transfer (reference normalized to "REH SCR 2")`);
     const paidBy = await page.getByTestId(`scrap-paid-by-${split.number}`).innerText({ timeout: 15_000 });
     check(/120,000/.test(paidBy) && /70,000/.test(paidBy) && /REH SCR 2/.test(paidBy), `the "Paid by" column shows both parts and the reference ("${paidBy.replace(/\s+/g, ' ')}")`);
@@ -930,14 +930,14 @@ async function main() {
     await page.click('[data-testid=scrap-kind-BROKEN]');
     await page.fill('[data-testid=scrap-karat-any]', '21');
     await page.fill('[data-testid=scrap-net]', String(grams));
-    const scrapCount = (await apiGet(page, '/api/scrap-purchases')).body.length;
+    const scrapCount = (await apiGet(page, '/api/scrap-purchases')).body.total;
     await page.click('[data-testid=scrap-buy]');
     const shortText = await page.getByTestId('scrap-drawer-short').innerText({ timeout: 15_000 });
     check(
       shortText.includes(shortBy.toLocaleString('en-US')) && shortText.includes(drawerNow.toLocaleString('en-US')) && /المدير العام/.test(shortText) && /تحويل بنكي/.test(shortText),
       `a cash payment above the drawer (${drawerNow.toLocaleString('en-US')}) is refused on the form: "${shortText}"`,
     );
-    check((await apiGet(page, '/api/scrap-purchases')).body.length === scrapCount && (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId).expectedCash === drawerNow, 'the refused purchase recorded nothing: same purchases, same drawer');
+    check((await apiGet(page, '/api/scrap-purchases')).body.total === scrapCount && (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId).expectedCash === drawerNow, 'the refused purchase recorded nothing: same purchases, same drawer');
 
     // MKC-1: the gold side is unchanged. The branch manager settles part of the General Manager's order with the
     // broken scrap bought above (1 g of 21K = 0.875 g of 24K); the order still owes the rest.
@@ -970,7 +970,7 @@ async function main() {
       rec.status === 200 && rec.body.cashLines.some((l) => l.line === 'OTHER') && total(rec.body.cashLines) === rec.body.cashMovement && total(rec.body.bankLines) === rec.body.bankMovement,
       'the daily reconciliation has drawer and bank lines (with "Other") that add up to the ledger',
     );
-    const audit = await apiGet(page, '/api/audit?limit=200');
+    const audit = await apiGet(page, '/api/audit?pageSize=200');
     const rows = Array.isArray(audit.body) ? audit.body : (audit.body?.rows ?? audit.body?.items ?? []);
     const actions = new Set(rows.map((r) => r.action));
     check(['BRANCH_CREATED', 'USER_CREATED'].every((a) => actions.has(a)), 'the audit log shows the branch and the users created');
@@ -1044,7 +1044,7 @@ async function main() {
     await page.goto(`${origin}/sales/${discSale.id}`);
     await page.getByTestId('sale-price-change-reason').waitFor({ timeout: 15_000 });
     ok('branch manager: the sale detail shows the reason (marked internal, not printed)');
-    const pc = await apiGet(page, '/api/audit?action=SALE_PRICE_CHANGED&limit=5');
+    const pc = await apiGet(page, '/api/audit?action=SALE_PRICE_CHANGED&pageSize=5');
     const pcRows = Array.isArray(pc.body) ? pc.body : (pc.body?.rows ?? pc.body?.items ?? []);
     check(pcRows.some((r) => r.entityId === discSale.number) && !/cost|profit/i.test(JSON.stringify(pcRows)), 'the audit log has SALE_PRICE_CHANGED for it, with prices only (no cost)');
     await page.click('[data-testid=sale-void]');
@@ -1197,7 +1197,7 @@ async function main() {
     const sent = await (await trResp).json();
     check(sent.status === 'IN_TRANSIT' && sent.courierName === 'مندوب التجربة', `transfer ${sent.number} sent from the cart, courier recorded`);
     await page.getByText(/السلة فارغة|Cart is empty/).first().waitFor({ timeout: 10_000 });
-    const log = (await apiGet(page, '/api/transfers')).body.find((x) => x.id === sent.id);
+    const log = (await apiGet(page, '/api/transfers')).body.rows.find((x) => x.id === sent.id);
     check(log.itemCount === 3 && log.items.length === 3, 'one transfer holds the three pieces; the cart is empty');
     await page.goto(`${origin}/transfers`);
     await page.getByText('مندوب التجربة').first().waitFor({ timeout: 15_000 });
@@ -1219,7 +1219,7 @@ async function main() {
     check((await a1()).length === 1 && (await a1())[0].count >= 1, 'UI-B: the transfer in transit is an attention line (A1) for the receiving branch');
     await page.goto(`${origin}/transfers`);
     await page.getByRole('button', { name: /تأكيد الاستلام|Confirm receipt/ }).first().click({ timeout: 15_000 });
-    await waitFor(async () => (await apiGet(page, '/api/transfers')).body.find((x) => x.id === sent.id).status === 'RECEIVED', 'the receipt', 15_000);
+    await waitFor(async () => (await apiGet(page, '/api/transfers')).body.rows.find((x) => x.id === sent.id).status === 'RECEIVED', 'the receipt', 15_000);
     ok('the receipt is confirmed for the receiving branch; the pieces are AVAILABLE there');
     check((await a1()).length === 0, 'UI-B: the A1 line leaves on receipt');
     await page.click('[data-testid=new-transfer]');

@@ -1,9 +1,9 @@
 import { ap, pureGoldMg, sumInt, validBankReference, type MakingChargePayer } from '@jerp/shared';
-import { and, desc, eq, gte, ilike, inArray, lt, or, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import { nameOrAr } from '../../core/sql';
 import type { Actor, Ctx } from '../../core/context';
-import { branchScope, requirePerm } from '../../authz';
+import { branchScope, can, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
 import { AppError, badRequest, notFound } from '../../core/errors';
 import { nextItemCode, nextNumber } from '../../core/numbering';
@@ -14,6 +14,7 @@ import type { TxIdempotency } from '../../core/idempotency';
 import { settlementsFor } from '../supplier-settlements/service';
 import { assertProductsUsable } from '../catalog/service';
 import { daysOpen, supplierGoldOwed } from './supplier-debt';
+import { maxIdOf, runPaged, sumOf, type PageRequest, type SortSpec } from '../../core/paging';
 
 export interface PurchaseLine {
   productId: number;
@@ -219,7 +220,14 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
   });
 }
 
-export async function listPurchases(ctx: Ctx, actor: Actor, q: { branchId?: number; from?: string; to?: string; q?: string }) {
+interface PurchaseQuery {
+  branchId?: number;
+  from?: string;
+  to?: string;
+  q?: string;
+}
+
+async function purchasesWhere(ctx: Ctx, actor: Actor, q: PurchaseQuery): Promise<SQL[]> {
   requirePerm(actor, 'purchases.view');
   const scope = branchScope(actor, q.branchId);
   const where: SQL[] = [];
@@ -233,7 +241,11 @@ export async function listPurchases(ctx: Ctx, actor: Actor, q: { branchId?: numb
     const s = `%${q.q.trim()}%`;
     where.push(or(ilike(t.purchases.number, s), ilike(t.suppliers.name, s), ilike(t.suppliers.nameAr, s), ilike(t.purchases.supplierInvoiceNo, s))!);
   }
-  return ctx.db
+  return where;
+}
+
+const purchaseListFrom = (db: Ctx['db']) =>
+  db
     .select({
       id: t.purchases.id,
       number: t.purchases.number,
@@ -254,10 +266,52 @@ export async function listPurchases(ctx: Ctx, actor: Actor, q: { branchId?: numb
     .from(t.purchases)
     .innerJoin(t.branches, eq(t.branches.id, t.purchases.branchId))
     .innerJoin(t.users, eq(t.users.id, t.purchases.createdBy))
-    .leftJoin(t.suppliers, eq(t.suppliers.id, t.purchases.supplierId))
+    .leftJoin(t.suppliers, eq(t.suppliers.id, t.purchases.supplierId));
+
+/** The purchases report's rows (unchanged: newest first, at most 1,000; see BACKLOG §G). */
+export async function listPurchases(ctx: Ctx, actor: Actor, q: PurchaseQuery) {
+  const where = await purchasesWhere(ctx, actor, q);
+  return purchaseListFrom(ctx.db)
     .where(where.length ? and(...where) : undefined)
     .orderBy(desc(t.purchases.createdAt))
     .limit(1000);
+}
+
+export const PURCHASE_SORT_KEYS = ['date', 'number', 'branch', 'supplier', 'weight', 'totalCost'] as const;
+export type PurchaseSortKey = (typeof PURCHASE_SORT_KEYS)[number];
+const purchaseSorts: Record<PurchaseSortKey, SortSpec> = {
+  date: { by: t.purchases.createdAt, field: 'createdAt', dir: 'desc' },
+  number: { by: t.purchases.number, field: 'number', dir: 'desc' },
+  branch: { by: t.branches.name, field: 'branchName', dir: 'asc' },
+  supplier: { by: nameOrAr(t.suppliers.name, t.suppliers.nameAr), field: 'supplierName', dir: 'asc' },
+  weight: { by: t.purchases.totalNetWeightMg, field: 'totalNetWeightMg', dir: 'desc' },
+  // GM only (BE-7).
+  totalCost: { by: t.purchases.totalCost, field: 'totalCost', dir: 'desc' },
+};
+
+/** BE-7: the purchases list, one page at a time (`GET /purchases`). */
+export async function pagePurchases(ctx: Ctx, actor: Actor, q: PurchaseQuery & PageRequest<PurchaseSortKey>) {
+  const where = await purchasesWhere(ctx, actor, q);
+  return runPaged(actor, q, {
+    sorts: purchaseSorts,
+    defaultSort: 'date',
+    id: t.purchases.id,
+    where,
+    maxId: async () => Number((await ctx.db.select({ m: maxIdOf(t.purchases.id) }).from(t.purchases))[0].m),
+    count: async (w) =>
+      Number(
+        (await ctx.db.select({ n: sql<number>`count(*)` }).from(t.purchases).leftJoin(t.suppliers, eq(t.suppliers.id, t.purchases.supplierId)).where(w))[0].n,
+      ),
+    rows: ({ where: w, orderBy, limit, offset }) => purchaseListFrom(ctx.db).where(w).orderBy(...orderBy).limit(limit).offset(offset),
+    totals: async (w) => {
+      const [s] = await ctx.db
+        .select({ itemCount: sumOf(t.purchases.itemCount), totalNetWeightMg: sumOf(t.purchases.totalNetWeightMg), totalCost: sumOf(t.purchases.totalCost) })
+        .from(t.purchases)
+        .leftJoin(t.suppliers, eq(t.suppliers.id, t.purchases.supplierId))
+        .where(w);
+      return can(actor, 'profit.view') ? s : { itemCount: s.itemCount, totalNetWeightMg: s.totalNetWeightMg };
+    },
+  });
 }
 
 export async function getPurchase(ctx: Ctx, actor: Actor, id: number) {
