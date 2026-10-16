@@ -247,6 +247,10 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   totals? }`: 50 rows by default, `pageSize` up to 200 (larger values are clamped), `page` from 1, `sort` and `dir` from
   each list's fixed keys (others are 400; cost and profit keys are 403 without `profit.view`). Send the `asOfId` of page
   1 with the next pages. The old `limit` / `offset` parameters are refused (400).
+- **Reports (RPT-2):** `GET /reports/:key` answers, for the reports that list rows (sales, purchases, inventory,
+  inventory-ledger, audit), `rowCount` (every matching row), `rowCap` and `truncated`; the rows are the first `rowCap`,
+  the totals and summary cover every row. Add `page` (and `pageSize` up to 200, `asOfId` from page 1) to read every row
+  page by page: `{ rows, total, page }`. Other reports are aggregates and refuse `page` (400).
 - **API clients other than the web app** must send an `Idempotency-Key` header (16–128 characters of `A–Z a–z 0–9 _ -`,
   one new key per business action, reused only for retries of that action) on: create sale, void sale, create
   purchase, create transfer, receive transfer, record a cash count and record a Hasad bank transfer.

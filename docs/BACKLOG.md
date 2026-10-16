@@ -271,6 +271,11 @@ Name, phone, optionally an ID number, and a printed receipt for the customer.
 ### RPT-1 — Report review after the removals · TODO · M · P1
 Re-verify every report after REM-1, REM-2 and PRC-1; add reporting by payment channel and the bank-reference list; confirm no report shows cost to non-GM roles. Add the **scrap bought at an override price** list (A8, report only, D-ux-9).
 
+### RPT-2 — Reports never silently drop rows · DONE · S · P0
+Found in BE-7: the Sales, Purchases and Inventory reports added up their totals from at most 1,000 rows. Now the totals
+and summaries are SQL aggregates over every row, the screen shows at most the cap with the true count and a warning, and
+the CSV holds every row (plan `docs/plans/RPT-2.md`, D-rpt2-1…4, `test/report-caps.test.ts`).
+
 ### WGT-1 — Weight precision per deployment · DEFERRED · M · P3
 **Q-14 closed (owner):** this client's scales read to **0.001 g** (1 mg), which is exactly how the system already works (integer milligrams, three decimals). **Nothing changes for this client.** Build WGT-1 only if another client weighs to two decimals: then a per-deployment setting for the number of weight decimals, input validation on every form, import and the API, one formatter everywhere, and documented totals.
 **No quantisation of the pure-24K debt is needed:** at milligram precision the 24K equivalent of a net weight is rounded to the nearest milligram, and every integer debt can be settled exactly: for every karat 1–24 the conversion step (`round((n+1)·k/24) − round(n·k/24)`) is at most one milligram, so every integer owed value is reached by some whole-milligram weight. REM-3 adds a property test for this.
@@ -379,9 +384,11 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
   now waits for the change-password form alone and checks the typed values before submitting.
 - `npm run test:pg -w @jerp/backend` sets its variable with POSIX shell syntax, so it does not run in the Windows
   command prompt (`npm test` with `TEST_DATABASE_URL` does).
-- **The Sales, Purchases and Inventory reports read at most 1,000 rows** (found in BE-7): a report over a period with more
-  sales than that is silently cut short, totals included. BE-7 left the reports unchanged (D-be7-5); fixing it means
-  aggregating in SQL instead of over the list rows. Needs a decision on priority.
+- ~~**The Sales, Purchases and Inventory reports read at most 1,000 rows**~~ (found in BE-7): **fixed by RPT-2** (totals
+  in SQL over every row; a visible cap on screen with the true count; every row in the CSV; D-rpt2-1…4).
+- Two lists outside the reports still cap silently (RPT-2 plan, items 6 and 7): Cash › Hasad transfers (newest 200,
+  CSV included) and Active users (300 sessions; its four tiles count those rows). Page them with the BE-7 helper, or
+  leave them: owner decision.
 - BE-7 limits that the screens show: the POS grid and the transfer picker hold the largest page (200 pieces) and offer
   the search for the rest (the picker says so); a page changed under a filter by a void can still move a row (the
   snapshot only stops new rows). The next index if sales grow far beyond 60,000: `sales(created_at, id)` (D-be7-6).
