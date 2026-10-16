@@ -193,10 +193,10 @@ describe('access: General Manager only, password, Idempotency-Key, audit hidden 
   });
 
   it('the audit log shows funding to the General Manager only', async () => {
-    const all = await listAudit(ctx, gm, { action: 'GM_ADVANCE_RECORDED' });
+    const all = await listAudit(ctx, gm, { action: 'GM_ADVANCE_RECORDED', limit: 1500 });
     expect(all.length).toBeGreaterThan(0);
     const bm = await actorOf('branch.manager.kh');
-    const mine = await listAudit(ctx, bm, {});
+    const mine = await listAudit(ctx, bm, { limit: 1500 });
     expect(mine.filter((r) => r.entityType === 'gm_funding_event')).toHaveLength(0);
   });
 });

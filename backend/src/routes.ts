@@ -766,6 +766,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     const q = parse(z.object({ from: zDay.optional(), to: zDay.optional() }).strict(), req.query);
     res.json(await dashboard.companyDashboard(ctx, actorOf(req), q));
   });
+  // RPT-2: the report rows' own order keys (the shared page walk sends back the key of page 1).
+  const pageQueryFields = pageQuerySchema(['date', 'code'] as const);
   const reportQuery = z
     .object({
       from: zDay.optional(),
@@ -780,7 +782,10 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     .strict();
   route('GET', '/reports/:key', async (req, res) => {
     const { key } = parse(z.object({ key: z.string().regex(/^[a-z-]{2,40}$/) }).strict(), req.params);
-    res.json(await reports.runReport(ctx, actorOf(req), key, parse(reportQuery, req.query)));
+    // RPT-2: with `page`, one page of the report's rows (the CSV export walks every page); without, the report.
+    // A report's rows keep the report's order: `sort`/`dir` are accepted (the shared page walk sends them) and ignored.
+    const { page, pageSize, asOfId, sort: _s, dir: _d, ...q } = parse(reportQuery.extend(pageQueryFields), req.query);
+    res.json(page ? await reports.reportRowsPage(ctx, actorOf(req), key, { ...q, page, pageSize, asOfId }) : await reports.runReport(ctx, actorOf(req), key, q));
   });
   route('GET', '/audit', async (req, res) => {
     const q = parse(reportQuery.extend({ entityType: z.string().regex(/^[a-z_]{2,40}$/).optional(), ...pageQuerySchema(reports.AUDIT_SORT_KEYS) }), req.query);

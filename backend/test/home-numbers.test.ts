@@ -57,7 +57,7 @@ describe('sales and profit on the homes, every branch and every day', () => {
         const day = addDays(today, off);
         const d = await branchDashboard(ctx, gm, { branchId: b.id, date: day });
         const report = await runReport(ctx, gm, 'sales', { from: day, to: day, branchId: b.id });
-        const list = (await listSales(ctx, gm, { from: day, to: day, branchId: b.id })).filter((s) => s.status === 'COMPLETED');
+        const list = (await listSales(ctx, gm, { from: day, to: day, branchId: b.id }, 1000)).filter((s) => s.status === 'COMPLETED');
         expect(d.kpis.salesTotal, `${b.code} ${day}`).toBe(report.totals?.total ?? 0);
         expect(d.kpis.salesTotal).toBe(list.reduce((s, r) => s + r.total, 0));
         expect(d.kpis.salesCount).toBe(list.length);

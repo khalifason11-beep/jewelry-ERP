@@ -277,14 +277,50 @@ function saleListRow(actor: Actor, r: SaleListRow) {
 }
 
 
-/** The sales report's rows (unchanged: newest first, at most 1,000; see BACKLOG §G). */
-export async function listSales(ctx: Ctx, actor: Actor, q: SaleQuery) {
+/** The sales report's rows on screen: newest first, at most `cap` (RPT-2: the report says when it is cut). */
+export async function listSales(ctx: Ctx, actor: Actor, q: SaleQuery, cap: number) {
   const where = await salesWhere(ctx, actor, q);
   const rowsAll = await saleListFrom(ctx.db)
     .where(where.length ? and(...where) : undefined)
-    .orderBy(desc(t.sales.createdAt))
-    .limit(1000);
+    // The id breaks ties exactly as the paged CSV walk does (RPT-2), so the screen and the file list rows in one order.
+    .orderBy(desc(t.sales.createdAt), desc(t.sales.id))
+    .limit(cap);
   return rowsAll.map((r) => saleListRow(actor, r));
+}
+
+/**
+ * RPT-2: the sales report's count, totals and sales by channel, computed by the database over the WHOLE filtered result
+ * (the rows on screen may be cut). Totals cover completed sales only, as the report always did; cost and profit only
+ * for `profit.view`.
+ */
+export async function salesReportAggregates(ctx: Ctx, actor: Actor, q: SaleQuery) {
+  const where = await salesWhere(ctx, actor, q);
+  const w = where.length ? and(...where) : undefined;
+  const done = and(w, eq(t.sales.status, 'COMPLETED'));
+  const [{ n }] = await ctx.db
+    .select({ n: sql<number>`count(*)`.mapWith(Number) })
+    .from(t.sales)
+    .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+    .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+    .where(w);
+  const channels = await ctx.db
+    .select({ method: t.sales.paymentMethod, total: sumOf(t.sales.total), discountTotal: sumOf(t.sales.discountTotal), costTotal: sumOf(t.sales.costTotal) })
+    .from(t.sales)
+    .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+    .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+    .where(done)
+    .groupBy(t.sales.paymentMethod);
+  const [lines] = await ctx.db
+    .select({ itemCount: sql<number>`count(*)`.mapWith(Number), weightMg: sumOf(t.saleItems.netWeightMg) })
+    .from(t.saleItems)
+    .innerJoin(t.sales, eq(t.sales.id, t.saleItems.saleId))
+    .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+    .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+    .where(done);
+  const sum = (k: 'total' | 'discountTotal' | 'costTotal') => channels.reduce((s, c) => s + c[k], 0);
+  const totals: Record<string, number> = { itemCount: lines.itemCount, weightMg: lines.weightMg, discountTotal: sum('discountTotal'), total: sum('total') };
+  if (can(actor, 'profit.view')) Object.assign(totals, { costTotal: sum('costTotal'), grossProfit: sum('total') - sum('costTotal') });
+  return { rowCount: n, totals, byChannel: new Map(channels.map((c) => [c.method, c.total])) };
 }
 
 export const SALE_SORT_KEYS = ['date', 'number', 'branch', 'cashier', 'total', 'grossProfit'] as const;
@@ -300,7 +336,8 @@ const saleSorts: Record<SaleSortKey, SortSpec> = {
 };
 
 /** BE-7: the sales list, one page at a time (`GET /sales`). */
-export async function pageSales(ctx: Ctx, actor: Actor, q: SaleQuery & PageRequest<SaleSortKey>) {
+/** `withTotals: false`: no footer sums (the report's CSV walk reads rows only; RPT-2). */
+export async function pageSales(ctx: Ctx, actor: Actor, q: SaleQuery & PageRequest<SaleSortKey>, opts: { withTotals?: boolean } = {}) {
   const where = await salesWhere(ctx, actor, q);
   const joined = (w: SQL | undefined) =>
     ctx.db.select({ n: sql<number>`count(*)` }).from(t.sales).innerJoin(t.branches, eq(t.branches.id, t.sales.branchId)).innerJoin(t.users, eq(t.users.id, t.sales.cashierId)).where(w);
@@ -333,7 +370,7 @@ export async function pageSales(ctx: Ctx, actor: Actor, q: SaleQuery & PageReque
       return page.map((r) => saleListRow(actor, { ...r, itemCount: bySale.get(r.id)?.itemCount ?? 0, weightMg: bySale.get(r.id)?.weightMg ?? 0 }));
     },
     // The footer adds up the completed sales of the whole filtered result (a voided sale counts for nothing).
-    totals: async (w) => {
+    totals: opts.withTotals === false ? undefined : async (w) => {
       const done = and(w, eq(t.sales.status, 'COMPLETED'));
       const [s] = await ctx.db
         .select({ count: sql<number>`count(*)`.mapWith(Number), total: sumOf(t.sales.total), costTotal: sumOf(t.sales.costTotal) })

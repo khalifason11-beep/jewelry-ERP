@@ -3,16 +3,16 @@
 
 import { and, desc, eq, gte, ilike, inArray, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { PAYMENT_METHODS, sumInt, type ReportKey } from '@jerp/shared';
+import { PAYMENT_METHODS, type ReportKey } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requirePerm } from '../../authz';
 import { badRequest } from '../../core/errors';
 import { nameOrAr, rows, num } from '../../core/sql';
 import { periodFor } from '../dashboard/service';
 import { maxIdOf, runPaged, type PageRequest, type SortSpec } from '../../core/paging';
-import { searchItems } from '../inventory/service';
-import { listPurchases } from '../purchases/service';
-import { listSales } from '../sales/service';
+import { itemsReportAggregates, pageItems, searchItems } from '../inventory/service';
+import { listPurchases, pagePurchases, purchasesReportAggregates } from '../purchases/service';
+import { listSales, pageSales, salesReportAggregates } from '../sales/service';
 import { branchMetrics, movementSummary } from './metrics';
 import { stockWeight, stockWeightRows, type StockWeight } from '../stock/weight';
 
@@ -37,7 +37,27 @@ export interface Report {
   /** Headline figures shown above the table (Phase 4: stock weight incl. the broken-scrap pool). */
   summary?: { label: string; type: ColumnType; value: number }[];
   filters: { dateRange: boolean; branch: boolean; user: boolean; status?: string[] };
+  /**
+   * RPT-2: the reports that list rows show at most `rowCap` of them on screen. `rowCount` is the true number of rows,
+   * `truncated` says the screen holds fewer; the totals and summary always cover every row, and the CSV export reads
+   * every row page by page (`reportRowsPage`).
+   */
+  rowCount?: number;
+  rowCap?: number;
+  truncated?: boolean;
 }
+
+/**
+ * RPT-2: the only row caps of the reports, in one place. The screen shows at most this many rows and says so
+ * (`truncated`); totals are SQL aggregates over the whole result. A report path may not use another constant limit
+ * (`test/report-caps.test.ts` reads the source).
+ */
+export const REPORT_ROW_CAPS = { sales: 1000, purchases: 1000, inventory: 1000, 'inventory-ledger': 2000, audit: 1500 } as const;
+export type CappedReport = keyof typeof REPORT_ROW_CAPS;
+export const isCappedReport = (key: string): key is CappedReport => key in REPORT_ROW_CAPS;
+
+/** The row-count part of a capped report. */
+const capInfo = (rowCount: number, cap: number, shown: number) => ({ rowCount, rowCap: cap, truncated: rowCount > shown });
 
 export interface ReportQuery {
   from?: string;
@@ -61,15 +81,16 @@ function stockSummary(s: StockWeight): NonNullable<Report['summary']> {
 
 const c = (key: string, label: string, type: ColumnType = 'text', link?: string): Column => ({ key, label, type, link });
 
-/** Completed sales grouped by payment channel; labels are the payment-method codes (translated by the UI). */
-async function salesByChannel(ctx: Ctx, rowsAll: Record<string, unknown>[]): Promise<NonNullable<Report['summary']>> {
+/**
+ * Completed sales grouped by payment channel; labels are the payment-method codes (translated by the UI). RPT-2: the
+ * channel totals come from the database over the whole filtered result, never from the rows on screen.
+ */
+async function salesByChannel(ctx: Ctx, byChannel: Map<string, number>): Promise<NonNullable<Report['summary']>> {
   const { sales } = await ctx.settings.get();
-  const completed = rowsAll.filter((r) => r.status === 'COMPLETED');
-  const used = new Set(completed.map((r) => String(r.paymentMethod)));
-  return PAYMENT_METHODS.filter((m) => sales.posPaymentMethods.includes(m) || used.has(m)).map((m) => ({
+  return PAYMENT_METHODS.filter((m) => sales.posPaymentMethods.includes(m) || byChannel.has(m)).map((m) => ({
     label: m,
     type: 'money' as const,
-    value: sumInt(completed.filter((r) => r.paymentMethod === m).map((r) => num(r.total))),
+    value: byChannel.get(m) ?? 0,
   }));
 }
 
@@ -79,8 +100,14 @@ function totalsOf(rowsAll: Record<string, unknown>[], keys: string[]) {
   return out;
 }
 
-export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQuery): Promise<Report> {
+/** Test-only: lower caps prove that the totals do not depend on them. */
+export interface ReportOptions {
+  rowCaps?: Partial<Record<CappedReport, number>>;
+}
+
+export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQuery, opts: ReportOptions = {}): Promise<Report> {
   requirePerm(actor, 'reports.view');
+  const cap = (k: CappedReport) => opts.rowCaps?.[k] ?? REPORT_ROW_CAPS[k];
   const scope = branchScope(actor, q.branchId);
   const period = await periodFor(ctx, q.from, q.to);
   const branchFilter = scope ?? undefined;
@@ -89,7 +116,8 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
 
   switch (key as ReportKey | 'inventory-ledger') {
     case 'sales': {
-      const data = await listSales(ctx, actor, { from: period.fromKey, to: period.toKey, branchId: branchFilter, cashierId: q.userId, q: q.q, status: q.status });
+      const filter = { from: period.fromKey, to: period.toKey, branchId: branchFilter, cashierId: q.userId, q: q.q, status: q.status as 'COMPLETED' | 'VOIDED' | undefined };
+      const [data, agg] = await Promise.all([listSales(ctx, actor, filter, cap('sales')), salesReportAggregates(ctx, actor, filter)]);
       const profit = can(actor, 'profit.view');
       const rowsAll = data.map((s) => ({ ...s, saleId: s.id }));
       return {
@@ -111,16 +139,18 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('status', 'Status', 'status'),
         ],
         rows: rowsAll,
-        totals: totalsOf(rowsAll.filter((r) => r.status === 'COMPLETED'), ['itemCount', 'weightMg', 'discountTotal', 'total', 'costTotal', 'grossProfit']),
+        ...capInfo(agg.rowCount, cap('sales'), rowsAll.length),
+        totals: agg.totals,
         // Sales by payment channel (SPEC §10, §11): the counter's methods, plus any other method that has sales.
-        summary: await salesByChannel(ctx, rowsAll),
+        summary: await salesByChannel(ctx, agg.byChannel),
         notes: ['Totals exclude cancelled (voided) sales.'],
         filters: { dateRange: true, branch: true, user: true, status: ['COMPLETED', 'VOIDED'] },
       };
     }
     case 'purchases': {
       requirePerm(actor, 'purchases.view');
-      const data = await listPurchases(ctx, actor, { branchId: branchFilter, from: period.fromKey, to: period.toKey, q: q.q });
+      const filter = { branchId: branchFilter, from: period.fromKey, to: period.toKey, q: q.q };
+      const [data, agg] = await Promise.all([listPurchases(ctx, actor, filter, cap('purchases')), purchasesReportAggregates(ctx, actor, filter)]);
       const rowsAll = data.map((p) => ({ ...p, purchaseId: p.id }));
       return {
         key: 'purchases',
@@ -138,18 +168,15 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('createdByName', 'Received by'),
         ],
         rows: rowsAll,
-        totals: totalsOf(rowsAll, ['itemCount', 'totalNetWeightMg', 'totalCost']),
+        ...capInfo(agg.rowCount, cap('purchases'), rowsAll.length),
+        totals: agg.totals,
         filters: { dateRange: true, branch: true, user: false },
       };
     }
     case 'inventory': {
       requirePerm(actor, 'inventory.view');
-      const { items } = await searchItems(ctx, actor, {
-        branchId: branchFilter,
-        q: q.q,
-        status: q.status ? [q.status as never] : undefined,
-        limit: 1000,
-      });
+      const filter = { branchId: branchFilter, q: q.q, status: q.status ? [q.status as never] : undefined };
+      const [{ items }, agg] = await Promise.all([searchItems(ctx, actor, { ...filter, limit: cap('inventory') }), itemsReportAggregates(ctx, actor, filter)]);
       // CAT-0: English names are optional; a report column (and its CSV) falls back to the Arabic name.
       const rowsAll = items.map((i) => ({ ...i, itemId: i.id, productName: i.productName?.trim() ? i.productName : i.productNameAr, categoryName: i.categoryName?.trim() ? i.categoryName : i.categoryNameAr }));
       return {
@@ -170,7 +197,8 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('status', 'Status', 'status'),
         ],
         rows: rowsAll,
-        totals: totalsOf(rowsAll, ['netWeightMg', 'purchaseCost', 'totalCost', 'sellingPrice']),
+        ...capInfo(agg.rowCount, cap('inventory'), rowsAll.length),
+        totals: agg.totals,
         summary: stockSummary((await stockWeight(ctx.db, scope)).total),
         filters: { dateRange: false, branch: true, user: false, status: ['AVAILABLE', 'SOLD', 'TRANSFERRED', 'DAMAGED', 'RETURNED'] },
       };
@@ -244,33 +272,11 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
       };
     }
     case 'inventory-ledger': {
-      requirePerm(actor, 'inventory.view');
-      const where: SQL[] = [gte(t.inventoryMovements.at, period.start), lt(t.inventoryMovements.at, period.end)];
-      if (scope != null) where.push(eq(t.inventoryMovements.branchId, scope));
-      if (q.status) where.push(eq(t.inventoryMovements.type, q.status));
-      if (q.userId) where.push(eq(t.inventoryMovements.userId, q.userId));
-      if (q.q?.trim()) where.push(or(ilike(t.jewelryItems.code, `%${q.q}%`), ilike(t.inventoryMovements.refNumber, `%${q.q}%`))!);
-      const data = await ctx.db
-        .select({
-          at: t.inventoryMovements.at,
-          itemId: t.jewelryItems.id,
-          itemCode: t.jewelryItems.code,
-          productName: nameOrAr(t.products.name, t.products.nameAr),
-          branchName: t.branches.name,
-          type: t.inventoryMovements.type,
-          direction: t.inventoryMovements.direction,
-          netWeightMg: t.inventoryMovements.netWeightMg,
-          refNumber: t.inventoryMovements.refNumber,
-          userName: t.users.fullName,
-        })
-        .from(t.inventoryMovements)
-        .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.inventoryMovements.itemId))
-        .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
-        .innerJoin(t.branches, eq(t.branches.id, t.inventoryMovements.branchId))
-        .leftJoin(t.users, eq(t.users.id, t.inventoryMovements.userId))
-        .where(and(...where))
-        .orderBy(desc(t.inventoryMovements.at), desc(t.inventoryMovements.id))
-        .limit(2000);
+      const where = ledgerWhere(actor, scope, period, q);
+      const [data, rowCount] = await Promise.all([
+        ledgerFrom(ctx.db).where(and(...where)).orderBy(desc(t.inventoryMovements.at), desc(t.inventoryMovements.id)).limit(cap('inventory-ledger')),
+        countLedger(ctx.db, and(...where)),
+      ]);
       return {
         key: 'inventory-ledger',
         title: 'Inventory Ledger',
@@ -287,6 +293,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('userName', 'User'),
         ],
         rows: data,
+        ...capInfo(rowCount, cap('inventory-ledger'), data.length),
         filters: { dateRange: true, branch: true, user: true, status: ['PURCHASE', 'SALE', 'TRANSFER_IN', 'TRANSFER_OUT', 'RETURN', 'ADJUSTMENT', 'DAMAGE'] },
       };
     }
@@ -415,7 +422,8 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
       };
     }
     case 'audit': {
-      const data = await listAudit(ctx, actor, { ...q, from: period.fromKey, to: period.toKey, branchId: branchFilter });
+      const filter = { ...q, from: period.fromKey, to: period.toKey, branchId: branchFilter };
+      const [data, rowCount] = await Promise.all([listAudit(ctx, actor, { ...filter, limit: cap('audit') }), countAudit(ctx, actor, filter)]);
       return {
         key: 'audit',
         title: 'Audit Log',
@@ -431,6 +439,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('description', 'Description', 'audit'),
         ],
         rows: data,
+        ...capInfo(rowCount, cap('audit'), data.length),
         filters: { dateRange: true, branch: true, user: true },
       };
     }
@@ -491,13 +500,19 @@ const auditListFrom = (db: Ctx['db']) =>
     .from(t.auditLogs)
     .leftJoin(t.branches, eq(t.branches.id, t.auditLogs.branchId));
 
-/** The audit report's rows (unchanged: newest first, up to 5,000). */
-export async function listAudit(ctx: Ctx, actor: Actor, q: AuditQuery & { limit?: number }) {
+/** The audit report's rows on screen: newest first, at most `q.limit` (RPT-2: the report says when it is cut). */
+export async function listAudit(ctx: Ctx, actor: Actor, q: AuditQuery & { limit: number }) {
   const where = await auditWhere(ctx, actor, q);
   return auditListFrom(ctx.db)
     .where(and(...where))
     .orderBy(desc(t.auditLogs.at), desc(t.auditLogs.id))
-    .limit(Math.min(q.limit ?? 1500, 5000));
+    .limit(q.limit);
+}
+
+/** RPT-2: the audit report's true row count (same filters and scope). */
+async function countAudit(ctx: Ctx, actor: Actor, q: AuditQuery) {
+  const where = await auditWhere(ctx, actor, q);
+  return Number((await ctx.db.select({ n: sql<number>`count(*)` }).from(t.auditLogs).where(and(...where)))[0].n);
 }
 
 export const AUDIT_SORT_KEYS = ['date', 'action', 'user'] as const;
@@ -520,4 +535,95 @@ export async function pageAudit(ctx: Ctx, actor: Actor, q: AuditQuery & PageRequ
     count: async (w) => Number((await ctx.db.select({ n: sql<number>`count(*)` }).from(t.auditLogs).where(w))[0].n),
     rows: ({ where: w, orderBy, limit, offset }) => auditListFrom(ctx.db).where(w).orderBy(...orderBy).limit(limit).offset(offset),
   });
+}
+
+// ── RPT-2: the inventory ledger's filters, rows and count, and every capped report one page at a time ──
+
+type Period = Awaited<ReturnType<typeof periodFor>>;
+
+function ledgerWhere(actor: Actor, scope: number | null, period: Period, q: ReportQuery): SQL[] {
+  requirePerm(actor, 'inventory.view');
+  const where: SQL[] = [gte(t.inventoryMovements.at, period.start), lt(t.inventoryMovements.at, period.end)];
+  if (scope != null) where.push(eq(t.inventoryMovements.branchId, scope));
+  if (q.status) where.push(eq(t.inventoryMovements.type, q.status));
+  if (q.userId) where.push(eq(t.inventoryMovements.userId, q.userId));
+  if (q.q?.trim()) where.push(or(ilike(t.jewelryItems.code, `%${q.q}%`), ilike(t.inventoryMovements.refNumber, `%${q.q}%`))!);
+  return where;
+}
+
+const ledgerFrom = (db: Ctx['db']) =>
+  db
+    .select({
+      at: t.inventoryMovements.at,
+      itemId: t.jewelryItems.id,
+      itemCode: t.jewelryItems.code,
+      productName: nameOrAr(t.products.name, t.products.nameAr),
+      branchName: t.branches.name,
+      type: t.inventoryMovements.type,
+      direction: t.inventoryMovements.direction,
+      netWeightMg: t.inventoryMovements.netWeightMg,
+      refNumber: t.inventoryMovements.refNumber,
+      userName: t.users.fullName,
+    })
+    .from(t.inventoryMovements)
+    .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.inventoryMovements.itemId))
+    .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+    .innerJoin(t.branches, eq(t.branches.id, t.inventoryMovements.branchId))
+    .leftJoin(t.users, eq(t.users.id, t.inventoryMovements.userId));
+
+const countLedger = async (db: Ctx['db'], where: SQL | undefined) =>
+  Number(
+    (
+      await db
+        .select({ n: sql<number>`count(*)` })
+        .from(t.inventoryMovements)
+        .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.inventoryMovements.itemId))
+        .where(where)
+    )[0].n,
+  );
+
+/**
+ * RPT-2: one page of a capped report's rows (the CSV export walks every page), with the report's filters, scope,
+ * cost rules and order, through the BE-7 helper and its snapshot id. The rows have the report's fields.
+ */
+export async function reportRowsPage(ctx: Ctx, actor: Actor, key: string, q: ReportQuery & { page: number; pageSize?: number; asOfId?: number }) {
+  requirePerm(actor, 'reports.view');
+  if (!isCappedReport(key)) throw badRequest('This report is not paged: it has no row limit');
+  const scope = branchScope(actor, q.branchId);
+  const period = await periodFor(ctx, q.from, q.to);
+  const branchFilter = scope ?? undefined;
+  const pageReq = { page: q.page, pageSize: q.pageSize, asOfId: q.asOfId };
+  switch (key) {
+    case 'sales': {
+      const p = await pageSales(ctx, actor, { from: period.fromKey, to: period.toKey, branchId: branchFilter, cashierId: q.userId, q: q.q, status: q.status as 'COMPLETED' | 'VOIDED' | undefined, ...pageReq }, { withTotals: false });
+      return { rows: p.rows.map((s) => ({ ...s, saleId: s.id })), total: p.total, page: p.page };
+    }
+    case 'purchases': {
+      requirePerm(actor, 'purchases.view');
+      const p = await pagePurchases(ctx, actor, { branchId: branchFilter, from: period.fromKey, to: period.toKey, q: q.q, ...pageReq }, { withTotals: false });
+      return { rows: p.rows.map((r) => ({ ...r, purchaseId: r.id })), total: p.total, page: p.page };
+    }
+    case 'inventory': {
+      requirePerm(actor, 'inventory.view');
+      const p = await pageItems(ctx, actor, { branchId: branchFilter, q: q.q, status: q.status ? [q.status as never] : undefined, ...pageReq }, { withTotals: false });
+      const rowsAll = p.rows.map((i) => ({ ...i, itemId: i.id, productName: i.productName?.trim() ? i.productName : i.productNameAr, categoryName: i.categoryName?.trim() ? i.categoryName : i.categoryNameAr }));
+      return { rows: rowsAll, total: p.total, page: p.page };
+    }
+    case 'inventory-ledger': {
+      const where = ledgerWhere(actor, scope, period, q);
+      return runPaged(actor, pageReq, {
+        sorts: { date: { by: t.inventoryMovements.at, field: 'at', dir: 'desc' } },
+        defaultSort: 'date',
+        id: t.inventoryMovements.id,
+        where,
+        maxId: async () => Number((await ctx.db.select({ m: maxIdOf(t.inventoryMovements.id) }).from(t.inventoryMovements))[0].m),
+        count: (w) => countLedger(ctx.db, w),
+        rows: ({ where: w, orderBy, limit, offset }) => ledgerFrom(ctx.db).where(w).orderBy(...orderBy).limit(limit).offset(offset),
+      });
+    }
+    case 'audit': {
+      const p = await pageAudit(ctx, actor, { ...q, from: period.fromKey, to: period.toKey, branchId: branchFilter, ...pageReq });
+      return { rows: p.rows, total: p.total, page: p.page };
+    }
+  }
 }

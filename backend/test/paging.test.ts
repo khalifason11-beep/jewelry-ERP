@@ -263,7 +263,7 @@ describe('CSV export: the whole filtered result, not one page', () => {
     const filters = { from: '2000-01-01', to: '2100-01-01', status: 'COMPLETED' };
     const walked = await fetchAllPages<Row>(async (p) => (await gm.get('/api/sales').query({ ...filters, ...p })).body as Page<Row>);
     const actor = await loadActor(ctx.db, (await gm.get('/api/auth/me')).body.user.id, null);
-    const full = (await listSales(ctx, actor!, filters)) as Row[];
+    const full = (await listSales(ctx, actor!, filters, 1000)) as Row[];
     expect(full.length).toBeLessThan(1000); // the old cap does not cut this comparison
     expect(walked.map((r) => r.id)).toEqual(full.map((r) => r.id));
     expect(walked.length).toBe(new Set(walked.map((r) => r.id)).size);

@@ -78,8 +78,8 @@ const countItems = (exec: Ctx['db'], where: SQL | undefined) =>
     .innerJoin(t.categories, eq(t.categories.id, t.products.categoryId))
     .where(where);
 
-/** The inventory report's rows (unchanged: up to 1,000 per call). */
-export async function searchItems(ctx: Ctx, actor: Actor, s: ItemSearch) {
+/** The inventory report's rows on screen: at most `s.limit` (RPT-2: the report says when it is cut). */
+export async function searchItems(ctx: Ctx, actor: Actor, s: ItemSearch & { limit: number }) {
   const where = itemsWhere(actor, s);
   const order =
     s.sort === 'weight'
@@ -92,15 +92,41 @@ export async function searchItems(ctx: Ctx, actor: Actor, s: ItemSearch) {
             ? [sql`abs(${t.jewelryItems.netWeightMg} - ${s.targetWeightMg})`]
             : [asc(t.jewelryItems.code)];
 
-  const limit = Math.min(s.limit ?? 500, 1000);
   const rowsAll = await itemQuery(ctx.db)
     .where(where.length ? and(...where) : undefined)
     .orderBy(...order)
-    .limit(limit)
+    .limit(s.limit)
     .offset(s.offset ?? 0);
 
   const [{ count }] = await countItems(ctx.db, where.length ? and(...where) : undefined);
   return { items: rowsAll.map((r) => redactCosts(actor, r)), total: Number(count) };
+}
+
+/**
+ * RPT-2: the inventory report's totals over the WHOLE filtered result. Purchase cost is the supplier line's, or the
+ * acquisition cost for a piece without one (as on the rows); cost sums for `profit.view` only.
+ */
+export async function itemsReportAggregates(ctx: Ctx, actor: Actor, s: Omit<ItemSearch, 'sort' | 'limit' | 'offset'>) {
+  const where = itemsWhere(actor, s);
+  const [r] = await ctx.db
+    .select({
+      // The same joins as the rows (itemQuery), so the count is the number of rows the report lists.
+      n: sql<number>`count(*)`.mapWith(Number),
+      netWeightMg: sumOf(t.jewelryItems.netWeightMg),
+      purchaseCost: sumOf(sql`coalesce(${t.purchaseItems.purchaseCost}, ${t.jewelryItems.acquisitionCost})`),
+      totalCost: sumOf(t.jewelryItems.acquisitionCost),
+      sellingPrice: sumOf(t.jewelryItems.sellingPrice),
+    })
+    .from(t.jewelryItems)
+    .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+    .innerJoin(t.categories, eq(t.categories.id, t.products.categoryId))
+    .innerJoin(t.branches, eq(t.branches.id, t.jewelryItems.branchId))
+    .leftJoin(t.purchaseItems, eq(t.purchaseItems.itemId, t.jewelryItems.id))
+    .where(where.length ? and(...where) : undefined);
+  const totals: Record<string, number> = can(actor, 'profit.view')
+    ? { netWeightMg: r.netWeightMg, purchaseCost: r.purchaseCost, totalCost: r.totalCost, sellingPrice: r.sellingPrice }
+    : { netWeightMg: r.netWeightMg, sellingPrice: r.sellingPrice };
+  return { rowCount: r.n, totals };
 }
 
 export const ITEM_SORT_KEYS = ['code', 'weight', 'price', 'recent', 'closest', 'karat', 'cost'] as const;
@@ -118,7 +144,8 @@ const itemSorts = (targetWeightMg?: number): Record<ItemSortKey, SortSpec> => ({
 });
 
 /** BE-7: the inventory list, one page at a time (`GET /inventory/items`). */
-export async function pageItems(ctx: Ctx, actor: Actor, s: Omit<ItemSearch, 'sort' | 'limit' | 'offset'> & PageRequest<ItemSortKey>) {
+/** `withTotals: false`: no footer sums (the report's CSV walk reads rows only; RPT-2). */
+export async function pageItems(ctx: Ctx, actor: Actor, s: Omit<ItemSearch, 'sort' | 'limit' | 'offset'> & PageRequest<ItemSortKey>, opts: { withTotals?: boolean } = {}) {
   const where = itemsWhere(actor, s);
   return runPaged(actor, s, {
     sorts: itemSorts(s.targetWeightMg),
@@ -129,7 +156,7 @@ export async function pageItems(ctx: Ctx, actor: Actor, s: Omit<ItemSearch, 'sor
     count: async (w) => Number((await countItems(ctx.db, w))[0].count),
     rows: async ({ where: w, orderBy, limit, offset }) =>
       (await itemQuery(ctx.db).where(w).orderBy(...orderBy).limit(limit).offset(offset)).map((r) => redactCosts(actor, r)),
-    totals: async (w) => {
+    totals: opts.withTotals === false ? undefined : async (w) => {
       const [s] = await ctx.db
         .select({ netWeightMg: sumOf(t.jewelryItems.netWeightMg), sellingPrice: sumOf(t.jewelryItems.sellingPrice), totalCost: sumOf(t.jewelryItems.acquisitionCost) })
         .from(t.jewelryItems)

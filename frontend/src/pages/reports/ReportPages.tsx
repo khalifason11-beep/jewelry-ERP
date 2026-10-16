@@ -1,6 +1,7 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
+  AlertTriangle,
   ArrowLeftRight,
   BarChart3,
   Boxes,
@@ -14,7 +15,7 @@ import {
   Users,
   type LucideIcon,
 } from 'lucide-react';
-import type { Permission } from '@jerp/shared';
+import { fetchAllPages, type Page, type Permission } from '@jerp/shared';
 import { get } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { date, dateTime, grams, humanize, karatLabel, money, num, pct } from '../../lib/format';
@@ -200,6 +201,17 @@ export function ReportPage() {
             </Select>
           )}
         </div>
+        {r?.truncated && (
+          // RPT-2: never a silent cap. Printed too (no `no-print`), so a printed report says it is cut.
+          <div className="m-3" data-testid="report-truncated">
+          <Alert tone="warning" icon={<AlertTriangle className="size-4" />}>
+            {t('Showing the first {shown} of {total} rows. The totals and the summary cover all {total} rows; Export CSV writes every row.', {
+              shown: (r.rows.length).toLocaleString('en-US'),
+              total: (r.rowCount ?? 0).toLocaleString('en-US'),
+            })}
+          </Alert>
+          </div>
+        )}
         <DataTable
           query={q}
           rows={r?.rows ?? []}
@@ -208,6 +220,13 @@ export function ReportPage() {
           columns={columns}
           exportName={`report-${key}`}
           maxHeight="calc(100vh - 330px)"
+          // RPT-2: a report cut on screen exports every row, page by page, with the same filters.
+          exportAll={
+            r?.truncated
+              ? () =>
+                  fetchAllPages((p) => get<Page<Record<string, unknown>>>(`/reports/${key}`, { from, to, branchId, userId, status, ...p }))
+              : undefined
+          }
           onRowClick={(() => {
             const link = r?.columns.find((c) => c.link)?.link;
             return link ? (row: Record<string, unknown>) => navigate(fillLink(link, row)) : undefined;

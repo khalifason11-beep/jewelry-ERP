@@ -50,6 +50,7 @@ export function DataTable<T>({
   maxHeight,
   rowClassName,
   server,
+  exportAll,
 }: {
   rows: T[];
   columns: Column<T>[];
@@ -74,6 +75,8 @@ export function DataTable<T>({
   rowClassName?: (row: T) => string | undefined;
   /** BE-7: a server-paged list (useServerList); the table then neither filters nor sorts the rows itself. */
   server?: ServerPaging<T>;
+  /** RPT-2: when present, the CSV export writes these rows (every row of a report cut on screen) instead of the table's. */
+  exportAll?: () => Promise<T[]>;
 }) {
   const { t } = useI18n();
   const state = query ? viewState(query) : 'ready';
@@ -116,10 +119,11 @@ export function DataTable<T>({
   const exportCsv = async () => {
     // A server list exports every page of the filtered result, not the page on screen.
     let all: T[] = filtered;
-    if (server) {
+    const fetchAll = server ? server.exportAll : exportAll;
+    if (fetchAll) {
       setExporting(true);
       try {
-        all = await server.exportAll();
+        all = await fetchAll();
       } finally {
         setExporting(false);
       }

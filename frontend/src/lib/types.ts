@@ -82,4 +82,8 @@ export interface Report {
   /** Headline figures above the table (e.g. stock weight incl. broken scrap). */
   summary?: { label: string; type: string; value: number }[];
   filters: { dateRange: boolean; branch: boolean; user: boolean; status?: string[] };
+  /** RPT-2: the true number of rows, the screen's cap, and whether the screen holds fewer rows than exist. */
+  rowCount?: number;
+  rowCap?: number;
+  truncated?: boolean;
 }

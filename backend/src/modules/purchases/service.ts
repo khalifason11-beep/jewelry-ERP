@@ -268,13 +268,27 @@ const purchaseListFrom = (db: Ctx['db']) =>
     .innerJoin(t.users, eq(t.users.id, t.purchases.createdBy))
     .leftJoin(t.suppliers, eq(t.suppliers.id, t.purchases.supplierId));
 
-/** The purchases report's rows (unchanged: newest first, at most 1,000; see BACKLOG §G). */
-export async function listPurchases(ctx: Ctx, actor: Actor, q: PurchaseQuery) {
+/** The purchases report's rows on screen: newest first, at most `cap` (RPT-2: the report says when it is cut). */
+export async function listPurchases(ctx: Ctx, actor: Actor, q: PurchaseQuery, cap: number) {
   const where = await purchasesWhere(ctx, actor, q);
   return purchaseListFrom(ctx.db)
     .where(where.length ? and(...where) : undefined)
-    .orderBy(desc(t.purchases.createdAt))
-    .limit(1000);
+    // The id breaks ties exactly as the paged CSV walk does (RPT-2).
+    .orderBy(desc(t.purchases.createdAt), desc(t.purchases.id))
+    .limit(cap);
+}
+
+/** RPT-2: the purchases report's count and totals over the WHOLE filtered result (cost for `profit.view` only). */
+export async function purchasesReportAggregates(ctx: Ctx, actor: Actor, q: PurchaseQuery) {
+  const where = await purchasesWhere(ctx, actor, q);
+  const [s] = await ctx.db
+    .select({ n: sql<number>`count(*)`.mapWith(Number), itemCount: sumOf(t.purchases.itemCount), totalNetWeightMg: sumOf(t.purchases.totalNetWeightMg), totalCost: sumOf(t.purchases.totalCost) })
+    .from(t.purchases)
+    .leftJoin(t.suppliers, eq(t.suppliers.id, t.purchases.supplierId))
+    .where(where.length ? and(...where) : undefined);
+  const totals: Record<string, number> = { itemCount: s.itemCount, totalNetWeightMg: s.totalNetWeightMg };
+  if (can(actor, 'profit.view')) totals.totalCost = s.totalCost;
+  return { rowCount: s.n, totals };
 }
 
 export const PURCHASE_SORT_KEYS = ['date', 'number', 'branch', 'supplier', 'weight', 'totalCost'] as const;
@@ -290,7 +304,8 @@ const purchaseSorts: Record<PurchaseSortKey, SortSpec> = {
 };
 
 /** BE-7: the purchases list, one page at a time (`GET /purchases`). */
-export async function pagePurchases(ctx: Ctx, actor: Actor, q: PurchaseQuery & PageRequest<PurchaseSortKey>) {
+/** `withTotals: false`: no footer sums (the report's CSV walk reads rows only; RPT-2). */
+export async function pagePurchases(ctx: Ctx, actor: Actor, q: PurchaseQuery & PageRequest<PurchaseSortKey>, opts: { withTotals?: boolean } = {}) {
   const where = await purchasesWhere(ctx, actor, q);
   return runPaged(actor, q, {
     sorts: purchaseSorts,
@@ -303,7 +318,7 @@ export async function pagePurchases(ctx: Ctx, actor: Actor, q: PurchaseQuery & P
         (await ctx.db.select({ n: sql<number>`count(*)` }).from(t.purchases).leftJoin(t.suppliers, eq(t.suppliers.id, t.purchases.supplierId)).where(w))[0].n,
       ),
     rows: ({ where: w, orderBy, limit, offset }) => purchaseListFrom(ctx.db).where(w).orderBy(...orderBy).limit(limit).offset(offset),
-    totals: async (w) => {
+    totals: opts.withTotals === false ? undefined : async (w) => {
       const [s] = await ctx.db
         .select({ itemCount: sumOf(t.purchases.itemCount), totalNetWeightMg: sumOf(t.purchases.totalNetWeightMg), totalCost: sumOf(t.purchases.totalCost) })
         .from(t.purchases)

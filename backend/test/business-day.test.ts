@@ -97,9 +97,31 @@ describe('business-day boundaries with the process in UTC', () => {
     });
   }
 
+  it('the purchases and audit reports put each row on its local day too (RPT-2: counts and rows)', async () => {
+    for (const [key, field, table] of [['purchases', 'number', 'purchases'], ['audit', 'entityId', 'audit_logs']] as const) {
+      const keysOn = async (day: string) => {
+        const r = (await gm.get(`/api/reports/${key}`).query({ from: day, to: day, q: 'TZ-' })).body as { rows: Record<string, string>[]; rowCount: number; truncated: boolean };
+        expect(r.truncated).toBe(false);
+        const ks = r.rows.map((x) => x[field]).filter((k) => k?.startsWith('TZ-'));
+        return ks;
+      };
+      expect(await keysOn(DAY1), key).toContain(`TZ-LATE-${table}`);
+      expect(await keysOn(DAY1), key).not.toContain(`TZ-EARLY-${table}`);
+      expect(await keysOn(DAY2), key).toContain(`TZ-EARLY-${table}`);
+      expect(await keysOn(DAY2), key).not.toContain(`TZ-LATE-${table}`);
+    }
+  });
+
   it('the sales report puts each sale on its local day too', async () => {
     const numbers = async (day: string) => ((await gm.get('/api/reports/sales').query({ from: day, to: day, q: 'TZ-' })).body.rows as { number: string }[]).map((r) => r.number);
     expect(await numbers(DAY1)).toEqual(['TZ-LATE-sales']);
     expect(await numbers(DAY2)).toEqual(['TZ-EARLY-sales']);
+    // RPT-2: the SQL count and totals follow the same day (a voided copy counts as a row but not in the totals).
+    for (const [day, num] of [[DAY1, 'TZ-LATE-sales'], [DAY2, 'TZ-EARLY-sales']] as const) {
+      const r = (await gm.get('/api/reports/sales').query({ from: day, to: day, q: 'TZ-' })).body as { rows: { number: string; status: string; total: number }[]; rowCount: number; totals: { total: number } };
+      expect(r.rowCount).toBe(1);
+      const sale = r.rows.find((x) => x.number === num)!;
+      expect(r.totals.total).toBe(sale.status === 'COMPLETED' ? sale.total : 0);
+    }
   });
 });
