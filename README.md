@@ -226,6 +226,20 @@ Browser and system checks (they use Playwright with the pre-installed Chromium):
 - `node scripts/perf-homes.mjs` (needs `REHEARSAL_ADMIN_URL`): times the homes and the attention list on a large
   database, and fails above a p95 of 300 ms.
 
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request (no secrets, read-only permissions). Its jobs:
+
+| Check name | What it runs | Required for `main` |
+|---|---|---|
+| `typecheck` | `npm run typecheck` (every static gate, then tsc) | yes |
+| `test-pglite` | the test suites on embedded PGlite | yes |
+| `test-postgres` | the test suites on PostgreSQL 16, including the race and privilege tests | yes |
+| `build` | `npm run build` and `npm run i18n:check` | yes |
+| `smoke` | REH-1 and the headless e2e scripts | not at first (slow, browser-dependent) |
+
+Locally, `npm run verify` runs the same gates in order (`-- --full` adds REH-1, the e2e scripts and perf).
+
 ## Production mode
 
 `APP_MODE=production` removes the Demo badge, refuses `dev:sample`, and **refuses to start** while the configuration is
@@ -236,8 +250,8 @@ unsafe. The start-up log lists every problem it finds.
 | `APP_MODE` | **Required**, exactly `production` (absent, empty or misspelt stops the server and every CLI) |
 | `DATABASE_URL` | Real PostgreSQL (PGlite and well-known default passwords are refused) |
 | `APP_ORIGIN` | The `https://` origin users open; mutations from any other origin are rejected |
-| `TRUST_PROXY` | Number of proxy hops in front of the app; decides the client IP in the audit log |
-| `MIGRATION_DATABASE_URL`, `STRICT_DB_ROLES=true` | Migrations run as the owner role; the app runs as a runtime role that owns nothing |
+| `TRUST_PROXY` | Required in production: number of proxy hops in front of the app (`0` = none); decides the client IP in the audit log |
+| `MIGRATION_DATABASE_URL`, `STRICT_DB_ROLES=true` | Migrations run as the owner role; the app runs as a runtime role that owns nothing (`STRICT_DB_ROLES` is required in production: `true` or `false`) |
 | `COOKIE_SECURE` | Defaults to `true` (`__Host-` cookie) |
 
 **Hosting is not decided yet** (BACKLOG HOST-1). The application needs:
@@ -256,6 +270,10 @@ alone).
 
 Environment variables, roles SQL, backups, passkeys and printing: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
+Step by step on a Linux server: [docs/runbooks/](docs/runbooks/) (first deployment, routine update, rollback, restore
+drill), with the environment template [.env.example](.env.example) and the read-only check
+`node scripts/server/preflight.mjs` (PASS/WARN/FAIL per check, with the fix).
+
 ## Operator commands
 
 These need shell access to the server. They refuse to run outside production unless given `--allow-non-production`,
@@ -272,10 +290,12 @@ npm run ops -w @jerp/backend -- unlock-security-lock --username <user> --confirm
 
 | Document | Contents |
 |---|---|
+| [CLAUDE.md](CLAUDE.md) | Standing rules for every change: workflow, hard rules, gates, what needs the owner's approval |
 | [docs/FEATURES.md](docs/FEATURES.md) | What the system does today, by capability |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Stack, layers, request path, security mechanisms |
-| [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Tables, migrations 0000–0022, ledger, append-only tables |
+| [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Tables, migrations 0000–0023, ledger, append-only tables |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production configuration, database roles, upgrades, backups, passkeys, printing; Appendix A: Render as a worked example, not a decision |
+| [docs/runbooks/](docs/runbooks/) | First deployment, routine update, rollback and restore drill, step by step (provider-neutral) |
 | [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | How to present the system |
 | [docs/BACKLOG.md](docs/BACKLOG.md) | The single backlog: done, to do, blocked on client questions, production readiness |
 | [docs/SPEC.md](docs/SPEC.md) | The specification and the open client questions (Q-n) |
@@ -288,7 +308,7 @@ npm run ops -w @jerp/backend -- unlock-security-lock --username <user> --confirm
 
 ```
 shared/      enums, permissions and roles, route matrix, settings registry, field classification, DB checks, money
-database/    Drizzle schema, client (PostgreSQL or PGlite), SQL migrations 0000–0022
+database/    Drizzle schema, client (PostgreSQL or PGlite), SQL migrations 0000–0023
 backend/     Express API: auth, authorization guard, modules (sales, inventory, purchases, scrap, ledger, funding,
              cash, transfers, attention, reports, …), CLIs (bootstrap, demo, migrate, ops, backup), dev sample, tests
 frontend/    React + Tailwind UI, Arabic (RTL) and English

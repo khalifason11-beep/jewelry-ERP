@@ -13,6 +13,7 @@ import { changeStatus, costBreakdown, lockItems, recordMovement } from '../inven
 import { accountKindFor, lockDrawerFor, post, reverseRef } from '../ledger/service';
 import type { TxIdempotency } from '../../core/idempotency';
 import { allowedKarats } from '../../core/karats';
+import { maxIdOf, runPaged, sumOf, type PageRequest, type SortSpec } from '../../core/paging';
 
 export interface CreateSaleInput {
   branchId?: number;
@@ -216,7 +217,8 @@ export interface SaleQuery {
   mine?: boolean;
 }
 
-export async function listSales(ctx: Ctx, actor: Actor, q: SaleQuery) {
+/** The filters of the sales list (branch scope and "own sales only" included), shared by the list and the report. */
+async function salesWhere(ctx: Ctx, actor: Actor, q: SaleQuery): Promise<SQL[]> {
   requireAny(actor, 'sales.view', 'sales.view_own');
   const where: SQL[] = [];
   const scope = branchScope(actor, q.branchId);
@@ -233,42 +235,159 @@ export async function listSales(ctx: Ctx, actor: Actor, q: SaleQuery) {
     const s = `%${q.q.trim()}%`;
     where.push(or(ilike(t.sales.number, s), ilike(t.sales.customerName, s), ilike(t.users.fullName, s))!);
   }
-  const showProfit = can(actor, 'profit.view');
-  const rowsAll = await ctx.db
-    .select({
-      id: t.sales.id,
-      number: t.sales.number,
-      createdAt: t.sales.createdAt,
-      branchId: t.sales.branchId,
-      branchName: t.branches.name,
-      cashierId: t.sales.cashierId,
-      cashierName: t.users.fullName,
-      customerName: t.sales.customerName,
-      customerNameAr: t.sales.customerNameAr,
-      itemCount: sql<number>`(select count(*) from sale_items si where si.sale_id = ${t.sales.id})`,
-      weightMg: sql<number>`(select coalesce(sum(si.net_weight_mg),0) from sale_items si where si.sale_id = ${t.sales.id})`,
-      subtotal: t.sales.subtotal,
-      discountTotal: t.sales.discountTotal,
-      total: t.sales.total,
-      costTotal: t.sales.costTotal,
-      paymentMethod: t.sales.paymentMethod,
-      // FIX-2: the bank-transfer reference (Hasad: its transaction reference), shown in the list.
-      paymentRefTransaction: t.sales.paymentRefTransaction,
-      status: t.sales.status,
-    })
+  return where;
+}
+
+const saleListBase = {
+  id: t.sales.id,
+  number: t.sales.number,
+  createdAt: t.sales.createdAt,
+  branchId: t.sales.branchId,
+  branchName: t.branches.name,
+  cashierId: t.sales.cashierId,
+  cashierName: t.users.fullName,
+  customerName: t.sales.customerName,
+  customerNameAr: t.sales.customerNameAr,
+  subtotal: t.sales.subtotal,
+  discountTotal: t.sales.discountTotal,
+  total: t.sales.total,
+  costTotal: t.sales.costTotal,
+  paymentMethod: t.sales.paymentMethod,
+  // FIX-2: the bank-transfer reference (Hasad: its transaction reference), shown in the list.
+  paymentRefTransaction: t.sales.paymentRefTransaction,
+  status: t.sales.status,
+};
+const saleListColumns = {
+  ...saleListBase,
+  itemCount: sql<number>`(select count(*) from sale_items si where si.sale_id = ${t.sales.id})`,
+  weightMg: sql<number>`(select coalesce(sum(si.net_weight_mg),0) from sale_items si where si.sale_id = ${t.sales.id})`,
+};
+
+const saleListFrom = (db: Ctx['db']) =>
+  db.select(saleListColumns).from(t.sales).innerJoin(t.branches, eq(t.branches.id, t.sales.branchId)).innerJoin(t.users, eq(t.users.id, t.sales.cashierId));
+type SaleListRow = Awaited<ReturnType<typeof saleListFrom>>[number];
+
+function saleListRow(actor: Actor, r: SaleListRow) {
+  const base = { ...r, itemCount: Number(r.itemCount), weightMg: Number(r.weightMg) };
+  if (!can(actor, 'profit.view')) {
+    const { costTotal: _c, ...rest } = base;
+    return rest;
+  }
+  return { ...base, grossProfit: r.status === 'COMPLETED' ? r.total - r.costTotal : 0 };
+}
+
+
+/** The sales report's rows on screen: newest first, at most `cap` (RPT-2: the report says when it is cut). */
+export async function listSales(ctx: Ctx, actor: Actor, q: SaleQuery, cap: number) {
+  const where = await salesWhere(ctx, actor, q);
+  const rowsAll = await saleListFrom(ctx.db)
+    .where(where.length ? and(...where) : undefined)
+    // The id breaks ties exactly as the paged CSV walk does (RPT-2), so the screen and the file list rows in one order.
+    .orderBy(desc(t.sales.createdAt), desc(t.sales.id))
+    .limit(cap);
+  return rowsAll.map((r) => saleListRow(actor, r));
+}
+
+/**
+ * RPT-2: the sales report's count, totals and sales by channel, computed by the database over the WHOLE filtered result
+ * (the rows on screen may be cut). Totals cover completed sales only, as the report always did; cost and profit only
+ * for `profit.view`.
+ */
+export async function salesReportAggregates(ctx: Ctx, actor: Actor, q: SaleQuery) {
+  const where = await salesWhere(ctx, actor, q);
+  const w = where.length ? and(...where) : undefined;
+  const done = and(w, eq(t.sales.status, 'COMPLETED'));
+  const [{ n }] = await ctx.db
+    .select({ n: sql<number>`count(*)`.mapWith(Number) })
     .from(t.sales)
     .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
     .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
-    .where(where.length ? and(...where) : undefined)
-    .orderBy(desc(t.sales.createdAt))
-    .limit(1000);
-  return rowsAll.map((r) => {
-    const base = { ...r, itemCount: Number(r.itemCount), weightMg: Number(r.weightMg) };
-    if (!showProfit) {
-      const { costTotal: _c, ...rest } = base;
-      return rest;
-    }
-    return { ...base, grossProfit: r.status === 'COMPLETED' ? r.total - r.costTotal : 0 };
+    .where(w);
+  const channels = await ctx.db
+    .select({ method: t.sales.paymentMethod, total: sumOf(t.sales.total), discountTotal: sumOf(t.sales.discountTotal), costTotal: sumOf(t.sales.costTotal) })
+    .from(t.sales)
+    .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+    .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+    .where(done)
+    .groupBy(t.sales.paymentMethod);
+  const [lines] = await ctx.db
+    .select({ itemCount: sql<number>`count(*)`.mapWith(Number), weightMg: sumOf(t.saleItems.netWeightMg) })
+    .from(t.saleItems)
+    .innerJoin(t.sales, eq(t.sales.id, t.saleItems.saleId))
+    .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+    .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+    .where(done);
+  const sum = (k: 'total' | 'discountTotal' | 'costTotal') => channels.reduce((s, c) => s + c[k], 0);
+  const totals: Record<string, number> = { itemCount: lines.itemCount, weightMg: lines.weightMg, discountTotal: sum('discountTotal'), total: sum('total') };
+  if (can(actor, 'profit.view')) Object.assign(totals, { costTotal: sum('costTotal'), grossProfit: sum('total') - sum('costTotal') });
+  return { rowCount: n, totals, byChannel: new Map(channels.map((c) => [c.method, c.total])) };
+}
+
+export const SALE_SORT_KEYS = ['date', 'number', 'branch', 'cashier', 'total', 'grossProfit'] as const;
+export type SaleSortKey = (typeof SALE_SORT_KEYS)[number];
+const saleSorts: Record<SaleSortKey, SortSpec> = {
+  date: { by: t.sales.createdAt, field: 'createdAt', dir: 'desc' },
+  number: { by: t.sales.number, field: 'number', dir: 'desc' },
+  branch: { by: t.branches.name, field: 'branchName', dir: 'asc' },
+  cashier: { by: t.users.fullName, field: 'cashierName', dir: 'asc' },
+  total: { by: t.sales.total, field: 'total', dir: 'desc' },
+  // GM only: ordering by profit would reveal it (BE-7).
+  grossProfit: { by: sql`(case when ${t.sales.status} = 'COMPLETED' then ${t.sales.total} - ${t.sales.costTotal} else 0 end)`, field: 'grossProfit', dir: 'desc' },
+};
+
+/** BE-7: the sales list, one page at a time (`GET /sales`). */
+/** `withTotals: false`: no footer sums (the report's CSV walk reads rows only; RPT-2). */
+export async function pageSales(ctx: Ctx, actor: Actor, q: SaleQuery & PageRequest<SaleSortKey>, opts: { withTotals?: boolean } = {}) {
+  const where = await salesWhere(ctx, actor, q);
+  const joined = (w: SQL | undefined) =>
+    ctx.db.select({ n: sql<number>`count(*)` }).from(t.sales).innerJoin(t.branches, eq(t.branches.id, t.sales.branchId)).innerJoin(t.users, eq(t.users.id, t.sales.cashierId)).where(w);
+  return runPaged(actor, q, {
+    sorts: saleSorts,
+    defaultSort: 'date',
+    id: t.sales.id,
+    where,
+    maxId: async () => Number((await ctx.db.select({ m: maxIdOf(t.sales.id) }).from(t.sales))[0].m),
+    count: async (w) => Number((await joined(w))[0].n),
+    // The page first, then its lines in one grouped query: per-row sub-queries would run for every row an offset
+    // skips (seconds on a deep page of 60,000 sales).
+    rows: async ({ where: w, orderBy, limit, offset }) => {
+      const page = await ctx.db
+        .select(saleListBase)
+        .from(t.sales)
+        .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+        .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+        .where(w)
+        .orderBy(...orderBy)
+        .limit(limit)
+        .offset(offset);
+      if (!page.length) return [];
+      const lines = await ctx.db
+        .select({ saleId: t.saleItems.saleId, itemCount: sql<number>`count(*)`.mapWith(Number), weightMg: sumOf(t.saleItems.netWeightMg) })
+        .from(t.saleItems)
+        .where(inArray(t.saleItems.saleId, page.map((r) => r.id)))
+        .groupBy(t.saleItems.saleId);
+      const bySale = new Map(lines.map((l) => [l.saleId, l]));
+      return page.map((r) => saleListRow(actor, { ...r, itemCount: bySale.get(r.id)?.itemCount ?? 0, weightMg: bySale.get(r.id)?.weightMg ?? 0 }));
+    },
+    // The footer adds up the completed sales of the whole filtered result (a voided sale counts for nothing).
+    totals: opts.withTotals === false ? undefined : async (w) => {
+      const done = and(w, eq(t.sales.status, 'COMPLETED'));
+      const [s] = await ctx.db
+        .select({ count: sql<number>`count(*)`.mapWith(Number), total: sumOf(t.sales.total), costTotal: sumOf(t.sales.costTotal) })
+        .from(t.sales)
+        .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+        .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+        .where(done);
+      const [lines] = await ctx.db
+        .select({ itemCount: sql<number>`count(*)`.mapWith(Number), weightMg: sumOf(t.saleItems.netWeightMg) })
+        .from(t.saleItems)
+        .innerJoin(t.sales, eq(t.sales.id, t.saleItems.saleId))
+        .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+        .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+        .where(done);
+      const out: Record<string, number> = { sales: s.count, itemCount: lines.itemCount, weightMg: lines.weightMg, total: s.total };
+      return can(actor, 'profit.view') ? { ...out, costTotal: s.costTotal, grossProfit: s.total - s.costTotal } : out;
+    },
   });
 }
 

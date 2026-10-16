@@ -3,7 +3,7 @@ import { ap } from '@jerp/shared';
 //   send:    AVAILABLE → TRANSFERRED (in transit), ledger TRANSFER_OUT at source
 //   receive: TRANSFERRED → AVAILABLE at destination, ledger TRANSFER_IN at destination
 
-import { and, desc, eq, inArray, or, type SQL } from 'drizzle-orm';
+import { and, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import { nameOrAr } from '../../core/sql';
 import type { Actor, Ctx } from '../../core/context';
@@ -12,6 +12,8 @@ import { writeAudit } from '../../core/audit';
 import { AppError, badRequest, forbidden, notFound } from '../../core/errors';
 import type { TxIdempotency } from '../../core/idempotency';
 import { nextNumber } from '../../core/numbering';
+import { maxIdOf, runPaged, type PageRequest, type SortSpec } from '../../core/paging';
+import { dayRange } from '../../core/time';
 import { changeStatus, lockItems, recordMovement } from '../inventory/ledger';
 
 /** FIX-1 (D-fix-1): the courier's name, required for every new transfer (SPEC §8). */
@@ -119,40 +121,68 @@ export async function receiveTransfer(ctx: Ctx, actor: Actor, id: number, opts: 
   });
 }
 
-export async function listTransfers(ctx: Ctx, actor: Actor, q: { branchId?: number; status?: string }) {
+export const TRANSFER_SORT_KEYS = ['date', 'number', 'status'] as const;
+export type TransferSortKey = (typeof TRANSFER_SORT_KEYS)[number];
+const transferSorts: Record<TransferSortKey, SortSpec> = {
+  date: { by: t.transfers.createdAt, field: 'createdAt', dir: 'desc' },
+  number: { by: t.transfers.number, field: 'number', dir: 'desc' },
+  status: { by: t.transfers.status, field: 'status', dir: 'asc' },
+};
+
+/** BE-7: the transfers list, one page at a time (`GET /transfers`); a branch sees the transfers from or to it. */
+export async function listTransfers(
+  ctx: Ctx,
+  actor: Actor,
+  q: { branchId?: number; status?: string; from?: string; to?: string; q?: string } & PageRequest<TransferSortKey>,
+) {
   requirePerm(actor, 'inventory.transfer');
   const scope = branchScope(actor, q.branchId);
   const where: SQL[] = [];
   if (scope != null) where.push(or(eq(t.transfers.fromBranchId, scope), eq(t.transfers.toBranchId, scope))!);
   if (q.status) where.push(eq(t.transfers.status, q.status));
-  const rowsAll = await ctx.db
-    .select()
-    .from(t.transfers)
-    .where(where.length ? and(...where) : undefined)
-    .orderBy(desc(t.transfers.createdAt))
-    .limit(300);
-  if (!rowsAll.length) return [];
-  const branchRows = await ctx.db.select({ id: t.branches.id, name: t.branches.name }).from(t.branches);
-  const bn = new Map(branchRows.map((b) => [b.id, b.name]));
-  const userRows = await ctx.db.select({ id: t.users.id, name: t.users.fullName }).from(t.users);
-  const un = new Map(userRows.map((u) => [u.id, u.name]));
-  const links = await ctx.db
-    .select({ transferId: t.transferItems.transferId, code: t.jewelryItems.code, netWeightMg: t.jewelryItems.netWeightMg, productName: nameOrAr(t.products.name, t.products.nameAr), productNameAr: t.products.nameAr })
-    .from(t.transferItems)
-    .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.transferItems.itemId))
-    .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
-    .where(inArray(t.transferItems.transferId, rowsAll.map((r) => r.id)));
-  return rowsAll.map((r) => {
-    const items = links.filter((l) => l.transferId === r.id);
-    return {
-      ...r,
-      fromBranchName: bn.get(r.fromBranchId),
-      toBranchName: bn.get(r.toBranchId),
-      createdByName: un.get(r.createdBy),
-      receivedByName: r.receivedBy ? un.get(r.receivedBy) : null,
-      itemCount: items.length,
-      weightMg: items.reduce((s, i) => s + i.netWeightMg, 0),
-      items,
-    };
+  if (q.from && q.to) {
+    const { company } = await ctx.settings.get();
+    const r = dayRange(q.from, q.to, company.timezone);
+    where.push(gte(t.transfers.createdAt, r.start), lt(t.transfers.createdAt, r.end));
+  }
+  if (q.q?.trim()) {
+    const s = `%${q.q.trim()}%`;
+    where.push(or(ilike(t.transfers.number, s), ilike(t.transfers.courierName, s))!);
+  }
+  return runPaged(actor, q, {
+    sorts: transferSorts,
+    defaultSort: 'date',
+    id: t.transfers.id,
+    where,
+    maxId: async () => Number((await ctx.db.select({ m: maxIdOf(t.transfers.id) }).from(t.transfers))[0].m),
+    count: async (w) => Number((await ctx.db.select({ n: sql<number>`count(*)` }).from(t.transfers).where(w))[0].n),
+    rows: async ({ where: w, orderBy, limit, offset }) => {
+      const rowsAll = await ctx.db.select().from(t.transfers).where(w).orderBy(...orderBy).limit(limit).offset(offset);
+      if (!rowsAll.length) return [];
+      const branchRows = await ctx.db.select({ id: t.branches.id, name: t.branches.name }).from(t.branches);
+      const bn = new Map(branchRows.map((b) => [b.id, b.name]));
+      const userIds = [...new Set(rowsAll.flatMap((r) => (r.receivedBy ? [r.createdBy, r.receivedBy] : [r.createdBy])))];
+      const userRows = await ctx.db.select({ id: t.users.id, name: t.users.fullName }).from(t.users).where(inArray(t.users.id, userIds));
+      const un = new Map(userRows.map((u) => [u.id, u.name]));
+      const links = await ctx.db
+        .select({ transferId: t.transferItems.transferId, code: t.jewelryItems.code, netWeightMg: t.jewelryItems.netWeightMg, productName: nameOrAr(t.products.name, t.products.nameAr), productNameAr: t.products.nameAr })
+        .from(t.transferItems)
+        .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.transferItems.itemId))
+        .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+        .where(inArray(t.transferItems.transferId, rowsAll.map((r) => r.id)));
+      return rowsAll.map((r) => {
+        const items = links.filter((l) => l.transferId === r.id);
+        return {
+          ...r,
+          fromBranchName: bn.get(r.fromBranchId),
+          toBranchName: bn.get(r.toBranchId),
+          createdByName: un.get(r.createdBy),
+          receivedByName: r.receivedBy ? un.get(r.receivedBy) : null,
+          itemCount: items.length,
+          weightMg: items.reduce((s, i) => s + i.netWeightMg, 0),
+          items,
+        };
+      });
+    },
   });
 }

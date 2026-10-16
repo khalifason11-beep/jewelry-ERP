@@ -237,6 +237,15 @@ export const AR: Record<string, string> = {
   "month to date": "منذ بداية الشهر",
   "{n} row": "{n} صف",
   "{n} rows": "{n} صفوف",
+  // BE-7: the pager of a server list.
+  "{from}–{to} of {total}": "{from}–{to} من {total}",
+  "Previous page": "الصفحة السابقة",
+  "Next page": "الصفحة التالية",
+  // RPT-2: a report cut on screen says so.
+  "Showing the first {shown} of {total} rows. The totals and the summary cover all {total} rows; Export CSV writes every row.": "يعرض أول {shown} من {total} صفًا. الإجماليات والملخص تشمل كل الصفوف ({total})؛ وتصدير CSV يكتب كل الصفوف.",
+  "This report is not paged: it has no row limit": "هذا التقرير غير مقسم إلى صفحات: لا حد لعدد صفوفه",
+  "The first {n} of {total} pieces are shown: search to find the others.": "تظهر أول {n} من {total} قطعة: ابحث لإيجاد الباقي.",
+  "You cannot sort this list by cost": "لا يمكنك ترتيب هذه القائمة حسب التكلفة",
   "No results for “{q}”": "لا نتائج لـ «{q}»",
   "Try a different search term.": "جرّب كلمة بحث أخرى.",
   "just now": "الآن",

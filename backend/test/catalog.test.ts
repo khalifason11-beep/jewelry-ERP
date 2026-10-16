@@ -191,7 +191,7 @@ describe('item types and products', () => {
     expect(refused.status).toBe(400);
     expect(refused.body.error.key).toBe('{name} is deactivated and cannot receive new stock');
     // … but the pieces already in stock still sell.
-    const items = (await cashier.get(`/api/inventory/items?categoryId=${type.id}&status=AVAILABLE`)).body.items;
+    const items = (await cashier.get(`/api/inventory/items?categoryId=${type.id}&status=AVAILABLE`)).body.rows;
     expect(items).toHaveLength(2);
     expect((await cashier.post('/api/sales').send({ items: [{ itemId: items[0].id }], paymentMethod: 'CASH' })).status).toBe(200);
     // Deactivating the TYPE blocks its products too; reactivation restores them.
@@ -214,8 +214,8 @@ describe('item types and products', () => {
     expect((await order({ supplierId, lines: [line(prod.id), line(prod.id, 6_000), line(prod.id, 7_000)] })).status).toBe(200);
     const res = await bm.get(`/api/inventory/items?categoryId=${type.id}`);
     expect(res.status).toBe(200);
-    expect(res.body.items).toHaveLength(3);
-    expect(res.body.items.every((i: { productNameAr: string }) => i.productNameAr === 'غويشة مخرمة')).toBe(true);
+    expect(res.body.rows).toHaveLength(3);
+    expect(res.body.rows.every((i: { productNameAr: string }) => i.productNameAr === 'غويشة مخرمة')).toBe(true);
     expect((await bm.get('/api/inventory/items?category=RING')).status).toBe(400); // the old code filter is gone
   });
 });
@@ -262,7 +262,7 @@ describe('English name optional: displays fall back to the Arabic name', () => {
     const detail = (await bm.get(`/api/purchases/${po.id}`)).body;
     expect(detail.items[0]).toMatchObject({ productName: 'كف مشغول', productNameAr: 'كف مشغول' });
 
-    const [item] = (await cashier.get(`/api/inventory/items?categoryId=${type.id}`)).body.items;
+    const [item] = (await cashier.get(`/api/inventory/items?categoryId=${type.id}`)).body.rows;
     const sale = (await cashier.post('/api/sales').send({ items: [{ itemId: item.id }], paymentMethod: 'CASH' })).body;
     const [snap] = await ctx.db.select().from(t.saleItems).where(eq(t.saleItems.saleId, sale.id));
     expect(snap.productName).toBe('كف مشغول');

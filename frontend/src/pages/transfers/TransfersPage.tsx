@@ -4,11 +4,13 @@ import { ArrowRight, PackageCheck, Plus } from 'lucide-react';
 import { ApiError, get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams } from '../../lib/format';
-import { useBranchDirectory, useBranches } from '../../lib/hooks';
+import { useBranchDirectory, useBranches, useDebounced } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import type { ItemRow } from '../../lib/types';
 import { Alert, Button, Card, Dialog, Empty, Field, Input, Mono, PageHeader, QueryState, Select, SkeletonRows, StatusBadge, Textarea } from '../../components/ui';
+import { useServerList } from '../../lib/paging';
+import { PAGE_SIZE_MAX, type Page } from '@jerp/shared';
 import { DataTable } from '../../components/ui/DataTable';
 import { useActionKeys } from '../../lib/idempotency';
 
@@ -32,13 +34,17 @@ interface TransferRow {
   items: { code: string; productName: string; netWeightMg: number }[];
 }
 
+/** Table column → the transfers list's server sort key (BE-7). */
+const TRANSFER_SORT_KEYS = { number: 'number', createdAt: 'date', status: 'status' };
+
 export function TransfersPage() {
   const { t, lang } = useI18n();
   const { me, isGlobal } = useAuth();
   const toast = useToast();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const q = useQuery({ queryKey: ['transfers'], queryFn: () => get<TransferRow[]>('/transfers') });
+  // BE-7: one page at a time from the server.
+  const q = useServerList<TransferRow>('transfers', '/transfers', {}, { sortKeys: TRANSFER_SORT_KEYS, search: true });
   const actionKeys = useActionKeys();
   const receive = useMutation({
     mutationFn: (id: number) => postOnce(`/transfers/${id}/receive`, {}, actionKeys.for(`receive:${id}`)),
@@ -64,8 +70,9 @@ export function TransfersPage() {
       />
       <Card padded={false}>
         <DataTable
-          query={q}
-          rows={q.data ?? []}
+          query={q.query}
+          rows={q.rows}
+          server={q.server}
           rowKey={(r) => r.id}
           exportName="transfers"
           emptyTitle={t('No transfers yet')}
@@ -113,9 +120,12 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
   const courierOk = courier.trim().length >= 2 && courier.trim().length <= 80;
   const [unavailable, setUnavailable] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // BE-7: the largest page (200 pieces); a search narrows a bigger branch to the pieces wanted.
+  const [search, setSearch] = useState('');
+  const dsearch = useDebounced(search);
   const items = useQuery({
-    queryKey: ['transfer-items', from],
-    queryFn: () => get<{ items: ItemRow[] }>('/inventory/items', { branchId: from, status: 'AVAILABLE', sort: 'code', limit: 500 }),
+    queryKey: ['transfer-items', from, dsearch],
+    queryFn: () => get<Page<ItemRow>>('/inventory/items', { branchId: from, status: 'AVAILABLE', sort: 'code', pageSize: PAGE_SIZE_MAX, q: dsearch.trim() || undefined }),
     enabled: !!from,
   });
   const actionKeys = useActionKeys();
@@ -161,17 +171,23 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
           </Select>
         </Field>
       </div>
+      {!!from && (
+        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Code, barcode or product…')} aria-label={t('Search')} className="h-9" />
+      )}
+      {items.data && items.data.total > items.data.rows.length && (
+        <p className="text-meta text-ink-3">{t('The first {n} of {total} pieces are shown: search to find the others.', { n: items.data.rows.length, total: items.data.total })}</p>
+      )}
       <div className="scroll-thin max-h-72 overflow-y-auto rounded-md border border-line">
         {!from ? (
           <Empty variant="prompt" title={t('Select the sending branch')} />
         ) : (
           <QueryState query={items} loading={<SkeletonRows rows={4} className="p-3" />}>
             {(d) =>
-              d.items.length === 0 ? (
+              d.rows.length === 0 ? (
                 <Empty title={t('No pieces available in this branch')} />
               ) : (
           <ul className="divide-y divide-line">
-            {d.items.map((i) => (
+            {d.rows.map((i) => (
               <li key={i.id}>
                 <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-[13px] hover:bg-canvas">
                   <input type="checkbox" className="size-4 accent-ink-900" checked={selected.has(i.id)} onChange={(e) => setSelected((s) => { const n = new Set(s); if (e.target.checked) n.add(i.id); else n.delete(i.id); return n; })} />

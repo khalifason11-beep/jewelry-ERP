@@ -1,0 +1,145 @@
+# Continuous integration (SAFE-1). Runs on every push and pull request; uses no secrets.
+# Required status checks for main (CLAUDE.md, README): typecheck, test-pglite, test-postgres, build.
+# `smoke` (REH-1 + headless e2e) also runs, but is not required until it has proved stable.
+
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The project needs APP_MODE explicitly (D-cln1-1); the test projects set it themselves, the scripts too.
+  NODE_VERSION: '20'
+  # A test role on the service container: CREATEDB + CREATEROLE, deliberately NOT a superuser
+  # (the privilege tests in backend/test/pg need a non-superuser).
+  PG_TEST_URL: postgresql://jerp_test:jerp_test_pw@localhost:5432/postgres
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      # All static gates (check:lockfile, hasad, migrations, drizzle, test-imports, assets, docs) and tsc.
+      - run: npm run typecheck
+
+  test-pglite:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run --project pglite
+        working-directory: backend
+
+  test-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      # age encrypts the backups tested in backend/test/pg/backup.test.ts; pg_dump/pg_restore 16 ship with the image.
+      - run: sudo apt-get update -q && sudo apt-get install -y -q age postgresql-client-16
+      - name: Create the non-superuser test role
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -c "CREATE ROLE jerp_test LOGIN PASSWORD 'jerp_test_pw' CREATEDB CREATEROLE"
+      - run: npm ci
+      # REQUIRE_PG_TESTS=1: fail instead of skipping when TEST_DATABASE_URL is missing.
+      - run: npm run test:pg -w @jerp/backend
+        env:
+          TEST_DATABASE_URL: ${{ env.PG_TEST_URL }}
+        timeout-minutes: 35
+
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run i18n:check
+
+  smoke:
+    # Not a required check at first: browser runs are the slowest and the most environment-sensitive.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Create the non-superuser test role
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -c "CREATE ROLE jerp_test LOGIN PASSWORD 'jerp_test_pw' CREATEDB CREATEROLE"
+      - run: npm ci
+      # Playwright is not a project dependency (the scripts resolve it globally); the version is pinned here.
+      - run: npm install -g playwright@1.56.1 && playwright install --with-deps chromium
+      - run: npm run build
+      - name: REH-1 rehearsal (production mode, real PostgreSQL, TLS proxy)
+        run: node scripts/rehearsal/rehearsal.mjs --skip-build
+        env:
+          REHEARSAL_ADMIN_URL: ${{ env.PG_TEST_URL }}
+          REHEARSAL_ARTIFACTS: ${{ runner.temp }}/rehearsal
+      - name: Keep the REH-1 failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rehearsal-failure
+          path: ${{ runner.temp }}/rehearsal
+          if-no-files-found: ignore
+          retention-days: 7
+      - run: node scripts/e2e-print.mjs
+      - run: node scripts/e2e-passkeys.mjs
+      - run: node scripts/e2e-passkeys.mjs --mode=off
+      - run: node scripts/e2e-states.mjs
+      - run: node scripts/capture-ui-kit.mjs

@@ -237,6 +237,16 @@ valid session cookie can sign in again (the sign-in steps need no CSRF token but
 is ended). DEPLOYMENT §6 checks that the reverse proxy passes Origin unchanged. Tests `proxy-origin.test.ts`,
 `login-stale-cookie.test.ts` (both projects).
 
+### SAFE-1 — Change safely, deploy safely · DONE · M · P0
+
+Hardening only; no screen, text, setting or number changed (plan `docs/plans/SAFE-1.md`). `CLAUDE.md` (standing rules,
+gates, what needs the owner's approval); CI on every push and pull request (required checks `typecheck`, `test-pglite`,
+`test-postgres`, `build`; `smoke` not yet required); migration checksums and a destructive-statement gate; an upgrade
+test from 0015 and 0019 with realistic data; the rollback story; pool limits and survival of a database restart;
+graceful shutdown; request id and a working API access log; `/api/ready`; explicit `TRUST_PROXY` and `STRICT_DB_ROLES`
+in production; `TZ=UTC`; cache headers; `.env.example`; `docs/runbooks/`; the read-only `scripts/server/preflight.mjs`;
+`npm run verify`.
+
 ### SPL-1 — Split payments · BLOCKED (Q-7) · M · P2
 If a prepaid Hasad balance can fall short of the price, one sale must carry several payments (for example Hasad plus cash). Ledger entries per payment, one reference per payment.
 
@@ -261,6 +271,11 @@ Name, phone, optionally an ID number, and a printed receipt for the customer.
 ### RPT-1 — Report review after the removals · TODO · M · P1
 Re-verify every report after REM-1, REM-2 and PRC-1; add reporting by payment channel and the bank-reference list; confirm no report shows cost to non-GM roles. Add the **scrap bought at an override price** list (A8, report only, D-ux-9).
 
+### RPT-2 — Reports never silently drop rows · DONE · S · P0
+Found in BE-7: the Sales, Purchases and Inventory reports added up their totals from at most 1,000 rows. Now the totals
+and summaries are SQL aggregates over every row, the screen shows at most the cap with the true count and a warning, and
+the CSV holds every row (plan `docs/plans/RPT-2.md`, D-rpt2-1…4, `test/report-caps.test.ts`).
+
 ### WGT-1 — Weight precision per deployment · DEFERRED · M · P3
 **Q-14 closed (owner):** this client's scales read to **0.001 g** (1 mg), which is exactly how the system already works (integer milligrams, three decimals). **Nothing changes for this client.** Build WGT-1 only if another client weighs to two decimals: then a per-deployment setting for the number of weight decimals, input validation on every form, import and the API, one formatter everywhere, and documented totals.
 **No quantisation of the pure-24K debt is needed:** at milligram precision the 24K equivalent of a net weight is rounded to the nearest milligram, and every integer debt can be settled exactly: for every karat 1–24 the conversion step (`round((n+1)·k/24) − round(n·k/24)`) is at most one milligram, so every integer owed value is reached by some whole-milligram weight. REM-3 adds a property test for this.
@@ -277,9 +292,10 @@ Re-verify every report after REM-1, REM-2 and PRC-1; add reporting by payment ch
 **Pilot minimum set** (`docs/ux/ANALYSIS.md` §3): **A1** transfers in transit, **A2** transfer stale (`transfers.pendingClaimStaleHours`), **A4** cash-count difference (+ `cash.countDifferenceTolerance`, default 0), **A5** missing cash count, **A6** supplier gold owed per supplier and its age (+ `purchases.supplierDebtMaxAgeDays`, default 30), **A9** backup health, **A10** sign-in from a new device, **A11** failed sign-ins, **A12** locked accounts, **A15** stock does not reconcile, **A16** no gold/scrap rate set. **Deferred:** A3 (needs a dispute feature), A7 (depends on Q-7), A8 (report only, RPT-1), A13, A14; A17 not now.
 **Acceptance:** each signal has a test that raises and clears it; **tests prove a branch manager never receives a signal that exposes a COST field** (field-classification registry); the route is in the route matrix with its scope.
 
-### BE-7 — Server-side pagination and sorting · TODO · M · P1
+### BE-7 — Server-side pagination and sorting · DONE · M · P1
 **Owner decision D-ux-15.** Sales, inventory, audit, purchases, scrap purchases and transfers page and sort on the server (50 rows per page, max 200), with the filters of R11. Today inventory loads up to 1,000 rows into the browser. CSV export keeps exporting the whole filtered result.
 **Acceptance:** lists stay correct and fast with 10,000 pieces and 20,000 sales on real PostgreSQL; cost-visibility tests still pass on every page.
+**Done (plan `docs/plans/BE-7.md`, D-be7-1…7):** offset pages with an id tiebreaker and a snapshot id, exact totals, fixed sort keys (cost keys GM only), whole-result table totals, CSV by walking every page, migration 0023 (`sale_items(sale_id)`). Measured on 60,140 sales and 90,376 pieces (PostgreSQL 16): every list p95 ≤ 177 ms (budget 300). `test/paging.test.ts` (every page of every list for every role), `test/business-day.test.ts` (the Khartoum midnight in every list).
 
 ### TAX-1 — Official tax invoice · BLOCKED (Q-9) · ? · P2
 Only if the client is legally required to issue one.
@@ -316,7 +332,7 @@ Done on 2026-10-09 (plan `docs/plans/UI-A2.md`, decisions D-ui-10 … D-ui-16, a
 - **Still open, decided elsewhere:** GM branch switcher and the attention list (UI-B); login image panel only if a licensed image is added; USD chip until Q-10.
 
 ### UI-B — Homes, branches, sales list · HOMES DONE · M · P1 · UI-A2, BE-1, BE-7
-**Homes done (commits `200aa14` to `98f0848` and the UI-B docs commit; D-ui-17…22, `docs/acceptance/UI-B.md`):** the GM home (Sales dark card, one surface, attention list, branch strips, 14-day sales line instead of the branch bars, gold position; Today by default, remembered; scope pill `/overview?branchId=`; empty versions) and the branch manager's home (expected cash with the last count, stock, gold owed in grams, attention, Team today; no cost); the attention control replaces the bell; the home figures tied to the Sales report, the list and the ledger by entry date; home requests p95 ≤ 86 ms on 60,000 sales without a new index. **Still open, a separate plan (owner answer Q13), next, before UI-C:** **UI-B3** the Branches page and the sales list with filter pills, on **BE-7** server-side pagination. The cashier's POS layout is UI-C1 (D-ui-22).
+**Homes done (commits `200aa14` to `98f0848` and the UI-B docs commit; D-ui-17…22, `docs/acceptance/UI-B.md`):** the GM home (Sales dark card, one surface, attention list, branch strips, 14-day sales line instead of the branch bars, gold position; Today by default, remembered; scope pill `/overview?branchId=`; empty versions) and the branch manager's home (expected cash with the last count, stock, gold owed in grams, attention, Team today; no cost); the attention control replaces the bell; the home figures tied to the Sales report, the list and the ledger by entry date; home requests p95 ≤ 86 ms on 60,000 sales without a new index. **Still open, a separate plan (owner answer Q13), next, before UI-C:** **UI-B3** the Branches page and the sales list with filter pills, on **BE-7** server-side pagination: **planned** in `docs/plans/UI-B3.md` (six questions), not built, waiting for the owner's acceptance notes on the finished screens. The cashier's POS layout is UI-C1 (D-ui-22).
 GM home and BM home as in `docs/ux/mockups/gm-home.html` and `bm-home.html`: **Sales as its own dark card**, the other three figures on one light surface (D-ux-1); default period **Today**, remembered per user in the browser; GM level 1 shows grams and value together; attention list from BE-1; branch bars **labelled by branch name** in the palette of `tokens.md`. The branch manager's home has no cost figures. Branches page and sales list with filter pills and server-side pagination (BE-7). Level 1 fits 1366×768 without scrolling (R14).
 
 ### UI-C — All other screens · TODO · L · P1
@@ -330,7 +346,7 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
 |---|---|---|---|---|
 | **REH-1** | **Empty-database rehearsal script** (`npm run rehearsal`, Playwright). Bootstraps an empty database in **production mode on real PostgreSQL**, behind a local TLS proxy with a self-signed certificate that the script starts itself (passkey RP `localhost`; the production start-up checks are not relaxed), then runs: branch → users → item types → opening import → sale by cash, bank (with reference) and Hasad → print and reprint → void → scrap purchase (clean and broken) → supplier order and settlement → transfer from the cart and receipt → cash count → backup and verify. Build it incrementally and run it before accepting any phase. **PARTIAL:** bootstrap → GM first sign-in (password change, passkey, recovery codes) → branch → branch manager and cashier → their first sign-in → no expense wording on any screen in Arabic or English, expense routes gone, no Hasad withdrawal wording or menu entry, Hasad routes and report gone, the POS offers Cash / Bank transfer / Hasad, reconciliation lines add up → CAT-0 catalog entry in the forms → audit trail; REM-3: first-steps checklist (karats confirmed, gold and scrap rates, branch, staff), empty states, no Demo badge in production, and a fresh demo-mode database that is empty, lists no accounts and shows the Demo badge; the New branch and New user dialogs keep typing in the field the person chose, checked deterministically with paused timers; REM-5: the production database has none of the removed objects, all 17 migrations applied, one supplier line per piece; UI-A1: the plain sign-in page, the sidebar per role equal to the mockups (no POS for the GM, icons only for the cashier), no cost or profit word or figure in the shell for the branch manager and the cashier in both languages, "Bank transfer" in the English POS; UI-A2: every list's empty text in both languages, the shell notices (one line each, none for the branch manager, no USD chip), the sign-in tagline in self-hosted Amiri, the public answer limited to the branding allow-list (130 checks). | Engineering | **P0** | grows with each phase |
 | HOST-1 | Decide hosting (Q-11): managed PostgreSQL (paid), region, domain, Shell access for operator commands; separate staging and production. The domain must be final before any passkey is registered. | Owner | **P0** | |
-| DEP-1 | Staging deployment in production mode: `STRICT_DB_ROLES=true`, `TRUST_PROXY` verified (real client IPs in the audit log), health monitor on `/api/health`. | Owner + engineering | P1 | HOST-1 |
+| DEP-1 | Staging deployment in production mode following `docs/runbooks/first-deploy.md`: `STRICT_DB_ROLES=true`, `TRUST_PROXY` verified (real client IPs in the audit log), the preflight all PASS, monitors on `/api/health` (backup warning) and `/api/ready` (any 503). Make `smoke` a required CI check once it has been green for two weeks. | Owner + engineering | P1 | HOST-1 |
 | BKP-1 | Backup key pair stored in two places; off-site target; daily schedule; weekly drill on a separate machine; **a restore performed by someone other than the developer**; result recorded. | Owner | **P0** | HOST-1 |
 | 2FA-1 | Enroll passkeys on the GM's real devices (two), print recovery codes, test the lost-device procedure on staging. | Owner | P1 | HOST-1, Q-11 |
 | HW-1 | Hardware tests on the client's real printer (the 15-item checklist in the printing report and `docs/DEPLOYMENT.md` §9), barcode scanner, silent-printing shortcut (the `.cmd` template has never run on Windows). | Owner | P1 | |
@@ -354,6 +370,30 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
 - The silent-printing `.cmd` template is untested on Windows; CSS page size on a given thermal driver is a request, not a guarantee.
 - ~~Hasad double-notification risk (D-2a-8)~~: **resolved by scope change** (REM-2 removed the Hasad integration).
 - Single-role database deployments still work but log a security warning.
+- **No rate limit on write endpoints** (SAFE-1 audit). Sign-in and passkey failures are limited (5 per account, then
+  15→60 min; 30 per IP per 15 min) and bodies are capped at 100 kB (512 kB for the logo), but an authenticated session
+  can send writes as fast as it likes. Needs an owner decision (a per-session limit, and its numbers) before a second
+  branch.
+- A request for a hashed file that no longer exists (an old browser tab after an update asks for the previous
+  `/assets/index-<old>.js`) gets `index.html` with status 200, so the tab fails to load its script instead of getting a
+  clear 404; a reload fixes it (found in SAFE-1, not changed).
+- ~~REH-1 failed now and then on the CI runner after check 66~~: **fixed in SAFE-1** (a race in the rehearsal script,
+  not in the app). The diagnostics added in SAFE-1 showed the cashier still on the change-password form with no error:
+  the URL changes before the sign-in form is replaced, so the first fill could land in the sign-in form's password field
+  and the required temporary-password field stayed empty, which makes the browser refuse the submit silently. The script
+  now waits for the change-password form alone and checks the typed values before submitting.
+- `npm run test:pg -w @jerp/backend` sets its variable with POSIX shell syntax, so it does not run in the Windows
+  command prompt (`npm test` with `TEST_DATABASE_URL` does).
+- ~~**The Sales, Purchases and Inventory reports read at most 1,000 rows**~~ (found in BE-7): **fixed by RPT-2** (totals
+  in SQL over every row; a visible cap on screen with the true count; every row in the CSV; D-rpt2-1…4).
+- Two lists outside the reports still cap silently (RPT-2 plan, items 6 and 7): Cash › Hasad transfers (newest 200,
+  CSV included) and Active users (300 sessions; its four tiles count those rows). Page them with the BE-7 helper, or
+  leave them: owner decision.
+- BE-7 limits that the screens show: the POS grid and the transfer picker hold the largest page (200 pieces) and offer
+  the search for the rest (the picker says so); a page changed under a filter by a void can still move a row (the
+  snapshot only stops new rows). The next index if sales grow far beyond 60,000: `sales(created_at, id)` (D-be7-6).
+- ~~The API access log never logged a request~~ (`req.path` was read after Express rewrote it under `/api`): **fixed in
+  SAFE-1**, with a request id in the `X-Request-Id` header and every log line.
 
 ---
 

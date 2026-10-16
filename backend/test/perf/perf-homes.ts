@@ -5,7 +5,8 @@
 // 2. Scales it with bulk SQL to 8 branches over 2 years: about 60,000 sales (2 % voided), 90,000 pieces, their
 //    inventory movements and ledger entries, open supplier gold debts and daily cash counts.
 // 3. Times the service functions behind GET /dashboard/company (today and 30 days), /dashboard/branch and /attention
-//    (GM and branch manager): 3 warm-up runs, then 20 timed runs; p50 and p95 in milliseconds.
+//    (GM and branch manager), and (BE-7) one page of every server-paged list: the first page, the last page (the
+//    deepest offset), another sort, the branch manager's page; 3 warm-up runs, then 20 timed runs; p50 and p95 in ms.
 // 4. Prints the slowest SQL statements with EXPLAIN (ANALYZE, BUFFERS), the machine and the data size.
 // Exit code 1 when any p95 is above the budget (300 ms).
 
@@ -20,11 +21,20 @@ import { addDays, dayKey } from '../../src/core/time';
 import { loadActor } from '../../src/modules/sessions/service';
 import { branchDashboard, companyDashboard } from '../../src/modules/dashboard/service';
 import { attentionFor } from '../../src/modules/attention/service';
+import { pageSales } from '../../src/modules/sales/service';
+import { pageItems } from '../../src/modules/inventory/service';
+import { pagePurchases } from '../../src/modules/purchases/service';
+import { listScrapPurchases } from '../../src/modules/scrap/service';
+import { listTransfers } from '../../src/modules/transfers/service';
+import { pageAudit, reportRowsPage, runReport } from '../../src/modules/reports/service';
+import { fetchAllPages } from '@jerp/shared';
 import { rows } from '../../src/core/sql';
 import { seedWorld } from '../fixtures/world';
 import { dropTestDatabase } from '../helpers';
 
 const BUDGET_MS = 300;
+const REPORT_BUDGET_MS = 1_000;
+const CSV_BUDGET_MS = 30_000;
 const RUNS = 20;
 const ARGS = new Set(process.argv.slice(2));
 const ADMIN = process.env.REHEARSAL_ADMIN_URL ?? '';
@@ -52,20 +62,89 @@ async function main() {
     const bm = await actor(ctx, 'branch.manager.kh');
     const { company } = await ctx.settings.get();
     const today = dayKey(new Date(), company.timezone);
-    const cases: [string, () => Promise<unknown>][] = [
+    const cases: [string, () => Promise<unknown>, number?][] = [
       ['GET /dashboard/company (today)', () => companyDashboard(ctx, gm, { from: today, to: today })],
       ['GET /dashboard/company (30 days)', () => companyDashboard(ctx, gm, { from: addDays(today, -29), to: today })],
       ['GET /dashboard/branch (BM, today)', () => branchDashboard(ctx, bm, {})],
       ['GET /attention (GM)', () => attentionFor(ctx, gm)],
       ['GET /attention (BM)', () => attentionFor(ctx, bm)],
     ];
+    // BE-7: one page (50 rows) of every server-paged list; "last page" is the deepest offset of the unfiltered list.
+    const last = async (f: () => Promise<{ page: { pages: number } }>) => (await f()).page.pages;
+    const month = { from: addDays(today, -29), to: today };
+    const salesLast = await last(() => pageSales(ctx, gm, {}));
+    const itemsLast = await last(() => pageItems(ctx, gm, { status: ['AVAILABLE'] }));
+    const purchasesLast = await last(() => pagePurchases(ctx, gm, {}));
+    const auditLast = await last(() => pageAudit(ctx, gm, month));
+    cases.push(
+      ['GET /sales (GM, page 1 of all)', () => pageSales(ctx, gm, {})],
+      [`GET /sales (GM, last page ${salesLast})`, () => pageSales(ctx, gm, { page: salesLast })],
+      ['GET /sales (GM, 30 days, sort total)', () => pageSales(ctx, gm, { ...month, sort: 'total' })],
+      ['GET /sales (GM, search)', () => pageSales(ctx, gm, { q: 'S-0' })],
+      ['GET /sales (BM, page 1)', () => pageSales(ctx, bm, {})],
+      ['GET /inventory/items (GM, available, page 1)', () => pageItems(ctx, gm, { status: ['AVAILABLE'] })],
+      [`GET /inventory/items (GM, last page ${itemsLast})`, () => pageItems(ctx, gm, { status: ['AVAILABLE'], page: itemsLast })],
+      ['GET /inventory/items (GM, sort price)', () => pageItems(ctx, gm, { status: ['AVAILABLE'], sort: 'price' })],
+      ['GET /inventory/items (BM, page 1)', () => pageItems(ctx, bm, { status: ['AVAILABLE'] })],
+      ['GET /inventory/items (POS search, 200)', () => pageItems(ctx, bm, { status: ['AVAILABLE'], q: '21', pageSize: 200, sort: 'recent' })],
+      ['GET /purchases (GM, page 1)', () => pagePurchases(ctx, gm, {})],
+      [`GET /purchases (GM, last page ${purchasesLast})`, () => pagePurchases(ctx, gm, { page: purchasesLast })],
+      ['GET /purchases (BM, page 1)', () => pagePurchases(ctx, bm, {})],
+      ['GET /scrap-purchases (GM, page 1)', () => listScrapPurchases(ctx, gm, {})],
+      ['GET /scrap-purchases (BM, page 1)', () => listScrapPurchases(ctx, bm, {})],
+      ['GET /transfers (GM, page 1)', () => listTransfers(ctx, gm, {})],
+      ['GET /transfers (BM, page 1)', () => listTransfers(ctx, bm, {})],
+      ['GET /audit (GM, 30 days, page 1)', () => pageAudit(ctx, gm, month)],
+      [`GET /audit (GM, 30 days, last page ${auditLast})`, () => pageAudit(ctx, gm, { ...month, page: auditLast })],
+      ['GET /audit (BM, 30 days, page 1)', () => pageAudit(ctx, bm, month)],
+    );
+    // RPT-2: the reports (up to their row cap on screen, totals in SQL over every row). Budget 1,000 ms: one request
+    // opened on demand, returning up to 1,000 rows, not a page change like the lists.
+    const all = { from: '2024-01-01', to: today };
+    cases.push(
+      ['GET /reports/sales (GM, 2 years, cut at 1,000)', () => runReport(ctx, gm, 'sales', all), REPORT_BUDGET_MS],
+      ['GET /reports/sales (GM, 30 days)', () => runReport(ctx, gm, 'sales', month), REPORT_BUDGET_MS],
+      ['GET /reports/sales (BM, 2 years)', () => runReport(ctx, bm, 'sales', all), REPORT_BUDGET_MS],
+      ['GET /reports/purchases (GM, 2 years)', () => runReport(ctx, gm, 'purchases', all), REPORT_BUDGET_MS],
+      ['GET /reports/inventory (GM, available)', () => runReport(ctx, gm, 'inventory', { status: 'AVAILABLE' }), REPORT_BUDGET_MS],
+      ['GET /reports/inventory-ledger (GM, 30 days)', () => runReport(ctx, gm, 'inventory-ledger', month), REPORT_BUDGET_MS],
+      ['GET /reports/audit (GM, 30 days)', () => runReport(ctx, gm, 'audit', month), REPORT_BUDGET_MS],
+      ['GET /reports/profit (GM, by day, 30 days)', () => runReport(ctx, gm, 'profit', { ...month, group: 'day' }), REPORT_BUDGET_MS],
+      ['GET /reports/branch-performance (GM, 30 days)', () => runReport(ctx, gm, 'branch-performance', month), REPORT_BUDGET_MS],
+      ['GET /reports/sales rows, page 1 of 200 (CSV walk)', () => reportRowsPage(ctx, gm, 'sales', { ...all, page: 1, pageSize: 200 }), REPORT_BUDGET_MS],
+    );
     const statements = new Map<string, { q: SQL; ms: number }>();
+    // --explain-lists (BE-7): the list queries are built by the query builder, so they are caught at the pg pool:
+    // the slowest real statement of each list case, with its parameters, is explained after the timings.
+    const listStatements = new Map<string, { text: string; values: unknown[]; ms: number }>();
+    const clientQuery = pg.Pool.prototype.query;
+    let recording: string | null = null;
     const orig = ctx.db.execute.bind(ctx.db);
     let failed = false;
     console.log(`\n| endpoint | p50 ms | p95 ms | budget |\n|---|---|---|---|`);
-    for (const [label, fn] of cases) {
+    for (const [label, fn, budget = BUDGET_MS] of cases) {
       for (let i = 0; i < 3; i++) await fn();
       const times: number[] = [];
+      if (ARGS.has('--explain-lists') && !/^GET \/(dashboard|attention)/.test(label)) {
+        recording = label;
+        (pg.Pool.prototype as unknown as { query: unknown }).query = function (this: pg.Pool, ...a: unknown[]) {
+          const cfg = a[0] as { text?: string; values?: unknown[] } | string;
+          const text = typeof cfg === 'string' ? cfg : cfg?.text;
+          // drizzle passes ({ text, rowMode, types }, params); plain callers pass (text, params) or ({ text, values }).
+          const values = (typeof cfg === 'string' ? a[1] : (cfg?.values ?? a[1])) as unknown[] | undefined;
+          const s0 = performance.now();
+          const r = (clientQuery as (...x: unknown[]) => unknown).apply(this, a) as Promise<unknown>;
+          if (recording && text && /^select/i.test(text) && r && typeof r.then === 'function') {
+            const key = recording;
+            void r.then(() => {
+              const ms = performance.now() - s0;
+              const prev = listStatements.get(key);
+              if (!prev || prev.ms < ms) listStatements.set(key, { text, values: values ?? [], ms });
+            }, () => undefined);
+          }
+          return r;
+        };
+      }
       for (let i = 0; i < RUNS; i++) {
         (ctx.db as unknown as { execute: typeof orig }).execute = (async (q: SQL) => {
           const s = performance.now();
@@ -81,11 +160,21 @@ async function main() {
         times.push(performance.now() - s);
         (ctx.db as unknown as { execute: typeof orig }).execute = orig;
       }
+      recording = null;
+      (pg.Pool.prototype as unknown as { query: unknown }).query = clientQuery;
       times.sort((a, b) => a - b);
       const p50 = times[Math.floor(RUNS * 0.5)];
       const p95 = times[Math.min(RUNS - 1, Math.ceil(RUNS * 0.95) - 1)];
-      if (p95 > BUDGET_MS) failed = true;
-      console.log(`| ${label} | ${p50.toFixed(0)} | ${p95.toFixed(0)} | ${p95 > BUDGET_MS ? 'OVER' : 'ok'} |`);
+      if (p95 > budget) failed = true;
+      console.log(`| ${label} | ${p50.toFixed(0)} | ${p95.toFixed(0)} | ${p95 > budget ? `OVER ${budget}` : `ok (${budget})`} |`);
+    }
+    // RPT-2: the whole CSV of the sales report over two years, every page of 200 (one run; budget 30 s).
+    {
+      const s = performance.now();
+      const csv = await fetchAllPages((p) => reportRowsPage(ctx, gm, 'sales', { ...all, ...p, page: p.page ?? 1 }) as never);
+      const ms = performance.now() - s;
+      if (ms > CSV_BUDGET_MS) failed = true;
+      console.log(`| CSV walk: /reports/sales, ${csv.length} rows in ${Math.ceil(csv.length / 200)} pages | ${ms.toFixed(0)} | — | ${ms > CSV_BUDGET_MS ? `OVER ${CSV_BUDGET_MS}` : `ok (${CSV_BUDGET_MS})`} |`);
     }
     if (ARGS.has('--explain')) {
       const slow = [...statements.values()].sort((a, b) => b.ms - a.ms).slice(0, 6);
@@ -94,7 +183,16 @@ async function main() {
         console.log(`\n--- ${s.ms.toFixed(1)} ms ---\n${plan.slice(0, 14).join('\n')}`);
       }
     }
-    console.log(failed ? `\nPERF FAILED: a p95 is above ${BUDGET_MS} ms.` : `\nPERF PASSED: every p95 within ${BUDGET_MS} ms.`);
+    if (ARGS.has('--explain-lists')) {
+      const ex = new pg.Client({ connectionString: url.toString() });
+      await ex.connect();
+      for (const [label, st] of listStatements) {
+        const plan = (await ex.query(`EXPLAIN (ANALYZE, BUFFERS) ${st.text}`, st.values)).rows.map((r) => r['QUERY PLAN'] as string);
+        console.log(`\n--- ${label}: slowest statement ${st.ms.toFixed(1)} ms ---\n${st.text.slice(0, 300)}${st.text.length > 300 ? '…' : ''}\n${plan.slice(0, 18).join('\n')}`);
+      }
+      await ex.end();
+    }
+    console.log(failed ? `\nPERF FAILED: a p95 (or the CSV walk) is above its budget.` : `\nPERF PASSED: every p95 within its budget (lists and homes ${BUDGET_MS} ms, reports ${REPORT_BUDGET_MS} ms, CSV walk ${CSV_BUDGET_MS} ms).`);
     process.exitCode = failed ? 1 : 0;
   } finally {
     await handle.close();

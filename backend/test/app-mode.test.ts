@@ -60,3 +60,19 @@ describe('every entry point refuses to start without APP_MODE', () => {
     }, 90_000);
   }
 });
+
+// SAFE-1: every entry point runs in UTC, whatever the server's own time zone.
+describe('the process time zone is pinned to UTC', () => {
+  it('a process started with another TZ runs in UTC once the configuration is loaded', () => {
+    const backend = path.resolve(__dirname, '..');
+    const code = "const before = new Date(0).getTimezoneOffset(); await import('./src/config.ts'); console.log(JSON.stringify({ before, tz: process.env.TZ, after: new Date(0).getTimezoneOffset() }))";
+    const r = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', code], {
+      cwd: backend,
+      env: { ...process.env, APP_MODE: 'demo', TZ: 'America/New_York' },
+      encoding: 'utf8',
+      timeout: 60_000,
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(JSON.parse(r.stdout.trim().split('\n').at(-1)!)).toEqual({ before: 300, tz: 'UTC', after: 0 });
+  }, 90_000);
+});

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import express from 'express';
@@ -16,6 +17,25 @@ export function createApp(ctx: Ctx, config: Config = defaultConfig) {
   // Only trust X-Forwarded-* when a proxy is explicitly configured (H-6, decisions D-1a-9).
   app.set('trust proxy', config.trustProxy);
   app.disable('x-powered-by');
+
+  // Structured access log, one line per API request (no bodies, no cookies, no query strings), with a request id that
+  // is also sent back in the X-Request-Id header (SAFE-1). The id is always generated here: an incoming
+  // header is never trusted.
+  // The path is read when the request arrives: by the time it finishes, the /api mount has rewritten req.path (before
+  // SAFE-1 the check below therefore never matched and no API request was ever logged).
+  app.use((req, res, next) => {
+    const started = process.hrtime.bigint();
+    const path = req.path;
+    req.requestId = randomUUID();
+    res.setHeader('X-Request-Id', req.requestId);
+    if (path.startsWith('/api/')) {
+      res.on('finish', () => {
+        log.info('request', { requestId: req.requestId, method: req.method, path, status: res.statusCode, ms: Number((process.hrtime.bigint() - started) / 1_000_000n), user: req.actor?.userId });
+      });
+    }
+    next();
+  });
+
 
   app.use(
     helmet({
@@ -47,16 +67,6 @@ export function createApp(ctx: Ctx, config: Config = defaultConfig) {
   app.use(express.json({ limit: '100kb', strict: true, type: 'application/json' }));
   app.use(cookieParser());
 
-  // Structured access log (no bodies, no cookies, no query strings).
-  app.use((req, res, next) => {
-    const started = process.hrtime.bigint();
-    res.on('finish', () => {
-      if (!req.path.startsWith('/api')) return;
-      log.info('request', { method: req.method, path: req.path, status: res.statusCode, ms: Number((process.hrtime.bigint() - started) / 1_000_000n), user: req.actor?.userId });
-    });
-    next();
-  });
-
   app.use('/api', (_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
     next();
@@ -69,10 +79,22 @@ export function createApp(ctx: Ctx, config: Config = defaultConfig) {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Unknown API endpoint', key: 'Unknown API endpoint' } });
   });
 
-  // Serve the built SPA.
+  // Serve the built SPA (SAFE-1 cache headers): files under /assets carry their content hash in the name, so they never
+  // change (one year, immutable); index.html names the current hashes, so browsers revalidate it on every load and get
+  // an update at once; other root files (favicon) keep the short cache.
   if (fs.existsSync(path.join(config.frontendDist, 'index.html'))) {
-    app.use(express.static(config.frontendDist, { index: false, maxAge: '1h' }));
-    app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(config.frontendDist, 'index.html')));
+    const indexHtml = path.join(config.frontendDist, 'index.html');
+    app.use('/assets', express.static(path.join(config.frontendDist, 'assets'), { index: false, maxAge: '1y', immutable: true }));
+    app.use(
+      express.static(config.frontendDist, {
+        index: false,
+        maxAge: '1h',
+        setHeaders: (res, file) => {
+          if (file === indexHtml) res.setHeader('Cache-Control', 'no-cache');
+        },
+      }),
+    );
+    app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(indexHtml, { headers: { 'Cache-Control': 'no-cache' } }));
   }
   app.use(errorHandler);
   return app;

@@ -191,10 +191,10 @@ describe('only the General Manager records an order; the branch manager keeps th
     expect(bmDetail.makingChargePaidFrom).toBe('OWNER_PERSONAL');
     expect(bmDetail).not.toHaveProperty('makingChargeReference');
     expect(bmDetail).not.toHaveProperty('makingChargeTransferDate');
-    const bmList = (await bmA.get('/api/purchases')).body as Record<string, unknown>[];
+    const bmList = (await bmA.get('/api/purchases')).body.rows as Record<string, unknown>[];
     expect(bmList.length).toBeGreaterThan(0);
     expect(bmList.every((r) => !('makingChargeReference' in r))).toBe(true);
-    expect(((await gmA.get('/api/purchases')).body as { number: string; makingChargeReference?: string }[]).find((r) => r.number === res.body.number)?.makingChargeReference).toBe('TEST-HTTP-1');
+    expect(((await gmA.get('/api/purchases')).body.rows as { number: string; makingChargeReference?: string }[]).find((r) => r.number === res.body.number)?.makingChargeReference).toBe('TEST-HTTP-1');
   });
 
   it('GM-only permissions: never in another role’s defaults, nor in the database after the seed (run again too)', async () => {

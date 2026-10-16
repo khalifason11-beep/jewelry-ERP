@@ -22,6 +22,7 @@
     "test": "npm test -w @jerp/backend",
     "i18n:check": "node scripts/i18n-check.mjs",
     "rehearsal": "node scripts/rehearsal/rehearsal.mjs",
+    "verify": "node scripts/verify.mjs",
     "check:lockfile": "node scripts/check-lockfile-platforms.mjs",
     "check:hasad": "node scripts/check-hasad-footprint.mjs",
     "dev:sample": "npm run dev:sample -w @jerp/backend --",

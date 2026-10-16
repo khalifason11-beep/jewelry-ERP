@@ -123,7 +123,7 @@ async function main() {
   {
     const cashier = await apiClient(BASE);
     await cashier.login(world.cashier.username, world.cashier.password);
-    const items = (await cashier.must('GET', `/inventory/items?branchId=${world.branchId}&status=AVAILABLE`)).items;
+    const items = (await cashier.must('GET', `/inventory/items?branchId=${world.branchId}&status=AVAILABLE`)).rows;
     await cashier.must('POST', '/sales', { items: [{ itemId: items[0].id, discount: 0 }], paymentMethod: 'CASH' }, { idempotent: true });
     await cashier.dispose();
   }
@@ -357,7 +357,7 @@ async function main() {
     section('Scrap paid part cash, part bank (CSH-2): the form and the Cash drill-down');
     await signIn(page, world.bm);
     await page.goto(`${BASE}/scrap`);
-    await page.getByTestId('scrap-paid-by-' + (await (await page.request.get(`${BASE}/api/scrap-purchases`)).json()).find((x) => x.paymentMethod === 'SPLIT').number).waitFor({ timeout: 15_000 });
+    await page.getByTestId('scrap-paid-by-' + (await (await page.request.get(`${BASE}/api/scrap-purchases`)).json()).rows.find((x) => x.paymentMethod === 'SPLIT').number).waitFor({ timeout: 15_000 });
     ok('the list shows the split purchase in its "Paid by" column');
     await page.fill('[data-testid=scrap-karat-any]', '21');
     await page.fill('[data-testid=scrap-net]', '1');

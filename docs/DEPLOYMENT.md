@@ -32,7 +32,7 @@ React app too, so no separate static site is needed.
 | App service | One Node.js 20+ process (22 tested), in the same region as the database. |
 | Build command | `npm ci --include=dev && npm run build` (the start command runs TypeScript through `tsx`, a dev dependency, so dev dependencies must be installed) |
 | Start command | `npm start` |
-| Health check path | `/api/health` |
+| Health check path | `/api/health` (liveness). `/api/ready` is readiness: use it where the host distinguishes the two (section 7.7). |
 | Instances | **1** for now. The per-IP sign-in throttle and the login counters for unknown usernames are kept in process memory, and each instance keeps its own settings cache for up to 5 s. See "Remaining limits" below. |
 | Shell | Shell access to the running service (SSH or the host's console) for the bootstrap and the operator console. |
 
@@ -43,13 +43,19 @@ React app too, so no separate static site is needed.
 | `APP_MODE` | `production` (**required**) | **Required, no default** (D-cln1-1, superseding D-1a-2). Absent or empty stops the server and every CLI with: `Refusing to start: APP_MODE is not set. Set APP_MODE=production on a real server, or APP_MODE=demo for a local trial installation (the only two valid values).` Only the exact strings `production` and `demo` are accepted (`prod`, `Production` are refused). It turns on the start-up refusals, removes the "Demo" badge and refuses `npm run dev:sample`. (Since REM-3 there is no demo data in any mode: demo mode starts empty too.) |
 | `DATABASE_URL` | the database's private connection URL (`postgresql://user:password@host/db`) | Required in production; embedded PGlite is refused. Use a long generated password. Never reuse `postgres`, `password`, `admin`, `root`, `changeme`, `secret` or `123456`: they are refused. |
 | `APP_ORIGIN` | the final domain, e.g. `https://erp.example.com` | Exact origin the browser uses (scheme + host, no trailing slash, no path). Must be `https://`. State-changing requests from any other origin are rejected (CSRF defence). If you add a custom domain later, update this value. |
-| `TRUST_PROXY` | `1` to start with, then **verify** (section 4) | Number of proxy hops in front of the app. It decides which `X-Forwarded-For` entry becomes the client IP used in the audit log, the sessions list and the per-IP sign-in throttle. Unset means "no proxy": all users then appear with the proxy's IP. |
+| `TRUST_PROXY` | `1` to start with, then **verify** (section 4) | **Required in production** (SAFE-1): unset or empty refuses to start, so "no proxy" is a decision. Number of proxy hops in front of the app; `0` means no proxy (all users then appear with the proxy's IP if there is one). It decides which `X-Forwarded-For` entry becomes the client IP used in the audit log, the sessions list and the per-IP sign-in throttle. |
 | `COOKIE_SECURE` | leave **unset** (defaults to `true` in production) | The session cookie is `__Host-jerp_session`: `Secure`, `HttpOnly`, `SameSite=Lax`. `false` is refused in production. |
 | `LOG_LEVEL` | `info` | `warn` or `error` to reduce volume, `debug` only while diagnosing. Logs never contain bodies, query strings, cookies or passwords. |
 | `NODE_VERSION` | `22` | Node 20 or newer is required; 22 is what the project is tested on. |
 | `PORT` | the port the host routes to (many hosts set it themselves) | The app listens on it; default 4000. |
 | `MIGRATION_DATABASE_URL` | optional, recommended: the owner role (section 5) | Runs the migrations; the app then connects with `DATABASE_URL` as a runtime role that owns nothing. |
-| `STRICT_DB_ROLES` | `true` once the roles are separated | Refuse to start if the runtime role could alter the audit log or the ledgers. |
+| `STRICT_DB_ROLES` | `true` with separate roles (recommended), `false` with one role | **Required in production** (SAFE-1): exactly `true` or `false`, anything else refuses to start. `true` refuses to start if the runtime role could alter the audit log or the ledgers, and needs `MIGRATION_DATABASE_URL`. `false` only logs a `SECURITY WARNING`. |
+| `PG_POOL_MAX` | optional, default `10` | Connections of the app's database pool (SAFE-1). |
+| `PG_STATEMENT_TIMEOUT_MS` | optional, default `30000` | Server-side limit for one statement of the running app (0 = none). Migrations, backups and CLIs are not limited. |
+| `PG_IDLE_IN_TX_TIMEOUT_MS` | optional, default `60000` | A transaction left open and idle longer than this is ended by PostgreSQL (0 = none). |
+| `PG_CONNECT_TIMEOUT_MS` | optional, default `10000` | How long to wait for a new database connection. |
+| `PG_IDLE_TIMEOUT_MS` | optional, default `30000` | How long an idle pooled connection is kept. A connection lost when the database restarts is dropped and replaced on the next query; the app does not need a restart. |
+| `SHUTDOWN_GRACE_MS` | optional, default `15000` | On SIGTERM/SIGINT (a deploy restart) the server stops accepting connections, lets running requests finish for up to this long, then closes the database pool and exits 0. A money write is one transaction: it is either complete or never happened. Give the process manager a stop timeout longer than this (systemd `TimeoutStopSec`). |
 | `WEBAUTHN_RP_ID` | leave **unset** (= the host of `APP_ORIGIN`), or the parent domain, e.g. `example.com` | The domain passkeys belong to. Must be the host of `APP_ORIGIN` or a parent of it; anything else is refused at start-up. **Changing it later invalidates every passkey** (section 8.1). |
 | `WEBAUTHN_RP_NAME` | optional, e.g. the company name | Shown by Windows Hello / the phone when registering. Cosmetic. |
 | `WEBAUTHN_UV_INITIAL` | optional: `required` (default) or `preferred` | **First start only**: initial value of "what a passkey must check" (section 8.4). Ignored once the setting exists. |
@@ -219,13 +225,16 @@ REASSIGN OWNED BY old_role TO jerp_owner;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO jerp_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO jerp_app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO jerp_app;
--- then, as jerp_owner: step 2 above, and re-apply the append-only lock:
+-- then, as jerp_owner: step 2 above, and re-apply the append-only lock on EVERY append-only table
+-- (the list is APPEND_ONLY_TABLES in backend/src/core/startup.ts; SAFE-1 corrected an older 7-table list here):
 SELECT jerp_lock_append_only(t::regclass)
 FROM unnest(ARRAY['audit_logs','inventory_movements','item_status_history','gold_rates','settings_history',
-                   'ledger_entries','cash_counts']) AS t;
+                   'ledger_entries','cash_counts','scrap_rates','scrap_purchases','scrap_weight_entries',
+                   'supplier_settlements','hasad_receivable_settlements','backup_runs','gm_funding_events']) AS t;
 ```
 
-Start the service; the log must **not** contain `SECURITY WARNING: the database role can alter the append-only tables`.
+Check with the preflight (`node scripts/server/preflight.mjs`: the `runtime role` line must say PASS), then start the
+service; the log must **not** contain `SECURITY WARNING: the database role can alter the append-only tables`.
 A real-PostgreSQL test (`backend/test/pg/db-roles.test.ts`) builds exactly this setup and proves the runtime role can
 neither change history rows nor disable, drop or bypass the triggers, nor grant itself the privileges back.
 
@@ -233,6 +242,15 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   that rule is left `NOT VALID` (it still applies to every new or changed row) and the server logs
   `integrity constraints left NOT VALID` with the table and constraint names at every start. Correct the rows,
   then run `ALTER TABLE <table> VALIDATE CONSTRAINT <name>;`. On a fresh database this never appears.
+- **API clients other than the web app: lists are paged (BE-7).** `GET /sales`, `/inventory/items`, `/purchases`,
+  `/scrap-purchases`, `/transfers` and `/audit` answer `{ rows, total, page: { number, size, pages, sort, dir, asOfId },
+  totals? }`: 50 rows by default, `pageSize` up to 200 (larger values are clamped), `page` from 1, `sort` and `dir` from
+  each list's fixed keys (others are 400; cost and profit keys are 403 without `profit.view`). Send the `asOfId` of page
+  1 with the next pages. The old `limit` / `offset` parameters are refused (400).
+- **Reports (RPT-2):** `GET /reports/:key` answers, for the reports that list rows (sales, purchases, inventory,
+  inventory-ledger, audit), `rowCount` (every matching row), `rowCap` and `truncated`; the rows are the first `rowCap`,
+  the totals and summary cover every row. Add `page` (and `pageSize` up to 200, `asOfId` from page 1) to read every row
+  page by page: `{ rows, total, page }`. Other reports are aggregates and refuse `page` (400).
 - **API clients other than the web app** must send an `Idempotency-Key` header (16–128 characters of `A–Z a–z 0–9 _ -`,
   one new key per business action, reused only for retries of that action) on: create sale, void sale, create
   purchase, create transfer, receive transfer, record a cash count and record a Hasad bank transfer.
@@ -372,9 +390,32 @@ future migration that cannot transform a row is redesigned, not shipped with a g
   supplier settlements; a retry with the same key never records or settles twice. (Since MKC-1 an order no longer
   pays its making charge from branch money: see the MKC-1 section above.)
 
+### Migrations are forward-only: the rollback story (SAFE-1)
+
+- Migrations only go forward. There is no "down" migration, and an applied migration is never edited
+  (`database/migrations/checksums.json`, enforced by `npm run check:migrations`).
+- Every pending migration runs in **one transaction**: a migration that stops (one of the guards, or an error) changes
+  nothing.
+- A release **without** a new migration is rolled back by deploying the previous code.
+- A release **with** a migration cannot be undone by deploying old code: the old code would run against the new
+  schema. Recovery is to **restore the pre-deploy backup**, losing what was entered after it.
+- Therefore every deploy that carries a migration first takes a backup and **verifies** it (`npm run backup`, then
+  `npm run backup:verify`; see `docs/runbooks/update-deploy.md` and `docs/runbooks/rollback.md`).
+- `backend/test/migration-upgrade.test.ts` proves, on real PostgreSQL, that databases created at migration 0015 and
+  0019 with data upgrade cleanly:
+  - row counts, money and weight totals and ledger balances are identical;
+  - the append-only triggers are still present and refusing;
+  - no constraint is left `NOT VALID`;
+  - the app boots;
+  - a second run is a no-op.
+
 ## 6. After every deploy
 
+- Open browsers get the new version on their next page load: `index.html` is served `no-cache` and the hashed files
+  under `/assets` are `immutable` for a year (SAFE-1). A reverse proxy or CDN in front must keep these headers.
 - `GET /api/health` returns `200`.
+- `GET /api/ready` returns `200 {"ready":true}` (database reachable, every migration of this release applied, the
+  append-only triggers present and enabled).
 - The login page shows the company name and logo from Settings, not "Jewelry ERP".
 - The login page lists no accounts, and the header shows no "Demo" badge (it appears only in `APP_MODE=demo`).
 - The start-up log has no `integrity constraints left NOT VALID` warning (see section 5).
@@ -533,6 +574,11 @@ record the drill so the health check sees it).
 - `GET /api/health` always answers HTTP 200 (a stale backup must not make the host restart a healthy
   service) and includes `"backup": {"status": "OK" | "WARNING", "backupAgeHours", "verifyAgeHours", "reasons"}`
   — ages and status only. Point an uptime monitor at it with a keyword alert on `"WARNING"`.
+- `GET /api/ready` (SAFE-1) is the **readiness** check: `200 {"ready":true}`, or `503 {"ready":false}` when the database
+  is unreachable, the applied migrations differ from what this release expects, or an append-only table's
+  protection trigger is missing or disabled. The body never says which: the reason is in the server log
+  (`not ready`, with the request id). It answers within 3 s and is never cached. Alert on any 503; do not let
+  the host restart the process on it (a restart cannot fix a schema or trigger problem).
 - The General Manager sees a warning banner on the Executive Overview when the last successful backup is
   older than *Warn after … hours* (default 26) or the last successful drill older than *… days* (default 7)
   (**Settings → Backups**). A failed upload counts as a failed backup.
@@ -776,7 +822,7 @@ Render; another host needs the same things under other names.
 | Web Service | Runtime **Node**, region the same as the database. |
 | Build command | `npm ci --include=dev && npm run build` (the start command runs TypeScript through `tsx`, a dev dependency, so dev dependencies must be installed) |
 | Start command | `npm start` |
-| Health check path | `/api/health` |
+| Health check path | `/api/health` (liveness). `/api/ready` is readiness: use it where the host distinguishes the two (section 7.7). |
 | Instances | **1** for now. The per-IP sign-in throttle and the login counters for unknown usernames are kept in process memory, and each instance keeps its own settings cache for up to 5 s. See "Remaining limits" below. |
 
 ### A.2 Environment variables on Render
@@ -785,6 +831,8 @@ Render; another host needs the same things under other names.
   strong password.
 - `APP_ORIGIN`: `https://<your-service>.onrender.com`, or the custom domain once it is final.
 - `PORT`: **do not set**; Render provides it.
+- `TRUST_PROXY`: `1` (Render's proxy), and `STRICT_DB_ROLES`: `false` with Render's single database user, `true` with the
+  separate roles of section 5. Both are required in production (SAFE-1).
 - Secrets: in the service's environment settings or an Environment Group.
 - The operator console: the service's **Shell** tab.
 

@@ -166,15 +166,15 @@ describe('three inventory states', () => {
     expect((await ctx.db.select({ n: count() }).from(t.jewelryItems))[0].n).toBe(itemsBefore);
 
     const scrap = (await bm.get('/api/inventory/items').query({ origin: 'SCRAP' })).body;
-    expect(scrap.items.length).toBeGreaterThan(0);
-    expect(scrap.items.every((i: { origin: string }) => i.origin === 'SCRAP')).toBe(true);
+    expect(scrap.rows.length).toBeGreaterThan(0);
+    expect(scrap.rows.every((i: { origin: string }) => i.origin === 'SCRAP')).toBe(true);
     const fresh = (await bm.get('/api/inventory/items').query({ origin: 'SUPPLIER_NEW' })).body;
-    expect(fresh.items.every((i: { origin: string }) => i.origin === 'SUPPLIER_NEW')).toBe(true);
+    expect(fresh.rows.every((i: { origin: string }) => i.origin === 'SUPPLIER_NEW')).toBe(true);
     const both = (await bm.get('/api/inventory/items')).body;
     expect(both.total).toBe(scrap.total + fresh.total + (await bm.get('/api/inventory/items').query({ origin: 'OPENING' })).body.total);
     const ranged = (await bm.get('/api/inventory/items').query({ karat: 21, minWeightMg: 5000, maxWeightMg: 8000 })).body;
-    expect(ranged.items.length).toBeGreaterThan(0);
-    for (const i of ranged.items) expect(i.netWeightMg >= 5000 && i.netWeightMg <= 8000 && i.karat === 21).toBe(true);
+    expect(ranged.rows.length).toBeGreaterThan(0);
+    for (const i of ranged.rows) expect(i.netWeightMg >= 5000 && i.netWeightMg <= 8000 && i.karat === 21).toBe(true);
   });
 });
 

@@ -108,6 +108,7 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
     return {
       'GET /meta': ['/meta'],
       'GET /health': ['/health'],
+      'GET /ready': ['/ready'],
       'GET /branding/logo': [], // binary image, not JSON
       'GET /auth/me': ['/auth/me'],
       'GET /branches': ['/branches'],
@@ -140,7 +141,7 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /dashboard/company': ['/dashboard/company'],
       'GET /attention': ['/attention', `/attention?branchId=${krt.id}`],
       'GET /reports/:key': reportPaths,
-      'GET /audit': ['/audit', '/audit?limit=5000'],
+      'GET /audit': ['/audit', '/audit?pageSize=200'],
       'GET /backups/status': ['/backups/status'],
       'GET /setup/status': ['/setup/status'],
       'GET /auth/passkeys': ['/auth/passkeys'],
@@ -193,9 +194,9 @@ describe('3. audit entries never reveal a cost figure to BM or cashier', () => {
     // The audit list defaults to today; the latest purchase is today only after the first minutes of the day.
     const day = (d: number) => new Date(p.createdAt.getTime() + d * 86_400_000).toISOString().slice(0, 10);
     const find = async (role: Role) => {
-      const res = await agents[role].get(`/api/audit?limit=5000&from=${day(-1)}&to=${day(1)}&q=${encodeURIComponent(p.number)}`);
+      const res = await agents[role].get(`/api/audit?pageSize=200&from=${day(-1)}&to=${day(1)}&q=${encodeURIComponent(p.number)}`);
       expect(res.status).toBe(200);
-      return (res.body as { action: string; description: string; descriptionParams: Record<string, unknown> }[]).find((a) => a.action === 'PURCHASE_CREATED');
+      return (res.body.rows as { action: string; description: string; descriptionParams: Record<string, unknown> }[]).find((a) => a.action === 'PURCHASE_CREATED');
     };
     const gm = await find('GENERAL_MANAGER');
     expect(gm!.description).toContain(figure);

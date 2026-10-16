@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { PackageX, Pencil, RotateCcw, Truck } from 'lucide-react';
 import { ITEM_STATUSES } from '@jerp/shared';
@@ -13,9 +13,13 @@ import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import type { ItemRow } from '../../lib/types';
 import { Button, Card, CardHeader, DetailPending, Dialog, Field, Input, ItemThumb, KeyValue, Mono, PageHeader, Select, StatusBadge, Textarea } from '../../components/ui';
+import { useServerList } from '../../lib/paging';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect } from '../../components/Filters';
 import { Crumbs } from '../sales/SalesPages';
+
+/** Table column → the inventory list's server sort key (BE-7). */
+const ITEM_SORT_KEYS = { code: 'code', karat: 'karat', netWeightMg: 'weight', totalCost: 'cost', sellingPrice: 'price' };
 
 export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarExtra }: { branchId?: number; initialStatus?: string; toolbarExtra?: React.ReactNode }) {
   const { t, L } = useI18n();
@@ -28,12 +32,14 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
   const [q, setQ] = useState('');
   const dq = useDebounced(q);
   const categories = useCategories();
-  const query = useQuery({
-    queryKey: ['inventory', branchId, status, karat, category, origin, dq],
-    queryFn: () => get<{ items: ItemRow[]; total: number }>('/inventory/items', { branchId, status, karat, categoryId: category || undefined, origin: origin || undefined, q: dq, limit: 1000 }),
-    placeholderData: keepPreviousData,
-  });
-  const rows = query.data?.items ?? [];
+  // BE-7: one page at a time from the server (no longer up to 1,000 pieces in the browser); totals cover the result.
+  const { query, rows, totals, server } = useServerList<ItemRow>(
+    'inventory',
+    '/inventory/items',
+    { branchId, status, karat, categoryId: category || undefined, origin: origin || undefined, q: dq || undefined },
+    { sortKeys: ITEM_SORT_KEYS },
+  );
+  const sum = (k: string) => totals?.[k] ?? 0;
   const cost = can('profit.view');
   // UI-A2: an error is shown as an error (never as "no items"), and "nothing in stock" differs from "filters hide it".
   const filtered = !!(karat || category || origin || dq || status !== initialStatus);
@@ -48,6 +54,7 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
     <DataTable
       query={query}
       rows={rows}
+      server={server}
       rowKey={(r) => r.id}
       onRowClick={(r) => navigate(`/inventory/${r.id}`)}
       exportName="inventory"
@@ -92,14 +99,14 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
         { key: 'categoryName', header: t('Category'), render: (r) => L(r.categoryName, r.categoryNameAr) },
         { key: 'karat', header: t('Karat'), align: 'end', render: (r) => karatLabel(r.karat) },
         { key: 'origin', header: t('Origin'), value: (r) => t(r.origin), render: (r) => t(r.origin) },
-        { key: 'netWeightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.netWeightMg)}</span>, footer: grams(rows.reduce((s, r) => s + r.netWeightMg, 0)) },
+        { key: 'netWeightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.netWeightMg)}</span>, footer: grams(sum('netWeightMg')) },
         ...(cost
           ? [
               { key: 'purchaseCost', header: t('Purchase cost'), align: 'end' as const, render: (r: ItemRow) => <span className="num text-ink-600">{money(r.purchaseCost, false)}</span> },
-              { key: 'totalCost', header: t('Total cost'), align: 'end' as const, render: (r: ItemRow) => <span className="num">{money(r.totalCost, false)}</span>, footer: money(rows.reduce((s, r) => s + (r.totalCost ?? 0), 0), false) },
+              { key: 'totalCost', header: t('Total cost'), align: 'end' as const, render: (r: ItemRow) => <span className="num">{money(r.totalCost, false)}</span>, footer: money(sum('totalCost'), false) },
             ]
           : []),
-        { key: 'sellingPrice', header: t('Selling price'), align: 'end', render: (r) => <span className="font-medium num">{money(r.sellingPrice, false)}</span>, footer: money(rows.reduce((s, r) => s + r.sellingPrice, 0), false) },
+        { key: 'sellingPrice', header: t('Selling price'), align: 'end', render: (r) => <span className="font-medium num">{money(r.sellingPrice, false)}</span>, footer: money(sum('sellingPrice'), false) },
         ...(isGlobal && !branchId ? [{ key: 'branchName', header: t('Branch'), render: (r: ItemRow) => L(r.branchName, r.branchNameAr) }] : []),
         { key: 'status', header: t('Status'), render: (r) => <StatusBadge status={r.status} /> },
       ]}

@@ -220,7 +220,7 @@ async function main() {
 
     // ── A4: 5 lines, one discounted, one long description → header and cells share their alignment ──
     const me = (await api(cashier, 'GET', '/auth/me')).body;
-    const stock = (await api(cashier, 'GET', `/inventory/items?branchId=${me.user.branch.id}&status=AVAILABLE&limit=20`)).body.items;
+    const stock = (await api(cashier, 'GET', `/inventory/items?branchId=${me.user.branch.id}&status=AVAILABLE&pageSize=20`)).body.rows;
     const five = stock.slice(0, 5);
     const disc = Math.floor((five[2].sellingPrice * Math.max(1, me.maxDiscountPercent)) / 100 / 1000) * 1000 || 1000;
     const sale5 = await api(cashier, 'POST', '/sales', { items: five.map((it, i) => ({ itemId: it.id, discount: i === 2 ? disc : 0 })), paymentMethod: 'CASH', customerName: 'عميل اختبار الطباعة', priceChangeReason: PRICE_REASON });
@@ -356,7 +356,7 @@ async function main() {
     const ob = await orphans(gm);
     check(ob.length === 0, `72 mm bank-transfer receipt: no orphaned token${ob.length ? ` (found: ${ob.join(' | ')})` : ''}`);
     await gm.emulateMedia({ media: 'screen' });
-    const audit = (await api(gm, 'GET', '/audit?entityType=sale&limit=50')).body;
+    const audit = (await api(gm, 'GET', '/audit?entityType=sale&pageSize=50')).body.rows;
     check(audit.some((a) => a.action === 'INVOICE_REPRINTED' && a.entityId === sale.number), 'INVOICE_REPRINTED audit entry for the sale');
 
     // ── GM: calibration page at 72 mm ──

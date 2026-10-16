@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, ChevronRight, FileText, Printer } from 'lucide-react';
 import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -8,6 +8,7 @@ import { dateTime, grams, karatLabel, money, pct } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { Alert, Button, Card, CardHeader, DetailPending, Dialog, Field, KeyValue, Mono, PageHeader, StatusBadge, Textarea } from '../../components/ui';
+import { useServerList } from '../../lib/paging';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
 import type { SaleDetail } from '../../components/InvoiceDocument';
@@ -37,20 +38,24 @@ export interface SaleRow {
   status: string;
 }
 
+/** Table column → the sales list's server sort key (BE-7). */
+const SALE_SORT_KEYS = { number: 'number', createdAt: 'date', branchName: 'branch', cashierName: 'cashier', total: 'total', grossProfit: 'grossProfit' };
+
 export function SalesTable({ branchId, from, to, mine, toolbar }: { branchId?: number; from: string; to: string; mine?: boolean; toolbar?: React.ReactNode }) {
   const { t, L, lang } = useI18n();
   const { can, isGlobal } = useAuth();
   const navigate = useNavigate();
   // Filters stay on screen across reloads: the table shows the states (UI-A2) and keeps the previous rows while a
   // new period or branch loads.
-  const q = useQuery({ queryKey: ['sales', branchId, from, to, mine], queryFn: () => get<SaleRow[]>('/sales', { branchId, from, to, mine }), placeholderData: keepPreviousData });
-  const rows = q.data ?? [];
-  const done = rows.filter((r) => r.status === 'COMPLETED');
+  // BE-7: one page at a time from the server; the footer totals cover the completed sales of the whole result.
+  const { query: q, rows, totals, server } = useServerList<SaleRow>('sales', '/sales', { branchId, from, to, mine }, { sortKeys: SALE_SORT_KEYS, search: true });
+  const sum = (k: string) => totals?.[k] ?? 0;
   const profit = can('profit.view');
   return (
     <DataTable
       query={q}
       rows={rows}
+      server={server}
       rowKey={(r) => r.id}
       onRowClick={(r) => navigate(`/sales/${r.id}`)}
       exportName="sales"
@@ -64,13 +69,13 @@ export function SalesTable({ branchId, from, to, mine, toolbar }: { branchId?: n
         ...(isGlobal && !branchId ? [{ key: 'branchName', header: t('Branch'), render: (r: SaleRow) => t(r.branchName) }] : []),
         { key: 'cashierName', header: t('Cashier') },
         { key: 'customerName', header: t('Customer'), render: (r) => (r.customerName ? L(r.customerName, r.customerNameAr) : null) ?? <span className="text-ink-400">{t('Walk-in')}</span> },
-        { key: 'itemCount', header: t('Items'), align: 'end', footer: done.reduce((s, r) => s + r.itemCount, 0) },
-        { key: 'weightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.weightMg)}</span>, footer: grams(done.reduce((s, r) => s + r.weightMg, 0)) },
-        { key: 'total', header: t('Total'), align: 'end', render: (r) => <span className="font-medium num">{money(r.total, false)}</span>, footer: money(done.reduce((s, r) => s + r.total, 0), false) },
+        { key: 'itemCount', header: t('Items'), align: 'end', footer: sum('itemCount') },
+        { key: 'weightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.weightMg)}</span>, footer: grams(sum('weightMg')) },
+        { key: 'total', header: t('Total'), align: 'end', render: (r) => <span className="font-medium num">{money(r.total, false)}</span>, footer: money(sum('total'), false) },
         ...(profit
           ? [
-              { key: 'costTotal', header: t('Cost'), align: 'end' as const, render: (r: SaleRow) => <span className="num text-ink-600">{money(r.costTotal, false)}</span>, footer: money(done.reduce((s, r) => s + (r.costTotal ?? 0), 0), false) },
-              { key: 'grossProfit', header: t('Gross Profit'), align: 'end' as const, render: (r: SaleRow) => <span className="num text-emerald-700">{money(r.grossProfit, false)}</span>, footer: money(done.reduce((s, r) => s + (r.grossProfit ?? 0), 0), false) },
+              { key: 'costTotal', header: t('Cost'), align: 'end' as const, render: (r: SaleRow) => <span className="num text-ink-600">{money(r.costTotal, false)}</span>, footer: money(sum('costTotal'), false) },
+              { key: 'grossProfit', header: t('Gross Profit'), align: 'end' as const, render: (r: SaleRow) => <span className="num text-emerald-700">{money(r.grossProfit, false)}</span>, footer: money(sum('grossProfit'), false) },
             ]
           : []),
         {

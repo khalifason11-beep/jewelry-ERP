@@ -63,7 +63,7 @@ describe('split payment', () => {
     expect(rec1.scrapPurchasesCash - rec0.scrapPurchasesCash).toBe(-cashAmount);
     expect(rec1.scrapPurchasesBank - rec0.scrapPurchasesBank).toBe(-(amount - cashAmount));
     expect(rec1.cashLines.reduce((s, l) => s + l.amount, 0)).toBe(rec1.cashMovement);
-    const listed = (await listScrapPurchases(ctx, bm, {})).find((x) => x.id === r.id);
+    const listed = (await listScrapPurchases(ctx, bm, {})).rows.find((x) => x.id === r.id);
     expect(listed).toMatchObject({ paymentMethod: 'SPLIT', cashAmount, bankAmount: amount - cashAmount, bankReference: 'TRF 5551' });
   });
 

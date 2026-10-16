@@ -163,7 +163,7 @@ describe('cancelling a sale above the amount needs the password again', () => {
 describe('a changed price needs a reason, kept internal', () => {
   const REASON = 'زبون دائم: خصم متفق عليه';
   const pieces = async (cashier: Agent, n: number) => {
-    const items = (await cashier.get(`/api/inventory/items?status=AVAILABLE&limit=50`)).body.items as { id: number; sellingPrice: number; code: string }[];
+    const items = (await cashier.get(`/api/inventory/items?status=AVAILABLE&pageSize=50`)).body.rows as { id: number; sellingPrice: number; code: string }[];
     return items.slice(0, n);
   };
 
@@ -214,9 +214,9 @@ describe('a changed price needs a reason, kept internal', () => {
 
   it('a branch manager reading the audit log sees the price-change entry without any cost', async () => {
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
-    const res = await bm.get('/api/audit?action=SALE_PRICE_CHANGED&limit=20');
+    const res = await bm.get('/api/audit?action=SALE_PRICE_CHANGED&pageSize=20');
     expect(res.status).toBe(200);
-    const rows = (Array.isArray(res.body) ? res.body : (res.body.rows ?? res.body.items)) as unknown[];
+    const rows = res.body.rows as unknown[];
     expect(rows.length).toBeGreaterThan(0);
     expect(JSON.stringify(rows)).not.toMatch(/cost|profit/i);
   });
@@ -225,7 +225,7 @@ describe('a changed price needs a reason, kept internal', () => {
 describe('the item price edit needs a reason (Q7)', () => {
   it('refused without one, accepted and audited with one', async () => {
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
-    const [p] = (await bm.get(`/api/inventory/items?status=AVAILABLE&limit=5`)).body.items as { id: number; sellingPrice: number }[];
+    const [p] = (await bm.get(`/api/inventory/items?status=AVAILABLE&pageSize=5`)).body.rows as { id: number; sellingPrice: number }[];
     for (const body of [{ sellingPrice: p.sellingPrice + 1000 }, { sellingPrice: p.sellingPrice + 1000, reason: '' }, { sellingPrice: p.sellingPrice + 1000, reason: 'ab' }]) {
       expect((await bm.post(`/api/inventory/items/${p.id}/price`).send(body)).status, JSON.stringify(body)).toBe(400);
     }

@@ -130,6 +130,9 @@ async function virtualAuthenticator(page) {
   return { cdp, id: authenticatorId };
 }
 
+/** The main page of the run, for the failure diagnostics. */
+let lastPage = null;
+
 async function signIn(page, base, username, password) {
   await page.goto(`${base}/login`);
   await page.fill('input[autocomplete=username]', username);
@@ -146,10 +149,16 @@ async function signOut(page) {
 
 async function changePassword(page, current, next) {
   await page.waitForURL((u) => u.pathname === '/change-password', { timeout: 15_000 });
+  // The URL changes before the sign-in form is replaced. Filling then could hit the sign-in form's password field and
+  // leave the (required) temporary-password field empty, so the browser silently refuses the submit (seen on CI after
+  // check 66). Wait until the change-password form alone is on the page, and check the values before submitting.
+  await page.waitForFunction(() => document.querySelectorAll('input[type=password]').length === 3 && !document.querySelector('input[autocomplete=username]'), null, { timeout: 15_000 });
   const pw = page.locator('input[type=password]');
   await pw.nth(0).fill(current);
   await pw.nth(1).fill(next);
   await pw.nth(2).fill(next);
+  const filled = await pw.evaluateAll((els) => els.map((e) => e.value));
+  if (filled.join('\n') !== [current, next, next].join('\n')) throw new Error('the change-password fields did not keep the typed values');
   await page.click('button[type=submit]');
 }
 
@@ -455,7 +464,8 @@ async function main() {
     dbUrl.pathname = `/${dbName}`;
     const [appPort, proxyPort] = [await freePort(), await freePort()];
     const origin = `https://localhost:${proxyPort}`;
-    const env = { APP_MODE: 'production', DATABASE_URL: dbUrl.toString(), APP_ORIGIN: origin, TRUST_PROXY: '1', PORT: String(appPort), LOG_LEVEL: 'warn', ALLOWED_KARATS_INITIAL: '21' };
+    const env = { APP_MODE: 'production', DATABASE_URL: dbUrl.toString(), APP_ORIGIN: origin, TRUST_PROXY: '1', STRICT_DB_ROLES: 'false', PORT: String(appPort), LOG_LEVEL: 'warn', ALLOWED_KARATS_INITIAL: '21' };
+    // One role here (SAFE-1 requires STRICT_DB_ROLES explicitly in production); separate roles are proven in test/pg/db-roles.
     for (const k of ['MIGRATION_DATABASE_URL', 'PGLITE_DIR', 'COOKIE_SECURE', 'WEBAUTHN_RP_ID', 'STRICT_DB_ROLES']) delete process.env[k];
 
     // 1. Bootstrap (the operator's one-time command): reference data + the first GM, no branch.
@@ -489,6 +499,7 @@ async function main() {
     cleanup.unshift(() => browser.close());
     const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1366, height: 768 } });
     const page = await ctx.newPage();
+    lastPage = page;
     const meta = await (await page.request.get(`${origin}/api/meta`)).json();
     check(!meta.demoAccounts || meta.demoAccounts.length === 0, 'the login page lists no demo accounts');
     const health = await (await page.request.get(`${origin}/api/health`)).json();
@@ -879,7 +890,7 @@ async function main() {
     await page.fill('[data-testid=scrap-net]', '3');
     await page.fill('[data-testid=scrap-selling-price]', '900000');
     await page.click('[data-testid=scrap-buy]');
-    await waitFor(async () => (await apiGet(page, `/api/inventory/items?branchId=${branchId}&categoryId=${typeId}`)).body.items.length === 2, 'two pieces of the new type', 15_000);
+    await waitFor(async () => (await apiGet(page, `/api/inventory/items?branchId=${branchId}&categoryId=${typeId}`)).body.rows.length === 2, 'two pieces of the new type', 15_000);
     ok(`a sellable scrap piece is bought with product "${CAT.scrapProduct}" created inline (karat fixed to 21K); filtering stock by the new type finds both pieces`);
 
     // CSH-2 piece A: broken scrap paid part from the drawer, part by bank transfer (2 g × 95,000 = 190,000; test values).
@@ -891,10 +902,10 @@ async function main() {
     check((await page.inputValue('[data-testid=scrap-bank-part]')) === '70000', 'the scrap form fills the bank part with the rest of the amount (190,000 − 120,000 = 70,000)');
     check(await page.getByTestId('scrap-buy').isDisabled(), 'a bank part without its transfer reference cannot be saved');
     await page.fill('[data-testid=scrap-bank-ref]', 'reh scr ٢');
-    const scrapBefore = (await apiGet(page, '/api/scrap-purchases')).body.length;
+    const scrapBefore = (await apiGet(page, '/api/scrap-purchases')).body.total;
     await page.click('[data-testid=scrap-buy]');
-    await waitFor(async () => (await apiGet(page, '/api/scrap-purchases')).body.length > scrapBefore, 'the split scrap purchase', 15_000);
-    const split = (await apiGet(page, '/api/scrap-purchases')).body.find((x) => x.paymentMethod === 'SPLIT');
+    await waitFor(async () => (await apiGet(page, '/api/scrap-purchases')).body.total > scrapBefore, 'the split scrap purchase', 15_000);
+    const split = (await apiGet(page, '/api/scrap-purchases')).body.rows.find((x) => x.paymentMethod === 'SPLIT');
     check(split && split.cashAmount === 120_000 && split.bankAmount === 70_000 && split.bankReference === 'REH SCR 2', `split scrap purchase ${split?.number}: 120,000 from the drawer + 70,000 by bank transfer (reference normalized to "REH SCR 2")`);
     const paidBy = await page.getByTestId(`scrap-paid-by-${split.number}`).innerText({ timeout: 15_000 });
     check(/120,000/.test(paidBy) && /70,000/.test(paidBy) && /REH SCR 2/.test(paidBy), `the "Paid by" column shows both parts and the reference ("${paidBy.replace(/\s+/g, ' ')}")`);
@@ -919,14 +930,14 @@ async function main() {
     await page.click('[data-testid=scrap-kind-BROKEN]');
     await page.fill('[data-testid=scrap-karat-any]', '21');
     await page.fill('[data-testid=scrap-net]', String(grams));
-    const scrapCount = (await apiGet(page, '/api/scrap-purchases')).body.length;
+    const scrapCount = (await apiGet(page, '/api/scrap-purchases')).body.total;
     await page.click('[data-testid=scrap-buy]');
     const shortText = await page.getByTestId('scrap-drawer-short').innerText({ timeout: 15_000 });
     check(
       shortText.includes(shortBy.toLocaleString('en-US')) && shortText.includes(drawerNow.toLocaleString('en-US')) && /المدير العام/.test(shortText) && /تحويل بنكي/.test(shortText),
       `a cash payment above the drawer (${drawerNow.toLocaleString('en-US')}) is refused on the form: "${shortText}"`,
     );
-    check((await apiGet(page, '/api/scrap-purchases')).body.length === scrapCount && (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId).expectedCash === drawerNow, 'the refused purchase recorded nothing: same purchases, same drawer');
+    check((await apiGet(page, '/api/scrap-purchases')).body.total === scrapCount && (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId).expectedCash === drawerNow, 'the refused purchase recorded nothing: same purchases, same drawer');
 
     // MKC-1: the gold side is unchanged. The branch manager settles part of the General Manager's order with the
     // broken scrap bought above (1 g of 21K = 0.875 g of 24K); the order still owes the rest.
@@ -959,7 +970,7 @@ async function main() {
       rec.status === 200 && rec.body.cashLines.some((l) => l.line === 'OTHER') && total(rec.body.cashLines) === rec.body.cashMovement && total(rec.body.bankLines) === rec.body.bankMovement,
       'the daily reconciliation has drawer and bank lines (with "Other") that add up to the ledger',
     );
-    const audit = await apiGet(page, '/api/audit?limit=200');
+    const audit = await apiGet(page, '/api/audit?pageSize=200');
     const rows = Array.isArray(audit.body) ? audit.body : (audit.body?.rows ?? audit.body?.items ?? []);
     const actions = new Set(rows.map((r) => r.action));
     check(['BRANCH_CREATED', 'USER_CREATED'].every((a) => actions.has(a)), 'the audit log shows the branch and the users created');
@@ -1033,7 +1044,7 @@ async function main() {
     await page.goto(`${origin}/sales/${discSale.id}`);
     await page.getByTestId('sale-price-change-reason').waitFor({ timeout: 15_000 });
     ok('branch manager: the sale detail shows the reason (marked internal, not printed)');
-    const pc = await apiGet(page, '/api/audit?action=SALE_PRICE_CHANGED&limit=5');
+    const pc = await apiGet(page, '/api/audit?action=SALE_PRICE_CHANGED&pageSize=5');
     const pcRows = Array.isArray(pc.body) ? pc.body : (pc.body?.rows ?? pc.body?.items ?? []);
     check(pcRows.some((r) => r.entityId === discSale.number) && !/cost|profit/i.test(JSON.stringify(pcRows)), 'the audit log has SALE_PRICE_CHANGED for it, with prices only (no cost)');
     await page.click('[data-testid=sale-void]');
@@ -1186,7 +1197,7 @@ async function main() {
     const sent = await (await trResp).json();
     check(sent.status === 'IN_TRANSIT' && sent.courierName === 'مندوب التجربة', `transfer ${sent.number} sent from the cart, courier recorded`);
     await page.getByText(/السلة فارغة|Cart is empty/).first().waitFor({ timeout: 10_000 });
-    const log = (await apiGet(page, '/api/transfers')).body.find((x) => x.id === sent.id);
+    const log = (await apiGet(page, '/api/transfers')).body.rows.find((x) => x.id === sent.id);
     check(log.itemCount === 3 && log.items.length === 3, 'one transfer holds the three pieces; the cart is empty');
     await page.goto(`${origin}/transfers`);
     await page.getByText('مندوب التجربة').first().waitFor({ timeout: 15_000 });
@@ -1208,7 +1219,7 @@ async function main() {
     check((await a1()).length === 1 && (await a1())[0].count >= 1, 'UI-B: the transfer in transit is an attention line (A1) for the receiving branch');
     await page.goto(`${origin}/transfers`);
     await page.getByRole('button', { name: /تأكيد الاستلام|Confirm receipt/ }).first().click({ timeout: 15_000 });
-    await waitFor(async () => (await apiGet(page, '/api/transfers')).body.find((x) => x.id === sent.id).status === 'RECEIVED', 'the receipt', 15_000);
+    await waitFor(async () => (await apiGet(page, '/api/transfers')).body.rows.find((x) => x.id === sent.id).status === 'RECEIVED', 'the receipt', 15_000);
     ok('the receipt is confirmed for the receiving branch; the pieces are AVAILABLE there');
     check((await a1()).length === 0, 'UI-B: the A1 line leaves on receipt');
     await page.click('[data-testid=new-transfer]');
@@ -1308,6 +1319,21 @@ async function main() {
     await dctx.close();
   } catch (e) {
     failed = true;
+    // SAFE-1: a failure on another machine (CI) must be diagnosable from its log: where the browser was and what it
+    // showed, plus a screenshot in REHEARSAL_ARTIFACTS (uploaded by the CI job on failure).
+    if (lastPage) {
+      try {
+        console.error(`\n--- page at failure ---\nurl: ${lastPage.url()}\n${(await lastPage.locator('body').innerText({ timeout: 3_000 })).slice(0, 1_200)}`);
+        const dir = process.env.REHEARSAL_ARTIFACTS;
+        if (dir) {
+          fs.mkdirSync(dir, { recursive: true });
+          await lastPage.screenshot({ path: path.join(dir, 'rehearsal-failure.png'), fullPage: true });
+          console.error(`screenshot: ${path.join(dir, 'rehearsal-failure.png')}`);
+        }
+      } catch (diag) {
+        console.error('(could not capture the page at failure:', diag?.message ?? diag, ')');
+      }
+    }
     throw e;
   } finally {
     for (const f of cleanup) await f().catch(() => {});

@@ -37,7 +37,7 @@ async function login(username: string, role: keyof typeof DEMO_PASSWORDS, keys =
   return agent;
 }
 const lastAudit = async (action: string) => (await ctx.db.select().from(t.auditLogs).where(eq(t.auditLogs.action, action)).orderBy(desc(t.auditLogs.id)).limit(1))[0];
-const piece = async (a: Agent) => ((await a.get('/api/inventory/items?status=AVAILABLE&limit=50')).body.items as { id: number }[])[0];
+const piece = async (a: Agent) => ((await a.get('/api/inventory/items?status=AVAILABLE&pageSize=50')).body.rows as { id: number }[])[0];
 
 beforeAll(async () => {
   handle = await openTestDatabase();
@@ -146,7 +146,7 @@ describe('where the reference is shown', () => {
     const cash = await cashier.post('/api/sales').send({ items: [{ itemId: cashItem }], paymentMethod: 'CASH' });
     expect((await cashier.post(`/api/sales/${cash.body.id}/print`).send({})).body.document.bankTransfer).toBeNull();
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
-    const list = (await bm.get('/api/sales')).body as { id: number; paymentRefTransaction: string | null }[];
+    const list = (await bm.get('/api/sales')).body.rows as { id: number; paymentRefTransaction: string | null }[];
     expect(list.find((s) => s.id === bank.body.id)?.paymentRefTransaction).toBe('PRT-1234');
   });
 

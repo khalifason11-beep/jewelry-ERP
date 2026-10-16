@@ -1,3 +1,4 @@
+import { PAGE_SIZE_MAX, type Page } from '@jerp/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
@@ -71,7 +72,8 @@ export function PosPage() {
 
   const items = useQuery({
     queryKey: ['pos-items', branchId, dq, karat, category, sort],
-    queryFn: () => get<{ items: ItemRow[]; total: number }>('/inventory/items', { branchId, q: dq, karat, categoryId: category || undefined, sort, status: 'AVAILABLE,RESERVED', limit: 300 }),
+    // BE-7: the largest page (200); the count shows every match and the search narrows them.
+    queryFn: () => get<Page<ItemRow>>('/inventory/items', { branchId, q: dq, karat, categoryId: category || undefined, sort, status: 'AVAILABLE,RESERVED', pageSize: PAGE_SIZE_MAX }),
     enabled: !!branchId,
     // Typing in the search keeps the shown pieces until the new answer arrives (no skeleton on every key).
     placeholderData: keepPreviousData,
@@ -161,8 +163,8 @@ export function PosPage() {
   const onSearchKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter') return;
     const term = q.trim().toLowerCase();
-    const exact = items.data?.items.find((i) => i.barcode === term || i.code.toLowerCase() === term);
-    const only = items.data?.items.length === 1 ? items.data.items[0] : undefined;
+    const exact = items.data?.rows.find((i) => i.barcode === term || i.code.toLowerCase() === term);
+    const only = items.data?.rows.length === 1 ? items.data.rows[0] : undefined;
     const hit = exact ?? only;
     if (hit) {
       add(hit);
@@ -284,7 +286,7 @@ export function PosPage() {
             <div className="grid grid-cols-[repeat(auto-fill,minmax(178px,1fr))] gap-3" data-state="loading">
               {Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="h-56" />)}
             </div>
-          ) : !items.data.items.length ? (
+          ) : !items.data.rows.length ? (
             !q && karat === '' && !category ? (
               // REM-3: no filter is active, so the branch simply has no stock yet (not "no match").
               <div data-testid="pos-no-stock">
@@ -303,7 +305,7 @@ export function PosPage() {
                 {t('{n} pieces', { n: items.data.total })} · {branchName}
               </div>
               <div className="grid grid-cols-[repeat(auto-fill,minmax(178px,1fr))] gap-3">
-                {items.data.items.map((i) => (
+                {items.data.rows.map((i) => (
                   <ProductCard key={i.id} item={i} inCart={inCart.has(i.id)} onAdd={() => add(i)} />
                 ))}
               </div>

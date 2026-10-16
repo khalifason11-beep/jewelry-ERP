@@ -168,7 +168,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     openingWeightMg operation params password passwordChangedAt payment paymentMethod pendingClaimStaleHours
     period permissions phone presence pricePerGram productId productName
     productNameAr purchaseId purchasedItems purchases purchasesCount queue rank rate rateChangeMaxPct rateKarats ratePerGram
-    rates reason reauthWindowMinutes receivedAt receivedBy receivedByName recent
+    rates ready reason reauthWindowMinutes receivedAt receivedBy receivedByName recent
     ref refId refNumber refType request requestedAt requireGmApprovalForScrapOverride
     response responseStatus returns revenue
     reviewNote reviewedAt reviewedBy role roleCode roleName roleRank rows saleId sales salesByCategory salesCount salesTotal
@@ -205,6 +205,8 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     courierName unavailable
     supplierDebtMaxAgeDays countDifferenceTolerance cashAmount bankAmount account paidDirectlyToSeller linkedRef reversesEventId offset owedToGm totalOwedToGm events hasMore corrected gmAdvancesCash gmAdvancesBank gmRepaymentsCash gmRepaymentsBank cash signals severity critical warning info generatedAt counts since
     inTransit goldOwed salesLine lastCount orders fullNameAr
+    page pages sort dir asOfId
+    rowCount rowCap truncated
   `),
 );
 
