@@ -26,12 +26,15 @@ import { pageItems } from '../../src/modules/inventory/service';
 import { pagePurchases } from '../../src/modules/purchases/service';
 import { listScrapPurchases } from '../../src/modules/scrap/service';
 import { listTransfers } from '../../src/modules/transfers/service';
-import { pageAudit } from '../../src/modules/reports/service';
+import { pageAudit, reportRowsPage, runReport } from '../../src/modules/reports/service';
+import { fetchAllPages } from '@jerp/shared';
 import { rows } from '../../src/core/sql';
 import { seedWorld } from '../fixtures/world';
 import { dropTestDatabase } from '../helpers';
 
 const BUDGET_MS = 300;
+const REPORT_BUDGET_MS = 1_000;
+const CSV_BUDGET_MS = 30_000;
 const RUNS = 20;
 const ARGS = new Set(process.argv.slice(2));
 const ADMIN = process.env.REHEARSAL_ADMIN_URL ?? '';
@@ -59,7 +62,7 @@ async function main() {
     const bm = await actor(ctx, 'branch.manager.kh');
     const { company } = await ctx.settings.get();
     const today = dayKey(new Date(), company.timezone);
-    const cases: [string, () => Promise<unknown>][] = [
+    const cases: [string, () => Promise<unknown>, number?][] = [
       ['GET /dashboard/company (today)', () => companyDashboard(ctx, gm, { from: today, to: today })],
       ['GET /dashboard/company (30 days)', () => companyDashboard(ctx, gm, { from: addDays(today, -29), to: today })],
       ['GET /dashboard/branch (BM, today)', () => branchDashboard(ctx, bm, {})],
@@ -95,6 +98,21 @@ async function main() {
       [`GET /audit (GM, 30 days, last page ${auditLast})`, () => pageAudit(ctx, gm, { ...month, page: auditLast })],
       ['GET /audit (BM, 30 days, page 1)', () => pageAudit(ctx, bm, month)],
     );
+    // RPT-2: the reports (up to their row cap on screen, totals in SQL over every row). Budget 1,000 ms: one request
+    // opened on demand, returning up to 1,000 rows, not a page change like the lists.
+    const all = { from: '2024-01-01', to: today };
+    cases.push(
+      ['GET /reports/sales (GM, 2 years, cut at 1,000)', () => runReport(ctx, gm, 'sales', all), REPORT_BUDGET_MS],
+      ['GET /reports/sales (GM, 30 days)', () => runReport(ctx, gm, 'sales', month), REPORT_BUDGET_MS],
+      ['GET /reports/sales (BM, 2 years)', () => runReport(ctx, bm, 'sales', all), REPORT_BUDGET_MS],
+      ['GET /reports/purchases (GM, 2 years)', () => runReport(ctx, gm, 'purchases', all), REPORT_BUDGET_MS],
+      ['GET /reports/inventory (GM, available)', () => runReport(ctx, gm, 'inventory', { status: 'AVAILABLE' }), REPORT_BUDGET_MS],
+      ['GET /reports/inventory-ledger (GM, 30 days)', () => runReport(ctx, gm, 'inventory-ledger', month), REPORT_BUDGET_MS],
+      ['GET /reports/audit (GM, 30 days)', () => runReport(ctx, gm, 'audit', month), REPORT_BUDGET_MS],
+      ['GET /reports/profit (GM, by day, 30 days)', () => runReport(ctx, gm, 'profit', { ...month, group: 'day' }), REPORT_BUDGET_MS],
+      ['GET /reports/branch-performance (GM, 30 days)', () => runReport(ctx, gm, 'branch-performance', month), REPORT_BUDGET_MS],
+      ['GET /reports/sales rows, page 1 of 200 (CSV walk)', () => reportRowsPage(ctx, gm, 'sales', { ...all, page: 1, pageSize: 200 }), REPORT_BUDGET_MS],
+    );
     const statements = new Map<string, { q: SQL; ms: number }>();
     // --explain-lists (BE-7): the list queries are built by the query builder, so they are caught at the pg pool:
     // the slowest real statement of each list case, with its parameters, is explained after the timings.
@@ -104,7 +122,7 @@ async function main() {
     const orig = ctx.db.execute.bind(ctx.db);
     let failed = false;
     console.log(`\n| endpoint | p50 ms | p95 ms | budget |\n|---|---|---|---|`);
-    for (const [label, fn] of cases) {
+    for (const [label, fn, budget = BUDGET_MS] of cases) {
       for (let i = 0; i < 3; i++) await fn();
       const times: number[] = [];
       if (ARGS.has('--explain-lists') && !/^GET \/(dashboard|attention)/.test(label)) {
@@ -147,8 +165,16 @@ async function main() {
       times.sort((a, b) => a - b);
       const p50 = times[Math.floor(RUNS * 0.5)];
       const p95 = times[Math.min(RUNS - 1, Math.ceil(RUNS * 0.95) - 1)];
-      if (p95 > BUDGET_MS) failed = true;
-      console.log(`| ${label} | ${p50.toFixed(0)} | ${p95.toFixed(0)} | ${p95 > BUDGET_MS ? 'OVER' : 'ok'} |`);
+      if (p95 > budget) failed = true;
+      console.log(`| ${label} | ${p50.toFixed(0)} | ${p95.toFixed(0)} | ${p95 > budget ? `OVER ${budget}` : `ok (${budget})`} |`);
+    }
+    // RPT-2: the whole CSV of the sales report over two years, every page of 200 (one run; budget 30 s).
+    {
+      const s = performance.now();
+      const csv = await fetchAllPages((p) => reportRowsPage(ctx, gm, 'sales', { ...all, ...p, page: p.page ?? 1 }) as never);
+      const ms = performance.now() - s;
+      if (ms > CSV_BUDGET_MS) failed = true;
+      console.log(`| CSV walk: /reports/sales, ${csv.length} rows in ${Math.ceil(csv.length / 200)} pages | ${ms.toFixed(0)} | — | ${ms > CSV_BUDGET_MS ? `OVER ${CSV_BUDGET_MS}` : `ok (${CSV_BUDGET_MS})`} |`);
     }
     if (ARGS.has('--explain')) {
       const slow = [...statements.values()].sort((a, b) => b.ms - a.ms).slice(0, 6);
@@ -166,7 +192,7 @@ async function main() {
       }
       await ex.end();
     }
-    console.log(failed ? `\nPERF FAILED: a p95 is above ${BUDGET_MS} ms.` : `\nPERF PASSED: every p95 within ${BUDGET_MS} ms.`);
+    console.log(failed ? `\nPERF FAILED: a p95 (or the CSV walk) is above its budget.` : `\nPERF PASSED: every p95 within its budget (lists and homes ${BUDGET_MS} ms, reports ${REPORT_BUDGET_MS} ms, CSV walk ${CSV_BUDGET_MS} ms).`);
     process.exitCode = failed ? 1 : 0;
   } finally {
     await handle.close();
