@@ -1,7 +1,7 @@
 // SAFE-1 part 2: a database created at an OLD schema version, holding realistic data, upgrades cleanly to the current
 // schema. Both projects; the real-PostgreSQL run is the one that matters (it is what a server upgrade does).
 //
-// For each starting version (0015 = before REM-5's drops, 0019 = before CSH-2 and MKC-1): migrate to it, seed rows in
+// For each starting version (0015 = before REM-5's drops, 0019 = before CSH-2 and MKC-1, 0023 = before PRC-1): migrate to it, seed rows in
 // the tables later migrations touch, snapshot counts and money/weight totals, apply ALL remaining migrations, then:
 // row counts unchanged, totals and ledger balances identical, the append-only triggers present and still refusing
 // UPDATE/DELETE, no constraint left NOT VALID, and the app answers /api/health on the upgraded database. A second
@@ -82,7 +82,7 @@ async function seed(h: DatabaseHandle) {
   await sale(1, items[1], 'BANK_TRANSFER', 'TRF-UPGRADE-0001');
 
   // A cash scrap purchase of broken scrap, its pool weight and its ledger entry (guard 0021: they agree).
-  const scrap = await insert(h, 'scrap_purchases', { number: 'UPA-SCR-000001', branch_id: krt, kind: 'BROKEN', karat: 21, gross_weight_mg: 2_000, net_weight_mg: 2_000, scrap_rate_per_gram: 150_000, agreed_rate_per_gram: 150_000, deviation_bp: 0, override_approved: false, amount: 300_000, payment_method: 'CASH', created_by: gm });
+  const scrap = await insert(h, 'scrap_purchases', { number: 'UPA-SCR-000001', branch_id: krt, kind: 'BROKEN', karat: 21, gross_weight_mg: 2_000, net_weight_mg: 2_000, scrap_rate_per_gram: 150_000, agreed_rate_per_gram: 150_000, deviation_bp: 0, override_approved: false, amount: 300_000, payment_method: 'CASH', cash_amount: 300_000, bank_amount: 0, created_by: gm });
   await insert(h, 'scrap_weight_entries', { branch_id: krt, karat: 21, weight_mg: 2_000, event_type: 'SCRAP_PURCHASE', ref_type: 'scrap_purchase', ref_id: scrap, actor_id: gm });
   await insert(h, 'ledger_entries', { account_id: await account(h, krt, 'CASH'), branch_id: krt, amount: -300_000, event_type: 'SCRAP_PURCHASE', payment_method: 'CASH', ref_type: 'scrap_purchase', ref_id: scrap, actor_id: gm });
 
@@ -106,6 +106,10 @@ async function facts(h: DatabaseHandle) {
     salesTotal: await n(`SELECT sum(total) AS v FROM sales`),
     profit: await n(`SELECT sum(profit) AS v FROM sale_items`),
     acquisition: await n(`SELECT sum(acquisition_cost) AS v FROM jewelry_items`),
+    // PRC-1: the stored tag prices and the sale lines' prices are never touched by a migration.
+    tagPrices: await n(`SELECT sum(selling_price) AS v FROM jewelry_items`),
+    linePrices: await n(`SELECT sum(list_price) + sum(final_price) AS v FROM sale_items`),
+    goldRateSum: await n(`SELECT sum(price_per_gram) AS v FROM gold_rates`),
     netWeight: await n(`SELECT sum(net_weight_mg) AS v FROM jewelry_items`),
     poolWeight: await n(`SELECT sum(weight_mg) AS v FROM scrap_weight_entries`),
     scrapPaid: await n(`SELECT sum(amount) AS v FROM scrap_purchases`),
@@ -121,7 +125,7 @@ async function migrateAll(h: DatabaseHandle) {
   await migrate(h.db as never, { migrationsFolder: MIGRATIONS_DIR });
 }
 
-describe.each([15, 19])('upgrade from migration %i with data', (from) => {
+describe.each([15, 19, 23])('upgrade from migration %i with data', (from) => {
   it('keeps every row and every total, keeps the protections, boots, and a second migrate is a no-op', async () => {
     const h = await openAt(from);
     try {
@@ -153,6 +157,15 @@ async function runUpgrade(h: DatabaseHandle) {
   expect(await refused(h, `DELETE FROM audit_logs`)).toBe(true);
   expect(await refused(h, `UPDATE branches SET city = city`)).toBe(false); // an ordinary table still accepts updates: the check is meaningful
   expect(await unvalidatedConstraints(h.db)).toEqual([]);
+
+  // PRC-1 (migration 0024): every old selling rate is the NEW-piece rate; this installation already holds pieces, so it
+  // keeps its tag prices (pricing.mode = FIXED_TAG, with its history row) until the General Manager switches; every
+  // role that exists gets scrap.buy_sellable.
+  expect(rowsOf<{ kind: string }>(await h.db.execute(sql.raw(`SELECT DISTINCT kind FROM gold_rates`))).map((r) => r.kind)).toEqual(['NEW']);
+  expect((await one(h, `SELECT value FROM settings WHERE key = 'pricing.mode'`))?.value).toBe('FIXED_TAG');
+  expect(Number((await one(h, `SELECT count(*) AS n FROM settings_history WHERE key = 'pricing.mode' AND actor_username = 'system:migration-0024'`)).n)).toBe(1);
+  expect(rowsOf<{ code: string }>(await h.db.execute(sql.raw(`SELECT r.code FROM role_permissions rp JOIN roles r ON r.id = rp.role_id WHERE rp.permission_code = 'scrap.buy_sellable' ORDER BY r.code`))).map((r) => r.code)).toEqual(['CASHIER', 'GENERAL_MANAGER']);
+  expect(await refused(h, `INSERT INTO gold_rates (karat, price_per_gram, kind) VALUES (21, 1, 'OTHER')`)).toBe(true);
 
   // The app boots on the upgraded database.
   const app = createApp(createContext(h), loadConfig({ APP_MODE: 'demo', VITEST: '1' } as NodeJS.ProcessEnv));

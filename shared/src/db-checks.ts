@@ -16,6 +16,7 @@ import {
   CASH_OR_BANK,
   MAKING_CHARGE_PAYERS,
   GM_FUNDING_KINDS,
+  GOLD_RATE_KINDS,
   IDEMPOTENCY_STATUSES,
   ITEM_ORIGINS,
   ITEM_HISTORY_STATUSES,
@@ -76,6 +77,8 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   // ── Phase 2b
   e('jewelry_items', 'origin', ITEM_ORIGINS),
   e('sale_items', 'pricing_mode', PRICING_MODES),
+  // PRC-1 (D-prc1-2, migration 0024)
+  e('gold_rates', 'kind', GOLD_RATE_KINDS),
   e('ledger_accounts', 'kind', LEDGER_ACCOUNT_KINDS),
   e('ledger_entries', 'event_type', LEDGER_EVENT_TYPES),
   e('ledger_entries', 'payment_method', PAYMENT_METHODS, true),

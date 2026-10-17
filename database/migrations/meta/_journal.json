@@ -169,6 +169,13 @@
       "when": 1792080843192,
       "tag": "0023_be7_sale_items_sale_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792209107800,
+      "tag": "0024_prc1_computed_prices",
+      "breakpoints": true
     }
   ]
 }

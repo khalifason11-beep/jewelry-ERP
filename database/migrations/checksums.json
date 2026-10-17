@@ -22,5 +22,6 @@
   "0020_csh2_gm_funding.sql": "0f910d954bb33701b9955123ac5a3cbe4a89745bea0dbd789bb0c0c43cef7981",
   "0021_csh2_scrap_split_payment.sql": "ba24c269ef595a3e49e46d122d6f463500dfcaf9dc8383f37b72288ffb09b061",
   "0022_mkc1_owner_making_charge.sql": "7af6e74c7c6f276e06e77098ecb48557b02b019c7402ceec5dc04bdf446294a1",
-  "0023_be7_sale_items_sale_idx.sql": "1664c246c6ad2988152ab23dad5cdd5c56ec87f026b101c09a27a82c0d92e220"
+  "0023_be7_sale_items_sale_idx.sql": "1664c246c6ad2988152ab23dad5cdd5c56ec87f026b101c09a27a82c0d92e220",
+  "0024_prc1_computed_prices.sql": "ccd3684bc48c59f07ab5c589de386a177fd15b7d005e002e8e9212b5a1ce8793"
 }

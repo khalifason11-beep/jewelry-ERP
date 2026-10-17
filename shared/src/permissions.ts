@@ -51,6 +51,8 @@ export const PERMISSIONS = {
   'cash.settle_hasad': 'Record a Hasad bank transfer received: moves the amount from the Hasad receivable to the bank',
   'scrap.buy': 'Buy scrap gold from customers at the counter (sellable pieces or broken scrap)',
   'scrap.override': 'Approve a scrap price beyond the allowed tolerance from the scrap buying rate',
+  // PRC-1 (D-prc1-6): the price is no longer typed, so the cashier may buy a sellable piece (not broken scrap).
+  'scrap.buy_sellable': 'Buy a sellable piece from a customer at the counter (not broken scrap)',
   'purchases.settle': 'Record a supplier settlement paid with broken-scrap weight',
   'backups.view': 'See the age and status of the latest backup and restore drill',
   // CSH-2 (D-csh-5): the General Manager's advances to a branch and the branch's repayments. General Manager only.
@@ -72,6 +74,8 @@ const CASHIER: Permission[] = [
   'sales.view_own',
   'inventory.view_available',
   'sessions.view_own',
+  // PRC-1 (D-prc1-6): a sellable piece from a customer, at the scrap rate; every limit of the purchase still applies.
+  'scrap.buy_sellable',
 ];
 
 const BRANCH_MANAGER: Permission[] = [
