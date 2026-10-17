@@ -1831,5 +1831,6 @@ export const AR: Record<string, string> = {
   "Remove piece {n}": "حذف القطعة {n}",
   "Add another piece": "إضافة قطعة أخرى",
   "Net weight of all pieces: {weight} — compare with the supplier’s invoice.": "الوزن الصافي لكل القطع: {weight} — قارنه بفاتورة المورد.",
+  "Customer details (optional)": "بيانات العميل (اختياري)",
   "Choose the karat first": "اختر العيار أولاً",
 };

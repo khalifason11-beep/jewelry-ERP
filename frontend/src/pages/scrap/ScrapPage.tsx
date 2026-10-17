@@ -369,9 +369,15 @@ function BuyForm({ branchId }: { branchId: number }) {
             </>
           )}
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {/* UX-1: the customer's identity has no financial effect and nothing in it is required (the API keeps the
+            fields; SCR-1 decides their future): one closed section. */}
+        <details className="group rounded-control border border-line" data-testid="scrap-customer">
+          <summary className="flex min-h-11 cursor-pointer items-center px-3 text-[13.5px] font-medium text-ink-2" data-testid="scrap-customer-toggle">
+            {t('Customer details (optional)')}
+          </summary>
+        <div className="grid gap-3 border-t border-line p-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field label={t('Customer name')}>
-            <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} maxLength={120} />
+            <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} maxLength={120} data-testid="scrap-customer-name" />
           </Field>
           <Field label={t('Phone')}>
             <PhoneInput value={customerPhone} onValueChange={setCustomerPhone} data-testid="scrap-customer-phone" />
@@ -380,9 +386,10 @@ function BuyForm({ branchId }: { branchId: number }) {
             <ReferenceInput value={customerIdRef} onValueChange={setCustomerIdRef} maxChars={60} data-testid="scrap-customer-id" />
           </Field>
           <Field label={t('Note (optional)')}>
-            <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
+            <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} data-testid="scrap-note" />
           </Field>
         </div>
+        </details>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="scrap-payment">
           <Field label={t('Paid from the drawer')} hint={t('Leave empty to pay it all in cash')}>
             <MoneyInput
