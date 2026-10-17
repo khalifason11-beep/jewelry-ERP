@@ -2,7 +2,8 @@
 // Gate (UI-A2, D-ui-10, run by `npm run typecheck`): screenshots stay small in the repository.
 //
 // Scans the image files git knows about or would add (tracked, plus untracked files that are not ignored) under
-// `docs/ux/`, the only place screenshots are committed (docs/ux/screens/, docs/ux/ui-kit/). It fails when:
+// `docs/ux/` and `docs/acceptance/`, the only places screenshots are committed (docs/ux/screens/, docs/ux/ui-kit/, and
+// an item's acceptance screenshots such as docs/acceptance/UX-1/, UX-1). It fails when:
 //   - their total size is over 4 MB;
 //   - one image is over 150 KB;
 //   - one is not WebP (JPEG or PNG captures belong in the git-ignored .ux-shots/);
@@ -22,9 +23,9 @@ const IMAGE = /\.(png|jpe?g|webp|gif|avif|bmp|tiff?)$/i;
 /** Problems for a list of { path, bytes } (paths relative to the repository, forward slashes). */
 export function assetProblems(files) {
   const problems = [];
-  const shots = files.filter((f) => f.path.startsWith('docs/ux/') && IMAGE.test(f.path));
+  const shots = files.filter((f) => (f.path.startsWith('docs/ux/') || f.path.startsWith('docs/acceptance/')) && IMAGE.test(f.path));
   const total = shots.reduce((s, f) => s + f.bytes, 0);
-  if (total > LIMITS.totalBytes) problems.push(`screenshots under docs/ux/ total ${(total / 1048576).toFixed(1)} MB (limit 4 MB)`);
+  if (total > LIMITS.totalBytes) problems.push(`screenshots under docs/ux/ and docs/acceptance/ total ${(total / 1048576).toFixed(1)} MB (limit 4 MB)`);
   for (const f of shots) {
     if (f.bytes > LIMITS.fileBytes) problems.push(`${f.path}: ${Math.round(f.bytes / 1024)} KB (limit 150 KB)`);
     if (!/\.webp$/i.test(f.path)) problems.push(`${f.path}: not WebP (captures go to .ux-shots/; publish with --publish)`);
@@ -55,5 +56,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.error(`Asset check FAILED (D-ui-10):\n${problems.map((p) => `- ${p}`).join('\n')}`);
     process.exit(1);
   }
-  console.log(`assets OK: ${count} screenshot(s) under docs/ux/, ${(total / 1048576).toFixed(1)} MB (limits: 4 MB in total, 150 KB each, WebP only).`);
+  console.log(`assets OK: ${count} screenshot(s) under docs/ux/ and docs/acceptance/, ${(total / 1048576).toFixed(1)} MB (limits: 4 MB in total, 150 KB each, WebP only).`);
 }

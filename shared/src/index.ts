@@ -11,3 +11,4 @@ export * from './print';
 export * from './names';
 export * from './references';
 export * from './paging';
+export * from './inputs';

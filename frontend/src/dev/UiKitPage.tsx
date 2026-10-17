@@ -33,6 +33,12 @@ import {
   TR,
   Tabs,
   Textarea,
+  DateInput,
+  IntegerInput,
+  MoneyInput,
+  PhoneInput,
+  ReferenceInput,
+  WeightInput,
 } from '../components/ui';
 import { useI18n } from '../lib/i18n';
 import { ApiError } from '../lib/api';
@@ -160,6 +166,10 @@ export default function UiKitPage() {
             <Textarea placeholder={tx('Optional', 'اختياري')} />
           </Field>
         </div>
+      </Section>
+
+      <Section id="numbers" title={tx('Number, identifier and date fields (UX-1)', 'حقول الأرقام والمعرّفات والتواريخ')}>
+        <NumberFields tx={tx} />
       </Section>
 
       <Section id="badges" title={tx('Status badges', 'شارات الحالة')}>
@@ -380,6 +390,39 @@ export default function UiKitPage() {
       >
         <p className="text-ink-2">{tx('This cannot be undone.', 'لا يمكن التراجع عن هذا.')}</p>
       </Dialog>
+    </div>
+  );
+}
+
+/** UX-1: the kit's number fields, with their values shown so scripts/capture-ui-kit.mjs can check typing and paste. */
+function NumberFields({ tx }: { tx: (en: string, ar: string) => string }) {
+  const [money, setMoney] = useState('1250000');
+  const [weight, setWeight] = useState('');
+  const [karat, setKarat] = useState('');
+  const [phone, setPhone] = useState('');
+  const [ref, setRef] = useState('');
+  const [day, setDay] = useState('2026-10-11');
+  return (
+    <div className="grid gap-4 sm:grid-cols-3">
+      <Field label={tx('Amount', 'المبلغ')}>
+        <MoneyInput value={money} onValueChange={setMoney} data-testid="kit-money" />
+      </Field>
+      <Field label={tx('Net gold weight', 'وزن الذهب الصافي')}>
+        <WeightInput value={weight} onValueChange={setWeight} data-testid="kit-weight" />
+      </Field>
+      <Field label={tx('Karat (1–24)', 'العيار (1–24)')}>
+        <IntegerInput value={karat} onValueChange={setKarat} min={1} max={24} data-testid="kit-integer" />
+      </Field>
+      <Field label={tx('Phone', 'الهاتف')}>
+        <PhoneInput value={phone} onValueChange={setPhone} data-testid="kit-phone" />
+      </Field>
+      <Field label={tx('Transfer reference', 'مرجع التحويل')}>
+        <ReferenceInput value={ref} onValueChange={setRef} data-testid="kit-reference" />
+      </Field>
+      <Field label={tx('Transfer date', 'تاريخ التحويل')}>
+        <DateInput value={day} onChange={setDay} max="2026-10-17" data-testid="kit-date" />
+      </Field>
+      <output className="sr-only" data-testid="kit-number-values">{JSON.stringify({ money, weight, karat, phone, ref, day })}</output>
     </div>
   );
 }

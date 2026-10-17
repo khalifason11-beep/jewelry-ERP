@@ -1,6 +1,7 @@
 // Dialog (UI-A1). Keeps the focus fix of 5ffadaa unchanged (focus the first field at once, never steal focus from a
 // field the person chose; the late retry only when nothing inside has focus) and the Escape stack (only the topmost
 // dialog closes). New: Tab is trapped inside, focus returns to the opener, the title labels the dialog.
+// UX-1: the panel does not clip its content, so a field's list (the product picker) may open past its bottom edge.
 
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import clsx from 'clsx';
@@ -82,7 +83,7 @@ export function Dialog({
   if (!open) return null;
   return (
     <div className="no-print fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-navy/45 p-4 pt-[8vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} className={clsx('w-full overflow-hidden rounded-panel bg-surface shadow-pop', size ? SIZE[size] : width)}>
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} className={clsx('w-full rounded-panel bg-surface shadow-pop', size ? SIZE[size] : width)}>
         <div className="flex items-start justify-between gap-4 px-5 pb-3 pt-4">
           <div>
             <h2 id={titleId} className="text-section font-semibold text-ink">
@@ -95,7 +96,7 @@ export function Dialog({
           </button>
         </div>
         <div className="px-5 py-3">{children}</div>
-        {footer && <div className="flex items-center justify-end gap-2 bg-panel px-5 py-3">{footer}</div>}
+        {footer && <div className="flex flex-wrap items-center justify-end gap-2 rounded-b-panel bg-panel px-5 py-3">{footer}</div>}
       </div>
     </div>
   );

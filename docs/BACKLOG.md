@@ -276,6 +276,15 @@ Found in BE-7: the Sales, Purchases and Inventory reports added up their totals 
 and summaries are SQL aggregates over every row, the screen shows at most the cap with the true count and a warning, and
 the CSV holds every row (plan `docs/plans/RPT-2.md`, D-rpt2-1…4, `test/report-caps.test.ts`).
 
+### UX-1 — Adding stock is easy and hard to get wrong · DONE · M · P1
+One number field for the whole app (money, grams, integers; no spinner or wheel, digits only with Arabic digits
+accepted, refused keys and pastes say why, units, grouping, empty stays empty), identifier rules (phone, references),
+a dd/mm/yyyy date field; the server refuses bad numbers on every stock, rate, cash, funding and sale field (one fix:
+the scrap karat was coerced); the invented supplier-order pre-fill (×1.22, 10,000/g) removed; labelled and hinted
+supplier-order fields; one searchable product picker with inline create on both stock entries; "Add another piece",
+Enter flow, net-weight sum, plain disabled reason; the scrap customer details in one closed optional section (plan
+`docs/plans/UX-1.md`, D-ux1-1…9, `docs/acceptance/UX-1.md`). Open for the owner: plan §7 questions 1 and 2.
+
 ### WGT-1 — Weight precision per deployment · DEFERRED · M · P3
 **Q-14 closed (owner):** this client's scales read to **0.001 g** (1 mg), which is exactly how the system already works (integer milligrams, three decimals). **Nothing changes for this client.** Build WGT-1 only if another client weighs to two decimals: then a per-deployment setting for the number of weight decimals, input validation on every form, import and the API, one formatter everywhere, and documented totals.
 **No quantisation of the pure-24K debt is needed:** at milligram precision the 24K equivalent of a net weight is rounded to the nearest milligram, and every integer debt can be settled exactly: for every karat 1–24 the conversion step (`round((n+1)·k/24) − round(n·k/24)`) is at most one milligram, so every integer owed value is reached by some whole-milligram weight. REM-3 adds a property test for this.
@@ -386,6 +395,9 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
   command prompt (`npm test` with `TEST_DATABASE_URL` does).
 - ~~**The Sales, Purchases and Inventory reports read at most 1,000 rows**~~ (found in BE-7): **fixed by RPT-2** (totals
   in SQL over every row; a visible cap on screen with the true count; every row in the CSV; D-rpt2-1…4).
+- Found in UX-1 (not changed): Settings offers 9, 12 and 14 K as allowed karats, but `POST /gold-rates` takes only
+  `KARATS` (18, 21, 22, 24), so such a karat can never get a selling rate (UX-1 plan §7, question 2). The discount caps
+  3/10/20 % and the time-zone default are settings without a recorded decision (question 1).
 - Two lists outside the reports still cap silently (RPT-2 plan, items 6 and 7): Cash › Hasad transfers (newest 200,
   CSV included) and Active users (300 sessions; its four tiles count those rows). Page them with the BE-7 helper, or
   leave them: owner decision.

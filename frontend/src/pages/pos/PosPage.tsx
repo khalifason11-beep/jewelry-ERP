@@ -29,7 +29,7 @@ import { useBranchDirectory, useBranches, useCategories, useDebounced } from '..
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import type { ItemRow } from '../../lib/types';
-import { Alert, Button, Dialog, Empty, ErrorState, Field, Input, ItemThumb, Select, Skeleton, Textarea } from '../../components/ui';
+import { Alert, Button, Dialog, Empty, ErrorState, Field, Input, ItemThumb, MoneyInput, PhoneInput, ReferenceInput, Select, Skeleton, Textarea } from '../../components/ui';
 import { InvoiceDocument, type SaleDetail } from '../../components/InvoiceDocument';
 import { printSaleInvoice } from '../../print/actions';
 import { useActionKeys } from '../../lib/idempotency';
@@ -353,18 +353,16 @@ export function PosPage() {
                         {canDiscount ? (
                           <label className="flex items-center gap-1.5 text-xs text-ink-500">
                             {t('Discount')}
-                            <Input
-                              type="number"
-                              min={0}
-                              step={1000}
-                              value={l.discount || ''}
+                            <MoneyInput
+                              compact
+                              value={l.discount ? String(l.discount) : ''}
                               placeholder="0"
-                              onChange={(e) => {
+                              onValueChange={(text) => {
                                 const max = Math.floor((l.item.sellingPrice * maxPct) / 100);
-                                const v = Math.max(0, Math.min(max, Number(e.target.value) || 0));
+                                const v = Math.max(0, Math.min(max, Number(text) || 0));
                                 setCart((c) => c.map((x) => (x.item.id === l.item.id ? { ...x, discount: v } : x)));
                               }}
-                              className="h-7 w-24 px-2 text-xs num"
+                              className="w-32"
                               aria-label={t('Discount for {code}', { code: l.item.code })}
                               data-testid="pos-discount"
                             />
@@ -389,7 +387,7 @@ export function PosPage() {
         <div className="border-t border-line bg-canvas/60 px-4 py-3">
           <div className="grid grid-cols-2 gap-2">
             <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder={t('Customer name (optional)')} className="h-8 text-[13px]" />
-            <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder={t('Phone (optional)')} className="h-8 text-[13px]" />
+            <PhoneInput compact value={customerPhone} onValueChange={setCustomerPhone} placeholder={t('Phone (optional)')} aria-label={t('Phone (optional)')} />
           </div>
           <div className={clsx('mt-2 grid gap-1.5', payMethods.length === 3 ? 'grid-cols-3' : 'grid-cols-4')} role="radiogroup" aria-label={t('Payment method')} data-testid="pos-payment-methods">
             {payMethods.map((m) => {
@@ -419,14 +417,13 @@ export function PosPage() {
           )}
           {payment === 'BANK_TRANSFER' && (
             <div className="mt-2">
-              <Input
+              <ReferenceInput
+                compact
                 value={bankRef}
-                onChange={(e) => setBankRef(e.target.value)}
-                maxLength={60}
+                onValueChange={setBankRef}
                 placeholder={t('Bank transfer reference (required)')}
                 aria-label={t('Bank transfer reference')}
-                aria-invalid={bankRef.trim() !== '' && !bankRefOk}
-                className="h-8 font-mono text-[13px]"
+                invalid={bankRef.trim() !== '' && !bankRefOk}
                 data-testid="bank-reference"
               />
               {bankRef.trim() !== '' && !bankRefOk && <p className="mt-1 text-[11.5px] text-crit">{t('The bank transfer reference must be 4 to 40 letters or digits')}</p>}

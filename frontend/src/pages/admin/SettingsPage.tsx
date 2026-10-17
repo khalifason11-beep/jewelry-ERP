@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ImageUp, Printer, Save, Trash2 } from 'lucide-react';
-import { KARATS, PAYMENT_METHODS, settingValue, type InvoiceFormat, type SettingKey, type SystemSettings } from '@jerp/shared';
+import { KARATS, PAYMENT_METHODS, parseDecimalInput, parseIntegerInput, settingValue, type InvoiceFormat, type SettingKey, type SystemSettings } from '@jerp/shared';
 import { del, get, post, put, upload } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useBranding } from '../../lib/branding';
@@ -12,7 +12,7 @@ import { useToast } from '../../lib/toast';
 import { printDocument } from '../../lib/print';
 import { CalibrationPrint } from '../../print/documents';
 import { errorText as apiErrorText } from '../../lib/api';
-import { Alert, Button, Card, CardHeader, ErrorState, Field, Input, PageHeader, Select, SkeletonRows, Textarea } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, DecimalInput, ErrorState, Field, Input, IntegerInput, MoneyInput, PageHeader, Select, SkeletonRows, Textarea } from '../../components/ui';
 
 interface SettingsResponse {
   settings: SystemSettings;
@@ -106,9 +106,7 @@ export function SettingsPage() {
       {t('Save')}
     </Button>
   );
-  const numberInput = (value: number, onChange: (n: number) => void, props: { min?: number; max?: number; step?: number } = {}) => (
-    <Input type="number" value={value} {...props} onChange={(e) => onChange(Number(e.target.value))} className="num" />
-  );
+  const numberInput = (value: number, onChange: (n: number) => void, props: SettingNumberProps = {}) => <SettingNumber value={value} onChange={onChange} {...props} />;
   const checkbox = (checked: boolean, onChange: (v: boolean) => void, label: string) => (
     <label className="flex items-center gap-2 text-[13px]">
       <input type="checkbox" className="size-4 accent-ink-900" checked={checked} onChange={(e) => onChange(e.target.checked)} />
@@ -196,7 +194,7 @@ export function SettingsPage() {
           <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
             {draft.inventory.allowedKarats.map((k) => (
               <Field key={k} label={`${k}K`}>
-                <Input type="number" value={rateDraft[k] ?? ''} onChange={(e) => setRateDraft({ ...rateDraft, [k]: e.target.value })} className="num" data-testid={`gold-rate-${k}`} />
+                <MoneyInput value={rateDraft[k] ?? ''} onValueChange={(v) => setRateDraft({ ...rateDraft, [k]: v })} data-testid={`gold-rate-${k}`} />
               </Field>
             ))}
           </div>
@@ -231,7 +229,7 @@ export function SettingsPage() {
           <div className="grid gap-3 p-5 sm:grid-cols-2">
             <div className="sm:col-span-2">{checkbox(draft.purchases.supplierCreditEnabled, (v) => set('purchases', { supplierCreditEnabled: v }), t('Allow supplier purchases on credit (creates a supplier payable)'))}</div>
             <Field label={t('Scrap price tolerance (%)')} hint={t('How far a branch manager may deviate from today’s scrap rate')}>
-              {numberInput(draft.purchases.scrapPriceTolerancePct, (n) => set('purchases', { scrapPriceTolerancePct: n }), { min: 0, max: 50, step: 0.5 })}
+              {numberInput(draft.purchases.scrapPriceTolerancePct, (n) => set('purchases', { scrapPriceTolerancePct: n }), { min: 0, max: 50, decimals: 2, unit: '%' })}
             </Field>
             <div className="self-end pb-2">{checkbox(draft.purchases.requireGmApprovalForScrapOverride, (v) => set('purchases', { requireGmApprovalForScrapOverride: v }), t('Deviations beyond the tolerance need General Manager approval'))}</div>
             <Field label={t('Flag pending transfers/claims after (hours)')}>
@@ -239,7 +237,7 @@ export function SettingsPage() {
             </Field>
             {/* UI-B (D-ux-12): thresholds of the attention list. */}
             <Field label={t('Cash count: accepted difference ({currency})', { currency: currencyLabel() })} hint={t('A count that differs from the expected cash by more than this appears under Needs attention. 0 = any difference.')}>
-              <span data-testid="count-tolerance" className="block">{numberInput(draft.cash.countDifferenceTolerance, (n) => set('cash', { countDifferenceTolerance: n }), { min: 0, step: 1000 })}</span>
+              <span data-testid="count-tolerance" className="block">{numberInput(draft.cash.countDifferenceTolerance, (n) => set('cash', { countDifferenceTolerance: n }), { min: 0, money: true })}</span>
             </Field>
             <Field label={t('Gold owed to a supplier: warn after (days)')} hint={t('Older supplier gold debts appear as a warning under Needs attention.')}>
               <span data-testid="supplier-debt-days" className="block">{numberInput(draft.purchases.supplierDebtMaxAgeDays, (n) => set('purchases', { supplierDebtMaxAgeDays: n }), { min: 1, max: 3650 })}</span>
@@ -284,13 +282,13 @@ export function SettingsPage() {
             </Field>
             {Object.entries(draft.sales.maxDiscountPercentByRole).map(([role, v]) => (
               <Field key={role} label={t('Max discount · {role} (%)', { role: humanize(role) })}>
-                {numberInput(v, (n) => set('sales', { maxDiscountPercentByRole: { ...draft.sales.maxDiscountPercentByRole, [role]: n } }), { min: 0, max: 100 })}
+                {numberInput(v, (n) => set('sales', { maxDiscountPercentByRole: { ...draft.sales.maxDiscountPercentByRole, [role]: n } }), { min: 0, max: 100, unit: '%' })}
               </Field>
             ))}
             {/* SEC-2 (D-sec2-1): General Manager only, like every setting; saving it needs the password. */}
             <Field label={t('Ask for the password to cancel a sale above ({currency})', { currency: currencyLabel() })} hint={t('0 = every cancellation asks for the password again.')} className="sm:col-span-3">
               <span data-testid="void-reauth-amount" className="block max-w-xs">
-                {numberInput(draft.sales.voidReauthAboveAmount, (n) => set('sales', { voidReauthAboveAmount: n }), { min: 0, step: 1000 })}
+                {numberInput(draft.sales.voidReauthAboveAmount, (n) => set('sales', { voidReauthAboveAmount: n }), { min: 0, money: true })}
               </span>
             </Field>
           </div>
@@ -456,7 +454,7 @@ function ScrapRatesCard() {
           const cur = q.data?.rates.find((r) => r.karat === k);
           return (
             <Field key={k} label={`${k}K`} hint={cur ? dateTime(cur.effectiveAt, lang) : t('Not set')}>
-              <Input type="number" min={0} value={draft[k] ?? ''} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} className="num" data-testid={`scrap-rate-${k}`} />
+              <MoneyInput value={draft[k] ?? ''} onValueChange={(v) => setDraft({ ...draft, [k]: v })} data-testid={`scrap-rate-${k}`} />
             </Field>
           );
         })}
@@ -464,7 +462,7 @@ function ScrapRatesCard() {
       )}
       <div className="flex items-end gap-2 border-t border-line px-5 py-3">
         <Field label={t('Add another karat (1–24)')}>
-          <Input type="number" min={1} max={24} step={1} value={extra} onChange={(e) => setExtra(e.target.value)} className="w-28 num" />
+          <IntegerInput min={1} max={24} value={extra} onValueChange={setExtra} className="w-28" />
         </Field>
         <Button
           size="sm"
@@ -568,4 +566,34 @@ function SecondFactorCard() {
       </div>
     </Card>
   );
+}
+
+interface SettingNumberProps {
+  min?: number;
+  max?: number;
+  /** Decimals allowed (only the scrap tolerance %); whole numbers otherwise. */
+  decimals?: number;
+  /** An amount in the currency (shown with the currency label). */
+  money?: boolean;
+  unit?: string;
+}
+
+/**
+ * UX-1: a numeric setting typed in a kit number field. The text is kept as typed; the draft receives the number, or
+ * NaN while the field is empty or incomplete, which the server refuses with the setting's name (never a silent 0).
+ */
+function SettingNumber({ value, onChange, min, max, decimals = 0, money: isMoney, unit }: SettingNumberProps & { value: number; onChange: (n: number) => void }) {
+  const parse = (s: string) => (decimals ? parseDecimalInput(s, decimals) : parseIntegerInput(s));
+  const [text, setText] = useState(Number.isFinite(value) ? String(value) : '');
+  useEffect(() => {
+    if (Number.isFinite(value) && parse(text) !== value) setText(String(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  const change = (s: string) => {
+    setText(s);
+    onChange(parse(s) ?? NaN);
+  };
+  if (isMoney) return <MoneyInput value={text} onValueChange={change} min={min} max={max} />;
+  if (decimals) return <DecimalInput value={text} onValueChange={change} min={min} max={max} decimals={decimals} unit={unit} />;
+  return <IntegerInput value={text} onValueChange={change} min={min} max={max} unit={unit} />;
 }

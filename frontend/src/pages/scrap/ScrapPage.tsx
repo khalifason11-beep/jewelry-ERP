@@ -5,7 +5,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Recycle, Scale } from 'lucide-react';
-import { gramsToMg, normalizeBankReference, validBankReference, valueOfWeight, type ScrapKind, type ScrapPaymentMethod } from '@jerp/shared';
+import { parseIntegerInput, parseWeightInput, validBankReference, valueOfWeight, type ScrapKind, type ScrapPaymentMethod } from '@jerp/shared';
 import { ApiError, errorText, get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, karatLabel, money } from '../../lib/format';
@@ -13,10 +13,10 @@ import { useBranches } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { useActionKeys } from '../../lib/idempotency';
-import { Alert, Button, Card, CardHeader, Empty, Field, Input, Kpi, Mono, PageHeader, QueryState, Select, SkeletonRows } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, Empty, Field, Input, IntegerInput, Kpi, MoneyInput, Mono, PhoneInput, ReferenceInput, WeightInput, PageHeader, QueryState, Select, SkeletonRows } from '../../components/ui';
 import { useServerList } from '../../lib/paging';
 import { DataTable } from '../../components/ui/DataTable';
-import { NewButton, NewProductDialog } from '../../components/Catalog';
+import { NewProductPanel, ProductPicker } from '../../components/ProductPicker';
 import type { Product } from '../../lib/types';
 
 export interface ScrapRates {
@@ -183,16 +183,19 @@ function PoolSummary({ pool }: { pool: PoolView }) {
 }
 
 function BuyForm({ branchId }: { branchId: number }) {
-  const { t, L } = useI18n();
+  const { t } = useI18n();
   const { me, can } = useAuth();
   const toast = useToast();
   const qc = useQueryClient();
   const actionKeys = useActionKeys();
   const rates = useQuery({ queryKey: ['scrap-rates'], queryFn: () => get<ScrapRates>('/scrap-rates') });
   const products = useQuery({ queryKey: ['products'], queryFn: () => get<Product[]>('/products'), enabled: can('purchases.create') || can('scrap.buy') });
-  const [newProduct, setNewProduct] = useState(false);
+  // UX-1: a new product is created in a panel in the form (its karat fixed to the piece's), then selected.
+  const [creating, setCreating] = useState<string | null>(null);
   const [kind, setKind] = useState<ScrapKind>('BROKEN');
   const [karat, setKarat] = useState<number | ''>('');
+  // Broken scrap: the karat as typed (UX-1 number field); `karat` holds it once it is a whole number from 1 to 24.
+  const [karatText, setKaratText] = useState('');
   const [gross, setGross] = useState('');
   const [net, setNet] = useState('');
   const [agreed, setAgreed] = useState('');
@@ -213,7 +216,8 @@ function BuyForm({ branchId }: { branchId: number }) {
   const sellKarats = me?.allowedKarats ?? [];
   const rate = rates.data?.rates.find((r) => r.karat === karat)?.pricePerGram ?? 0;
   const agreedRate = agreed ? Number(agreed) : rate;
-  const netMg = net ? gramsToMg(net) : 0;
+  const netMg = parseWeightInput(net) ?? 0;
+  const grossMg = parseWeightInput(gross);
   const amount = netMg > 0 && agreedRate > 0 ? valueOfWeight(netMg, agreedRate) : 0;
   const deviationPct = rate > 0 ? (Math.abs(agreedRate - rate) / rate) * 100 : 0;
   const tolerance = rates.data?.tolerancePct ?? 0;
@@ -225,7 +229,7 @@ function BuyForm({ branchId }: { branchId: number }) {
   const refOk = bank === 0 || !!validBankReference(bankRef);
   const piecesProducts = useMemo(() => products.data?.filter((p) => p.karat === karat) ?? [], [products.data, karat]);
   const valid =
-    karat !== '' && rate > 0 && netMg > 0 && (!gross || gramsToMg(gross) >= netMg) && agreedRate > 0 && !needsGm && partsOk && refOk &&
+    karat !== '' && rate > 0 && netMg > 0 && (grossMg == null || grossMg >= netMg) && agreedRate > 0 && !needsGm && partsOk && refOk &&
     (kind === 'BROKEN' || (productId !== '' && Number(sellingPrice) > 0));
 
   const reset = () => {
@@ -251,7 +255,7 @@ function BuyForm({ branchId }: { branchId: number }) {
           branchId,
           kind,
           karat,
-          grossWeightMg: gross ? gramsToMg(gross) : netMg,
+          grossWeightMg: grossMg ?? netMg,
           netWeightMg: netMg,
           agreedRatePerGram: agreed ? Number(agreed) : undefined,
           cashAmount: cash,
@@ -290,7 +294,7 @@ function BuyForm({ branchId }: { branchId: number }) {
               key={k}
               role="radio"
               aria-checked={kind === k}
-              onClick={() => { setKind(k); setKarat(''); setProductId(''); }}
+              onClick={() => { setKind(k); setKarat(''); setKaratText(''); setProductId(''); }}
               data-testid={`scrap-kind-${k}`}
               className={'h-8 rounded px-4 text-[13px] font-medium ' + (kind === k ? 'bg-ink-900 text-white' : 'text-ink-600 hover:bg-canvas')}
             >
@@ -301,18 +305,16 @@ function BuyForm({ branchId }: { branchId: number }) {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field label={t('Karat')} hint={kind === 'BROKEN' ? t('Any karat from 1 to 24') : undefined}>
             {kind === 'BROKEN' ? (
-              <Input
-                type="number"
+              <IntegerInput
                 min={1}
                 max={24}
-                step={1}
-                value={karat}
-                onChange={(e) => {
-                  const k = Number(e.target.value);
-                  setKarat(e.target.value && Number.isInteger(k) && k >= 1 && k <= 24 ? k : '');
+                value={karatText}
+                onValueChange={(v) => {
+                  const k = parseIntegerInput(v);
+                  setKaratText(v);
+                  setKarat(k != null && k >= 1 && k <= 24 ? k : '');
                   setAgreed('');
                 }}
-                className="num"
                 aria-label={t('Karat')}
                 data-testid="scrap-karat-any"
               />
@@ -324,74 +326,85 @@ function BuyForm({ branchId }: { branchId: number }) {
             )}
           </Field>
           <Field label={t('Gross weight (g)')}>
-            <Input type="number" min={0} step="0.001" value={gross} onChange={(e) => setGross(e.target.value)} className="num" data-testid="scrap-gross" />
+            <WeightInput value={gross} onValueChange={setGross} data-testid="scrap-gross" />
           </Field>
           <Field label={t('Net weight (g)')}>
-            <Input type="number" min={0} step="0.001" value={net} onChange={(e) => { setNet(e.target.value); setDrawerShort(null); }} className="num" data-testid="scrap-net" />
+            <WeightInput value={net} onValueChange={(v) => { setNet(v); setDrawerShort(null); }} data-testid="scrap-net" />
           </Field>
           <Field label={t('Today’s scrap rate')} hint={karat !== '' && !rate ? t('No scrap buying rate is set for this karat') : undefined}>
             <Input value={rate ? money(rate, false) : '—'} readOnly className="num bg-canvas" />
           </Field>
           <Field label={t('Agreed price per gram')} hint={rate ? t('Within {pct}% of the scrap rate the branch manager decides', { pct: tolerance }) : undefined}>
-            <Input type="number" min={0} step={500} value={agreed} placeholder={rate ? String(rate) : ''} onChange={(e) => setAgreed(e.target.value)} className="num" />
+            <MoneyInput value={agreed} placeholder={rate ? String(rate) : ''} onValueChange={setAgreed} data-testid="scrap-agreed" />
           </Field>
           {kind === 'SELLABLE' && (
             <>
-              <Field label={t('Product')} hint={can('catalog.create') && karat !== '' ? <NewButton testId="scrap-new-product" onClick={() => setNewProduct(true)}>{t('New product')}</NewButton> : undefined}>
-                <Select value={productId} onChange={(e) => setProductId(e.target.value ? Number(e.target.value) : '')} disabled={karat === ''} data-testid="scrap-product">
-                  <option value="">{karat !== '' && piecesProducts.length === 0 ? t('No products yet: create one') : t('Select…')}</option>
-                  {piecesProducts.map((p) => <option key={p.id} value={p.id}>{L(p.name, p.nameAr)}</option>)}
-                </Select>
+              <Field label={t('Product')} hint={karat === '' ? t('Choose the karat first') : undefined}>
+                <ProductPicker
+                  products={piecesProducts}
+                  value={productId}
+                  onChange={setProductId}
+                  onCreate={karat === '' ? undefined : setCreating}
+                  disabled={karat === ''}
+                  testId="scrap-product"
+                />
               </Field>
               <Field label={t('Selling price')}>
-                <Input type="number" min={0} value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value)} className="num" data-testid="scrap-selling-price" />
+                <MoneyInput value={sellingPrice} onValueChange={setSellingPrice} data-testid="scrap-selling-price" />
               </Field>
-              {newProduct && karat !== '' && (
-                <NewProductDialog
-                  karat={karat}
-                  onClose={() => setNewProduct(false)}
-                  onCreated={(p) => {
-                    setProductId(p.id);
-                    setNewProduct(false);
-                  }}
-                />
+              {creating != null && karat !== '' && (
+                <div className="sm:col-span-2 lg:col-span-4">
+                  <NewProductPanel
+                    name={creating}
+                    karat={karat}
+                    testId="scrap-new-product"
+                    onCancel={() => setCreating(null)}
+                    onCreated={(p) => {
+                      setProductId(p.id);
+                      setCreating(null);
+                    }}
+                  />
+                </div>
               )}
             </>
           )}
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {/* UX-1: the customer's identity has no financial effect and nothing in it is required (the API keeps the
+            fields; SCR-1 decides their future): one closed section. */}
+        <details className="group rounded-control border border-line" data-testid="scrap-customer">
+          <summary className="flex min-h-11 cursor-pointer items-center px-3 text-[13.5px] font-medium text-ink-2" data-testid="scrap-customer-toggle">
+            {t('Customer details (optional)')}
+          </summary>
+        <div className="grid gap-3 border-t border-line p-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field label={t('Customer name')}>
-            <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} maxLength={120} />
+            <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} maxLength={120} data-testid="scrap-customer-name" />
           </Field>
           <Field label={t('Phone')}>
-            <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} maxLength={30} />
+            <PhoneInput value={customerPhone} onValueChange={setCustomerPhone} data-testid="scrap-customer-phone" />
           </Field>
           <Field label={t('ID document number')}>
-            <Input value={customerIdRef} onChange={(e) => setCustomerIdRef(e.target.value)} maxLength={60} />
+            <ReferenceInput value={customerIdRef} onValueChange={setCustomerIdRef} maxChars={60} data-testid="scrap-customer-id" />
           </Field>
           <Field label={t('Note (optional)')}>
-            <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
+            <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} data-testid="scrap-note" />
           </Field>
         </div>
+        </details>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="scrap-payment">
           <Field label={t('Paid from the drawer')} hint={t('Leave empty to pay it all in cash')}>
-            <Input
-              type="number"
-              min={0}
-              step={1}
+            <MoneyInput
               value={cashPart}
               placeholder={amount ? String(amount) : ''}
-              onChange={(e) => { setCashPart(e.target.value); setBankPart(null); setDrawerShort(null); }}
-              className="num"
+              onValueChange={(v) => { setCashPart(v); setBankPart(null); setDrawerShort(null); }}
               data-testid="scrap-cash-part"
             />
           </Field>
           <Field label={t('Paid by bank transfer')} hint={bankPart == null ? t('The rest of the amount') : undefined}>
-            <Input type="number" min={0} step={1} value={bankPart ?? String(bank)} onChange={(e) => { setBankPart(e.target.value); setDrawerShort(null); }} className="num" data-testid="scrap-bank-part" />
+            <MoneyInput value={bankPart ?? String(bank)} onValueChange={(v) => { setBankPart(v); setDrawerShort(null); }} data-testid="scrap-bank-part" />
           </Field>
           {bank > 0 && (
-            <Field label={t('Bank transfer reference')} hint={bankRef && !refOk ? t('4 to 40 letters or digits') : bankRef ? ltr(normalizeBankReference(bankRef)) : undefined}>
-              <Input value={bankRef} onChange={(e) => setBankRef(e.target.value)} maxLength={60} className="font-mono" data-testid="scrap-bank-ref" />
+            <Field label={t('Bank transfer reference')} hint={bankRef && !refOk ? t('4 to 40 letters or digits') : undefined}>
+              <ReferenceInput value={bankRef} onValueChange={setBankRef} data-testid="scrap-bank-ref" />
             </Field>
           )}
         </div>

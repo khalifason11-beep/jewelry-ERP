@@ -12,7 +12,7 @@ import { noteText } from '../../lib/audit';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import type { ItemRow } from '../../lib/types';
-import { Button, Card, CardHeader, DetailPending, Dialog, Field, Input, ItemThumb, KeyValue, Mono, PageHeader, Select, StatusBadge, Textarea } from '../../components/ui';
+import { Button, Card, CardHeader, DetailPending, Dialog, Field, Input, ItemThumb, KeyValue, MoneyInput, Mono, PageHeader, Select, StatusBadge, Textarea } from '../../components/ui';
 import { useServerList } from '../../lib/paging';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect } from '../../components/Filters';
@@ -328,7 +328,7 @@ export function ItemDetailPage() {
       >
         <div className="space-y-3">
           <Field label={t('New selling price ({currency})', { currency: currencyLabel() })} hint={i.totalCost != null ? t('Total cost {cost} · current price {price}', { cost: money(i.totalCost), price: money(i.sellingPrice) }) : undefined}>
-            <Input type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="num" />
+            <MoneyInput value={price} onValueChange={setPrice} min={1} data-testid="price-input" />
           </Field>
           <Field label={t('Reason (required)')}>
             <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('e.g. Gold rate increase')} data-testid="price-reason" />

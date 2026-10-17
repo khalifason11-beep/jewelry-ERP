@@ -1,21 +1,23 @@
-import { gramsToMg, normalizeBankReference, pureGoldMg, validBankReference } from '@jerp/shared';
-import { useState } from 'react';
+import { gramsToMg, parseMoneyInput, parseWeightInput, pureGoldMg, validBankReference } from '@jerp/shared';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import clsx from 'clsx';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { ApiError, get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, karatLabel, money, todayKey } from '../../lib/format';
-import { useBranches, useGoldRates } from '../../lib/hooks';
-import { useI18n } from '../../lib/i18n';
+import { useBranches } from '../../lib/hooks';
+import { tk, useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import { Alert, Button, Card, CardHeader, DetailPending, Dialog, Field, Input, KeyValue, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, DateInput, DetailPending, Dialog, Field, Input, KeyValue, MoneyInput, Mono, ReferenceInput, WeightInput, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { useServerList } from '../../lib/paging';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
 import { Crumbs } from '../sales/SalesPages';
 import { useActionKeys } from '../../lib/idempotency';
-import { NewButton, NewProductDialog, NewSupplierDialog, useProducts, useSuppliers } from '../../components/Catalog';
+import { NewButton, NewSupplierDialog, useProducts, useSuppliers } from '../../components/Catalog';
+import { NewProductPanel, ProductPicker } from '../../components/ProductPicker';
 
 interface Settlement {
   id: number;
@@ -131,7 +133,19 @@ interface Line {
   otherCost: string;
   sellingPrice: string;
 }
-const emptyLine = (): Line => ({ productId: '', gross: '', net: '', purchaseCost: '', makingCost: '', otherCost: '0', sellingPrice: '' });
+/** UX-1 PART 3: the line fields, in their order, with a one-line hint each (D-4-4, MKC-1, SUP-1). */
+const LINE_COLUMNS = [
+  { key: 'product', label: tk('Product'), hint: tk('Type to search, or create it here.') },
+  { key: 'gross', label: tk('Gross weight'), hint: tk('The whole piece, with any stones or other parts.') },
+  { key: 'net', label: tk('Net gold weight'), hint: tk('Gold only: the weight that counts for the karat and for the gold owed to the supplier.') },
+  { key: 'cost', label: tk('Purchase cost'), hint: tk('Your value of the piece for cost and profit; the supplier is paid in gold, not money.') },
+  { key: 'making', label: tk('Making charge'), hint: tk('Paid by the owner from the owner’s personal account; needs the transfer reference.') },
+  { key: 'other', label: tk('Other costs'), hint: tk('Any other cost of the piece, such as stones; part of its cost, no money moves.') },
+  { key: 'price', label: tk('Selling price'), hint: tk('The price the branch sells the piece at.') },
+] as const;
+// One row per piece from 768 px (1366×768 included); stacked, two fields a row, on a narrow screen (no side scroll).
+const LINE_GRID = 'grid grid-cols-2 gap-2 md:grid-cols-[minmax(10.5rem,1.4fr)_repeat(6,minmax(0,1fr))_2.25rem] md:items-start';
+const emptyLine = (): Line => ({ productId: '', gross: '', net: '', purchaseCost: '', makingCost: '', otherCost: '', sellingPrice: '' });
 
 function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
   const { me, isGlobal } = useAuth();
@@ -140,11 +154,11 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const branches = useBranches();
-  const rates = useGoldRates();
   const products = useProducts();
   const suppliers = useSuppliers();
-  // "New product" / "New supplier" open on top of this form; the created row is selected (CAT-0).
-  const [newProductFor, setNewProductFor] = useState<number | null>(null);
+  // UX-1: a new product is created in a panel under its line (the type too, if needed) and selected; a new supplier
+  // still opens on top of this form (CAT-0).
+  const [creating, setCreating] = useState<{ line: number; name: string } | null>(null);
   const [newSupplier, setNewSupplier] = useState(false);
   const [branchId, setBranchId] = useState<number | ''>(me?.user.branch?.id ?? '');
   const [supplierId, setSupplierId] = useState<number | ''>('');
@@ -170,20 +184,55 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
   const sellable = products.data?.filter((p) => me?.allowedKarats.includes(p.karat));
 
   const upd = (i: number, patch: Partial<Line>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
-  const suggest = (i: number, l: Line) => {
-    // Pre-fill purchase cost from the current gold rate (editable).
-    const p = products.data?.find((x) => x.id === l.productId);
-    const net = Number(l.net);
-    if (!p || !net) return;
-    const rate = rates.data?.current[String(p.karat)]?.pricePerGram ?? 0;
-    const purchase = Math.round((net * rate) / 1000) * 1000;
-    const making = Math.round((net * 10_000) / 1000) * 1000;
-    upd(i, { purchaseCost: String(purchase), makingCost: String(making), sellingPrice: String(Math.round(((purchase + making) * 1.22) / 5000) * 5000) });
-  };
   const total = lines.reduce((s, l) => s + (Number(l.purchaseCost) || 0) + (Number(l.makingCost) || 0) + (Number(l.otherCost) || 0), 0);
   const making = lines.reduce((s, l) => s + (Number(l.makingCost) || 0), 0);
   const transferOk = making === 0 || (!!validBankReference(transferRef) && !!transferDate && transferDate <= todayKey());
-  const valid = lines.every((l) => l.productId && Number(l.net) > 0 && Number(l.gross) >= Number(l.net) && Number(l.purchaseCost) > 0 && Number(l.sellingPrice) > 0) && (branchId || !isGlobal) && !!supplierId && transferOk;
+  // UX-1: the receive button stays disabled with the first thing still missing, in plain words (same rules as before).
+  const missing = ((): string | null => {
+    if (isGlobal && !branchId) return t('Choose the receiving branch');
+    if (!supplierId) return t('Choose the supplier');
+    for (const [i, l] of lines.entries()) {
+      const n = i + 1;
+      const net = parseWeightInput(l.net);
+      const gross = parseWeightInput(l.gross);
+      if (!l.productId) return t('Piece {n}: choose the product', { n });
+      if (!gross) return t('Piece {n}: enter the gross weight', { n });
+      if (!net) return t('Piece {n}: enter the net gold weight', { n });
+      if (gross < net) return t('Piece {n}: the net weight is more than the gross weight', { n });
+      if (!parseMoneyInput(l.purchaseCost)) return t('Piece {n}: enter the purchase cost', { n });
+      if (!parseMoneyInput(l.sellingPrice)) return t('Piece {n}: enter the selling price', { n });
+    }
+    if (making > 0 && !validBankReference(transferRef)) return t('Enter the transfer reference of the making charge');
+    if (making > 0 && !transferDate) return t('Enter the transfer date');
+    if (making > 0 && transferDate > todayKey()) return t('The transfer date cannot be in the future');
+    return null;
+  })();
+  const valid = missing === null && transferOk;
+  const netSum = lines.reduce((s, l) => s + (parseWeightInput(l.net) ?? 0), 0);
+
+  // "Add another piece" copies the previous line's product (never weights or prices) and focuses its gross weight.
+  const fields = useRef(new Map<string, HTMLInputElement | null>());
+  const [focusLine, setFocusLine] = useState<number | null>(null);
+  useEffect(() => {
+    if (focusLine == null) return;
+    fields.current.get(`gross-${focusLine}`)?.focus();
+    setFocusLine(null);
+  }, [focusLine]);
+  const addPiece = () => {
+    setLines((ls) => [...ls, { ...emptyLine(), productId: ls[ls.length - 1]?.productId ?? '' }]);
+    setFocusLine(lines.length);
+  };
+  // Enter moves to the next field of the form (a product list open on an option picks it instead).
+  const enterToNext = (e: KeyboardEvent<HTMLDivElement>) => {
+    const el = e.target as HTMLElement;
+    if (e.key !== 'Enter' || e.defaultPrevented || el.tagName !== 'INPUT') return;
+    const all = [...e.currentTarget.querySelectorAll<HTMLElement>('input:not([disabled]):not([tabindex="-1"]), select:not([disabled])')];
+    const next = all[all.indexOf(el) + 1];
+    if (next) {
+      e.preventDefault();
+      next.focus();
+    }
+  };
 
   const actionKeys = useActionKeys();
   const m = useMutation({
@@ -233,7 +282,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       title={t('New purchase (stock receipt)')}
       subtitle={t('Pieces are created as PURCHASED → RECEIVED → AVAILABLE with a PURCHASE ledger movement.')}
-      width="max-w-5xl"
+      width="max-w-6xl"
       footer={
         <>
           <span className="me-auto text-[13px] text-ink-600">
@@ -241,11 +290,17 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
             {' · '}
             {t('Making charge (paid by the owner)')} <b className="num">{money(making)}</b>
           </span>
+          {missing && (
+            <span className="text-meta text-ink-3" role="status" data-testid="purchase-missing">
+              {missing}
+            </span>
+          )}
           <Button onClick={onClose}>{t('Cancel')}</Button>
           <Button variant="primary" disabled={!valid} loading={m.isPending} onClick={() => m.mutate({})} data-testid="purchase-save">{t('Receive into stock')}</Button>
         </>
       }
     >
+      <div onKeyDown={enterToNext}>
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
         {isGlobal && (
           <Field label={t('Receiving branch')}>
@@ -262,18 +317,18 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
           </Select>
         </Field>
         <Field label={t('Supplier invoice no.')}>
-          <Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} />
+          <ReferenceInput value={invoiceNo} onValueChange={setInvoiceNo} maxChars={60} data-testid="purchase-invoice-no" />
         </Field>
         <Field label={t('Making charge')}>
           <span className="block py-2 text-[13px] text-ink-700" data-testid="purchase-mkc-payer">{t('Paid by the owner, by bank transfer from the owner’s personal account')}</span>
         </Field>
         {making > 0 && (
           <>
-            <Field label={t('Transfer reference')} hint={transferRef && !validBankReference(transferRef) ? t('4 to 40 letters or digits') : transferRef ? ltr(normalizeBankReference(transferRef)) : undefined}>
-              <Input value={transferRef} onChange={(e) => { setTransferRef(e.target.value); setDuplicateOf(null); }} maxLength={60} className="font-mono" data-testid="purchase-mkc-reference" />
+            <Field label={t('Transfer reference')} hint={transferRef && !validBankReference(transferRef) ? t('4 to 40 letters or digits') : undefined}>
+              <ReferenceInput value={transferRef} onValueChange={(v) => { setTransferRef(v); setDuplicateOf(null); }} data-testid="purchase-mkc-reference" />
             </Field>
             <Field label={t('Transfer date')}>
-              <Input type="date" value={transferDate} max={todayKey()} onChange={(e) => setTransferDate(e.target.value)} className="num" data-testid="purchase-mkc-date" />
+              <DateInput value={transferDate} max={todayKey()} onChange={setTransferDate} data-testid="purchase-mkc-date" />
             </Field>
           </>
         )}
@@ -302,61 +357,76 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
           </span>
         </Alert>
       )}
-      <div className="overflow-x-auto">
-        <table className="w-full text-[12.5px]">
-          <thead className="text-ink-500">
-            <tr>
-              <th className="pb-1.5 text-start font-medium">{t('Product')}</th>
-              <th className="pb-1.5 text-start font-medium">{t('Gross g')}</th>
-              <th className="pb-1.5 text-start font-medium">{t('Net g')}</th>
-              <th className="pb-1.5 text-start font-medium">{t('Purchase cost')}</th>
-              <th className="pb-1.5 text-start font-medium">{t('Making')}</th>
-              <th className="pb-1.5 text-start font-medium">{t('Other')}</th>
-              <th className="pb-1.5 text-start font-medium">{t('Selling price')}</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map((l, i) => (
-              <tr key={i}>
-                <td className="py-1 pe-2">
-                  <div className="flex items-center gap-1.5">
-                    <Select value={l.productId} onChange={(e) => upd(i, { productId: e.target.value ? Number(e.target.value) : '' })} className="h-8 min-w-48 text-[12.5px]" aria-label={t('Product')} data-testid={`line-product-${i}`}>
-                      <option value="">{sellable?.length === 0 ? t('No products yet: create one') : t('Select…')}</option>
-                      {sellable?.map((p) => <option key={p.id} value={p.id}>{L(p.name, p.nameAr)} · {karatLabel(p.karat)} · {L(p.categoryName, p.categoryNameAr)}</option>)}
-                    </Select>
-                    <button type="button" onClick={() => setNewProductFor(i)} className="rounded p-1 text-gold-700 hover:bg-gold-50" title={t('New product')} aria-label={t('New product')} data-testid={`line-new-product-${i}`}>
-                      <Plus className="size-4" />
-                    </button>
-                  </div>
-                </td>
-                <td className="py-1 pe-2"><Input type="number" step="0.001" value={l.gross} onChange={(e) => upd(i, { gross: e.target.value })} className="h-8 w-20 text-[12.5px]" aria-label={t('Gross g')} data-testid={`line-gross-${i}`} /></td>
-                <td className="py-1 pe-2"><Input type="number" step="0.001" value={l.net} onChange={(e) => upd(i, { net: e.target.value })} onBlur={() => !l.purchaseCost && suggest(i, l)} className="h-8 w-20 text-[12.5px]" aria-label={t('Net g')} data-testid={`line-net-${i}`} /></td>
-                <td className="py-1 pe-2"><Input type="number" value={l.purchaseCost} onChange={(e) => upd(i, { purchaseCost: e.target.value })} className="h-8 w-28 text-[12.5px]" aria-label={t('Purchase cost')} data-testid={`line-cost-${i}`} /></td>
-                <td className="py-1 pe-2"><Input type="number" value={l.makingCost} onChange={(e) => upd(i, { makingCost: e.target.value })} data-testid={`line-making-${i}`} aria-label={t('Making')} className="h-8 w-24 text-[12.5px]" /></td>
-                <td className="py-1 pe-2"><Input type="number" value={l.otherCost} onChange={(e) => upd(i, { otherCost: e.target.value })} aria-label={t('Other')} className="h-8 w-20 text-[12.5px]" /></td>
-                <td className="py-1 pe-2"><Input type="number" value={l.sellingPrice} onChange={(e) => upd(i, { sellingPrice: e.target.value })} className="h-8 w-28 text-[12.5px]" aria-label={t('Selling price')} data-testid={`line-price-${i}`} /></td>
-                <td className="py-1">
-                  <button onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} disabled={lines.length === 1} className="p-1 text-ink-400 hover:text-rose-600 disabled:opacity-30" aria-label={t('Remove line')}>
+      <div className={clsx(LINE_GRID, 'mb-1 border-b border-line pb-2')} data-testid="purchase-line-hints">
+        {LINE_COLUMNS.map((c) => (
+          <div key={c.key} className={clsx(c.key === 'product' && 'col-span-2 md:col-span-1')}>
+            <span className="block text-meta font-medium text-ink-2">{t(c.label)}</span>
+            <span id={`line-hint-${c.key}`} className="block text-[11.5px] leading-snug text-ink-3">{t(c.hint)}</span>
+          </div>
+        ))}
+      </div>
+      <div className="space-y-2 md:space-y-0">
+        {lines.map((l, i) => {
+          const field = (key: string) => ({ 'aria-describedby': `line-hint-${key}`, 'aria-label': `${t(LINE_COLUMNS.find((c) => c.key === key)!.label)} · ${t('Piece {n}', { n: i + 1 })}` });
+          const mobileLabel = (key: string) => <span className="mb-1 block text-meta text-ink-2 md:hidden">{t(LINE_COLUMNS.find((c) => c.key === key)!.label)}</span>;
+          return (
+            <div key={i} role="group" aria-label={t('Piece {n}', { n: i + 1 })} className="rounded-control border border-line p-2 md:rounded-none md:border-0 md:p-0 md:py-1" data-testid={`purchase-line-${i}`}>
+              <div className={LINE_GRID}>
+                <div className="col-span-2 md:col-span-1">
+                  {mobileLabel('product')}
+                  <ProductPicker
+                    compact
+                    products={sellable}
+                    value={l.productId}
+                    onChange={(id) => upd(i, { productId: id })}
+                    onCreate={(name) => setCreating({ line: i, name })}
+                    testId={`line-product-${i}`}
+                    aria-describedby="line-hint-product"
+                  />
+                </div>
+                <div>{mobileLabel('gross')}<WeightInput compact ref={(el) => { fields.current.set(`gross-${i}`, el); }} value={l.gross} onValueChange={(v) => upd(i, { gross: v })} {...field('gross')} data-testid={`line-gross-${i}`} /></div>
+                <div>{mobileLabel('net')}<WeightInput compact value={l.net} onValueChange={(v) => upd(i, { net: v })} {...field('net')} data-testid={`line-net-${i}`} /></div>
+                <div>{mobileLabel('cost')}<MoneyInput compact value={l.purchaseCost} onValueChange={(v) => upd(i, { purchaseCost: v })} {...field('cost')} data-testid={`line-cost-${i}`} /></div>
+                <div>{mobileLabel('making')}<MoneyInput compact placeholder="0" value={l.makingCost} onValueChange={(v) => upd(i, { makingCost: v })} {...field('making')} data-testid={`line-making-${i}`} /></div>
+                <div>{mobileLabel('other')}<MoneyInput compact placeholder="0" value={l.otherCost} onValueChange={(v) => upd(i, { otherCost: v })} {...field('other')} data-testid={`line-other-${i}`} /></div>
+                <div>{mobileLabel('price')}<MoneyInput compact value={l.sellingPrice} onValueChange={(v) => upd(i, { sellingPrice: v })} {...field('price')} data-testid={`line-price-${i}`} /></div>
+                <div className="col-span-2 flex justify-end md:col-span-1 md:block">
+                  <button
+                    type="button"
+                    onClick={() => { setLines((ls) => ls.filter((_, j) => j !== i)); setCreating(null); }}
+                    disabled={lines.length === 1}
+                    className="flex size-11 items-center justify-center rounded-control text-ink-400 hover:text-rose-600 disabled:opacity-30 md:size-9"
+                    aria-label={t('Remove piece {n}', { n: i + 1 })}
+                  >
                     <Trash2 className="size-4" />
                   </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </div>
+              </div>
+              {creating?.line === i && (
+                <div className="mt-2">
+                  <NewProductPanel
+                    name={creating.name}
+                    testId={`line-new-product-${i}`}
+                    onCancel={() => setCreating(null)}
+                    onCreated={(p) => {
+                      upd(i, { productId: p.id });
+                      setCreating(null);
+                      setFocusLine(i);
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
-      <Button size="sm" variant="ghost" className="mt-2" icon={<Plus className="size-4" />} onClick={() => setLines((ls) => [...ls, emptyLine()])}>{t('Add piece')}</Button>
-      <p className="mt-2 text-[12px] text-ink-500">{t('Tip: enter the net weight and the costs are pre-filled from today’s gold rate. All values stay editable.')}</p>
-      {newProductFor != null && (
-        <NewProductDialog
-          onClose={() => setNewProductFor(null)}
-          onCreated={(p) => {
-            upd(newProductFor, { productId: p.id });
-            setNewProductFor(null);
-          }}
-        />
-      )}
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+        <Button size="sm" variant="ghost" className="h-11 md:h-8" icon={<Plus className="size-4" />} onClick={addPiece} data-testid="purchase-add-piece">{t('Add another piece')}</Button>
+        <span className="text-[13px] text-ink-600" data-testid="purchase-net-sum">
+          {t('Net weight of all pieces: {weight} — compare with the supplier’s invoice.', { weight: ltr(grams(netSum)) })}
+        </span>
+      </div>
+      </div>
       {newSupplier && (
         <NewSupplierDialog
           onClose={() => setNewSupplier(false)}
@@ -547,7 +617,7 @@ function SettleForm({ purchaseId, branchId, owed }: { purchaseId: number; branch
   const [note, setNote] = useState('');
   const scope = `settle:${purchaseId}`;
   const m = useMutation({
-    mutationFn: () => postOnce<{ number: string }>(`/purchases/${purchaseId}/settlements`, { karat, weightMg: gramsToMg(weight), note: note.trim() || undefined }, actionKeys.for(scope)),
+    mutationFn: () => postOnce<{ number: string }>(`/purchases/${purchaseId}/settlements`, { karat, weightMg: mg, note: note.trim() || undefined }, actionKeys.for(scope)),
     onSuccess: (r) => {
       actionKeys.rotate(scope);
       toast.success(t('Settlement {number} recorded', { number: r.number }), t('The scrap weight left the branch pool.'));
@@ -558,7 +628,7 @@ function SettleForm({ purchaseId, branchId, owed }: { purchaseId: number; branch
     onError: (e) => toast.fromError(e),
   });
   const available = inPool.find((x) => x.karat === karat)?.weightMg ?? 0;
-  const mg = weight ? gramsToMg(weight) : 0;
+  const mg = parseWeightInput(weight) ?? 0;
   // Preview with the same single pure-gold helper the server uses.
   const pure = karat !== '' && mg > 0 ? pureGoldMg(mg, karat) : 0;
   const tooMuch = owed != null && pure > owed;
@@ -574,7 +644,7 @@ function SettleForm({ purchaseId, branchId, owed }: { purchaseId: number; branch
         </Select>
       </Field>
       <Field label={t('Weight handed over (g)')}>
-        <Input type="number" min={0} step="0.001" value={weight} onChange={(e) => setWeight(e.target.value)} className="num" />
+        <WeightInput value={weight} onValueChange={setWeight} data-testid="settlement-weight" />
       </Field>
       <Field label={t('Note (optional)')}>
         <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder={t('e.g. representative’s name')} />
