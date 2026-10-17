@@ -145,7 +145,7 @@ export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
 /** Every other field name the API sends, classified SAFE (one registry; unknown names fail tests). */
 export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
   words(`
-    used pricing roundingStep rateKind priceMissing
+    used pricing roundingStep rateKind priceMissing pricingMode
     abortReason abortedAt absDifferenceMg action actions active activeSessions actual address addedAt allowSelfPasswordChange
     allowedKarats allowedKaratsConfirmed alreadyOpen amount appMode ar asOf at attention availableItems availableWeightMg
     balanceGrams barcode basis branch branchAddress branchCode branchId branchName branchNameAr branchPhone branches branding

@@ -1835,4 +1835,13 @@ export const AR: Record<string, string> = {
   "Choose the karat first": "اختر العيار أولاً",
   // PRC-1
   "{karat} used-piece selling rate {from} → {to} per gram": "سعر جرام القطع المستعملة {karat}: من {from} إلى {to}",
+  "No selling rate is set for this karat yet. The General Manager sets it on the Prices screen.": "لم يُحدَّد سعر بيع لهذا العيار بعد. يحدده المدير العام في شاشة الأسعار.",
+  "No rate": "لا يوجد سعر",
+  "{code} has no price": "القطعة {code} بلا سعر",
+  "{rate} per gram": "{rate} للجرام",
+  "Rates changed: the prices were updated. Check the cart and confirm again.": "تغيّرت الأسعار: حُدِّثت أسعار السلة. راجعها ثم أكّد البيع من جديد.",
+  "Prices follow the rates: change the rate on the Prices screen": "الأسعار تتبع سعر الجرام: غيّر السعر من شاشة الأسعار",
+  "No selling rate for used {karat}K pieces: {code} cannot be sold until the General Manager sets it": "لا يوجد سعر بيع للقطع المستعملة عيار {karat}: لا يمكن بيع {code} حتى يحدده المدير العام",
+  "No selling rate for new {karat}K pieces: {code} cannot be sold until the General Manager sets it": "لا يوجد سعر بيع للقطع الجديدة عيار {karat}: لا يمكن بيع {code} حتى يحدده المدير العام",
+  "Item {code} has no selling price": "القطعة {code} بلا سعر بيع",
 };

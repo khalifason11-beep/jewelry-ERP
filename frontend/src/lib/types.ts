@@ -29,7 +29,13 @@ export interface ItemRow {
   makingCost?: number;
   otherCost?: number;
   totalCost?: number;
-  sellingPrice: number;
+  /**
+   * PRC-1: the LIVE price (computed from the current rate of the piece's karat and kind, or its tag price); null when
+   * the piece has no price (no rate set): it cannot be sold.
+   */
+  sellingPrice: number | null;
+  /** PRC-1: the rate per gram that priced it (computed prices); null with tag prices or without a rate. */
+  pricePerGram?: number | null;
   /** OPENING, SUPPLIER_NEW (new from a supplier) or SCRAP (sellable piece bought from a customer). */
   origin: 'OPENING' | 'SUPPLIER_NEW' | 'SCRAP';
   branchId: number;

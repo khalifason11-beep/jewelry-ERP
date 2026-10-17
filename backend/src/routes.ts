@@ -508,7 +508,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
       z
         .object({
           branchId: zIdBody.optional(),
-          items: z.array(z.object({ itemId: zIdBody, discount: zMoney.optional() }).strict()).min(1).max(50),
+          // PRC-1 (D-prc1-4): listPrice = the price the cashier saw; computed prices are checked against it (409).
+          items: z.array(z.object({ itemId: zIdBody, discount: zMoney.optional(), listPrice: zPositiveMoney.optional() }).strict()).min(1).max(50),
           paymentMethod: z.enum(PAYMENT_METHODS),
           // Hasad (D-4-6): the Hasad invoice number is required, the transaction reference optional.
           paymentRefInvoice: zText(80).min(1).optional(),

@@ -4,6 +4,7 @@
 import { sql } from 'drizzle-orm';
 import type { Executor } from '@jerp/database';
 import { rows, num } from '../../core/sql';
+import { livePriceSql, type Pricing } from '../pricing/service';
 
 export interface Period {
   start: Date;
@@ -32,7 +33,8 @@ export interface BranchMetrics {
 
 const iso = (d: Date) => d.toISOString();
 
-export async function branchMetrics(exec: Executor, p: Period, branchId: number | null): Promise<Map<number, BranchMetrics>> {
+/** `pricing`: PRC-1, the retail value of the stock is the sum of the pieces' LIVE prices (a piece without a rate adds 0). */
+export async function branchMetrics(exec: Executor, p: Period, branchId: number | null, pricing: Pricing): Promise<Map<number, BranchMetrics>> {
   const bFilter = (col: string) => (branchId != null ? sql.raw(`AND ${col} = ${Number(branchId)}`) : sql``);
 
   // UI-B (D-ui-21): grouped queries only. The pieces and weight sold come from one join of the period's sales with
@@ -63,7 +65,7 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
              count(*) FILTER (WHERE status = 'AVAILABLE') AS available,
              coalesce(sum(net_weight_mg) FILTER (WHERE status = 'AVAILABLE'),0) AS weight,
              coalesce(sum(acquisition_cost) FILTER (WHERE status = 'AVAILABLE'),0) AS cost,
-             coalesce(sum(selling_price) FILTER (WHERE status = 'AVAILABLE'),0) AS retail
+             coalesce(sum(${livePriceSql(pricing)}) FILTER (WHERE status = 'AVAILABLE'),0) AS retail
       FROM jewelry_items
       WHERE true ${bFilter('branch_id')}
       GROUP BY branch_id`),

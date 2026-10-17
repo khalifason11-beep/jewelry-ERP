@@ -6,9 +6,10 @@ import { assertSellableKarat } from '../../core/karats';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requireAny, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
-import { badRequest, notFound } from '../../core/errors';
+import { AppError, badRequest, notFound } from '../../core/errors';
 import { changeStatus, itemQuery, lockItems, recordMovement } from './ledger';
 import { maxIdOf, runPaged, sumOf, type PageRequest, type SortSpec } from '../../core/paging';
+import { livePriceSql, pricingOf, type Pricing } from '../pricing/service';
 
 const COST_FIELDS = ['purchaseCost', 'makingCost', 'otherCost', 'totalCost', 'acquisitionCost', 'makingCharge', 'costIsEstimated'] as const;
 
@@ -81,18 +82,19 @@ const countItems = (exec: Ctx['db'], where: SQL | undefined) =>
 /** The inventory report's rows on screen: at most `s.limit` (RPT-2: the report says when it is cut). */
 export async function searchItems(ctx: Ctx, actor: Actor, s: ItemSearch & { limit: number }) {
   const where = itemsWhere(actor, s);
+  const p = await pricingOf(ctx);
   const order =
     s.sort === 'weight'
       ? [asc(t.jewelryItems.netWeightMg)]
       : s.sort === 'price'
-        ? [asc(t.jewelryItems.sellingPrice)]
+        ? [asc(livePriceSql(p))]
         : s.sort === 'recent'
           ? [desc(t.jewelryItems.createdAt)]
           : s.sort === 'closest' && s.targetWeightMg
             ? [sql`abs(${t.jewelryItems.netWeightMg} - ${s.targetWeightMg})`]
             : [asc(t.jewelryItems.code)];
 
-  const rowsAll = await itemQuery(ctx.db)
+  const rowsAll = await itemQuery(ctx.db, p)
     .where(where.length ? and(...where) : undefined)
     .orderBy(...order)
     .limit(s.limit)
@@ -108,6 +110,7 @@ export async function searchItems(ctx: Ctx, actor: Actor, s: ItemSearch & { limi
  */
 export async function itemsReportAggregates(ctx: Ctx, actor: Actor, s: Omit<ItemSearch, 'sort' | 'limit' | 'offset'>) {
   const where = itemsWhere(actor, s);
+  const p = await pricingOf(ctx);
   const [r] = await ctx.db
     .select({
       // The same joins as the rows (itemQuery), so the count is the number of rows the report lists.
@@ -115,7 +118,8 @@ export async function itemsReportAggregates(ctx: Ctx, actor: Actor, s: Omit<Item
       netWeightMg: sumOf(t.jewelryItems.netWeightMg),
       purchaseCost: sumOf(sql`coalesce(${t.purchaseItems.purchaseCost}, ${t.jewelryItems.acquisitionCost})`),
       totalCost: sumOf(t.jewelryItems.acquisitionCost),
-      sellingPrice: sumOf(t.jewelryItems.sellingPrice),
+      // PRC-1: the live price (a piece without a rate adds nothing; it shows "no rate" on its row).
+      sellingPrice: sumOf(livePriceSql(p)),
     })
     .from(t.jewelryItems)
     .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
@@ -131,10 +135,11 @@ export async function itemsReportAggregates(ctx: Ctx, actor: Actor, s: Omit<Item
 
 export const ITEM_SORT_KEYS = ['code', 'weight', 'price', 'recent', 'closest', 'karat', 'cost'] as const;
 export type ItemSortKey = (typeof ITEM_SORT_KEYS)[number];
-const itemSorts = (targetWeightMg?: number): Record<ItemSortKey, SortSpec> => ({
+const itemSorts = (p: Pricing, targetWeightMg?: number): Record<ItemSortKey, SortSpec> => ({
   code: { by: t.jewelryItems.code, field: 'code', dir: 'asc' },
   weight: { by: t.jewelryItems.netWeightMg, field: 'netWeightMg', dir: 'asc' },
-  price: { by: t.jewelryItems.sellingPrice, field: 'sellingPrice', dir: 'asc' },
+  // PRC-1: by the live price (pieces without a rate last ascending, PostgreSQL's NULL order).
+  price: { by: livePriceSql(p), field: 'sellingPrice', dir: 'asc' },
   recent: { by: t.jewelryItems.createdAt, field: 'createdAt', dir: 'desc' },
   // Closest to a target weight (POS); without a target it is the weight order.
   closest: { by: targetWeightMg ? sql`abs(${t.jewelryItems.netWeightMg} - ${targetWeightMg})` : t.jewelryItems.netWeightMg, field: 'netWeightMg', dir: 'asc' },
@@ -147,18 +152,19 @@ const itemSorts = (targetWeightMg?: number): Record<ItemSortKey, SortSpec> => ({
 /** `withTotals: false`: no footer sums (the report's CSV walk reads rows only; RPT-2). */
 export async function pageItems(ctx: Ctx, actor: Actor, s: Omit<ItemSearch, 'sort' | 'limit' | 'offset'> & PageRequest<ItemSortKey>, opts: { withTotals?: boolean } = {}) {
   const where = itemsWhere(actor, s);
+  const p = await pricingOf(ctx);
   return runPaged(actor, s, {
-    sorts: itemSorts(s.targetWeightMg),
+    sorts: itemSorts(p, s.targetWeightMg),
     defaultSort: 'code',
     id: t.jewelryItems.id,
     where,
     maxId: async () => Number((await ctx.db.select({ m: maxIdOf(t.jewelryItems.id) }).from(t.jewelryItems))[0].m),
     count: async (w) => Number((await countItems(ctx.db, w))[0].count),
     rows: async ({ where: w, orderBy, limit, offset }) =>
-      (await itemQuery(ctx.db).where(w).orderBy(...orderBy).limit(limit).offset(offset)).map((r) => redactCosts(actor, r)),
+      (await itemQuery(ctx.db, p).where(w).orderBy(...orderBy).limit(limit).offset(offset)).map((r) => redactCosts(actor, r)),
     totals: opts.withTotals === false ? undefined : async (w) => {
       const [s] = await ctx.db
-        .select({ netWeightMg: sumOf(t.jewelryItems.netWeightMg), sellingPrice: sumOf(t.jewelryItems.sellingPrice), totalCost: sumOf(t.jewelryItems.acquisitionCost) })
+        .select({ netWeightMg: sumOf(t.jewelryItems.netWeightMg), sellingPrice: sumOf(livePriceSql(p)), totalCost: sumOf(t.jewelryItems.acquisitionCost) })
         .from(t.jewelryItems)
         .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
         .innerJoin(t.categories, eq(t.categories.id, t.products.categoryId))
@@ -170,7 +176,7 @@ export async function pageItems(ctx: Ctx, actor: Actor, s: Omit<ItemSearch, 'sor
 
 export async function getItemDetail(ctx: Ctx, actor: Actor, id: number) {
   requireAny(actor, 'inventory.view', 'inventory.view_available');
-  const [item] = await itemQuery(ctx.db).where(eq(t.jewelryItems.id, id));
+  const [item] = await itemQuery(ctx.db, await pricingOf(ctx)).where(eq(t.jewelryItems.id, id));
   if (!item) throw notFound('Item');
   branchScope(actor, item.branchId);
   if (!can(actor, 'inventory.view')) {
@@ -217,6 +223,10 @@ export async function getItemDetail(ctx: Ctx, actor: Actor, id: number) {
 
 export async function changePrice(ctx: Ctx, actor: Actor, id: number, newPrice: number, reason: string) {
   requirePerm(actor, 'inventory.price_edit');
+  // PRC-1 (D-prc1-1): with computed prices a piece's price follows the rates; nobody types one.
+  if ((await pricingOf(ctx)).mode === 'RATE_COMPUTED') {
+    throw new AppError(409, 'PRICE_FOLLOWS_RATES', 'Prices follow the rates: change the rate on the Prices screen');
+  }
   if (newPrice <= 0) throw badRequest('Price must be positive');
   return ctx.db.transaction(async (tx) => {
     const [item] = await lockItems(tx, [id]);

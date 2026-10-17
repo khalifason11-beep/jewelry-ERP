@@ -1,4 +1,5 @@
 import { ap, pureGoldMg, sumInt, validBankReference, type MakingChargePayer } from '@jerp/shared';
+import { livePriceSql, pricingOf } from '../pricing/service';
 import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import { nameOrAr } from '../../core/sql';
@@ -340,6 +341,7 @@ export async function getPurchase(ctx: Ctx, actor: Actor, id: number) {
     .where(eq(t.purchases.id, id));
   if (!p) throw notFound('Purchase');
   branchScope(actor, p.p.branchId);
+  const pricing = await pricingOf(ctx);
   const items = await ctx.db
     .select({
       itemId: t.jewelryItems.id,
@@ -351,7 +353,8 @@ export async function getPurchase(ctx: Ctx, actor: Actor, id: number) {
       purchaseCost: t.purchaseItems.purchaseCost,
       makingCost: t.purchaseItems.makingCost,
       otherCost: t.purchaseItems.otherCost,
-      sellingPrice: t.jewelryItems.sellingPrice,
+      // PRC-1: the piece's live price (computed from the rates, or its tag price), as on every other screen.
+      sellingPrice: livePriceSql(pricing),
       status: t.jewelryItems.status,
     })
     .from(t.purchaseItems)

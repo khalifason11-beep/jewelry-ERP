@@ -96,7 +96,8 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
       'security.twoFactorRequiredRoles': (opts.twoFactor ?? false) ? ['GENERAL_MANAGER'] : [],
       // PRC-1: the world's pieces carry tag prices (generated below), so it runs in FIXED_TAG, set explicitly; the
       // PRC-1 suites switch it to RATE_COMPUTED (both selling rates exist for 21K, below).
-      'pricing.mode': opts.pricingMode ?? 'FIXED_TAG',
+      // (seeded in FIXED_TAG: its historic sales are tag-priced; `opts.pricingMode` is applied at the end)
+      'pricing.mode': 'FIXED_TAG',
     },
     { actor: { id: null, username: 'demo-seed' }, allowGuarded: true },
   );
@@ -501,5 +502,8 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
   }
 
   const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(t.jewelryItems).where(eq(t.jewelryItems.status, 'AVAILABLE'));
+  if (opts.pricingMode && opts.pricingMode !== 'FIXED_TAG') {
+    await ctx.settings.apply(db, { 'pricing.mode': opts.pricingMode }, { actor: { id: null, username: 'demo-seed' } });
+  }
   return { availableItems: Number(n) };
 }

@@ -38,6 +38,8 @@ interface CartLine {
   item: ItemRow;
   discount: number;
 }
+/** PRC-1: a cart line's price (the cart only holds pieces that have one; see `add`). */
+const priceOfLine = (l: CartLine) => l.item.sellingPrice ?? 0;
 interface HeldSale {
   id: string;
   at: string;
@@ -92,6 +94,8 @@ export function PosPage() {
   const [bankRef, setBankRef] = useState('');
   const bankRefOk = payment !== 'BANK_TRANSFER' || !!validBankReference(bankRef);
   const [duplicateOf, setDuplicateOf] = useState<string | null>(null);
+  // PRC-1 (D-prc1-4): the server repriced the cart (a rate changed since the pieces were shown); the cashier confirms again.
+  const [pricesUpdated, setPricesUpdated] = useState(false);
   const payMethods = me?.posPaymentMethods?.length ? me.posPaymentMethods : DEFAULT_POS_METHODS;
   const sellableKarats = me?.allowedKarats ?? [];
   const [invoice, setInvoice] = useState<SaleDetail | null>(null);
@@ -133,7 +137,7 @@ export function PosPage() {
   const canDiscount = can('sales.discount') && maxPct > 0;
   const inCart = useMemo(() => new Set(cart.map((l) => l.item.id)), [cart]);
   const totals = useMemo(() => {
-    const subtotal = cart.reduce((s, l) => s + l.item.sellingPrice, 0);
+    const subtotal = cart.reduce((s, l) => s + priceOfLine(l), 0);
     const discount = cart.reduce((s, l) => s + l.discount, 0);
     return { subtotal, discount, total: subtotal - discount, weight: cart.reduce((s, l) => s + l.item.netWeightMg, 0) };
   }, [cart]);
@@ -144,9 +148,15 @@ export function PosPage() {
   const add = (item: ItemRow) => {
     if (item.status !== 'AVAILABLE') return toast.info(t('{code} is not available for sale', { code: item.code }), t('It cannot be sold until it is available again.'));
     if (inCart.has(item.id)) return toast.info(t('{code} is already in the cart', { code: item.code }));
+    // PRC-1: a piece without a price (no selling rate for its karat yet) is never sold, never at 0.
+    if (item.sellingPrice == null) return toast.error(t('{code} has no price', { code: item.code }), t('No selling rate is set for this karat yet. The General Manager sets it on the Prices screen.'));
+    setPricesUpdated(false);
     setCart((c) => [...c, { item, discount: 0 }]);
   };
-  const remove = (id: number) => setCart((c) => c.filter((l) => l.item.id !== id));
+  const remove = (id: number) => {
+    setPricesUpdated(false);
+    setCart((c) => c.filter((l) => l.item.id !== id));
+  };
   const reset = () => {
     setCart([]);
     setCustomerName('');
@@ -157,6 +167,7 @@ export function PosPage() {
     setPriceReason('');
     setBankRef('');
     setDuplicateOf(null);
+    setPricesUpdated(false);
   };
 
   // Barcode scanners type the code and press Enter.
@@ -188,7 +199,8 @@ export function PosPage() {
     mutationFn: (opts: { confirmDuplicate?: boolean } = {}) =>
       postOnce<SaleDetail>('/sales', {
         branchId,
-        items: cart.map((l) => ({ itemId: l.item.id, discount: l.discount })),
+        // PRC-1: the price shown for each piece; the server refuses (409) a price the cashier has not seen.
+        items: cart.map((l) => ({ itemId: l.item.id, discount: l.discount, ...(l.item.sellingPrice != null ? { listPrice: l.item.sellingPrice } : {}) })),
         paymentMethod: payment,
         ...(payment === 'HASAD' ? { paymentRefInvoice: hasadInvoice.trim(), paymentRefTransaction: hasadTxn.trim() || undefined } : {}),
         customerName: customerName || undefined,
@@ -209,6 +221,22 @@ export function PosPage() {
       // FIX-2: the same bank reference is already on another sale of this branch: ask before recording it.
       if (e instanceof ApiError && e.code === 'DUPLICATE_BANK_REFERENCE') {
         setDuplicateOf((e.details as { number?: string } | undefined)?.number ?? '—');
+        return;
+      }
+      // PRC-1: a rate changed since the pieces were shown: show the new prices; nothing was sold.
+      if (e instanceof ApiError && e.code === 'PRICES_CHANGED') {
+        const fresh = new Map(((e.details as { lines?: { itemId: number; listPrice: number; pricePerGram: number | null }[] } | undefined)?.lines ?? []).map((l) => [l.itemId, l]));
+        setCart((c) =>
+          c.map((l) => {
+            const f = fresh.get(l.item.id);
+            if (!f) return l;
+            const max = Math.floor((f.listPrice * maxPct) / 100);
+            return { item: { ...l.item, sellingPrice: f.listPrice, pricePerGram: f.pricePerGram }, discount: Math.min(l.discount, max) };
+          }),
+        );
+        actionKeys.rotate('sale');
+        setPricesUpdated(true);
+        qc.invalidateQueries({ queryKey: ['pos-items'] });
         return;
       }
       toast.fromError(e, t('Sale not completed'));
@@ -358,7 +386,7 @@ export function PosPage() {
                               value={l.discount ? String(l.discount) : ''}
                               placeholder="0"
                               onValueChange={(text) => {
-                                const max = Math.floor((l.item.sellingPrice * maxPct) / 100);
+                                const max = Math.floor((priceOfLine(l) * maxPct) / 100);
                                 const v = Math.max(0, Math.min(max, Number(text) || 0));
                                 setCart((c) => c.map((x) => (x.item.id === l.item.id ? { ...x, discount: v } : x)));
                               }}
@@ -372,8 +400,9 @@ export function PosPage() {
                           <span />
                         )}
                         <div className="text-end">
-                          {l.discount > 0 && <div className="text-[11px] text-ink-400 line-through num">{money(l.item.sellingPrice, false)}</div>}
-                          <div className="font-semibold num">{money(l.item.sellingPrice - l.discount)}</div>
+                          {l.discount > 0 && <div className="text-[11px] text-ink-400 line-through num">{money(priceOfLine(l), false)}</div>}
+                          <div className="font-semibold num">{money(priceOfLine(l) - l.discount)}</div>
+                          {l.item.pricePerGram != null && <div className="text-[11px] text-ink-500 num" data-testid="pos-line-per-gram">{t('{rate} per gram', { rate: money(l.item.pricePerGram, false) })}</div>}
                         </div>
                       </div>
                     </div>
@@ -428,6 +457,11 @@ export function PosPage() {
               />
               {bankRef.trim() !== '' && !bankRefOk && <p className="mt-1 text-[11.5px] text-crit">{t('The bank transfer reference must be 4 to 40 letters or digits')}</p>}
             </div>
+          )}
+          {pricesUpdated && (
+            <Alert tone="warning" className="mt-2">
+              <span data-testid="pos-prices-changed">{t('Rates changed: the prices were updated. Check the cart and confirm again.')}</span>
+            </Alert>
           )}
           {priceChanged && (
             <div className="mt-2">
@@ -715,7 +749,11 @@ function ProductCard({ item, inCart, onAdd }: { item: ItemRow; inCart: boolean; 
           <span className="num">{grams(item.netWeightMg)}</span>
         </div>
         <div className="mt-auto flex items-end justify-between pt-2">
-          <span className="text-[15px] font-semibold text-ink-950 num">{money(item.sellingPrice, false)}</span>
+          {item.sellingPrice == null ? (
+            <span className="rounded bg-crit-bg px-1.5 py-0.5 text-[11.5px] font-medium text-crit" data-testid="pos-no-rate">{t('No rate')}</span>
+          ) : (
+            <span className="text-[15px] font-semibold text-ink-950 num">{money(item.sellingPrice, false)}</span>
+          )}
           {inCart ? (
             <span className="text-[11px] font-medium text-gold-700">{t('In cart')}</span>
           ) : (

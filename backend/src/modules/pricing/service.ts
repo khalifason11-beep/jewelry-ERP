@@ -75,18 +75,19 @@ export function priceOf(p: Pricing, rates: Map<string, CurrentRate>, item: { kar
 export function liveRateSql(p: Pricing): SQL<number | null> {
   if (p.mode === 'FIXED_TAG') return sql<number | null>`NULL::bigint`;
   return sql<number | null>`(
-    SELECT gr.price_per_gram FROM gold_rates gr
+    SELECT CASE WHEN gr.price_per_gram > 0 THEN gr.price_per_gram END FROM gold_rates gr
     WHERE gr.karat = ${t.jewelryItems.karat}
       AND gr.kind = CASE WHEN ${t.jewelryItems.origin} = 'SCRAP' THEN 'USED' ELSE 'NEW' END
-    ORDER BY gr.effective_at DESC, gr.id DESC LIMIT 1)`;
+    ORDER BY gr.effective_at DESC, gr.id DESC LIMIT 1)`.mapWith(nullableNumber);
 }
 
 /**
- * The live price of the piece: FIXED_TAG → the tag price (NULL when ≤ 0); RATE_COMPUTED →
+ * The live price of the piece: FIXED_TAG → the stored tag price; RATE_COMPUTED →
  * round(mg × rate / (1000 × step)) × step (numeric round: half away from zero, like money.ts), NULL without a rate.
  */
 export function livePriceSql(p: Pricing): SQL<number | null> {
-  if (p.mode === 'FIXED_TAG') return sql<number | null>`nullif(greatest(${t.jewelryItems.sellingPrice}, 0), 0)`.mapWith(nullableNumber);
+  // FIXED_TAG: the stored tag price, exactly as before PRC-1 (lists, sorting and sums unchanged).
+  if (p.mode === 'FIXED_TAG') return sql<number | null>`${t.jewelryItems.sellingPrice}`.mapWith(nullableNumber);
   // Integer constants from a validated setting (1…1,000,000), written into the statement so the division is numeric.
   const step = sql.raw(String(Math.trunc(p.step)));
   const den = sql.raw(String(1000 * Math.trunc(p.step)));

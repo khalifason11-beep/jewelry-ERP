@@ -1,6 +1,7 @@
 // Report engine: every report returns the same shape (columns + rows + totals) so the UI
 // renders, searches, sorts and exports all of them with one component.
 
+import { pricingOf } from '../pricing/service';
 import { and, desc, eq, gte, ilike, inArray, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import { PAYMENT_METHODS, type ReportKey } from '@jerp/shared';
@@ -302,7 +303,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
       const group = q.group ?? 'branch';
       let rowsAll: Record<string, unknown>[];
       if (group === 'branch') {
-        const metrics = await branchMetrics(ctx.db, period, scope);
+        const metrics = await branchMetrics(ctx.db, period, scope, await pricingOf(ctx));
         const branches = await ctx.db.select({ id: t.branches.id, name: t.branches.name }).from(t.branches);
         const bn = new Map(branches.map((b) => [b.id, b.name]));
         rowsAll = [...metrics.values()].map((m) => ({
@@ -358,7 +359,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
       };
     }
     case 'branch-performance': {
-      const metrics = await branchMetrics(ctx.db, period, scope);
+      const metrics = await branchMetrics(ctx.db, period, scope, await pricingOf(ctx));
       const branches = await ctx.db.select().from(t.branches);
       const bn = new Map(branches.map((b) => [b.id, b.name]));
       const profit = can(actor, 'profit.view');

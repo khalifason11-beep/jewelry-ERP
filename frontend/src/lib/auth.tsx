@@ -23,6 +23,8 @@ export interface Me {
   csrfToken: string | null;
   allowSelfPasswordChange: boolean;
   maxDiscountPercent: number;
+  /** PRC-1: how prices are set (RATE_COMPUTED: from the rates, nobody types a price; FIXED_TAG: stored tag prices). */
+  pricingMode: 'RATE_COMPUTED' | 'FIXED_TAG';
   /** SEC-2: voids above this total ask for the password again (0 = every void). */
   voidReauthAboveAmount: number;
   /** Payment methods offered at the counter (setting sales.posPaymentMethods). */

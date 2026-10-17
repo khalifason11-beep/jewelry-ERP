@@ -162,7 +162,8 @@ export async function buildSalesWorld(srv, { pieces = 8 } = {}) {
   const gm = await prepareGm(srv);
   await gm.reauth(PEOPLE.gm.password);
   const branchId = (await gm.must('GET', '/branches')).find((b) => b.code === BRANCH.code).id;
-  await gm.must('POST', '/gold-rates', { rates: { 21: 190_000 } });
+  // PRC-1: both selling rates (new and used pieces; test values).
+  await gm.must('POST', '/gold-rates', { rates: { 21: 190_000 }, usedRates: { 21: 175_000 } });
   await gm.must('POST', '/scrap-rates', { rates: [{ karat: 21, pricePerGram: 150_000 }] });
   const people = {};
   for (const [key, role] of [['bm', 'BRANCH_MANAGER'], ['cashier', 'CASHIER']]) {
