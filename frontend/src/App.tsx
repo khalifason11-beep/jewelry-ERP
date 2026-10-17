@@ -21,6 +21,7 @@ import { CatalogPage } from './pages/inventory/CatalogPage';
 import { PurchasesPage, PurchaseDetailPage } from './pages/purchases/PurchasesPages';
 import { CashPage } from './pages/cash/CashPage';
 import { ScrapPage } from './pages/scrap/ScrapPage';
+import { PricesPage } from './pages/admin/PricesPage';
 import { TransfersPage } from './pages/transfers/TransfersPage';
 import { ReportsHubPage, ReportPage } from './pages/reports/ReportPages';
 import { UsersPage } from './pages/admin/UsersPage';
@@ -127,7 +128,7 @@ export function App() {
             <Route path="purchases" element={<Guard perm="purchases.view"><PurchasesPage /></Guard>} />
             <Route path="purchases/:id" element={<Guard perm="purchases.view"><PurchaseDetailPage /></Guard>} />
             <Route path="cash" element={<Guard perm="cash.view"><CashPage /></Guard>} />
-            <Route path="scrap" element={<Guard perm="scrap.buy"><ScrapPage /></Guard>} />
+            <Route path="scrap" element={<Guard any={['scrap.buy', 'scrap.buy_sellable']}><ScrapPage /></Guard>} />
             <Route path="transfers" element={<Guard perm="inventory.transfer"><TransfersPage /></Guard>} />
             <Route path="reports" element={<Guard perm="reports.view"><ReportsHubPage /></Guard>} />
             <Route path="reports/:key" element={<Guard perm="reports.view"><ReportPage /></Guard>} />
@@ -135,6 +136,7 @@ export function App() {
             <Route path="sessions" element={<Guard perm="sessions.view"><SessionsPage /></Guard>} />
             <Route path="audit" element={<Guard perm="audit.view"><AuditPage /></Guard>} />
             <Route path="settings" element={<Guard perm="settings.manage"><SettingsPage /></Guard>} />
+            <Route path="prices" element={<Guard perm="settings.manage"><PricesPage /></Guard>} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>

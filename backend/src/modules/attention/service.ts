@@ -282,7 +282,7 @@ export async function attentionFor(ctx: Ctx, actor: Actor, q: { branchId?: numbe
 
   // ── A16 a missing gold or scrap rate (settings.manage; company view) ──
   if (companyView && can(actor, 'settings.manage') && !(await setupRatesDone(ctx))) {
-    push({ id: 'A16', code: 'A16', severity: 'critical', branchId: null, count: 1, link: '/settings#rates', params: {}, since: null });
+    push({ id: 'A16', code: 'A16', severity: 'critical', branchId: null, count: 1, link: '/prices', params: {}, since: null });
   }
 
   // ── Personal and system notices that moved here from the shell (UI-B Q2): S1 only one passkey, S2 touch-only keys ──

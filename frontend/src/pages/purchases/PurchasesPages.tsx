@@ -145,6 +145,8 @@ const LINE_COLUMNS = [
 ] as const;
 // One row per piece from 768 px (1366×768 included); stacked, two fields a row, on a narrow screen (no side scroll).
 const LINE_GRID = 'grid grid-cols-2 gap-2 md:grid-cols-[minmax(10.5rem,1.4fr)_repeat(6,minmax(0,1fr))_2.25rem] md:items-start';
+// PRC-1 (D-prc1-8): with computed prices the line has no selling price (the piece follows the new-piece rate).
+const LINE_GRID_NO_PRICE = 'grid grid-cols-2 gap-2 md:grid-cols-[minmax(10.5rem,1.4fr)_repeat(5,minmax(0,1fr))_2.25rem] md:items-start';
 const emptyLine = (): Line => ({ productId: '', gross: '', net: '', purchaseCost: '', makingCost: '', otherCost: '', sellingPrice: '' });
 
 function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
@@ -180,6 +182,9 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
   const [serverDebt, setServerDebt] = useState<SupplierDebt | null>(null);
   const openDebt = serverDebt ?? (debt.data && debt.data.orders > 0 ? debt.data : null);
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
+  const tagPrices = me?.pricingMode === 'FIXED_TAG';
+  const columns = LINE_COLUMNS.filter((c) => tagPrices || c.key !== 'price');
+  const lineGrid = tagPrices ? LINE_GRID : LINE_GRID_NO_PRICE;
   // Only karats this deployment sells can be bought from a supplier (D-4-1).
   const sellable = products.data?.filter((p) => me?.allowedKarats.includes(p.karat));
 
@@ -200,7 +205,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
       if (!net) return t('Piece {n}: enter the net gold weight', { n });
       if (gross < net) return t('Piece {n}: the net weight is more than the gross weight', { n });
       if (!parseMoneyInput(l.purchaseCost)) return t('Piece {n}: enter the purchase cost', { n });
-      if (!parseMoneyInput(l.sellingPrice)) return t('Piece {n}: enter the selling price', { n });
+      if (tagPrices && !parseMoneyInput(l.sellingPrice)) return t('Piece {n}: enter the selling price', { n });
     }
     if (making > 0 && !validBankReference(transferRef)) return t('Enter the transfer reference of the making charge');
     if (making > 0 && !transferDate) return t('Enter the transfer date');
@@ -252,7 +257,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
           purchaseCost: Number(l.purchaseCost),
           makingCost: Number(l.makingCost) || 0,
           otherCost: Number(l.otherCost) || 0,
-          sellingPrice: Number(l.sellingPrice),
+          ...(tagPrices ? { sellingPrice: Number(l.sellingPrice) } : {}),
         })),
       }, actionKeys.for('purchase')),
     onSuccess: (p) => {
@@ -357,8 +362,11 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
           </span>
         </Alert>
       )}
-      <div className={clsx(LINE_GRID, 'mb-1 border-b border-line pb-2')} data-testid="purchase-line-hints">
-        {LINE_COLUMNS.map((c) => (
+      {!tagPrices && (
+        <p className="mb-2 text-meta text-ink-3" data-testid="purchase-price-follows-rate">{t('No selling price to type: each piece sells at its net weight × today’s new-piece rate of its karat.')}</p>
+      )}
+      <div className={clsx(lineGrid, 'mb-1 border-b border-line pb-2')} data-testid="purchase-line-hints">
+        {columns.map((c) => (
           <div key={c.key} className={clsx(c.key === 'product' && 'col-span-2 md:col-span-1')}>
             <span className="block text-meta font-medium text-ink-2">{t(c.label)}</span>
             <span id={`line-hint-${c.key}`} className="block text-[11.5px] leading-snug text-ink-3">{t(c.hint)}</span>
@@ -371,7 +379,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
           const mobileLabel = (key: string) => <span className="mb-1 block text-meta text-ink-2 md:hidden">{t(LINE_COLUMNS.find((c) => c.key === key)!.label)}</span>;
           return (
             <div key={i} role="group" aria-label={t('Piece {n}', { n: i + 1 })} className="rounded-control border border-line p-2 md:rounded-none md:border-0 md:p-0 md:py-1" data-testid={`purchase-line-${i}`}>
-              <div className={LINE_GRID}>
+              <div className={lineGrid}>
                 <div className="col-span-2 md:col-span-1">
                   {mobileLabel('product')}
                   <ProductPicker
@@ -389,7 +397,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
                 <div>{mobileLabel('cost')}<MoneyInput compact value={l.purchaseCost} onValueChange={(v) => upd(i, { purchaseCost: v })} {...field('cost')} data-testid={`line-cost-${i}`} /></div>
                 <div>{mobileLabel('making')}<MoneyInput compact placeholder="0" value={l.makingCost} onValueChange={(v) => upd(i, { makingCost: v })} {...field('making')} data-testid={`line-making-${i}`} /></div>
                 <div>{mobileLabel('other')}<MoneyInput compact placeholder="0" value={l.otherCost} onValueChange={(v) => upd(i, { otherCost: v })} {...field('other')} data-testid={`line-other-${i}`} /></div>
-                <div>{mobileLabel('price')}<MoneyInput compact value={l.sellingPrice} onValueChange={(v) => upd(i, { sellingPrice: v })} {...field('price')} data-testid={`line-price-${i}`} /></div>
+                {tagPrices && <div>{mobileLabel('price')}<MoneyInput compact value={l.sellingPrice} onValueChange={(v) => upd(i, { sellingPrice: v })} {...field('price')} data-testid={`line-price-${i}`} /></div>}
                 <div className="col-span-2 flex justify-end md:col-span-1 md:block">
                   <button
                     type="button"
@@ -461,7 +469,7 @@ export function PurchaseDetailPage() {
           makingChargeReference?: string | null;
           makingChargeTransferDate?: string | null;
           settlements: Settlement[];
-          items: { itemId: number; code: string; productName: string; productNameAr: string; karat: number; netWeightMg: number; purchaseCost: number; makingCost: number; otherCost: number; sellingPrice: number; status: string }[];
+          items: { itemId: number; code: string; productName: string; productNameAr: string; karat: number; netWeightMg: number; purchaseCost: number; makingCost: number; otherCost: number; sellingPrice: number | null; status: string }[];
         }
       >(`/purchases/${id}`),
   });

@@ -79,18 +79,21 @@ const SCRAP_SORT_KEYS = { number: 'number', createdAt: 'date', branchName: 'bran
 
 export function ScrapPage() {
   const { t, L, lang } = useI18n();
-  const { me, isGlobal } = useAuth();
+  const { me, isGlobal, can } = useAuth();
   const branches = useBranches();
   const [branchId, setBranchId] = useState<number | undefined>(me?.user.branch?.id ?? undefined);
-  const pool = useQuery({ queryKey: ['scrap-pool', branchId ?? 'all'], queryFn: () => get<PoolView>('/scrap-pool', { branchId }) });
+  // PRC-1 (D-prc1-8): the cashier (scrap.buy_sellable only) buys a sellable piece; the pool and the list of scrap bought
+  // stay with the branch manager and the General Manager (scrap.buy), as before.
+  const full = can('scrap.buy');
+  const pool = useQuery({ queryKey: ['scrap-pool', branchId ?? 'all'], queryFn: () => get<PoolView>('/scrap-pool', { branchId }), enabled: full });
   // BE-7: one page at a time from the server.
-  const list = useServerList<ScrapRow>('scrap-purchases', '/scrap-purchases', { branchId }, { sortKeys: SCRAP_SORT_KEYS, search: true });
+  const list = useServerList<ScrapRow>('scrap-purchases', '/scrap-purchases', { branchId }, { sortKeys: SCRAP_SORT_KEYS, search: true, enabled: full });
 
   return (
     <div className="p-5 lg:p-6">
       <PageHeader
-        title={t('Scrap gold')}
-        subtitle={t('Buy gold from customers at today’s scrap rate. Broken scrap goes into the branch pool, which is how suppliers are paid in gold.')}
+        title={full ? t('Scrap gold') : t('Buy a piece from a customer')}
+        subtitle={full ? t('Buy gold from customers at today’s scrap rate. Broken scrap goes into the branch pool, which is how suppliers are paid in gold.') : t('A piece in good condition, bought at today’s scrap rate and put on sale at the used-piece rate.')}
         actions={
           isGlobal && (
             <Select value={branchId ?? ''} onChange={(e) => setBranchId(e.target.value ? Number(e.target.value) : undefined)} className="h-9 w-48" aria-label={t('Branch')}>
@@ -101,6 +104,7 @@ export function ScrapPage() {
         }
       />
 
+      {full && (
       <Card padded={false} className="mb-5">
         <CardHeader title={t('Broken-scrap pool')} subtitle={t('Weight held per karat (never an inventory item). Counted in the branch’s total stock weight.')} />
         <div className="p-5">
@@ -109,6 +113,7 @@ export function ScrapPage() {
           </QueryState>
         </div>
       </Card>
+      )}
 
       {branchId != null ? (
         <BuyForm branchId={branchId} />
@@ -119,6 +124,7 @@ export function ScrapPage() {
         </Card>
       )}
 
+      {full && (
       <Card padded={false} className="mt-5">
         <CardHeader title={t('Scrap bought')} />
         <DataTable
@@ -144,6 +150,7 @@ export function ScrapPage() {
           ]}
         />
       </Card>
+      )}
     </div>
   );
 }
@@ -189,10 +196,13 @@ function BuyForm({ branchId }: { branchId: number }) {
   const qc = useQueryClient();
   const actionKeys = useActionKeys();
   const rates = useQuery({ queryKey: ['scrap-rates'], queryFn: () => get<ScrapRates>('/scrap-rates') });
-  const products = useQuery({ queryKey: ['products'], queryFn: () => get<Product[]>('/products'), enabled: can('purchases.create') || can('scrap.buy') });
+  const products = useQuery({ queryKey: ['products'], queryFn: () => get<Product[]>('/products'), enabled: can('purchases.create') || can('scrap.buy') || can('scrap.buy_sellable') });
+  // PRC-1: broken scrap needs scrap.buy; with computed prices nobody types a selling price (D-prc1-8).
+  const kinds: ScrapKind[] = can('scrap.buy') ? ['BROKEN', 'SELLABLE'] : ['SELLABLE'];
+  const tagPrices = me?.pricingMode === 'FIXED_TAG';
   // UX-1: a new product is created in a panel in the form (its karat fixed to the piece's), then selected.
   const [creating, setCreating] = useState<string | null>(null);
-  const [kind, setKind] = useState<ScrapKind>('BROKEN');
+  const [kind, setKind] = useState<ScrapKind>(can('scrap.buy') ? 'BROKEN' : 'SELLABLE');
   const [karat, setKarat] = useState<number | ''>('');
   // Broken scrap: the karat as typed (UX-1 number field); `karat` holds it once it is a whole number from 1 to 24.
   const [karatText, setKaratText] = useState('');
@@ -230,7 +240,7 @@ function BuyForm({ branchId }: { branchId: number }) {
   const piecesProducts = useMemo(() => products.data?.filter((p) => p.karat === karat) ?? [], [products.data, karat]);
   const valid =
     karat !== '' && rate > 0 && netMg > 0 && (grossMg == null || grossMg >= netMg) && agreedRate > 0 && !needsGm && partsOk && refOk &&
-    (kind === 'BROKEN' || (productId !== '' && Number(sellingPrice) > 0));
+    (kind === 'BROKEN' || (productId !== '' && (!tagPrices || Number(sellingPrice) > 0)));
 
   const reset = () => {
     setGross('');
@@ -261,7 +271,7 @@ function BuyForm({ branchId }: { branchId: number }) {
           cashAmount: cash,
           bankAmount: bank,
           ...(bank > 0 ? { bankReference: validBankReference(bankRef) ?? bankRef } : {}),
-          ...(kind === 'SELLABLE' ? { productId, sellingPrice: Number(sellingPrice) } : {}),
+          ...(kind === 'SELLABLE' ? { productId, ...(tagPrices ? { sellingPrice: Number(sellingPrice) } : {}) } : {}),
           customerName: customerName.trim() || undefined,
           customerPhone: customerPhone.trim() || undefined,
           customerIdRef: customerIdRef.trim() || undefined,
@@ -288,8 +298,9 @@ function BuyForm({ branchId }: { branchId: number }) {
     <Card padded={false}>
       <CardHeader title={t('Buy scrap from a customer')} subtitle={t('The customer is paid now: from the drawer, by bank transfer, or part of each.')} />
       <div className="space-y-4 p-5">
+        {kinds.length > 1 && (
         <div className="flex rounded-md border border-line-strong p-0.5 sm:w-fit" role="radiogroup" aria-label={t('Type')}>
-          {(['BROKEN', 'SELLABLE'] as const).map((k) => (
+          {kinds.map((k) => (
             <button
               key={k}
               role="radio"
@@ -302,6 +313,7 @@ function BuyForm({ branchId }: { branchId: number }) {
             </button>
           ))}
         </div>
+        )}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field label={t('Karat')} hint={kind === 'BROKEN' ? t('Any karat from 1 to 24') : undefined}>
             {kind === 'BROKEN' ? (
@@ -349,9 +361,15 @@ function BuyForm({ branchId }: { branchId: number }) {
                   testId="scrap-product"
                 />
               </Field>
-              <Field label={t('Selling price')}>
-                <MoneyInput value={sellingPrice} onValueChange={setSellingPrice} data-testid="scrap-selling-price" />
-              </Field>
+              {tagPrices ? (
+                <Field label={t('Selling price')}>
+                  <MoneyInput value={sellingPrice} onValueChange={setSellingPrice} data-testid="scrap-selling-price" />
+                </Field>
+              ) : (
+                <Field label={t('Selling price')}>
+                  <span className="block pt-2 text-meta text-ink-3" data-testid="scrap-price-follows-rate">{t('Follows the used-piece rate per gram')}</span>
+                </Field>
+              )}
               {creating != null && karat !== '' && (
                 <div className="sm:col-span-2 lg:col-span-4">
                   <NewProductPanel

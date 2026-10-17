@@ -42,8 +42,23 @@ export async function scrapRatesView(ctx: Ctx, actor: Actor) {
   requireAny(actor, 'scrap.buy', 'scrap.buy_sellable', 'settings.manage');
   const rates = await scrapRates(ctx.db);
   const { purchases: p } = await ctx.settings.get();
+  // PRC-1 (D-prc1-9): the Prices page shows every change with who and when (append-only rows; the General Manager only).
+  const history = can(actor, 'settings.manage')
+    ? await ctx.db
+        .select({
+          id: t.scrapRates.id,
+          karat: t.scrapRates.karat,
+          pricePerGram: t.scrapRates.pricePerGram,
+          effectiveAt: t.scrapRates.effectiveAt,
+          setBy: sql<string | null>`(select full_name from users u where u.id = ${t.scrapRates.setBy})`,
+        })
+        .from(t.scrapRates)
+        .orderBy(desc(t.scrapRates.effectiveAt), desc(t.scrapRates.id))
+        .limit(60)
+    : [];
   return {
     rates: Object.entries(rates).map(([karat, r]) => ({ karat: Number(karat), pricePerGram: r.pricePerGram, effectiveAt: r.effectiveAt })),
+    history,
     tolerancePct: p.scrapPriceTolerancePct,
     requireGmApproval: p.requireGmApprovalForScrapOverride,
   };

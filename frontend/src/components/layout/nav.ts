@@ -4,7 +4,7 @@
 // Built from permissions (a hidden link is never the only protection: the routes check them too):
 //   General Manager: Home · Sales · Stock and gold · Suppliers · Money · Analysis · Administration — no POS (D-ux-7).
 //   Branch manager:  Home · Selling (POS, Sales) · Stock and gold · Suppliers · Money · Analysis · Team.
-//   Cashier:         Point of sale · My activity, always as icons.
+//   Cashier:         Point of sale · Scrap gold (a sellable piece only, PRC-1) · My activity, always as icons.
 // Only screens that exist: there is no Suppliers list page yet, so the Suppliers group holds "Supplier purchases" only.
 
 import type { Permission } from '@jerp/shared';
@@ -26,6 +26,7 @@ export type NavIcon =
   | 'users'
   | 'sessions'
   | 'audit'
+  | 'prices'
   | 'settings';
 
 export interface NavLinkDef {
@@ -53,6 +54,8 @@ export function navFor(can: Can): NavGroupDef[] {
         title: null,
         items: [
           ...(can('pos.access') ? [{ to: '/pos', label: tk('Point of Sale'), icon: 'pos' as const }] : []),
+          // PRC-1 (D-prc1-8): the cashier buys a sellable piece from a customer.
+          ...(can('scrap.buy_sellable') ? [{ to: '/scrap', label: tk('Buy a piece from a customer'), icon: 'scrap' as const }] : []),
           ...(can('sales.view_own') ? [{ to: '/me', label: tk('My Activity'), icon: 'my-activity' as const }] : []),
         ],
       },
@@ -73,6 +76,8 @@ export function navFor(can: Can): NavGroupDef[] {
         ...(can('inventory.view') ? [{ to: '/inventory', label: tk('Inventory'), icon: 'inventory' as const }] : []),
         ...(can('inventory.transfer') && can('inventory.view') ? [{ to: '/transfers', label: tk('Transfers'), icon: 'transfers' as const }] : []),
         ...(can('scrap.buy') ? [{ to: '/scrap', label: tk('Scrap gold'), icon: 'scrap' as const }] : []),
+        // PRC-1 (D-prc1-9): the three rates per gram, General Manager only.
+        ...(can('settings.manage') ? [{ to: '/prices', label: tk('Prices'), icon: 'prices' as const }] : []),
         ...(can('catalog.create') ? [{ to: '/catalog', label: tk('Types & products'), icon: 'catalog' as const }] : []),
       ],
     },

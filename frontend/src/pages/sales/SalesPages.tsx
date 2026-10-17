@@ -27,6 +27,8 @@ export interface SaleRow {
   customerNameAr?: string | null;
   itemCount: number;
   weightMg: number;
+  /** PRC-1: the rate per gram of the sale's lines when they share one (else null: fixed prices or several rates). */
+  pricePerGram?: number | null;
   subtotal: number;
   discountTotal: number;
   total: number;
@@ -71,6 +73,7 @@ export function SalesTable({ branchId, from, to, mine, toolbar }: { branchId?: n
         { key: 'customerName', header: t('Customer'), render: (r) => (r.customerName ? L(r.customerName, r.customerNameAr) : null) ?? <span className="text-ink-400">{t('Walk-in')}</span> },
         { key: 'itemCount', header: t('Items'), align: 'end', footer: sum('itemCount') },
         { key: 'weightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.weightMg)}</span>, footer: grams(sum('weightMg')) },
+        { key: 'pricePerGram', header: t('Price per gram'), align: 'end', sortable: false, render: (r) => <span className="num" data-testid="sale-per-gram">{money(r.pricePerGram, false)}</span> },
         { key: 'total', header: t('Total'), align: 'end', render: (r) => <span className="font-medium num">{money(r.total, false)}</span>, footer: money(sum('total'), false) },
         ...(profit
           ? [
@@ -226,6 +229,7 @@ export function SaleDetailPage() {
                 <tr>
                   <th className="px-5 py-2 text-start font-medium">{t('Item')}</th>
                   <th className="px-3 py-2 text-end font-medium">{t('Net weight')}</th>
+                  <th className="px-3 py-2 text-end font-medium">{t('Price per gram')}</th>
                   <th className="px-3 py-2 text-end font-medium">{t('Price')}</th>
                   <th className="px-3 py-2 text-end font-medium">{t('Discount')}</th>
                   <th className="px-3 py-2 text-end font-medium">{t('Sold for')}</th>
@@ -247,6 +251,7 @@ export function SaleDetailPage() {
                       <div className="font-mono text-[11px] text-ink-500">{i.itemCode} · {karatLabel(i.karat)} · {i.barcode}</div>
                     </td>
                     <td className="px-3 py-2.5 text-end num">{grams(i.netWeightMg)}</td>
+                    <td className="px-3 py-2.5 text-end num">{money(i.priceRatePerGram, false)}</td>
                     <td className="px-3 py-2.5 text-end num">{money(i.listPrice, false)}</td>
                     <td className="px-3 py-2.5 text-end num">{i.discount ? money(i.discount, false) : '—'}</td>
                     <td className="px-3 py-2.5 text-end font-medium num">{money(i.finalPrice, false)}</td>
