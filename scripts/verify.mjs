@@ -3,7 +3,7 @@
 // A thin wrapper: every step is an existing script, run exactly as a contributor or CI runs it.
 //
 //   npm run verify                  typecheck, tests (PGlite), tests (PostgreSQL), build, i18n:check
-//   npm run verify -- --full        the same, then REH-1, e2e print, passkeys on and off, states, UI kit, perf
+//   npm run verify -- --full        the same, then REH-1, e2e print, passkeys on and off, states, add piece, UI kit, perf
 //
 // PostgreSQL steps need a role that may CREATE DATABASE (never a production URL: the tests create and drop databases):
 //   TEST_DATABASE_URL=postgresql://jerp_test:<pw>@localhost:5432/postgres   (REH-1 and perf use it too, unless
@@ -38,6 +38,7 @@ if (full) {
     ['e2e passkeys (on)', process.execPath, ['scripts/e2e-passkeys.mjs']],
     ['e2e passkeys (off)', process.execPath, ['scripts/e2e-passkeys.mjs', '--mode=off']],
     ['e2e states', process.execPath, ['scripts/e2e-states.mjs']],
+    ['e2e add piece', process.execPath, ['scripts/e2e-add-piece.mjs']],
     // --no-shots: the checks only, so the committed screenshots in docs/ux/ui-kit are not rewritten.
     ['UI kit', process.execPath, ['scripts/capture-ui-kit.mjs', '--no-shots']],
     ['perf (homes)', process.execPath, ['scripts/perf-homes.mjs'], { REHEARSAL_ADMIN_URL: adminUrl }, noAdmin],
