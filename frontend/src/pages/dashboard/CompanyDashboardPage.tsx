@@ -16,7 +16,7 @@ import { useAuth } from '../../lib/auth';
 import { addDaysKey, currencyLabel, date as formatDate, grams, money, num, pct, todayKey } from '../../lib/format';
 import { branchColor, useBranches } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
-import { ErrorState, Input, Panel, PanelHeader, PillGroup, RefreshBar, Select, SkeletonRows } from '../../components/ui';
+import { DateInput, ErrorState, Panel, PanelHeader, PillGroup, RefreshBar, Select, SkeletonRows } from '../../components/ui';
 import type { StockWeight } from '../../components/StockWeight';
 import { FirstSteps, useSetupStatus } from '../../components/FirstSteps';
 import { useAttention, type Signal } from '../../components/Attention';
@@ -131,8 +131,8 @@ export function CompanyDashboardPage() {
           )}
           {!scope && preset === 'custom' && (
             <>
-              <Input type="date" value={custom.from} max={custom.to} onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))} className="w-38" aria-label={t('From')} />
-              <Input type="date" value={custom.to} min={custom.from} max={today} onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))} className="w-38" aria-label={t('To')} />
+              <DateInput value={custom.from} max={custom.to} onChange={(d) => d && setCustom((c) => ({ ...c, from: d }))} className="w-40" aria-label={t('From')} />
+              <DateInput value={custom.to} min={custom.from} max={today} onChange={(d) => d && setCustom((c) => ({ ...c, to: d }))} className="w-40" aria-label={t('To')} />
             </>
           )}
         </div>

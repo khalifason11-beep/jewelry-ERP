@@ -14,7 +14,7 @@ import { get } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { currencyLabel, date as formatDate, grams, money, num, pct, signedMoney, todayKey } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
-import { ErrorState, Input, Panel, PanelHeader, Pill, RefreshBar } from '../../components/ui';
+import { DateInput, ErrorState, Panel, PanelHeader, Pill, RefreshBar } from '../../components/ui';
 import type { StockWeight } from '../../components/StockWeight';
 import { AttentionPanel, FigureSurface, FiguresSkeleton, KvRow, SalesCard, SalesLinePanel, type Figure } from '../../components/Home';
 
@@ -92,7 +92,7 @@ export function BranchDashboard({ branchId, branchName, embedded }: { branchId?:
         {t('Today')}
       </Pill>
       {picking || !isToday ? (
-        <Input type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)} className="h-8 w-40" aria-label={t('Business date')} autoFocus={picking} data-testid="day-input" />
+        <DateInput compact value={date} max={today} onChange={(d) => d && setDate(d)} className="w-40" aria-label={t('Business date')} autoFocus={picking} data-testid="day-input" />
       ) : (
         <Pill onClick={() => setPicking(true)} data-testid="day-other">
           {t('Another day…')}

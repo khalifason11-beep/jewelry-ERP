@@ -14,7 +14,7 @@ import { tk, useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { useBranches } from '../../lib/hooks';
 import { useActionKeys } from '../../lib/idempotency';
-import { Button, Card, CardHeader, Dialog, Empty, ErrorState, Field, Input, KeyValue, Kpi, Mono, PageHeader, QueryState, Select, SkeletonRows } from '../../components/ui';
+import { Button, Card, CardHeader, DateInput, Dialog, Empty, ErrorState, Field, Input, KeyValue, MoneyInput, Kpi, Mono, PageHeader, QueryState, Select, SkeletonRows } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { FundingPanel } from './FundingPanel';
 
@@ -137,7 +137,7 @@ export function CashPage() {
                   {branches.data?.map((b) => <option key={b.id} value={b.id}>{L(b.name, b.nameAr)}</option>)}
                 </Select>
               )}
-              <Input type="date" value={day} max={todayKey()} onChange={(e) => setDay(e.target.value || todayKey())} className="h-8 w-40 text-[13px]" aria-label={t('Date')} />
+              <DateInput value={day} max={todayKey()} onChange={(d) => setDay(d || todayKey())} compact className="w-40" aria-label={t('Date')} />
             </div>
           }
         />
@@ -318,7 +318,7 @@ function CountForm({ r }: { r: Reconciliation }) {
   return (
     <div className="mt-5 grid gap-3 border-t border-line pt-4 sm:grid-cols-[200px_1fr_auto] sm:items-end">
       <Field label={t('Counted cash')}>
-        <Input type="number" min={0} step={1} value={amount} onChange={(e) => setAmount(e.target.value)} className="num" />
+        <MoneyInput value={amount} onValueChange={setAmount} data-testid="cash-count-amount" />
       </Field>
       <Field label={t('Note (optional)')}>
         <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
@@ -378,7 +378,7 @@ function HasadSettleDialog({ row, onClose }: { row: Drawer['branches'][number]; 
       <KeyValue items={[{ label: t('Hasad receivable now'), value: <span className="font-semibold num">{money(row.hasadReceivable)}</span> }]} />
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <Field label={t('Amount received by bank transfer')} hint={amount !== '' && value > row.hasadReceivable ? t('More than the Hasad receivable') : undefined}>
-          <Input type="number" min={1} max={row.hasadReceivable} step={1} value={amount} onChange={(e) => setAmount(e.target.value)} className="num" />
+          <MoneyInput value={amount} onValueChange={setAmount} min={1} data-testid="hasad-settle-amount" />
         </Field>
         <Field label={t('Bank reference (optional)')}>
           <Input value={bankRef} onChange={(e) => setBankRef(e.target.value)} maxLength={80} />

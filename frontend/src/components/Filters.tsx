@@ -4,7 +4,7 @@ import { addDaysKey, todayKey } from '../lib/format';
 import { useBranches } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
-import { Input, Select } from './ui';
+import { DateInput, Select } from './ui';
 
 /** Date range + branch filter state kept in the URL (shareable, back-button friendly). */
 export function useRangeParams(defaultDays = 7) {
@@ -35,9 +35,9 @@ export function DateRange({ from, to, onChange }: { from: string; to: string; on
   ];
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <Input type="date" value={from} max={to} onChange={(e) => e.target.value && onChange({ from: e.target.value, to })} className="h-8 w-[138px] text-[13px]" aria-label={t('From')} />
+      <DateInput compact value={from} max={to} onChange={(d) => d && onChange({ from: d, to })} className="w-[150px]" aria-label={t('From')} />
       <ArrowRight className="size-3.5 text-ink-400 rtl:rotate-180" aria-hidden />
-      <Input type="date" value={to} min={from} max={today} onChange={(e) => e.target.value && onChange({ from, to: e.target.value })} className="h-8 w-[138px] text-[13px]" aria-label={t('To')} />
+      <DateInput compact value={to} min={from} max={today} onChange={(d) => d && onChange({ from, to: d })} className="w-[150px]" aria-label={t('To')} />
       <div className="flex rounded-md border border-line-strong bg-white p-0.5">
         {quick.map((q) => (
           <button

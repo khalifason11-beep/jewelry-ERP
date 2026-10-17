@@ -1,4 +1,4 @@
-import { gramsToMg, normalizeBankReference, pureGoldMg, validBankReference } from '@jerp/shared';
+import { gramsToMg, parseWeightInput, pureGoldMg, validBankReference } from '@jerp/shared';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -9,7 +9,7 @@ import { dateTime, grams, karatLabel, money, todayKey } from '../../lib/format';
 import { useBranches, useGoldRates } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import { Alert, Button, Card, CardHeader, DetailPending, Dialog, Field, Input, KeyValue, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, DateInput, DetailPending, Dialog, Field, Input, KeyValue, MoneyInput, Mono, ReferenceInput, WeightInput, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { useServerList } from '../../lib/paging';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
@@ -262,18 +262,18 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
           </Select>
         </Field>
         <Field label={t('Supplier invoice no.')}>
-          <Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} />
+          <ReferenceInput value={invoiceNo} onValueChange={setInvoiceNo} maxChars={60} data-testid="purchase-invoice-no" />
         </Field>
         <Field label={t('Making charge')}>
           <span className="block py-2 text-[13px] text-ink-700" data-testid="purchase-mkc-payer">{t('Paid by the owner, by bank transfer from the owner’s personal account')}</span>
         </Field>
         {making > 0 && (
           <>
-            <Field label={t('Transfer reference')} hint={transferRef && !validBankReference(transferRef) ? t('4 to 40 letters or digits') : transferRef ? ltr(normalizeBankReference(transferRef)) : undefined}>
-              <Input value={transferRef} onChange={(e) => { setTransferRef(e.target.value); setDuplicateOf(null); }} maxLength={60} className="font-mono" data-testid="purchase-mkc-reference" />
+            <Field label={t('Transfer reference')} hint={transferRef && !validBankReference(transferRef) ? t('4 to 40 letters or digits') : undefined}>
+              <ReferenceInput value={transferRef} onValueChange={(v) => { setTransferRef(v); setDuplicateOf(null); }} data-testid="purchase-mkc-reference" />
             </Field>
             <Field label={t('Transfer date')}>
-              <Input type="date" value={transferDate} max={todayKey()} onChange={(e) => setTransferDate(e.target.value)} className="num" data-testid="purchase-mkc-date" />
+              <DateInput value={transferDate} max={todayKey()} onChange={setTransferDate} data-testid="purchase-mkc-date" />
             </Field>
           </>
         )}
@@ -330,12 +330,12 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
                     </button>
                   </div>
                 </td>
-                <td className="py-1 pe-2"><Input type="number" step="0.001" value={l.gross} onChange={(e) => upd(i, { gross: e.target.value })} className="h-8 w-20 text-[12.5px]" aria-label={t('Gross g')} data-testid={`line-gross-${i}`} /></td>
-                <td className="py-1 pe-2"><Input type="number" step="0.001" value={l.net} onChange={(e) => upd(i, { net: e.target.value })} onBlur={() => !l.purchaseCost && suggest(i, l)} className="h-8 w-20 text-[12.5px]" aria-label={t('Net g')} data-testid={`line-net-${i}`} /></td>
-                <td className="py-1 pe-2"><Input type="number" value={l.purchaseCost} onChange={(e) => upd(i, { purchaseCost: e.target.value })} className="h-8 w-28 text-[12.5px]" aria-label={t('Purchase cost')} data-testid={`line-cost-${i}`} /></td>
-                <td className="py-1 pe-2"><Input type="number" value={l.makingCost} onChange={(e) => upd(i, { makingCost: e.target.value })} data-testid={`line-making-${i}`} aria-label={t('Making')} className="h-8 w-24 text-[12.5px]" /></td>
-                <td className="py-1 pe-2"><Input type="number" value={l.otherCost} onChange={(e) => upd(i, { otherCost: e.target.value })} aria-label={t('Other')} className="h-8 w-20 text-[12.5px]" /></td>
-                <td className="py-1 pe-2"><Input type="number" value={l.sellingPrice} onChange={(e) => upd(i, { sellingPrice: e.target.value })} className="h-8 w-28 text-[12.5px]" aria-label={t('Selling price')} data-testid={`line-price-${i}`} /></td>
+                <td className="py-1 pe-2"><WeightInput compact value={l.gross} onValueChange={(v) => upd(i, { gross: v })} className="w-28" aria-label={t('Gross g')} data-testid={`line-gross-${i}`} /></td>
+                <td className="py-1 pe-2"><WeightInput compact value={l.net} onValueChange={(v) => upd(i, { net: v })} onBlur={() => !l.purchaseCost && suggest(i, l)} className="w-28" aria-label={t('Net g')} data-testid={`line-net-${i}`} /></td>
+                <td className="py-1 pe-2"><MoneyInput compact value={l.purchaseCost} onValueChange={(v) => upd(i, { purchaseCost: v })} className="w-32" aria-label={t('Purchase cost')} data-testid={`line-cost-${i}`} /></td>
+                <td className="py-1 pe-2"><MoneyInput compact value={l.makingCost} onValueChange={(v) => upd(i, { makingCost: v })} data-testid={`line-making-${i}`} aria-label={t('Making')} className="w-28" /></td>
+                <td className="py-1 pe-2"><MoneyInput compact value={l.otherCost} onValueChange={(v) => upd(i, { otherCost: v })} aria-label={t('Other')} className="w-28" /></td>
+                <td className="py-1 pe-2"><MoneyInput compact value={l.sellingPrice} onValueChange={(v) => upd(i, { sellingPrice: v })} className="w-32" aria-label={t('Selling price')} data-testid={`line-price-${i}`} /></td>
                 <td className="py-1">
                   <button onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} disabled={lines.length === 1} className="p-1 text-ink-400 hover:text-rose-600 disabled:opacity-30" aria-label={t('Remove line')}>
                     <Trash2 className="size-4" />
@@ -547,7 +547,7 @@ function SettleForm({ purchaseId, branchId, owed }: { purchaseId: number; branch
   const [note, setNote] = useState('');
   const scope = `settle:${purchaseId}`;
   const m = useMutation({
-    mutationFn: () => postOnce<{ number: string }>(`/purchases/${purchaseId}/settlements`, { karat, weightMg: gramsToMg(weight), note: note.trim() || undefined }, actionKeys.for(scope)),
+    mutationFn: () => postOnce<{ number: string }>(`/purchases/${purchaseId}/settlements`, { karat, weightMg: mg, note: note.trim() || undefined }, actionKeys.for(scope)),
     onSuccess: (r) => {
       actionKeys.rotate(scope);
       toast.success(t('Settlement {number} recorded', { number: r.number }), t('The scrap weight left the branch pool.'));
@@ -558,7 +558,7 @@ function SettleForm({ purchaseId, branchId, owed }: { purchaseId: number; branch
     onError: (e) => toast.fromError(e),
   });
   const available = inPool.find((x) => x.karat === karat)?.weightMg ?? 0;
-  const mg = weight ? gramsToMg(weight) : 0;
+  const mg = parseWeightInput(weight) ?? 0;
   // Preview with the same single pure-gold helper the server uses.
   const pure = karat !== '' && mg > 0 ? pureGoldMg(mg, karat) : 0;
   const tooMuch = owed != null && pure > owed;
@@ -574,7 +574,7 @@ function SettleForm({ purchaseId, branchId, owed }: { purchaseId: number; branch
         </Select>
       </Field>
       <Field label={t('Weight handed over (g)')}>
-        <Input type="number" min={0} step="0.001" value={weight} onChange={(e) => setWeight(e.target.value)} className="num" />
+        <WeightInput value={weight} onValueChange={setWeight} data-testid="settlement-weight" />
       </Field>
       <Field label={t('Note (optional)')}>
         <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder={t('e.g. representative’s name')} />

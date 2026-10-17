@@ -15,7 +15,7 @@ import { useI18n } from '../lib/i18n';
 import { useActionKeys } from '../lib/idempotency';
 import { karatLabel } from '../lib/format';
 import type { Category, Product, Supplier } from '../lib/types';
-import { Alert, Button, Dialog, Field, Input, Select } from './ui';
+import { Alert, Button, Dialog, Field, Input, PhoneInput, Select } from './ui';
 
 export function useProducts() {
   return useQuery({ queryKey: ['products'], queryFn: () => get<Product[]>('/products'), staleTime: 60_000 });
@@ -212,7 +212,7 @@ export function NewSupplierDialog({ onClose, onCreated }: { onClose: () => void;
       <div className="grid gap-3">
         <NameFields nameAr={nameAr} name={name} setNameAr={setNameAr} setName={setName} />
         <Field label={t('Phone (optional)')}>
-          <Input dir="ltr" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} />
+          <PhoneInput value={phone} onValueChange={setPhone} data-testid="supplier-phone" />
         </Field>
       </div>
       <Problem error={c.error} existing={c.existing} onUse={onCreated} label={c.existing ? L(c.existing.name, c.existing.nameAr) : ''} />

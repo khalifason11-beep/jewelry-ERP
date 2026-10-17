@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { HandCoins, Undo2 } from 'lucide-react';
-import { normalizeBankReference, validBankReference } from '@jerp/shared';
+import { validBankReference } from '@jerp/shared';
 import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, money } from '../../lib/format';
@@ -15,7 +15,7 @@ import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { useBranches } from '../../lib/hooks';
 import { useActionKeys } from '../../lib/idempotency';
-import { Badge, Button, Card, CardHeader, Dialog, Field, Input, Mono, PillGroup, Select, Textarea } from '../../components/ui';
+import { Badge, Button, Card, CardHeader, Dialog, Field, Input, MoneyInput, Mono, ReferenceInput, PillGroup, Select, Textarea } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 
 type Account = 'CASH' | 'BANK';
@@ -266,11 +266,11 @@ function FundingDialog({ kind, defaultBranch, view, onClose }: { kind: 'ADVANCE'
           hint={owed != null ? t('Owed to the General Manager now: {amount}', { amount: ltr(money(owed)) }) : undefined}
           error={kind === 'REPAYMENT' && owed != null && amount !== '' && value > owed ? t('More than the branch owes you') : undefined}
         >
-          <Input type="number" min={1} step={1} value={amount} onChange={(e) => setAmount(e.target.value)} className="num" data-testid="funding-amount" />
+          <MoneyInput value={amount} onValueChange={setAmount} min={1} data-testid="funding-amount" />
         </Field>
         {account === 'BANK' && (
-          <Field label={t('Bank transfer reference')} hint={bankRef && !refOk ? t('4 to 40 letters or digits') : bankRef ? ltr(normalizeBankReference(bankRef)) : undefined}>
-            <Input value={bankRef} onChange={(e) => setBankRef(e.target.value)} maxLength={80} dir="ltr" data-testid="funding-bank-ref" />
+          <Field label={t('Bank transfer reference')} hint={bankRef && !refOk ? t('4 to 40 letters or digits') : undefined}>
+            <ReferenceInput value={bankRef} onValueChange={setBankRef} data-testid="funding-bank-ref" />
           </Field>
         )}
         <Field label={t('Reason, and when the money moved')} className="sm:col-span-2" hint={t('For example: float for the drawer, handed over this morning.')}>
