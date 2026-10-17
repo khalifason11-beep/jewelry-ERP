@@ -39,6 +39,7 @@ if (full) {
     ['e2e passkeys (off)', process.execPath, ['scripts/e2e-passkeys.mjs', '--mode=off']],
     ['e2e states', process.execPath, ['scripts/e2e-states.mjs']],
     ['e2e add piece', process.execPath, ['scripts/e2e-add-piece.mjs']],
+    ['e2e prices', process.execPath, ['scripts/e2e-prices.mjs']],
     // --no-shots: the checks only, so the committed screenshots in docs/ux/ui-kit are not rewritten.
     ['UI kit', process.execPath, ['scripts/capture-ui-kit.mjs', '--no-shots']],
     ['perf (homes)', process.execPath, ['scripts/perf-homes.mjs'], { REHEARSAL_ADMIN_URL: adminUrl }, noAdmin],

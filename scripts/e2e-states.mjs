@@ -124,7 +124,8 @@ async function main() {
     const cashier = await apiClient(BASE);
     await cashier.login(world.cashier.username, world.cashier.password);
     const items = (await cashier.must('GET', `/inventory/items?branchId=${world.branchId}&status=AVAILABLE`)).rows;
-    await cashier.must('POST', '/sales', { items: [{ itemId: items[0].id, discount: 0 }], paymentMethod: 'CASH' }, { idempotent: true });
+    // PRC-1: the sale carries the price the cashier was shown (the live price from the rates).
+    await cashier.must('POST', '/sales', { items: [{ itemId: items[0].id, discount: 0, listPrice: items[0].sellingPrice }], paymentMethod: 'CASH' }, { idempotent: true });
     await cashier.dispose();
   }
   ok('server bootstrapped and filled through the API (rates, staff, a type, a product, a supplier order, one sale)');
@@ -162,9 +163,9 @@ async function main() {
     await signOut(page);
 
     section('Every screen renders while its data is still on the way (no crash page)');
-    await sweep(page, world.gm, ['/overview', '/branches', `/branches/${world.branchId}`, '/sales', '/inventory', '/catalog', '/purchases', '/cash', '/scrap', '/transfers', '/reports', '/reports/sales', '/reports/profit', '/users', '/sessions', '/audit', '/settings', '/security', '/me', '/pos']);
+    await sweep(page, world.gm, ['/overview', '/branches', `/branches/${world.branchId}`, '/sales', '/inventory', '/catalog', '/purchases', '/cash', '/scrap', '/transfers', '/reports', '/reports/sales', '/reports/profit', '/users', '/sessions', '/audit', '/settings', '/prices', '/security', '/me', '/pos']);
     await sweep(page, world.bm, ['/dashboard', '/pos', '/sales', '/inventory', '/transfers', '/scrap', '/catalog', '/purchases', '/cash', '/reports', '/users', '/sessions', '/audit', '/security', '/me']);
-    await sweep(page, world.cashier, ['/pos', '/me', '/security']);
+    await sweep(page, world.cashier, ['/pos', '/scrap', '/me', '/security']);
 
     section('FIX-1: "Transfer to branch" in the POS cart (branch manager only), and its refusal state');
     await signIn(page, world.cashier);
@@ -469,8 +470,17 @@ async function main() {
     check((await page.locator('main [data-state=loading], main [role=status]').count()) === 0 && (await visible(page, 'main h1')), 'Settings: a failed load shows an error with Try again (title kept), no endless spinner');
     await offSet();
     await page.getByTestId('state-retry').click();
-    await page.getByTestId('save-gold-rates').waitFor({ timeout: 15_000 });
+    await page.getByTestId('save-business-rules').waitFor({ timeout: 15_000 });
     ok('Settings: Try again loads the page');
+    // PRC-1 (D-prc1-9): the Prices page, the same way.
+    const offRates = await intercept(page, '/api/gold-rates', { status: 500 });
+    await page.goto(`${BASE}/prices`);
+    await page.locator('main [data-state=error]').waitFor({ timeout: 15_000 });
+    check((await visible(page, 'main h1')), 'Prices: a failed load shows an error with Try again (title kept)');
+    await offRates();
+    await page.getByTestId('state-retry').click();
+    await page.getByTestId('save-gold-rates').waitFor({ timeout: 15_000 });
+    ok('Prices: Try again loads the page');
 
     // Security: a failed passkey list is an error, never "No passkey registered yet" (audit bug).
     const offKeys = await intercept(page, '/api/auth/passkeys', { status: 500 });

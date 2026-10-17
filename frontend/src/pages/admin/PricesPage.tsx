@@ -142,20 +142,22 @@ function SellingRatesCard({ view, kind }: { view: SellingRatesView; kind: Kind }
   });
   const tag = kind === 'NEW' ? 'gold-rate' : 'used-rate';
   return (
-    <Card padded={false} data-testid={kind === 'NEW' ? 'rates-new' : 'rates-used'}>
-      <CardHeader
-        title={kind === 'NEW' ? t('Selling rate · new pieces') : t('Selling rate · used pieces')}
-        subtitle={kind === 'NEW' ? t('Pieces from suppliers and opening stock ({currency} per gram)', { currency: currencyLabel() }) : t('Pieces bought from customers and put on sale ({currency} per gram)', { currency: currencyLabel() })}
-        actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} disabled={!changed.length} loading={m.isPending} onClick={() => m.mutate()} data-testid={kind === 'NEW' ? 'save-gold-rates' : 'save-used-rates'}>{t('Save')}</Button>}
-      />
-      <RateRows
-        karats={view.allowedKarats}
-        draft={draft}
-        onChange={(k, v) => setDraft({ ...draft, [k]: v })}
-        since={(k) => (current[k]?.pricePerGram ? dateTime(current[k].effectiveAt, lang) : null)}
-        testId={tag}
-      />
-    </Card>
+    <div data-testid={kind === 'NEW' ? 'rates-new' : 'rates-used'}>
+      <Card padded={false}>
+        <CardHeader
+          title={kind === 'NEW' ? t('Selling rate · new pieces') : t('Selling rate · used pieces')}
+          subtitle={kind === 'NEW' ? t('Pieces from suppliers and opening stock ({currency} per gram)', { currency: currencyLabel() }) : t('Pieces bought from customers and put on sale ({currency} per gram)', { currency: currencyLabel() })}
+          actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} disabled={!changed.length} loading={m.isPending} onClick={() => m.mutate()} data-testid={kind === 'NEW' ? 'save-gold-rates' : 'save-used-rates'}>{t('Save')}</Button>}
+        />
+        <RateRows
+          karats={view.allowedKarats}
+          draft={draft}
+          onChange={(k, v) => setDraft({ ...draft, [k]: v })}
+          since={(k) => (current[k]?.pricePerGram ? dateTime(current[k].effectiveAt, lang) : null)}
+          testId={tag}
+        />
+      </Card>
+    </div>
   );
 }
 
@@ -181,37 +183,39 @@ function ScrapRatesCard({ karats, query }: { karats: number[]; query: UseQueryRe
   });
   const extraN = Number(extra);
   return (
-    <Card padded={false} data-testid="rates-scrap">
-      <CardHeader
-        title={t('Scrap buying rate')}
-        subtitle={t('What the branches pay customers for scrap gold ({currency} per gram)', { currency: currencyLabel() })}
-        actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} disabled={!query.data} loading={m.isPending} onClick={() => m.mutate()} data-testid="save-scrap-rates">{t('Save')}</Button>}
-      />
-      {query.isError && <ErrorState error={query.error} onRetry={() => query.refetch()} />}
-      {!query.data && !query.isError && <SkeletonRows rows={3} className="p-5" />}
-      {query.data && (
-        <>
-          <RateRows
-            karats={shown}
-            draft={draft}
-            onChange={(k, v) => setDraft({ ...draft, [k]: v })}
-            since={(k) => {
-              const r = query.data!.rates.find((x) => x.karat === k);
-              return r ? dateTime(r.effectiveAt, lang) : null;
-            }}
-            testId="scrap-rate"
-          />
-          <div className="flex items-end gap-2 border-t border-line px-5 py-3">
-            <Field label={t('Add another karat (1–24)')}>
-              <IntegerInput min={1} max={24} value={extra} onValueChange={setExtra} className="w-28" />
-            </Field>
-            <Button size="sm" disabled={!(Number.isInteger(extraN) && extraN >= 1 && extraN <= 24) || shown.includes(extraN)} onClick={() => { setDraft({ ...draft, [extraN]: '' }); setExtra(''); }}>
-              {t('Add')}
-            </Button>
-          </div>
-        </>
-      )}
-    </Card>
+    <div data-testid="rates-scrap">
+      <Card padded={false}>
+        <CardHeader
+          title={t('Scrap buying rate')}
+          subtitle={t('What the branches pay customers for scrap gold ({currency} per gram)', { currency: currencyLabel() })}
+          actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} disabled={!query.data} loading={m.isPending} onClick={() => m.mutate()} data-testid="save-scrap-rates">{t('Save')}</Button>}
+        />
+        {query.isError && <ErrorState error={query.error} onRetry={() => query.refetch()} />}
+        {!query.data && !query.isError && <SkeletonRows rows={3} className="p-5" />}
+        {query.data && (
+          <>
+            <RateRows
+              karats={shown}
+              draft={draft}
+              onChange={(k, v) => setDraft({ ...draft, [k]: v })}
+              since={(k) => {
+                const r = query.data!.rates.find((x) => x.karat === k);
+                return r ? dateTime(r.effectiveAt, lang) : null;
+              }}
+              testId="scrap-rate"
+            />
+            <div className="flex items-end gap-2 border-t border-line px-5 py-3">
+              <Field label={t('Add another karat (1–24)')}>
+                <IntegerInput min={1} max={24} value={extra} onValueChange={setExtra} className="w-28" />
+              </Field>
+              <Button size="sm" disabled={!(Number.isInteger(extraN) && extraN >= 1 && extraN <= 24) || shown.includes(extraN)} onClick={() => { setDraft({ ...draft, [extraN]: '' }); setExtra(''); }}>
+                {t('Add')}
+              </Button>
+            </div>
+          </>
+        )}
+      </Card>
+    </div>
   );
 }
 
@@ -247,36 +251,38 @@ function HistoryCard({ view, scrap }: { view: SellingRatesView; scrap: ScrapRate
     .sort((a, b) => (a.when < b.when ? 1 : a.when > b.when ? -1 : 0))
     .slice(0, 40);
   return (
-    <Card padded={false} className="mt-5" data-testid="rates-history">
-      <CardHeader title={t('Rate history')} subtitle={t('Kept for good: a change adds a line, nothing is overwritten.')} />
-      {rows.length === 0 ? (
-        <Alert tone="info" className="m-5">{t('No rate has been set yet.')}</Alert>
-      ) : (
-        <div className="scroll-thin max-h-96 overflow-y-auto">
-          <table className="w-full text-[12.5px]">
-            <thead className="text-meta text-ink-3">
-              <tr className="border-b border-line">
-                <th className="px-5 py-2 text-start font-medium">{t('When')}</th>
-                <th className="px-3 py-2 text-start font-medium">{t('Rate')}</th>
-                <th className="px-3 py-2 text-start font-medium">{t('Karat')}</th>
-                <th className="px-3 py-2 text-end font-medium">{t('Price per gram')}</th>
-                <th className="px-5 py-2 text-start font-medium">{t('Set by')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {rows.map((r) => (
-                <tr key={r.key}>
-                  <td className="px-5 py-1.5 text-ink-500">{r.when === EPOCH ? '—' : dateTime(r.when, lang)}</td>
-                  <td className="px-3 py-1.5">{r.what}</td>
-                  <td className="px-3 py-1.5">{karatLabel(r.karat)}</td>
-                  <td className="px-3 py-1.5 text-end num">{money(r.rate)}</td>
-                  <td className="px-5 py-1.5 text-ink-500">{r.by ?? '—'}</td>
+    <div className="mt-5" data-testid="rates-history">
+      <Card padded={false}>
+        <CardHeader title={t('Rate history')} subtitle={t('Kept for good: a change adds a line, nothing is overwritten.')} />
+        {rows.length === 0 ? (
+          <Alert tone="info" className="m-5">{t('No rate has been set yet.')}</Alert>
+        ) : (
+          <div className="scroll-thin max-h-96 overflow-y-auto">
+            <table className="w-full text-[12.5px]">
+              <thead className="text-meta text-ink-3">
+                <tr className="border-b border-line">
+                  <th className="px-5 py-2 text-start font-medium">{t('When')}</th>
+                  <th className="px-3 py-2 text-start font-medium">{t('Rate')}</th>
+                  <th className="px-3 py-2 text-start font-medium">{t('Karat')}</th>
+                  <th className="px-3 py-2 text-end font-medium">{t('Price per gram')}</th>
+                  <th className="px-5 py-2 text-start font-medium">{t('Set by')}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Card>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {rows.map((r) => (
+                  <tr key={r.key}>
+                    <td className="px-5 py-1.5 text-ink-500">{r.when === EPOCH ? '—' : dateTime(r.when, lang)}</td>
+                    <td className="px-3 py-1.5">{r.what}</td>
+                    <td className="px-3 py-1.5">{karatLabel(r.karat)}</td>
+                    <td className="px-3 py-1.5 text-end num">{money(r.rate)}</td>
+                    <td className="px-5 py-1.5 text-ink-500">{r.by ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }

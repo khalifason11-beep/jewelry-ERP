@@ -30,6 +30,8 @@ function loadPlaywright() {
 }
 // SEC-2: a distinctive reason, searched for on every printed document of the discounted sale.
 const PRICE_REASON = 'سبب-داخلي-لا-يطبع-SEC2';
+/** PRC-1: the invoice column of the rate per gram a line was sold at (Arabic UI). */
+const PER_GRAM_AR = 'السعر للغرام';
 const { chromium } = loadPlaywright();
 let BASE = '';
 const OUT = process.env.OUT_DIR ?? 'print-check-output';
@@ -223,7 +225,7 @@ async function main() {
     const stock = (await api(cashier, 'GET', `/inventory/items?branchId=${me.user.branch.id}&status=AVAILABLE&pageSize=20`)).body.rows;
     const five = stock.slice(0, 5);
     const disc = Math.floor((five[2].sellingPrice * Math.max(1, me.maxDiscountPercent)) / 100 / 1000) * 1000 || 1000;
-    const sale5 = await api(cashier, 'POST', '/sales', { items: five.map((it, i) => ({ itemId: it.id, discount: i === 2 ? disc : 0 })), paymentMethod: 'CASH', customerName: 'عميل اختبار الطباعة', priceChangeReason: PRICE_REASON });
+    const sale5 = await api(cashier, 'POST', '/sales', { items: five.map((it, i) => ({ itemId: it.id, discount: i === 2 ? disc : 0, listPrice: it.sellingPrice })), paymentMethod: 'CASH', customerName: 'عميل اختبار الطباعة', priceChangeReason: PRICE_REASON });
     check(sale5.status === 200 && sale5.body.items.length === 5 && sale5.body.discountTotal > 0, `5-line sale ${sale5.body.number} with a discounted line`);
     await withNames(cashier, [null, 'سوار ذهب عيار 21 مشغول يدوياً بنقشة سودانية تقليدية مع فصوص زركون وحجر كريم في الوسط — وصف طويل يجب أن يلتف داخل خانته']);
     await cashier.goto(`${BASE}/sales/${sale5.body.id}`);
@@ -250,7 +252,12 @@ async function main() {
         cellBox: rows.map((tr) => tr.children[c].getBoundingClientRect()),
       }));
     });
-    const numeric = align.slice(3); // net weight, price, discount, total (RTL: end = left edge)
+    const numeric = align.slice(3); // net weight, price per gram, price, discount, total (RTL: end = left edge)
+    // PRC-1: every line was priced from the new-piece rate: the invoice shows the price per gram it used.
+    const rate = (await api(cashier, 'GET', '/gold-rates')).body.current['21'].pricePerGram;
+    const perGramCol = align.findIndex((col) => col.header.trim() === PER_GRAM_AR);
+    const perGramCells = await cashier.evaluate((c) => [...document.querySelectorAll('#print-root tbody tr')].map((tr) => tr.children[c].textContent.replace(/[^\d]/g, '')), perGramCol);
+    check(perGramCol === 4 && perGramCells.length === 5 && perGramCells.every((v) => Number(v) === rate), `PRC-1: the A4 invoice has a "${PER_GRAM_AR}" column showing ${rate.toLocaleString('en-US')} on every line`);
     const textual = align.slice(0, 3); // code, description, karat (RTL: start = right edge)
     check(align.every((col) => col.cellAlign.every((a) => a === col.align)), 'every column: header and cells use the same text-align');
     check(numeric.every((col) => col.cells.every((c) => Math.abs(c.left - col.head.left) < 1.5)), 'numeric columns (weight, price, discount, total): header and every value end on the same edge');
@@ -277,7 +284,7 @@ async function main() {
     check(!(await printRootText(cashier)).includes('مرجع التحويل البنكي'), 'FIX-2: a cash invoice has no bank-transfer reference');
 
     // FIX-2 (D-fix-2): a bank-transfer sale prints its reference (typed with Arabic-Indic digits, stored normalized).
-    const bankSale = await api(cashier, 'POST', '/sales', { items: [{ itemId: stock[5].id }], paymentMethod: 'BANK_TRANSFER', paymentRefTransaction: ' trf ٧٧٨٨-e2e ' });
+    const bankSale = await api(cashier, 'POST', '/sales', { items: [{ itemId: stock[5].id, listPrice: stock[5].sellingPrice }], paymentMethod: 'BANK_TRANSFER', paymentRefTransaction: ' trf ٧٧٨٨-e2e ' });
     check(bankSale.status === 200 && bankSale.body.paymentRefTransaction === 'TRF 7788-E2E', `bank-transfer sale ${bankSale.body.number} recorded with the normalized reference "TRF 7788-E2E"`);
     await cashier.emulateMedia({ media: 'screen' });
     await cashier.goto(`${BASE}/sales/${bankSale.body.id}`);

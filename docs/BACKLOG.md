@@ -143,7 +143,15 @@ In the invoice summary a negative discount renders as "32,000−" while the line
 - Replace the scrap-purchase "type and name" dropdown with the type list plus a free-text name.
 **Acceptance:** on an empty production database created with the bootstrap command, a branch manager can record a supplier order and a scrap purchase with no seeded catalog. This is part of REH-1.
 
-### PRC-1 — Computed pricing · TODO · L · P0 · Q-1, Q-2, Q-5
+### PRC-1 — Computed pricing · DONE · L · P0 · Q-1, Q-2, Q-5 open
+**Done (plan `docs/plans/PRC-1.md`, decisions D-prc1-1…10, `docs/acceptance/PRC-1.md`, migration 0024):** per allowed
+karat the General Manager sets a selling rate for new pieces, one for used pieces and the scrap buying rate (Prices
+page, append-only history, audited); price = round(net weight × rate) once, by `pricing.roundingStep` (provisional,
+Q-2); no making charge (Q-1: a documented seam, `sale_items.price_making_charge` stays NULL). Receiving asks for no
+price; the POS sends piece ids and the price shown, the server prices at confirmation (409 `PRICES_CHANGED` when a
+rate moved); the sale line stores the rate and the gold value. `FIXED_TAG` keeps the old behaviour (existing
+installations stay on it until the General Manager switches). The cashier buys a sellable piece (`scrap.buy_sellable`).
+**Open:** Q-1 (making charge), Q-2 (rounding), Q-5.
 **Requirements (SPEC §5):**
 - New pricing mode `RATE_COMPUTED`: price = GM sell rate (per karat) × net weight, with the making charge, override and rounding per the answers to Q-1/Q-2 (settings until answered).
 - Receiving stock no longer asks for a selling price. The inventory list and the POS show the live computed price.
@@ -421,7 +429,7 @@ Updated after UX-0 (D-ux-13, D-ux-14, D-ux-15).
 | 2 | **UI-A1**, **UI-A2** (done) | The design system and shell before any new screen is built (D-ux-13); UI-A1 also delivered the shell and a plain login |
 | 3 | FIX-1, FIX-2, REM-4, SEC-2 | Small, visible corrections the owner asked for, built on the new design system |
 | 4 | CAT-1 | Item types and free-text descriptions (Q-3) |
-| 5 | PRC-1 | Needs Q-1, Q-2, Q-5 |
+| 5 | PRC-1 | DONE (Q-1, Q-2, Q-5 still open: settings until answered) |
 | 6 | OPN-1 (+ LBL-1) | Needs CAT-1 and Q-4 |
 | 7 | **BE-1, BE-7** (P1, before the pilot), then UI-B, UI-C | The homes need the attention endpoint; the lists need server-side pagination |
 | 8 | SCR-VOID, PUR-FIX (P1, mistake correction, before real operation); CSH-3, SPL-1, MNY-1, SCR-1, RPT-1 | According to the answers |
