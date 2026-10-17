@@ -899,7 +899,7 @@ async function main() {
     await page.fill('[data-testid=scrap-karat-any]', '21');
     await page.fill('[data-testid=scrap-net]', '2');
     await page.fill('[data-testid=scrap-cash-part]', '120000');
-    check((await page.inputValue('[data-testid=scrap-bank-part]')) === '70000', 'the scrap form fills the bank part with the rest of the amount (190,000 − 120,000 = 70,000)');
+    check((await page.inputValue('[data-testid=scrap-bank-part]')) === '70,000', 'the scrap form fills the bank part with the rest of the amount (190,000 − 120,000 = 70,000)');
     check(await page.getByTestId('scrap-buy').isDisabled(), 'a bank part without its transfer reference cannot be saved');
     await page.fill('[data-testid=scrap-bank-ref]', 'reh scr ٢');
     const scrapBefore = (await apiGet(page, '/api/scrap-purchases')).body.total;
