@@ -16,7 +16,7 @@ import { useActionKeys } from '../../lib/idempotency';
 import { Alert, Button, Card, CardHeader, Empty, Field, Input, IntegerInput, Kpi, MoneyInput, Mono, PhoneInput, ReferenceInput, WeightInput, PageHeader, QueryState, Select, SkeletonRows } from '../../components/ui';
 import { useServerList } from '../../lib/paging';
 import { DataTable } from '../../components/ui/DataTable';
-import { NewButton, NewProductDialog } from '../../components/Catalog';
+import { NewProductPanel, ProductPicker } from '../../components/ProductPicker';
 import type { Product } from '../../lib/types';
 
 export interface ScrapRates {
@@ -183,14 +183,15 @@ function PoolSummary({ pool }: { pool: PoolView }) {
 }
 
 function BuyForm({ branchId }: { branchId: number }) {
-  const { t, L } = useI18n();
+  const { t } = useI18n();
   const { me, can } = useAuth();
   const toast = useToast();
   const qc = useQueryClient();
   const actionKeys = useActionKeys();
   const rates = useQuery({ queryKey: ['scrap-rates'], queryFn: () => get<ScrapRates>('/scrap-rates') });
   const products = useQuery({ queryKey: ['products'], queryFn: () => get<Product[]>('/products'), enabled: can('purchases.create') || can('scrap.buy') });
-  const [newProduct, setNewProduct] = useState(false);
+  // UX-1: a new product is created in a panel in the form (its karat fixed to the piece's), then selected.
+  const [creating, setCreating] = useState<string | null>(null);
   const [kind, setKind] = useState<ScrapKind>('BROKEN');
   const [karat, setKarat] = useState<number | ''>('');
   // Broken scrap: the karat as typed (UX-1 number field); `karat` holds it once it is a whole number from 1 to 24.
@@ -338,24 +339,32 @@ function BuyForm({ branchId }: { branchId: number }) {
           </Field>
           {kind === 'SELLABLE' && (
             <>
-              <Field label={t('Product')} hint={can('catalog.create') && karat !== '' ? <NewButton testId="scrap-new-product" onClick={() => setNewProduct(true)}>{t('New product')}</NewButton> : undefined}>
-                <Select value={productId} onChange={(e) => setProductId(e.target.value ? Number(e.target.value) : '')} disabled={karat === ''} data-testid="scrap-product">
-                  <option value="">{karat !== '' && piecesProducts.length === 0 ? t('No products yet: create one') : t('Select…')}</option>
-                  {piecesProducts.map((p) => <option key={p.id} value={p.id}>{L(p.name, p.nameAr)}</option>)}
-                </Select>
+              <Field label={t('Product')} hint={karat === '' ? t('Choose the karat first') : undefined}>
+                <ProductPicker
+                  products={piecesProducts}
+                  value={productId}
+                  onChange={setProductId}
+                  onCreate={karat === '' ? undefined : setCreating}
+                  disabled={karat === ''}
+                  testId="scrap-product"
+                />
               </Field>
               <Field label={t('Selling price')}>
                 <MoneyInput value={sellingPrice} onValueChange={setSellingPrice} data-testid="scrap-selling-price" />
               </Field>
-              {newProduct && karat !== '' && (
-                <NewProductDialog
-                  karat={karat}
-                  onClose={() => setNewProduct(false)}
-                  onCreated={(p) => {
-                    setProductId(p.id);
-                    setNewProduct(false);
-                  }}
-                />
+              {creating != null && karat !== '' && (
+                <div className="sm:col-span-2 lg:col-span-4">
+                  <NewProductPanel
+                    name={creating}
+                    karat={karat}
+                    testId="scrap-new-product"
+                    onCancel={() => setCreating(null)}
+                    onCreated={(p) => {
+                      setProductId(p.id);
+                      setCreating(null);
+                    }}
+                  />
+                </div>
               )}
             </>
           )}

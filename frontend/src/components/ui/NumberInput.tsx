@@ -61,7 +61,7 @@ interface CoreProps extends NumberFieldProps {
 }
 
 const NumberCore = forwardRef<HTMLInputElement, CoreProps>(function NumberCore(
-  { value, onValueChange, decimals, parse, unit, min, max, invalid, compact, className, showLimit = (n) => groupDigits(String(n)), onFocus, onBlur, ...rest },
+  { value, onValueChange, decimals, parse, unit, min, max, invalid, compact, className, showLimit = (n) => groupDigits(String(n)), onFocus, onBlur, placeholder, ...rest },
   ref,
 ) {
   const { t, lang } = useI18n();
@@ -73,7 +73,7 @@ const NumberCore = forwardRef<HTMLInputElement, CoreProps>(function NumberCore(
   const message = refused ? refusalText(refused, decimals) : range === 'min' ? t('At least {min}', { min: showLimit(min!) }) : range === 'max' ? t('At most {max}', { max: showLimit(max!) }) : null;
   const shown = focused || n == null ? value : groupDigits(value);
   const unitText = typeof unit === 'string' ? unit : '';
-  const pad = unit ? `calc(${Math.max(unitText.length, 2)}ch + 1.25rem)` : undefined;
+  const pad = unit ? `calc(${Math.max(unitText.length, 2)}ch + ${compact ? '0.9rem' : '1.25rem'})` : undefined;
   const rtl = lang === 'ar';
   return (
     <span className={clsx('block', className)}>
@@ -87,9 +87,15 @@ const NumberCore = forwardRef<HTMLInputElement, CoreProps>(function NumberCore(
           spellCheck={false}
           dir="ltr"
           value={shown}
+          placeholder={placeholder && /^\d+$/.test(placeholder) ? groupDigits(placeholder) : placeholder}
           aria-invalid={invalid || !!message || rest['aria-invalid'] || undefined}
           className={clsx(controlClass, sizeClass(compact), 'num w-full')}
-          style={{ textAlign: rtl ? 'right' : 'left', ...(pad ? (rtl ? { paddingLeft: pad } : { paddingRight: pad }) : {}) }}
+          style={{
+            textAlign: rtl ? 'right' : 'left',
+            // Inline padding (the input is left-to-right inside either layout): room for the unit on its side.
+            paddingLeft: rtl && pad ? pad : compact ? '0.625rem' : undefined,
+            paddingRight: !rtl && pad ? pad : compact ? '0.625rem' : undefined,
+          }}
           onFocus={(e) => {
             setFocused(true);
             onFocus?.(e);
@@ -108,7 +114,7 @@ const NumberCore = forwardRef<HTMLInputElement, CoreProps>(function NumberCore(
           }}
         />
         {unit && (
-          <span className="pointer-events-none absolute inset-y-0 end-3 flex items-center text-meta text-ink-3" aria-hidden>
+          <span className={clsx('pointer-events-none absolute inset-y-0 flex items-center text-meta text-ink-3', compact ? 'end-2.5' : 'end-3')} aria-hidden>
             {unit}
           </span>
         )}

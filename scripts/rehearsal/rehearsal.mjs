@@ -806,16 +806,17 @@ async function main() {
     await page.click('[data-testid=save-supplier]');
     await waitFor(async () => (await page.inputValue('[data-testid=purchase-supplier]')) !== '', 'the new supplier selected', 15_000);
     ok(`General Manager adds supplier "${CAT.supplier}" from the purchase form (Arabic name only); it is selected`);
-    await page.click('[data-testid=line-new-product-0]');
-    await page.fill('[data-testid=name-ar]', CAT.product);
-    await page.selectOption('[data-testid=product-karat]', '21');
-    await page.click('[data-testid=product-new-type]');
-    await page.locator('[data-testid=name-ar]').last().fill(CAT.type);
-    await page.click('[data-testid=save-type]');
-    await waitFor(async () => (await page.inputValue('[data-testid=product-type]')) !== '', 'the new type selected', 15_000);
-    await page.click('[data-testid=save-product]');
-    await waitFor(async () => (await page.inputValue('[data-testid=line-product-0]')) !== '', 'the new product selected', 15_000);
-    ok(`type "${CAT.type}" and product "${CAT.product}" (21K) created inline from the purchase line and selected`);
+    // UX-1: type the name in the line's product field, "Create …", then one panel for the product and its new type.
+    await page.click('[data-testid=line-product-0]');
+    await page.keyboard.type(CAT.product);
+    await page.click('[data-testid=line-product-0-create]');
+    await page.getByTestId('line-new-product-0').waitFor();
+    await page.selectOption('[data-testid=line-new-product-0-karat]', '21');
+    await page.selectOption('[data-testid=line-new-product-0-type]', 'new');
+    await page.fill('[data-testid=line-new-product-0-type-name]', CAT.type);
+    await page.click('[data-testid=line-new-product-0-save]');
+    await waitFor(async () => !!(await page.getAttribute('[data-testid=line-product-0]', 'data-value')), 'the new product selected', 15_000);
+    ok(`type "${CAT.type}" and product "${CAT.product}" (21K) created inline from the purchase line, in one panel, and selected`);
     await page.fill('[data-testid=line-gross-0]', '5.2');
     await page.fill('[data-testid=line-net-0]', '5');
     // UX-1 (PART 2): leaving the net weight fills in nothing; the costs and the price are typed from the invoice.
@@ -881,11 +882,13 @@ async function main() {
     await page.goto(`${origin}/scrap`);
     await page.click('[data-testid=scrap-kind-SELLABLE]');
     await page.selectOption('[data-testid=scrap-karat]', '21');
-    await page.click('[data-testid=scrap-new-product]');
-    await page.fill('[data-testid=name-ar]', CAT.scrapProduct);
-    await page.selectOption('[data-testid=product-type]', String(typeId));
-    await page.click('[data-testid=save-product]');
-    await waitFor(async () => (await page.inputValue('[data-testid=scrap-product]')) !== '', 'the new scrap product selected', 15_000);
+    await page.click('[data-testid=scrap-product]');
+    await page.keyboard.type(CAT.scrapProduct);
+    await page.click('[data-testid=scrap-product-create]');
+    await page.getByTestId('scrap-new-product-karat-fixed').waitFor();
+    await page.selectOption('[data-testid=scrap-new-product-type]', String(typeId));
+    await page.click('[data-testid=scrap-new-product-save]');
+    await waitFor(async () => !!(await page.getAttribute('[data-testid=scrap-product]', 'data-value')), 'the new scrap product selected', 15_000);
     await page.fill('[data-testid=scrap-gross]', '3');
     await page.fill('[data-testid=scrap-net]', '3');
     await page.fill('[data-testid=scrap-selling-price]', '900000');
@@ -1141,7 +1144,8 @@ async function main() {
     check((await page.getByTestId('first-steps').count()) === 0, 'once the second branch is funded the first steps are complete again');
     // Stock for the cart (set-up through the API; purchases themselves are rehearsed above). MKC-1: the General
     // Manager records the order once the pieces have arrived (making charge 0 here, so no transfer to record).
-    const productId = (await apiGet(page, '/api/products')).body[0].id;
+    const product = (await apiGet(page, '/api/products')).body[0];
+    const productId = product.id;
     const supplierId = (await apiGet(page, '/api/suppliers')).body[0].id;
     const line = { productId, grossWeightMg: 4_200, netWeightMg: 4_000, purchaseCost: 700_000, makingCost: 0, otherCost: 0, sellingPrice: 1_100_000 };
     // SUP-1: this supplier still has gold owed (the CAT-0 order, settled in part). Choosing it on the form warns before
@@ -1156,7 +1160,11 @@ async function main() {
       owedOrder.orders === 1 && owedOrder.pureMg24 === 3500 && debtText.includes(owedOrder.oldestNumber) && /3\.500/.test(debtText) && !/ج\.س|SDG/.test(debtText),
       `General Manager: choosing a supplier still owed gold warns before saving ("${debtText.replace(/\s+/g, ' ').slice(0, 140)}")`,
     );
-    await page.selectOption('[data-testid=line-product-0]', String(productId));
+    // UX-1: the product picker: type part of the name, Enter takes the first match.
+    await page.click('[data-testid=line-product-0]');
+    await page.keyboard.type(product.nameAr);
+    await page.keyboard.press('Enter');
+    check((await page.getAttribute('[data-testid=line-product-0]', 'data-value')) === String(productId), 'the product picker finds the product by typing its name; Enter picks it');
     await page.fill('[data-testid=line-gross-0]', '4.2');
     await page.fill('[data-testid=line-net-0]', '4');
     await page.locator('[data-testid=line-net-0]').blur();
