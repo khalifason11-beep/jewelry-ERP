@@ -1833,4 +1833,6 @@ export const AR: Record<string, string> = {
   "Net weight of all pieces: {weight} — compare with the supplier’s invoice.": "الوزن الصافي لكل القطع: {weight} — قارنه بفاتورة المورد.",
   "Customer details (optional)": "بيانات العميل (اختياري)",
   "Choose the karat first": "اختر العيار أولاً",
+  // PRC-1
+  "{karat} used-piece selling rate {from} → {to} per gram": "سعر جرام القطع المستعملة {karat}: من {from} إلى {to}",
 };

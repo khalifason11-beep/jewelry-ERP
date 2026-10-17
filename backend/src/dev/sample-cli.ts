@@ -18,7 +18,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { count, eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { KARATS } from '@jerp/shared';
 import { config } from '../config';
 import { dayKey } from '../core/time';
 import { createContext, openDatabase } from '../bootstrap';
@@ -33,6 +32,7 @@ import { createCategory, createProduct, createSupplier } from '../modules/catalo
 import { createPurchase } from '../modules/purchases/service';
 import { createSale } from '../modules/sales/service';
 import { buyScrap, setScrapRates } from '../modules/scrap/service';
+import { setSellingRates } from '../modules/pricing/service';
 import { recordAdvance } from '../modules/funding/service';
 import { createTransfer } from '../modules/transfers/service';
 
@@ -97,10 +97,11 @@ async function buildSample(ctx: Ctx) {
   );
   const allowed = (await ctx.settings.get()).inventory.allowedKarats;
   await confirmAllowedKarats(ctx, gm, allowed);
-  // Rates for every allowed karat (gold sell rate only where the rate form accepts the karat).
-  for (const k of allowed.filter((x) => (KARATS as readonly number[]).includes(x))) {
-    await ctx.db.insert(t.goldRates).values({ karat: k, pricePerGram: Math.round((190_000 * k) / 21 / 1000) * 1000, setBy: gm.userId });
-  }
+  // Rates for every allowed karat (PRC-1: both selling rates, new and used pieces; sample values).
+  await setSellingRates(ctx, gm, {
+    NEW: Object.fromEntries(allowed.map((k) => [k, Math.round((190_000 * k) / 21 / 1000) * 1000])),
+    USED: Object.fromEntries(allowed.map((k) => [k, Math.round((175_000 * k) / 21 / 1000) * 1000])),
+  });
   await setScrapRates(ctx, gm, Object.fromEntries(allowed.map((k) => [k, Math.round((150_000 * k) / 21 / 1000) * 1000])));
 
   say('Branches and staff…');

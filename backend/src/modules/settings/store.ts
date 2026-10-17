@@ -161,31 +161,5 @@ export class SettingsStore {
   async history(exec: Executor, key: SettingKey, limit = 20) {
     return exec.select().from(t.settingsHistory).where(eq(t.settingsHistory.key, key)).orderBy(desc(t.settingsHistory.id)).limit(limit);
   }
-
-  /** Current gold price per gram for every allowed karat. */
-  async goldRates(exec: Executor = this.db): Promise<Record<number, { pricePerGram: number; effectiveAt: Date }>> {
-    const { inventory } = await this.get();
-    const rowsAll = await exec
-      .select()
-      .from(t.goldRates)
-      .orderBy(t.goldRates.karat, desc(t.goldRates.effectiveAt), desc(t.goldRates.id));
-    const out: Record<number, { pricePerGram: number; effectiveAt: Date }> = {};
-    for (const r of rowsAll) if (!out[r.karat]) out[r.karat] = { pricePerGram: r.pricePerGram, effectiveAt: r.effectiveAt };
-    for (const k of inventory.allowedKarats) if (!out[k]) out[k] = { pricePerGram: 0, effectiveAt: new Date(0) };
-    return out;
-  }
-
-  async goldRateHistory(exec: Executor = this.db, limit = 40) {
-    return exec
-      .select({
-        id: t.goldRates.id,
-        karat: t.goldRates.karat,
-        pricePerGram: t.goldRates.pricePerGram,
-        effectiveAt: t.goldRates.effectiveAt,
-        setBy: sql<string | null>`(select full_name from users u where u.id = ${t.goldRates.setBy})`,
-      })
-      .from(t.goldRates)
-      .orderBy(desc(t.goldRates.effectiveAt), desc(t.goldRates.id))
-      .limit(limit);
-  }
+  // PRC-1: the selling rates (NEW and USED) are read by modules/pricing/service.ts.
 }

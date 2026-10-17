@@ -29,7 +29,7 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   branding_assets: { safe: words('id kind mime bytes sha256 size width height uploaded_by uploaded_at') },
   categories: { safe: words('id code name name_ar is_active created_at created_by name_ar_norm') },
   document_sequences: { safe: words('scope next') },
-  gold_rates: { safe: words('id karat price_per_gram effective_at set_by') },
+  gold_rates: { safe: words('id karat price_per_gram effective_at set_by kind') },
   // Stored responses are replayed only to the user who made the request, already filtered for them;
   // a GM's stored response can hold cost figures, hence COST.
   idempotency_keys: { cost: ['response_body'], safe: words('id user_id key route request_hash status response_status created_at completed_at') },
@@ -145,6 +145,7 @@ export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
 /** Every other field name the API sends, classified SAFE (one registry; unknown names fail tests). */
 export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
   words(`
+    used pricing roundingStep rateKind priceMissing
     abortReason abortedAt absDifferenceMg action actions active activeSessions actual address addedAt allowSelfPasswordChange
     allowedKarats allowedKaratsConfirmed alreadyOpen amount appMode ar asOf at attention availableItems availableWeightMg
     balanceGrams barcode basis branch branchAddress branchCode branchId branchName branchNameAr branchPhone branches branding
