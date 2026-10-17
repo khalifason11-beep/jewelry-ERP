@@ -7,12 +7,14 @@
 // 3. Times the service functions behind GET /dashboard/company (today and 30 days), /dashboard/branch and /attention
 //    (GM and branch manager), and (BE-7) one page of every server-paged list: the first page, the last page (the
 //    deepest offset), another sort, the branch manager's page; 3 warm-up runs, then 20 timed runs; p50 and p95 in ms.
+//    PRC-1: the POS grid, the inventory list, the homes' valuation and the stock report again with prices computed from
+//    the rates (pricing.mode RATE_COMPUTED; the cases marked "· computed").
 // 4. Prints the slowest SQL statements with EXPLAIN (ANALYZE, BUFFERS), the machine and the data size.
 // Exit code 1 when any p95 is above the budget (300 ms).
 
 import os from 'node:os';
 import { randomBytes } from 'node:crypto';
-import { eq, sql, type SQL } from 'drizzle-orm';
+import { Column, eq, sql, type SQL } from 'drizzle-orm';
 import pg from 'pg';
 import { t } from '@jerp/database';
 import { openDatabase, createContext } from '../../src/bootstrap';
@@ -27,7 +29,7 @@ import { pagePurchases } from '../../src/modules/purchases/service';
 import { listScrapPurchases } from '../../src/modules/scrap/service';
 import { listTransfers } from '../../src/modules/transfers/service';
 import { pageAudit, reportRowsPage, runReport } from '../../src/modules/reports/service';
-import { fetchAllPages } from '@jerp/shared';
+import { fetchAllPages, type PricingSettingMode } from '@jerp/shared';
 import { rows } from '../../src/core/sql';
 import { seedWorld } from '../fixtures/world';
 import { dropTestDatabase } from '../helpers';
@@ -62,7 +64,8 @@ async function main() {
     const bm = await actor(ctx, 'branch.manager.kh');
     const { company } = await ctx.settings.get();
     const today = dayKey(new Date(), company.timezone);
-    const cases: [string, () => Promise<unknown>, number?][] = [
+    // The 4th element runs the case with that pricing mode (the world itself is FIXED_TAG).
+    const cases: [string, () => Promise<unknown>, number?, PricingSettingMode?][] = [
       ['GET /dashboard/company (today)', () => companyDashboard(ctx, gm, { from: today, to: today })],
       ['GET /dashboard/company (30 days)', () => companyDashboard(ctx, gm, { from: addDays(today, -29), to: today })],
       ['GET /dashboard/branch (BM, today)', () => branchDashboard(ctx, bm, {})],
@@ -113,6 +116,19 @@ async function main() {
       ['GET /reports/branch-performance (GM, 30 days)', () => runReport(ctx, gm, 'branch-performance', month), REPORT_BUDGET_MS],
       ['GET /reports/sales rows, page 1 of 200 (CSV walk)', () => reportRowsPage(ctx, gm, 'sales', { ...all, page: 1, pageSize: 200 }), REPORT_BUDGET_MS],
     );
+    // PRC-1: the POS grid, the inventory list, the valuation by selling price and the stock report with prices computed
+    // from the rates (every price is net weight × the live rate of its karat and kind, in SQL).
+    cases.push(
+      ['GET /inventory/items (GM, available, page 1) · computed', () => pageItems(ctx, gm, { status: ['AVAILABLE'] }), BUDGET_MS, 'RATE_COMPUTED'],
+      [`GET /inventory/items (GM, last page ${itemsLast}) · computed`, () => pageItems(ctx, gm, { status: ['AVAILABLE'], page: itemsLast }), BUDGET_MS, 'RATE_COMPUTED'],
+      ['GET /inventory/items (GM, sort price) · computed', () => pageItems(ctx, gm, { status: ['AVAILABLE'], sort: 'price' }), BUDGET_MS, 'RATE_COMPUTED'],
+      ['GET /inventory/items (BM, page 1) · computed', () => pageItems(ctx, bm, { status: ['AVAILABLE'] }), BUDGET_MS, 'RATE_COMPUTED'],
+      ['GET /inventory/items (POS grid, 200) · computed', () => pageItems(ctx, bm, { status: ['AVAILABLE'], q: '21', pageSize: 200, sort: 'recent' }), BUDGET_MS, 'RATE_COMPUTED'],
+      ['GET /dashboard/company (today) · computed', () => companyDashboard(ctx, gm, { from: today, to: today }), BUDGET_MS, 'RATE_COMPUTED'],
+      ['GET /dashboard/branch (BM, today) · computed', () => branchDashboard(ctx, bm, {}), BUDGET_MS, 'RATE_COMPUTED'],
+      ['GET /reports/inventory (GM, available) · computed', () => runReport(ctx, gm, 'inventory', { status: 'AVAILABLE' }), REPORT_BUDGET_MS, 'RATE_COMPUTED'],
+    );
+    let mode: PricingSettingMode = (await ctx.settings.get()).pricing.mode;
     const statements = new Map<string, { q: SQL; ms: number }>();
     // --explain-lists (BE-7): the list queries are built by the query builder, so they are caught at the pg pool:
     // the slowest real statement of each list case, with its parameters, is explained after the timings.
@@ -122,7 +138,11 @@ async function main() {
     const orig = ctx.db.execute.bind(ctx.db);
     let failed = false;
     console.log(`\n| endpoint | p50 ms | p95 ms | budget |\n|---|---|---|---|`);
-    for (const [label, fn, budget = BUDGET_MS] of cases) {
+    for (const [label, fn, budget = BUDGET_MS, want = 'FIXED_TAG'] of cases) {
+      if (want !== mode) {
+        await ctx.settings.apply(ctx.db, { 'pricing.mode': want }, { actor: { id: null, username: 'perf' } });
+        mode = want;
+      }
       for (let i = 0; i < 3; i++) await fn();
       const times: number[] = [];
       if (ARGS.has('--explain-lists') && !/^GET \/(dashboard|attention)/.test(label)) {
@@ -149,7 +169,7 @@ async function main() {
         (ctx.db as unknown as { execute: typeof orig }).execute = (async (q: SQL) => {
           const s = performance.now();
           const r = await orig(q);
-          const key = JSON.stringify((q as unknown as { queryChunks?: unknown }).queryChunks ?? String(q)).slice(0, 400);
+          const key = statementKey(q);
           const ms = performance.now() - s;
           const prev = statements.get(key);
           if (!prev || prev.ms < ms) statements.set(key, { q, ms });
@@ -205,6 +225,15 @@ async function main() {
 async function actor(ctx: Ctx, username: string): Promise<Actor> {
   const [u] = await ctx.db.select().from(t.users).where(eq(t.users.username, username));
   return (await loadActor(ctx.db, u.id, null))!;
+}
+
+/**
+ * The grouping key of a raw statement: its chunks as JSON. A Drizzle column inside the SQL (PRC-1's live price) points
+ * back to its table, so it is written as its name instead of being walked (JSON.stringify refuses the cycle).
+ */
+function statementKey(q: SQL): string {
+  const chunks = (q as unknown as { queryChunks?: unknown }).queryChunks ?? String(q);
+  return JSON.stringify(chunks, (_k, v) => (v instanceof Column ? `column:${v.name}` : v)).slice(0, 400);
 }
 
 /** Bulk data with plain SQL (seconds, not hours): consistent with the rules the app keeps (movements = statuses). */

@@ -22,11 +22,20 @@ const PRICING_LOCK = 0x50524331; // "PRC1"
 export interface Pricing {
   mode: PricingSettingMode;
   step: number;
+  /**
+   * The current selling rates read once for this request (RATE_COMPUTED). The SQL price then uses them as constants
+   * instead of looking up the latest rate row by row (a list over every available piece, its totals and a deep page:
+   * PRC-1 perf). Without it, the SQL reads the rates itself (a correlated sub-query).
+   */
+  rates?: Map<string, CurrentRate>;
 }
 
+/** The pricing settings, and in RATE_COMPUTED the current rates, for one request's lists, totals and reports. */
 export async function pricingOf(ctx: Ctx): Promise<Pricing> {
   const { pricing } = await ctx.settings.get();
-  return { mode: pricing.mode, step: pricing.roundingStep };
+  const p: Pricing = { mode: pricing.mode, step: pricing.roundingStep };
+  if (p.mode === 'RATE_COMPUTED') p.rates = await currentSellingRates(ctx.db);
+  return p;
 }
 
 export interface CurrentRate {
@@ -71,9 +80,13 @@ export function priceOf(p: Pricing, rates: Map<string, CurrentRate>, item: { kar
 
 // ── SQL mirrors, for lists, sorting, totals and reports (one row of jewelry_items in scope) ──
 
-/** The current rate per gram of the piece's karat and kind (NULL when none), as a correlated sub-query. */
+/**
+ * The current rate per gram of the piece's karat and kind (NULL when none): from the request's rate snapshot as a
+ * constant CASE on karat and origin, else as a correlated sub-query on `gold_rates`.
+ */
 export function liveRateSql(p: Pricing): SQL<number | null> {
   if (p.mode === 'FIXED_TAG') return sql<number | null>`NULL::bigint`;
+  if (p.rates) return rateCaseSql(p.rates).mapWith(nullableNumber);
   return sql<number | null>`(
     SELECT CASE WHEN gr.price_per_gram > 0 THEN gr.price_per_gram END FROM gold_rates gr
     WHERE gr.karat = ${t.jewelryItems.karat}
@@ -94,7 +107,22 @@ export function livePriceSql(p: Pricing): SQL<number | null> {
   // The latest row of the karat and kind is the current rate (as currentSellingRates); a rate ≤ 0 is no rate.
   return sql<number | null>`(
     SELECT CASE WHEN cur.rate > 0 THEN (round(${t.jewelryItems.netWeightMg}::numeric * cur.rate / ${den}) * ${step})::bigint END
-    FROM (${liveRateSql(p)}) AS cur(rate))`.mapWith(nullableNumber);
+    FROM (SELECT ${liveRateSql(p)}) AS cur(rate))`.mapWith(nullableNumber);
+}
+
+/** An integer read from the database or a validated setting, written into the statement (never user text). */
+const intLiteral = (n: number) => {
+  if (!Number.isSafeInteger(n)) throw new Error(`not an integer: ${n}`);
+  return sql.raw(String(n));
+};
+
+/** CASE karat/kind → rate, from a rate snapshot; NULL for a karat and kind without a rate. */
+function rateCaseSql(rates: Map<string, CurrentRate>): SQL<number | null> {
+  const arms = [...rates.values()].map(
+    (r) => sql`WHEN ${t.jewelryItems.karat} = ${intLiteral(r.karat)} AND ${t.jewelryItems.origin} ${sql.raw(r.kind === 'USED' ? '=' : '<>')} 'SCRAP' THEN ${intLiteral(r.pricePerGram)}::bigint`,
+  );
+  if (!arms.length) return sql<number | null>`NULL::bigint`;
+  return sql<number | null>`(CASE ${sql.join(arms, sql` `)} END)`;
 }
 
 const nullableNumber = (v: unknown) => (v == null ? null : Number(v));
