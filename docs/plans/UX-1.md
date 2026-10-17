@@ -63,18 +63,19 @@ Nothing that affects stored money or stock is changed.
 |---|---|---|
 | Product | Product · Type to search, or create it here. | المنتج · اكتب للبحث، أو أنشئه هنا. |
 | Gross | Gross weight · The whole piece, with any stones or other parts. | الوزن القائم · القطعة كاملة، بما فيها الأحجار أو الأجزاء الأخرى. |
-| Net | Net gold weight · Gold only: the weight that counts for the karat and for the gold owed to the supplier. | وزن الذهب الصافي · الذهب وحده: الوزن الذي يُحسب به العيار والذهب المستحق للمورد. |
+| Net | Net gold weight · Gold only: the weight that counts for the karat and for the gold owed to the supplier. | الوزن الصافي للذهب · الذهب وحده: الوزن الذي يُحسب به العيار والذهب المستحق للمورد. |
 | Cost | Purchase cost · Your value of the piece for cost and profit; the supplier is paid in gold, not money. | تكلفة الشراء · قيمة القطعة عندك لحساب التكلفة والربح؛ المورد يُسدَّد ذهباً لا نقداً. |
-| Making | Making charge · Paid by the owner from the owner's personal account; needs the transfer reference. | المصنعية · يدفعها المالك من حسابه الشخصي؛ تتطلب مرجع التحويل. |
+| Making | Making charge · Paid by the owner from the owner's personal account; needs the transfer reference. | أجرة المصنعية · يدفعها المالك من حسابه الشخصي؛ تتطلب مرجع التحويل. |
 | Other | Other costs · Any other cost of the piece, such as stones; part of its cost, no money moves. | تكاليف أخرى · أي تكلفة أخرى للقطعة مثل الأحجار؛ تدخل في تكلفتها ولا تتحرك أموال. |
 | Selling price | Selling price · The price the branch sells the piece at. | سعر البيع · السعر الذي يبيع به الفرع القطعة. |
 | Under the lines | Net weight of all pieces: {weight} — compare with the supplier's invoice. | الوزن الصافي لكل القطع: {weight} — قارنه بفاتورة المورد. |
 | Scrap | Customer details (optional) | بيانات العميل (اختياري) |
 
 Disabled-button reasons (one at a time): Choose the receiving branch · Choose the supplier · Piece {n}: choose the
-product · Piece {n}: enter the net weight · Piece {n}: the net weight is more than the gross weight · Piece {n}: enter
-the purchase cost · Piece {n}: enter the selling price · Enter the transfer reference of the making charge · The transfer
-date cannot be in the future (each with its Arabic in `i18n-ar.ts`). Inline create: Create "{name}" · New type ·
+product · Piece {n}: enter the gross weight · Piece {n}: enter the net gold weight · Piece {n}: the net weight is more than the gross weight · Piece {n}: enter
+the purchase cost · Piece {n}: enter the selling price · Enter the transfer reference of the making charge · Enter the
+transfer date · The transfer date cannot be in the future (each with its Arabic in `i18n-ar.ts`). As built, the Arabic
+labels reuse the existing terms: الوزن الصافي للذهب and أجرة المصنعية (already used elsewhere in the app). Inline create: Create "{name}" · New type ·
 Create and use (أنشئ "{name}" · نوع جديد · أنشئ واستخدم).
 
 ## 5. One "add piece" flow (PART 4)
