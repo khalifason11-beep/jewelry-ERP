@@ -818,11 +818,11 @@ async function main() {
     ok(`type "${CAT.type}" and product "${CAT.product}" (21K) created inline from the purchase line and selected`);
     await page.fill('[data-testid=line-gross-0]', '5.2');
     await page.fill('[data-testid=line-net-0]', '5');
-    // With today's gold rate set, leaving the net weight pre-fills the costs from the rate (editable):
-    // wait for that suggestion, as a person would see it, then replace it.
+    // UX-1 (PART 2): leaving the net weight fills in nothing; the costs and the price are typed from the invoice.
     await page.locator('[data-testid=line-net-0]').blur();
-    await waitFor(async () => (await page.inputValue('[data-testid=line-cost-0]')) !== '', 'the cost suggested from the gold rate', 10_000);
-    ok(`with today's gold rate set, the purchase line suggests the cost from the rate (${await page.inputValue('[data-testid=line-cost-0]')})`);
+    await page.waitForTimeout(500);
+    const prefilled = await Promise.all(['line-cost-0', 'line-making-0', 'line-price-0'].map((id) => page.inputValue(`[data-testid=${id}]`)));
+    check(prefilled.every((v) => v === ''), `leaving the net weight pre-fills no cost, making charge or price (${JSON.stringify(prefilled)})`);
     await page.fill('[data-testid=line-cost-0]', '1000000');
     await page.fill('[data-testid=line-making-0]', '50000');
     await page.fill('[data-testid=line-price-0]', '1500000');

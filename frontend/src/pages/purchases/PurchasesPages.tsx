@@ -6,7 +6,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { ApiError, get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, karatLabel, money, todayKey } from '../../lib/format';
-import { useBranches, useGoldRates } from '../../lib/hooks';
+import { useBranches } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { Alert, Button, Card, CardHeader, DateInput, DetailPending, Dialog, Field, Input, KeyValue, MoneyInput, Mono, ReferenceInput, WeightInput, PageHeader, Select, StatusBadge } from '../../components/ui';
@@ -131,7 +131,7 @@ interface Line {
   otherCost: string;
   sellingPrice: string;
 }
-const emptyLine = (): Line => ({ productId: '', gross: '', net: '', purchaseCost: '', makingCost: '', otherCost: '0', sellingPrice: '' });
+const emptyLine = (): Line => ({ productId: '', gross: '', net: '', purchaseCost: '', makingCost: '', otherCost: '', sellingPrice: '' });
 
 function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
   const { me, isGlobal } = useAuth();
@@ -140,7 +140,6 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const branches = useBranches();
-  const rates = useGoldRates();
   const products = useProducts();
   const suppliers = useSuppliers();
   // "New product" / "New supplier" open on top of this form; the created row is selected (CAT-0).
@@ -170,16 +169,6 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
   const sellable = products.data?.filter((p) => me?.allowedKarats.includes(p.karat));
 
   const upd = (i: number, patch: Partial<Line>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
-  const suggest = (i: number, l: Line) => {
-    // Pre-fill purchase cost from the current gold rate (editable).
-    const p = products.data?.find((x) => x.id === l.productId);
-    const net = Number(l.net);
-    if (!p || !net) return;
-    const rate = rates.data?.current[String(p.karat)]?.pricePerGram ?? 0;
-    const purchase = Math.round((net * rate) / 1000) * 1000;
-    const making = Math.round((net * 10_000) / 1000) * 1000;
-    upd(i, { purchaseCost: String(purchase), makingCost: String(making), sellingPrice: String(Math.round(((purchase + making) * 1.22) / 5000) * 5000) });
-  };
   const total = lines.reduce((s, l) => s + (Number(l.purchaseCost) || 0) + (Number(l.makingCost) || 0) + (Number(l.otherCost) || 0), 0);
   const making = lines.reduce((s, l) => s + (Number(l.makingCost) || 0), 0);
   const transferOk = making === 0 || (!!validBankReference(transferRef) && !!transferDate && transferDate <= todayKey());
@@ -331,10 +320,10 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
                   </div>
                 </td>
                 <td className="py-1 pe-2"><WeightInput compact value={l.gross} onValueChange={(v) => upd(i, { gross: v })} className="w-28" aria-label={t('Gross g')} data-testid={`line-gross-${i}`} /></td>
-                <td className="py-1 pe-2"><WeightInput compact value={l.net} onValueChange={(v) => upd(i, { net: v })} onBlur={() => !l.purchaseCost && suggest(i, l)} className="w-28" aria-label={t('Net g')} data-testid={`line-net-${i}`} /></td>
+                <td className="py-1 pe-2"><WeightInput compact value={l.net} onValueChange={(v) => upd(i, { net: v })} className="w-28" aria-label={t('Net g')} data-testid={`line-net-${i}`} /></td>
                 <td className="py-1 pe-2"><MoneyInput compact value={l.purchaseCost} onValueChange={(v) => upd(i, { purchaseCost: v })} className="w-32" aria-label={t('Purchase cost')} data-testid={`line-cost-${i}`} /></td>
-                <td className="py-1 pe-2"><MoneyInput compact value={l.makingCost} onValueChange={(v) => upd(i, { makingCost: v })} data-testid={`line-making-${i}`} aria-label={t('Making')} className="w-28" /></td>
-                <td className="py-1 pe-2"><MoneyInput compact value={l.otherCost} onValueChange={(v) => upd(i, { otherCost: v })} aria-label={t('Other')} className="w-28" /></td>
+                <td className="py-1 pe-2"><MoneyInput compact placeholder="0" value={l.makingCost} onValueChange={(v) => upd(i, { makingCost: v })} data-testid={`line-making-${i}`} aria-label={t('Making')} className="w-28" /></td>
+                <td className="py-1 pe-2"><MoneyInput compact placeholder="0" value={l.otherCost} onValueChange={(v) => upd(i, { otherCost: v })} aria-label={t('Other')} className="w-28" /></td>
                 <td className="py-1 pe-2"><MoneyInput compact value={l.sellingPrice} onValueChange={(v) => upd(i, { sellingPrice: v })} className="w-32" aria-label={t('Selling price')} data-testid={`line-price-${i}`} /></td>
                 <td className="py-1">
                   <button onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} disabled={lines.length === 1} className="p-1 text-ink-400 hover:text-rose-600 disabled:opacity-30" aria-label={t('Remove line')}>
@@ -347,7 +336,6 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
         </table>
       </div>
       <Button size="sm" variant="ghost" className="mt-2" icon={<Plus className="size-4" />} onClick={() => setLines((ls) => [...ls, emptyLine()])}>{t('Add piece')}</Button>
-      <p className="mt-2 text-[12px] text-ink-500">{t('Tip: enter the net weight and the costs are pre-filled from today’s gold rate. All values stay editable.')}</p>
       {newProductFor != null && (
         <NewProductDialog
           onClose={() => setNewProductFor(null)}

@@ -498,7 +498,6 @@ export const AR: Record<string, string> = {
   "Other": "أخرى",
   "Add piece": "إضافة قطعة",
   "Remove line": "حذف السطر",
-  "Tip: enter the net weight and the costs are pre-filled from today’s gold rate. All values stay editable.": "تلميح: أدخل الوزن الصافي لتُملأ التكاليف تلقائياً حسب سعر الذهب اليوم. كل القيم قابلة للتعديل.",
   "Pieces received": "القطع المستلمة",
   "Current status shows where each piece is now": "الحالة الحالية توضح مكان كل قطعة الآن",
   "Now": "الآن",
