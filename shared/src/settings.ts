@@ -6,7 +6,7 @@
 // the API accepts changes keyed by the dotted names below (e.g. "security.idleMinutes").
 
 import { z } from 'zod';
-import { INVOICE_FORMATS, PAYMENT_METHODS, TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, type InvoiceFormat, type PaymentMethod, type TwoFactorRole, type WebauthnUv } from './enums';
+import { INVOICE_FORMATS, PAYMENT_METHODS, PRICING_SETTING_MODES, TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, type InvoiceFormat, type PaymentMethod, type PricingSettingMode, type TwoFactorRole, type WebauthnUv } from './enums';
 
 export type GoldRateScope = 'GLOBAL' | 'BRANCH';
 
@@ -61,6 +61,15 @@ export interface SystemSettings {
     goldRateScope: GoldRateScope;
     /** Rate changes larger than this percentage need an explicit confirmation. */
     rateChangeMaxPct: number;
+  };
+  pricing: {
+    /**
+     * PRC-1 (D-prc1-1): RATE_COMPUTED = a piece's price is its net weight × the current selling rate of its karat and
+     * origin (new or used), live; FIXED_TAG = the stored tag price of each piece (before PRC-1).
+     */
+    mode: PricingSettingMode;
+    /** PRC-1 (Q-2, provisional): the computed price is rounded once to a multiple of this many whole units. */
+    roundingStep: number;
   };
   transfers: {
     /** Pending transfers/claims older than this are flagged on the GM dashboard. */
@@ -154,6 +163,12 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   rates: {
     goldRateScope: 'GLOBAL',
     rateChangeMaxPct: 5,
+  },
+  // PRC-1: a new installation computes prices from the rates; an upgraded one keeps FIXED_TAG (migration 0024).
+  pricing: {
+    mode: 'RATE_COMPUTED',
+    // Provisional until the client answers Q-2: the nearest whole unit.
+    roundingStep: 1,
   },
   transfers: {
     pendingClaimStaleHours: 24,
@@ -249,6 +264,8 @@ export const SETTINGS_REGISTRY = {
   'cash.countDifferenceTolerance': { schema: int(0, 1_000_000_000_000) },
   'rates.goldRateScope': { schema: z.enum(['GLOBAL', 'BRANCH']), notInUse: true },
   'rates.rateChangeMaxPct': { schema: z.number().min(0.1).max(100), notInUse: true },
+  'pricing.mode': { schema: z.enum(PRICING_SETTING_MODES) },
+  'pricing.roundingStep': { schema: int(1, 1_000_000) },
   'transfers.pendingClaimStaleHours': { schema: int(1, 24 * 30) },
   'inventory.allowedKarats': {
     schema: z

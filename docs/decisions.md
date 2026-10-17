@@ -481,3 +481,12 @@ selling prices are entered and stored as before (PRC-1 next); no migration, no d
 | D-ux1-7 | Scrap customer details | | Name, phone, ID document and note are in one **closed** "Customer details (optional)" section. Nothing in it is required; the API and the database keep the fields (SCR-1). | `ScrapPage.tsx`. |
 | D-ux1-8 | The reference echo | | The hint under a bank/transfer reference printed the reference a second time: the FIX-2 preview of its normalized form. The field now normalizes as typed, so the preview is gone (supplier order, scrap, funding). | — |
 | D-ux1-9 | Acceptance screenshots | | Committed under `docs/acceptance/UX-1/` as the owner asked; `check:assets` now also caps `docs/acceptance/` (WebP, 150 KB each, 4 MB with `docs/ux/`). | `scripts/check-assets.mjs`. |
+
+## PRC-1: computed selling prices
+
+Plan `docs/plans/PRC-1.md`. Owner decisions of 2026-10-17 (three rates per karat, live prices, price locked at the
+sale, no making charge, provisional rounding, cashier may buy a sellable piece).
+
+| ID | Topic | Options | Decision | How to change |
+|---|---|---|---|---|
+| D-prc1-1 | Pricing mode and rounding | | Settings **`pricing.mode`** (`RATE_COMPUTED` \| `FIXED_TAG`, default `RATE_COMPUTED`) and **`pricing.roundingStep`** (whole units 1–1,000,000, default 1 = the nearest unit; **provisional until the client answers Q-2**). General Manager only (`settings.manage`), audited in the settings history. The computed price is `round(net mg × rate / (1000 × step)) × step`: **one rounding**, half away from zero, after the exact product (`shared/src/pricing.ts` through `money.ts`; property tests in `pricing.property.test.ts`). A missing rate (none, or ≤ 0) means **no price**, never 0. No making charge: Q-1 is open; the sale line keeps `price_making_charge` NULL as the seam. | The setting; Q-1 adds a component in `computedPrice`. |

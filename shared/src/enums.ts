@@ -64,6 +64,12 @@ export const SALE_STATUSES = ['COMPLETED', 'VOIDED'] as const;
 /** How a sale line's price was set (Q2 is CLIENT-PENDING: only FIXED_TAG is used today). */
 export const PRICING_MODES = ['FIXED_TAG', 'COMPUTED'] as const;
 export type PricingMode = (typeof PRICING_MODES)[number];
+/** PRC-1: the deployment's pricing mode (setting `pricing.mode`); a computed sale line stores pricing_mode COMPUTED. */
+export const PRICING_SETTING_MODES = ['RATE_COMPUTED', 'FIXED_TAG'] as const;
+export type PricingSettingMode = (typeof PRICING_SETTING_MODES)[number];
+/** PRC-1 (D-prc1-2): the two selling rates per karat: NEW for supplier and opening pieces, USED for sellable scrap. */
+export const GOLD_RATE_KINDS = ['NEW', 'USED'] as const;
+export type GoldRateKind = (typeof GOLD_RATE_KINDS)[number];
 
 // ── Branch money ledger (Phase 2b, decisions Q5–Q8, D-2b-*) ──
 /**
