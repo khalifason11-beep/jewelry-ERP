@@ -49,6 +49,64 @@ const check = (ok, what) => {
   if (!ok) failures++;
 };
 
+/** UX-1 (D-ux1-1): the kit's number, identifier and date fields behave the same in both languages. */
+async function numberFieldChecks(page, lang) {
+  const values = async () => JSON.parse(await page.getByTestId('kit-number-values').textContent());
+  const field = (id) => page.getByTestId(id);
+  const attrs = await page.evaluate(() => ['kit-money', 'kit-weight', 'kit-integer', 'kit-date'].map((id) => {
+    const el = document.querySelector(`[data-testid=${id}]`);
+    return { type: el.type, mode: el.inputMode, dir: el.dir };
+  }));
+  check(attrs.every((a) => a.type === 'text' && a.dir === 'ltr') && attrs[0].mode === 'numeric' && attrs[1].mode === 'decimal' && attrs[2].mode === 'numeric', `number fields are text fields with a numeric keypad, digits left-to-right (no spinner): ${JSON.stringify(attrs)}`);
+  check((await field('kit-money').inputValue()) === '1,250,000' && (await values()).money === '1250000', 'an amount shows thousands separators when not focused; the value has none');
+  await field('kit-money').focus();
+  check((await field('kit-money').inputValue()) === '1250000', 'focused, the amount is plain digits (copy and edit work)');
+  await page.mouse.move(...(await field('kit-money').boundingBox().then((b) => [b.x + b.width / 2, b.y + b.height / 2])));
+  await page.mouse.wheel(0, 400);
+  await page.mouse.wheel(0, -400);
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowDown');
+  check((await values()).money === '1250000', 'the mouse wheel and the arrow keys never change an amount');
+  await field('kit-money').fill('');
+  check((await values()).money === '' && (await field('kit-money').inputValue()) === '', 'an emptied amount stays empty (never 0)');
+  await field('kit-weight').click();
+  await page.keyboard.type('12a5e+-.3456');
+  check((await values()).weight === '125.345', `typed letters, e, + and - are refused; at most 3 decimals (weight "${(await values()).weight}")`);
+  await field('kit-weight').fill('');
+  await page.keyboard.insertText('-5');
+  const refused = (await values()).weight === '' && (await page.locator('[data-input-error]').count()) > 0;
+  check(refused, 'a pasted negative is refused, with a message');
+  await page.keyboard.insertText('٤٫٢٠٥');
+  check((await values()).weight === '4.205', 'pasted Arabic digits and decimal separator become 4.205');
+  await field('kit-money').click();
+  await page.keyboard.insertText('1,250,000');
+  check((await values()).money === '1250000', 'a pasted grouped amount keeps its value');
+  await field('kit-integer').click();
+  await page.keyboard.type('25');
+  const max = await page.getByText(lang === 'ar' ? 'لا يزيد على 24' : 'At most 24').count();
+  check((await values()).karat === '25' && max > 0, 'an out-of-range value is kept as typed and says the limit inline');
+  await field('kit-phone').click();
+  await page.keyboard.type('+249 9a1-2');
+  check((await values()).phone === '+249 912', `phone: digits, spaces and a leading + only (${(await values()).phone})`);
+  await field('kit-reference').click();
+  await page.keyboard.type('trx_-٢٠');
+  check((await values()).ref === 'TRX-20', `reference: upper-cased, Arabic digits normalized, other characters refused (${(await values()).ref})`);
+  check((await field('kit-date').inputValue()) === '11/10/2026', 'a date shows dd/mm/yyyy whatever the browser locale');
+  await field('kit-date').fill('');
+  await field('kit-date').click();
+  await page.keyboard.type('18102026');
+  await page.keyboard.press('Tab');
+  check((await values()).day !== '2026-10-18', 'a date after the maximum is not taken');
+  await field('kit-date').fill('');
+  await field('kit-date').click();
+  await page.keyboard.type('01102026');
+  await page.keyboard.press('Tab');
+  check((await values()).day === '2026-10-01' && (await field('kit-date').inputValue()) === '01/10/2026', 'typed digits become 01/10/2026, stored 2026-10-01');
+  await page.reload();
+  await page.getByTestId('ui-kit').waitFor();
+  await page.evaluate(() => document.fonts.ready);
+}
+
 const port = await freePort();
 const vite = spawn('npx', ['vite', '--port', String(port), '--strictPort', '--host', '127.0.0.1'], { cwd: path.join(ROOT, 'frontend'), stdio: ['ignore', 'pipe', 'pipe'], detached: true });
 let viteLog = '';
@@ -99,6 +157,9 @@ try {
           return { style: s.outlineStyle, width: s.outlineWidth, color: s.outlineColor, shadow: s.boxShadow };
         });
         check(ring.style === 'solid' && ring.width === '2px' && /201, 162, 75/.test(ring.color) && /15, 22, 41/.test(ring.shadow), `the keyboard focus ring is visible: 2 px gold outside a navy ring (${ring.color}; ${ring.shadow})`);
+
+        // UX-1 number fields: typing, paste, wheel, keypad, limits, empty stays empty (all in the browser).
+        await numberFieldChecks(page, lang);
 
         // A loading button is busy and cannot be used.
         const loading = page.getByTestId('kit-btn-primary-loading');

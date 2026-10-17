@@ -144,6 +144,14 @@ describe('date fields: dd/mm/yyyy shown, yyyy-mm-dd stored', () => {
     expect(sanitizeDayTyping('17102026')).toEqual({ ok: true, value: '17/10/2026' });
     expect(sanitizeDayTyping('١٧١٠٢٠٢٦')).toEqual({ ok: true, value: '17/10/2026' });
     expect(sanitizeDayTyping('7/1/2026')).toEqual({ ok: true, value: '7/1/2026' });
+    // Typing on, one digit at a time, after the slashes were added.
+    let text = '';
+    for (const d of '01102026') {
+      const r = sanitizeDayTyping(text + d);
+      expect(r.ok).toBe(true);
+      if (r.ok) text = r.value;
+    }
+    expect(text).toBe('01/10/2026');
     expect(sanitizeDayTyping('17-10-2026').ok).toBe(false);
     expect(sanitizeDayTyping('17/10/20261').ok).toBe(false);
     expect(sanitizeDayTyping('a').ok).toBe(false);

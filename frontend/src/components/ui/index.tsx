@@ -12,3 +12,5 @@ export { Panel, PanelHeader } from './Panel';
 export { Card, CardHeader, ItemThumb, KeyValue, Kpi, Mono, PageHeader, Tabs } from './Layout';
 export { DataTable, type Column } from './DataTable';
 export { DetailPending, QueryState, RefreshBar, viewState, type QueryLike, type ViewState } from './QueryState';
+export { DecimalInput, IntegerInput, MoneyInput, PhoneInput, ReferenceInput, WeightInput, type NumberFieldProps } from './NumberInput';
+export { DateInput } from './DateInput';

@@ -127,13 +127,17 @@ export function dayKeyToInput(key: string): string {
 export function sanitizeDayTyping(raw: string): InputCheck {
   const s = normalizeDigits(raw).trim();
   if (/[^0-9/]/.test(s)) return { ok: false, reason: 'chars' };
+  const slashed = (d: string) => d.slice(0, 2) + (d.length > 2 ? `/${d.slice(2, 4)}` : '') + (d.length > 4 ? `/${d.slice(4, 8)}` : '');
   if (s.includes('/')) {
-    if (!/^\d{0,2}(\/\d{0,2}(\/\d{0,4})?)?$/.test(s)) return { ok: false, reason: 'separator' };
-    return { ok: true, value: s };
+    if (/^\d{0,2}(\/\d{0,2}(\/\d{0,4})?)?$/.test(s)) return { ok: true, value: s };
+    // Typing on after the slashes this function added ("01/0" + "1" + "2"…): lay the digits out again.
+    const onlyAdded = [...s].every((c, i) => c !== '/' || i === 2 || i === 5);
+    const digits = s.replace(/\//g, '');
+    if (onlyAdded && digits.length <= 8) return { ok: true, value: slashed(digits) };
+    return { ok: false, reason: 'separator' };
   }
   if (s.length > 8) return { ok: false, reason: 'length' };
-  const v = s.slice(0, 2) + (s.length > 2 ? `/${s.slice(2, 4)}` : '') + (s.length > 4 ? `/${s.slice(4, 8)}` : '');
-  return { ok: true, value: v };
+  return { ok: true, value: slashed(s) };
 }
 
 /** "17/10/2026" or "7/1/2026" → "2026-10-17" / "2026-01-07"; null when incomplete or not a real day. */
