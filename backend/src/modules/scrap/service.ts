@@ -38,7 +38,7 @@ export async function scrapRates(exec: Executor): Promise<Record<number, { price
 }
 
 /** Today's scrap buying rates and the deviation rules, for the scrap purchase screen and Settings. */
-export async function scrapRatesView(ctx: Ctx, actor: Actor) {
+export async function scrapRatesView(ctx: Ctx, actor: Actor, historyLimit = 60) {
   requireAny(actor, 'scrap.buy', 'scrap.buy_sellable', 'settings.manage');
   const rates = await scrapRates(ctx.db);
   const { purchases: p } = await ctx.settings.get();
@@ -54,7 +54,7 @@ export async function scrapRatesView(ctx: Ctx, actor: Actor) {
         })
         .from(t.scrapRates)
         .orderBy(desc(t.scrapRates.effectiveAt), desc(t.scrapRates.id))
-        .limit(60)
+        .limit(historyLimit)
     : [];
   return {
     rates: Object.entries(rates).map(([karat, r]) => ({ karat: Number(karat), pricePerGram: r.pricePerGram, effectiveAt: r.effectiveAt })),
