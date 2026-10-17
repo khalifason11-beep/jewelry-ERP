@@ -576,7 +576,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
         purchaseCost: zPositiveMoney,
         makingCost: zMoney,
         otherCost: zMoney,
-        sellingPrice: zPositiveMoney,
+        // PRC-1: FIXED_TAG only; with computed prices the service refuses it.
+        sellingPrice: zPositiveMoney.optional(),
       })
       .strict()
       .refine((l) => l.netWeightMg <= l.grossWeightMg, { message: 'Net weight must not exceed gross weight', path: ['netWeightMg'] });

@@ -180,7 +180,7 @@ export async function buildSalesWorld(srv, { pieces = 8 } = {}) {
   const supplier = await gm.must('POST', '/suppliers', { nameAr: '[اختبار] مورّد أ' }, { idempotent: true });
   const lines = Array.from({ length: pieces }, (_, i) => {
     const net = 4_000 + i * 730;
-    return { productId: product.id, grossWeightMg: net + 150, netWeightMg: net, purchaseCost: 700_000 + i * 50_000, makingCost: 40_000, otherCost: 0, sellingPrice: 1_000_000 + i * 75_000 };
+    return { productId: product.id, grossWeightMg: net + 150, netWeightMg: net, purchaseCost: 700_000 + i * 50_000, makingCost: 40_000, otherCost: 0 }; // PRC-1: priced from the rates
   });
   // CSH-2: the General Manager's opening money for the branch (test values), before any cash or bank outflow.
   await gm.must('POST', '/funding/advances', { branchId, account: 'CASH', amount: 2_000_000, reason: '[اختبار] رصيد الدرج' }, { idempotent: true });

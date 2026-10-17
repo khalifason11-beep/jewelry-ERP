@@ -32,7 +32,7 @@ import { createCategory, createProduct, createSupplier } from '../modules/catalo
 import { createPurchase } from '../modules/purchases/service';
 import { createSale } from '../modules/sales/service';
 import { buyScrap, setScrapRates } from '../modules/scrap/service';
-import { setSellingRates } from '../modules/pricing/service';
+import { currentSellingRates, priceOf, pricingOf, setSellingRates } from '../modules/pricing/service';
 import { recordAdvance } from '../modules/funding/service';
 import { createTransfer } from '../modules/transfers/service';
 
@@ -146,20 +146,23 @@ async function buildSample(ctx: Ctx) {
     const lines = Array.from({ length: 8 }, (_, i) => {
       const p = products[i % products.length];
       const net = 3_000 + ((i * 1_370 + bi * 410) % 9_000);
-      return { productId: p.id, grossWeightMg: net + 120, netWeightMg: net, purchaseCost: Math.round(net * 170) , makingCost: 40_000, otherCost: 0, sellingPrice: Math.round(net * 230 / 1000) * 1000 };
+      return { productId: p.id, grossWeightMg: net + 120, netWeightMg: net, purchaseCost: Math.round(net * 170) , makingCost: 40_000, otherCost: 0 }; // PRC-1: no selling price (priced from the rates)
     });
     // SUP-1: one sample supplier serves both branches; the sample confirms the open-debt warning.
     await createPurchase(ctx, gm, { confirmOpenSupplierDebt: true, branchId: b.id, supplierId: supplier.id, lines, makingChargeReference: `SAMPLE-MKC-${bi + 1}`, makingChargeTransferDate: today });
   }
   const a = branches[0];
   const cashier = await actor(ctx, cashiers[0].username);
-  const stock = await ctx.db.select({ id: t.jewelryItems.id }).from(t.jewelryItems).where(eq(t.jewelryItems.branchId, a.id)).orderBy(t.jewelryItems.id);
-  await createSale(ctx, cashier, { items: [{ itemId: stock[0].id }], paymentMethod: 'CASH', customerNameAr: names.customers[0] });
-  await createSale(ctx, cashier, { items: [{ itemId: stock[1].id }], paymentMethod: 'BANK_TRANSFER', paymentRefTransaction: 'TRF-000142', customerNameAr: names.customers[1 % names.customers.length] });
-  await createSale(ctx, cashier, { items: [{ itemId: stock[2].id }], paymentMethod: 'HASAD', paymentRefInvoice: 'SAMPLE-0001' });
+  const stock = await ctx.db.select().from(t.jewelryItems).where(eq(t.jewelryItems.branchId, a.id)).orderBy(t.jewelryItems.id);
+  // PRC-1: the sale carries the price the cashier is shown (the live price from the rates).
+  const [pricing, rates] = [await pricingOf(ctx), await currentSellingRates(ctx.db)];
+  const shown = (i: number) => [{ itemId: stock[i].id, listPrice: priceOf(pricing, rates, stock[i]).sellingPrice ?? undefined }];
+  await createSale(ctx, cashier, { items: shown(0), paymentMethod: 'CASH', customerNameAr: names.customers[0] });
+  await createSale(ctx, cashier, { items: shown(1), paymentMethod: 'BANK_TRANSFER', paymentRefTransaction: 'TRF-000142', customerNameAr: names.customers[1 % names.customers.length] });
+  await createSale(ctx, cashier, { items: shown(2), paymentMethod: 'HASAD', paymentRefInvoice: 'SAMPLE-0001' });
   const bmA = await actor(ctx, branchManagers[0].username);
   await buyScrap(ctx, bmA, { branchId: a.id, kind: 'BROKEN', karat: allowed[0], grossWeightMg: 4_250, netWeightMg: 4_250, paymentMethod: 'CASH' });
-  await buyScrap(ctx, bmA, { branchId: a.id, kind: 'SELLABLE', karat: products[0].karat, grossWeightMg: 3_640, netWeightMg: 3_640, paymentMethod: 'CASH', productId: products[0].id, sellingPrice: 900_000 });
+  await buyScrap(ctx, bmA, { branchId: a.id, kind: 'SELLABLE', karat: products[0].karat, grossWeightMg: 3_640, netWeightMg: 3_640, paymentMethod: 'CASH', productId: products[0].id });
   if (branches[1]) await createTransfer(ctx, bmA, { toBranchId: branches[1].id, itemIds: [stock[3].id], courierName: '[عينة] مندوب التوصيل' });
 
   return { gm: { username: boot.username, password: gmPw, role: 'GENERAL_MANAGER' }, branchManagers, cashiers };
