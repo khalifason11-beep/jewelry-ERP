@@ -60,8 +60,11 @@ const zWeightMg = z.number().int().min(1).max(MAX_WEIGHT_MG);
 const zIdBody = z.number().int().positive().max(2_147_483_647);
 const zText = (max: number) => z.string().trim().max(max);
 const zKarat = z.coerce.number().int().refine((k) => (KARATS as readonly number[]).includes(k), 'Unsupported karat');
-/** Scrap BUYING accepts any karat a customer brings (1–24); selling is still limited by allowedKarats. */
-const zScrapKarat = z.coerce.number().int().min(1).max(24);
+/**
+ * Scrap BUYING accepts any karat a customer brings (1–24); selling is still limited by allowedKarats. A JSON body sends
+ * a number: no coercion (UX-1, D-ux1-3: `z.coerce` read `true` as karat 1 and `[21]` as 21).
+ */
+const zScrapKarat = z.number().int().min(1).max(24);
 const zStatusList = z.preprocess((v) => (typeof v === 'string' && v ? v.split(',') : undefined), z.array(z.string().regex(/^[A-Z_]{2,40}$/)).max(20).optional());
 const zBool = z.preprocess((v) => v === 'true' || v === '1' || v === true, z.boolean());
 const zQ = zText(100).optional();
