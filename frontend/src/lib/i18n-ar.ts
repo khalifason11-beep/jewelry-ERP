@@ -1874,4 +1874,9 @@ export const AR: Record<string, string> = {
   "Selling prices follow the rates: do not send one": "أسعار البيع تتبع سعر الجرام: لا تُرسل سعرًا",
   "A sellable piece needs a product": "القطعة القابلة للبيع تحتاج إلى منتج",
   "Broken scrap has no product and no selling price": "الكسر لا منتج له ولا سعر بيع",
+  "A rate change of more than {pct}% needs a reason and your password": "تغيير السعر بأكثر من {pct}% يحتاج إلى سبب وإلى كلمة المرور",
+  "A rate change of more than {pct}% needs a reason": "تغيير السعر بأكثر من {pct}% يحتاج إلى سبب",
+  "{karat} gold rate {from} → {to} per gram ({change}%): {reason}": "سعر جرام الذهب {karat}: من {from} إلى {to} ({change}%): {reason}",
+  "{karat} used-piece selling rate {from} → {to} per gram ({change}%): {reason}": "سعر جرام القطع المستعملة {karat}: من {from} إلى {to} ({change}%): {reason}",
+  "{karat} scrap buying rate {from} → {to} per gram ({change}%): {reason}": "سعر شراء الكسر {karat}: من {from} إلى {to} للغرام ({change}%): {reason}",
 };

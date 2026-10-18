@@ -76,15 +76,19 @@ async function sundayMonday(page, gm, world) {
   const po = await gm.must('POST', '/purchases', { branchId: world.branchId, supplierId: world.supplierId, confirmOpenSupplierDebt: true, lines: [{ productId: world.productId, grossWeightMg: 1_000, netWeightMg: 1_000, purchaseCost: 60_000, makingCost: 0, otherCost: 0 }] }, { idempotent: true });
   const code = po.itemCodes[0];
   await gm.reauth(world.gm.password);
-  await gm.must('POST', '/gold-rates', { rates: { 21: 100_000 } });
+  // DEC-1 (RAT-1): 190,000 → 100,000 is a move of more than 30 %: it carries a reason and the password (test values).
+  const bigMove = { reason: 'اختبار: مثال الأحد والإثنين', confirmPassword: world.gm.password };
+  const guarded = await gm.call('POST', '/gold-rates', { rates: { 21: 100_000 } });
+  check(guarded.status === 403 && guarded.body.error.code === 'RATE_CHANGE_CONFIRM_REQUIRED', 'DEC-1: a move of more than 30 % without the reason and the password is refused (403)');
+  await gm.must('POST', '/gold-rates', { rates: { 21: 100_000 }, ...bigMove });
   const row = async () => (await gm.must('GET', `/inventory/items?q=${code}`)).rows[0];
   check((await row()).sellingPrice === 100_000, `Sunday: ${code} (1 g) sells for 100,000 at 100,000 per gram`);
   await gm.must('POST', '/gold-rates', { rates: { 21: 110_000 } });
-  check((await row()).sellingPrice === 110_000, 'Monday: the rate rises to 110,000; the same piece now sells for 110,000');
+  check((await row()).sellingPrice === 110_000, 'Monday: the rate rises to 110,000 (exactly +10 %: no reason needed); the same piece now sells for 110,000');
   await page.goto(`${BASE}/inventory`);
   const line = page.locator('main tbody tr', { hasText: code });
   check(await eventually(async () => (await line.count()) === 1 && digits(await line.innerText()).includes('110000')), `the inventory list shows 110,000 for ${code}`);
-  await gm.must('POST', '/gold-rates', { rates: { 21: before } });
+  await gm.must('POST', '/gold-rates', { rates: { 21: before }, ...bigMove });
 }
 
 async function inventoryList(page, gm) {

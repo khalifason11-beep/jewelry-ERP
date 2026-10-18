@@ -486,7 +486,8 @@ describe('scrap buying accepts any karat 1–24; selling stays limited to allowe
     const gm = await actorOf('general.manager');
     const bm = await actorOf('branch.manager.omd');
     const omd = await branchId('OMD');
-    await setScrapRates(ctx, gm, { 14: 95_000 });
+    // DEC-1 (RAT-1): a move of more than 10 % from the world's 14K rate carries a reason (test value).
+    await setScrapRates(ctx, gm, { 14: 95_000 }, { reason: 'test: set the 14K scrap rate' });
     const before = await pool(omd, 14);
     const r = await buyScrap(ctx, bm, { branchId: omd, kind: 'BROKEN', karat: 14, grossWeightMg: 3_300, netWeightMg: 3_300, paymentMethod: 'CASH' });
     expect(r.karat).toBe(14);

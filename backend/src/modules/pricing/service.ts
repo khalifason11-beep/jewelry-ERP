@@ -15,6 +15,7 @@ import { requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
 import { badRequest } from '../../core/errors';
 import { rows } from '../../core/sql';
+import { checkRateChanges, confirmPasswordIfGiven, guardAudit, type RateGuardInput } from './rate-guard';
 
 /** pg advisory lock key of the pricing lock (an arbitrary constant, unique in this application). */
 const PRICING_LOCK = 0x50524331; // "PRC1"
@@ -148,6 +149,8 @@ export interface SellingRatesView {
   history: { id: number; karat: number; kind: GoldRateKind; pricePerGram: number; effectiveAt: Date; setBy: string | null }[];
   pricing: { mode: PricingSettingMode; roundingStep: number };
   allowedKarats: number[];
+  /** DEC-1 (RAT-1): a change above warn % needs a reason, above confirm % the password too. */
+  guard: { warnChangePercent: number; confirmChangePercent: number };
 }
 
 export async function sellingRatesView(ctx: Ctx, limit = 60): Promise<SellingRatesView> {
@@ -179,6 +182,7 @@ export async function sellingRatesView(ctx: Ctx, limit = 60): Promise<SellingRat
     history: history.map((h) => ({ ...h, kind: h.kind as GoldRateKind })),
     pricing: { mode: settings.pricing.mode, roundingStep: settings.pricing.roundingStep },
     allowedKarats: settings.inventory.allowedKarats,
+    guard: { warnChangePercent: settings.rates.warnChangePercent, confirmChangePercent: settings.rates.confirmChangePercent },
   };
 }
 
@@ -186,7 +190,7 @@ export async function sellingRatesView(ctx: Ctx, limit = 60): Promise<SellingRat
  * Set selling rates (General Manager, re-authenticated by the route). Any karat in `inventory.allowedKarats`; only real
  * changes are written (one append-only row and one audit entry each).
  */
-export async function setSellingRates(ctx: Ctx, actor: Actor, input: Partial<Record<GoldRateKind, Record<string, number>>>) {
+export async function setSellingRates(ctx: Ctx, actor: Actor, input: Partial<Record<GoldRateKind, Record<string, number>>>, guard: RateGuardInput = {}) {
   requirePerm(actor, 'settings.manage');
   const { inventory } = await ctx.settings.get();
   const changes: { karat: number; kind: GoldRateKind; price: number }[] = [];
@@ -197,21 +201,35 @@ export async function setSellingRates(ctx: Ctx, actor: Actor, input: Partial<Rec
       changes.push({ karat, kind, price });
     }
   }
+  // DEC-1 (RAT-1): a password given with the request is checked first, like a re-confirmation.
+  const confirmed = await confirmPasswordIfGiven(ctx, actor, guard);
   await ctx.db.transaction(async (tx) => {
+    // The exclusive pricing lock serialises rate edits: the previous value below is the current one, never stale.
     await lockPricingExclusive(tx);
     const before = await currentSellingRates(tx);
-    for (const c of changes) {
-      const from = before.get(rateKey(c.karat, c.kind))?.pricePerGram ?? 0;
-      if (from === c.price) continue;
-      await tx.insert(t.goldRates).values({ karat: c.karat, kind: c.kind, pricePerGram: c.price, setBy: actor.userId });
+    const real = changes
+      .map((c) => ({ karat: c.karat, kind: c.kind, from: before.get(rateKey(c.karat, c.kind))?.pricePerGram ?? null, to: c.price }))
+      .filter((c) => c.from !== c.to);
+    const checked = checkRateChanges((await ctx.settings.get()).rates, real, guard, confirmed);
+    for (const c of checked) {
+      const kind = c.kind as GoldRateKind;
+      const from = c.from ?? 0;
+      const g = guardAudit(c, guard);
+      await tx.insert(t.goldRates).values({ karat: c.karat, kind, pricePerGram: c.to, setBy: actor.userId });
       await writeAudit(tx, actor, {
         action: 'GOLD_RATE_CHANGED',
         entityType: 'gold_rate',
-        entityId: c.kind === 'NEW' ? `${c.karat}K` : `${c.karat}K-USED`,
+        entityId: kind === 'NEW' ? `${c.karat}K` : `${c.karat}K-USED`,
         branchId: null,
-        key: c.kind === 'NEW' ? '{karat} gold rate {from} → {to} per gram' : '{karat} used-piece selling rate {from} → {to} per gram',
-        params: { karat: ap.karat(c.karat), from: ap.money(from), to: ap.money(c.price) },
-        metadata: { kind: c.kind, from, to: c.price },
+        key: g.guarded
+          ? kind === 'NEW'
+            ? '{karat} gold rate {from} → {to} per gram ({change}%): {reason}'
+            : '{karat} used-piece selling rate {from} → {to} per gram ({change}%): {reason}'
+          : kind === 'NEW'
+            ? '{karat} gold rate {from} → {to} per gram'
+            : '{karat} used-piece selling rate {from} → {to} per gram',
+        params: { karat: ap.karat(c.karat), from: ap.money(from), to: ap.money(c.to), ...(g.guarded ? { change: g.change, reason: g.reason } : {}) },
+        metadata: { kind, from, to: c.to, ...g.metadata },
       });
     }
   });
