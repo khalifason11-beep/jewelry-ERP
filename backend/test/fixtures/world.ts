@@ -42,6 +42,9 @@ function mulberry32(seed: number) {
   };
 }
 
+/** Discount caps of the fixture world, by role (test values; the product default is 0 for every role, D-dec1-12). */
+export const WORLD_DISCOUNT_CAPS: Record<string, number> = { CASHIER: 3, BRANCH_MANAGER: 10, GENERAL_MANAGER: 20 };
+
 export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: boolean; pricingMode?: 'FIXED_TAG' | 'RATE_COMPUTED' } = {}) {
   const rand = mulberry32(20260923);
   const between = (a: number, b: number) => a + rand() * (b - a);
@@ -98,6 +101,9 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
       // PRC-1 suites switch it to RATE_COMPUTED (both selling rates exist for 21K, below).
       // (seeded in FIXED_TAG: its historic sales are tag-priced; `opts.pricingMode` is applied at the end)
       'pricing.mode': 'FIXED_TAG',
+      // DEC-1 (D-dec1-12): discounts are off by default (caps 0). The world's historic sales and the discount tests use
+      // caps of their own, set explicitly (test values).
+      'sales.maxDiscountPercentByRole': WORLD_DISCOUNT_CAPS,
     },
     { actor: { id: null, username: 'demo-seed' }, allowGuarded: true },
   );
@@ -298,7 +304,7 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
         const count = chance(0.18) ? 2 : 1;
         const chosen = Array.from({ length: count }, () => pool.splice(Math.floor(rand() * pool.length), 1)[0]);
         const seller = chance(0.12) ? bm[code] : pick(cashiers[code]);
-        const maxPct = DEFAULT_SETTINGS.sales.maxDiscountPercentByRole[seller.roleCode] ?? 0;
+        const maxPct = WORLD_DISCOUNT_CAPS[seller.roleCode] ?? 0;
         const items = chosen.map((i) => ({
           itemId: i.id,
           discount: chance(0.25) ? Math.floor((i.sellingPrice * between(0.4, maxPct)) / 100 / 1000) * 1000 : 0,

@@ -16,7 +16,7 @@ import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildSalesWorld, startEmptyServer } from './lib/e2e-world.mjs';
+import { apiClient, buildSalesWorld, startEmptyServer } from './lib/e2e-world.mjs';
 
 function loadPlaywright() {
   for (const base of [process.cwd() + '/', path.join(execSync('npm root -g').toString().trim(), '/')]) {
@@ -199,6 +199,9 @@ async function main() {
     await signIn(cashier, world.cashier.username, world.cashier.password);
     await cashier.goto(`${BASE}/pos`);
     await cashier.locator('[data-testid=pos-product]:not([disabled])').first().click();
+    // DEC-1 (D-dec1-12): a new installation gives no discounts (caps 0): the cart line has no discount field.
+    await cashier.getByTestId('pos-line-per-gram').first().waitFor();
+    check((await cashier.getByTestId('pos-discount').count()) === 0, 'DEC-1: with the default discount cap 0 the POS cart shows no discount field');
     await cashier.getByRole('button', { name: /إتمام البيع|Complete Sale/ }).click();
     await cashier.getByTestId('pos-print').waitFor();
     ok('sale completed at the POS; the invoice dialog offers Print');
@@ -221,6 +224,19 @@ async function main() {
     check(!FORBIDDEN.test(text), 'no "making charges", "prototype" or "tax invoice" text anywhere on the invoice');
 
     // ── A4: 5 lines, one discounted, one long description → header and cells share their alignment ──
+    // DEC-1: discounts are off by default; the General Manager sets a cashier cap of 3 % (test value) for this part.
+    const gmApi = await apiClient(BASE);
+    await gmApi.login(world.gm.username, world.gm.password);
+    await gmApi.reauth(world.gm.password);
+    const caps = 'sales.maxDiscountPercentByRole';
+    const capVersion = (await gmApi.must('GET', '/settings')).versions[caps];
+    await gmApi.must('PUT', '/settings', { changes: { [caps]: { CASHIER: 3, BRANCH_MANAGER: 0, GENERAL_MANAGER: 0 } }, expectedVersions: { [caps]: capVersion } });
+    await gmApi.dispose();
+    await cashier.keyboard.press('Escape');
+    await cashier.goto(`${BASE}/pos`);
+    await cashier.locator('[data-testid=pos-product]:not([disabled])').first().click();
+    await cashier.getByTestId('pos-discount').first().waitFor({ timeout: 15_000 });
+    check((await cashier.getByTestId('pos-discount').count()) >= 1, 'DEC-1: once the General Manager sets a cap, the cart line shows the discount field');
     const me = (await api(cashier, 'GET', '/auth/me')).body;
     const stock = (await api(cashier, 'GET', `/inventory/items?branchId=${me.user.branch.id}&status=AVAILABLE&pageSize=20`)).body.rows;
     const five = stock.slice(0, 5);

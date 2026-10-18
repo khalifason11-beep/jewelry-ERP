@@ -134,7 +134,10 @@ In the invoice summary a negative discount renders as "32,000−" while the line
 **Acceptance:** on an empty production database (REH-1) a branch manager creates a product inline and records a supplier order and a sellable scrap purchase. CAT-1 stays as written and still waits for Q-3.
 **Done:** "New type", "New product" and "New supplier" dialogs (Arabic name required, English optional), inline from the supplier-purchase line and supplier select and from the sellable-scrap form (karat fixed); a **Types & products** screen (GM deactivates/reactivates with a reason). Duplicates refused after normalization (migration 0015, unique indexes, `jerp_normalize_name`). A supplier purchase now requires a supplier. Production bootstrap seeds no types. Filters use the type id. REH-1 does all of it on an empty production database. See `docs/decisions.md` D-cat0-*; manual script `docs/acceptance/CAT-0.md`.
 
-### CAT-1 — Item types and stock entry without a product catalog · TODO · M · P0 · Q-3
+### CAT-1 — Item types and stock entry without a product catalog · TODO · M · P0
+**Q-3 closed (owner, 2026-10-18, D-dec1-2):** the General Manager adds item types by hand (nothing shipped); an item is
+type + free-text description + karat + weights; **a product catalog is not required: CAT-1 makes the product optional**
+on every stock entry (supplier order, sellable scrap, opening balance) without removing existing products.
 **Note after CAT-0:** types and products can now be created (CAT-0), so the empty-database blocker is gone; what remains is the Q-3 question (catalog vs free text) and **rename**. Before allowing a rename, snapshot the Arabic product name and the type names on sale lines (today only the English product name is snapshotted; D-cat0-3).
 **Problem:** a production database created by bootstrap holds categories only, and no screen creates a product. **No stock can enter an empty production system** (purchases and the future opening balance both need it).
 **Requirements:**
@@ -160,20 +163,25 @@ installations stay on it until the General Manager switches). The cashier buys a
 - Exact integer arithmetic through `shared/src/money.ts`; property tests; a concurrency test of a rate change racing a sale; invoice and sales list show the price per gram; migration keeps existing fixed-tag lines valid.
 **Acceptance:** after the GM changes the rate, a new cart shows the new price; a confirmed sale keeps its price; all money tests and cost-visibility tests pass.
 
-### OPN-1 — Opening balance, import and sealing · TODO · L · P0 · CAT-1, Q-4
+### OPN-1 — Opening balance, import and sealing · TODO · L · P0 · CAT-1
 **Requirements (SPEC §13):** GM-only, one per branch, DRAFT → SEALED.
 - Entry by keyboard and barcode scanner; **CSV/Excel import** with a validation report (row numbers, the whole file rejected on errors, idempotent).
-- Items get origin OPENING and `cost_is_estimated`; cost per piece, or a default cost-per-gram rule that marks every piece estimated, until Q-4 is answered. **No cash entries** (books start at zero).
+- Items get origin OPENING with **weight and karat only**. **Q-4 closed (owner, 2026-10-18, D-dec1-3): their cost is
+  UNKNOWN (null), never zero.** A sale line of a piece with unknown cost shows profit as "—", is **excluded from profit
+  totals**, and every report that totals profit says how many lines were excluded. Valuation by weight × current rate
+  is unaffected. Supplier-piece cost stays as built. **No cash entries** (books start at zero).
 - Before sealing show count and total weight by karat; sealing needs password and passkey confirmation; afterwards only audited adjustments.
 **Acceptance:** importing a 300-row file creates the items, the stock-weight report matches the sheet's totals, and sealing locks the draft. Part of REH-1.
 
-### LBL-1 — Barcode labels for physical pieces · BLOCKED (Q-9) · M · P1
+### LBL-1 — Barcode labels for physical pieces · DEFERRED (Q-9: labels later) · M · P3
 Print a label (code, karat, weight, Code128 or QR) for each piece, from the opening import and from every receipt. Needs the printer model and label size.
 
 ### CSH-2 — The General Manager's funding of a branch, split payment on scrap, negative balances · DONE · M · P0
 **Done (plan `docs/plans/CSH-2.md`, decisions D-csh-1…9, `docs/acceptance/CSH-2.md`):** GM_ADVANCE / GM_REPAYMENT per branch into or out of the drawer or the bank, with "owed to the General Manager" derived from an `OWED_TO_GM` ledger account (migration 0020), corrections by reversal, GM only (Cash page); counter scrap purchases paid part cash, part bank transfer (migration 0021); CASH outflows blocked below zero, BANK below zero raises attention A17; the first step "Fund the branch". **Open with the client (Q11):** is the General Manager's funding a loan to be repaid or capital? Until answered, opening money recorded as an advance is a debt of the branch to him.
 
-### CSH-3 — Cash-out entry for the operating amount · BLOCKED (Q-6) · S · P1
+### CSH-3 — Cash-out entry for the operating amount · CANCELLED (Q-6)
+**Q-6 closed (owner, 2026-10-18, D-dec1-4):** the fixed operating amount is handled outside the system; nothing is
+recorded. Do not build. (Original text kept below for reference.)
 (Was CSH-2 before the funding work took that name.) If the operating amount leaves the drawer: a minimal audited cash-out record (amount, reason, actor) posted to the ledger. Not an expenses module. It may turn out to be one more General Manager ↔ branch movement (see CSH-2).
 
 ### Mistake correction (before real operation)
@@ -255,25 +263,59 @@ graceful shutdown; request id and a working API access log; `/api/ready`; explic
 in production; `TZ=UTC`; cache headers; `.env.example`; `docs/runbooks/`; the read-only `scripts/server/preflight.mjs`;
 `npm run verify`.
 
-### SPL-1 — Split payments · BLOCKED (Q-7) · M · P2
-If a prepaid Hasad balance can fall short of the price, one sale must carry several payments (for example Hasad plus cash). Ledger entries per payment, one reference per payment.
+### DEC-1 — The owner's decisions of 2026-10-18 · DONE · S · P0
+**Done (plan `docs/plans/DEC-1.md`, D-dec1-1…13, `docs/acceptance/DEC-1.md`, no migration):** Q-2, Q-3, Q-4, Q-6,
+Q-7, Q-8, Q-9, Q-10, Q-12 and RAT-2 recorded in SPEC §20 and here; discounts off (every role's cap defaults to 0, the
+setting stays editable); the gold-rate edit guard (RAT-1); the UX-1 allowed-karats finding closed with a test.
 
-### MNY-1 — Inter-branch money transfers · BLOCKED (Q-8) · M · P2
-A claim by the sender, confirmation by the receiver, through `FUNDS_IN_TRANSIT`, with the bank reference number. Never built.
+### SPL-1 — Split payments · TODO · M · P1 · planned with HSD-2 as **PAY-1**
+**Q-7 closed (owner, 2026-10-18, D-dec1-5):** one invoice may be paid by two methods (rare, e.g. cash + bank transfer).
+**Design:** a payment is **one or two lines**; each line has a **method**, an **amount** and a **reference** (required
+for bank transfer and Hasad, as today); the lines **sum exactly to the invoice total** (integer money, refused
+otherwise); one ledger entry per line in the same transaction as the sale; a void reverses each line through its own
+method; the invoice **prints one line per method**. Idempotency-Key and audit as for every sale.
 
-### RAT-1 — Maximum change of a gold rate in one edit · BLOCKED (client question) · S · P2
+### MNY-1 — Money transfers between branches and to the General Manager · TODO · M · P1
+**Q-8 closed (owner, 2026-10-18, D-dec1-6):** required. **Design:**
+- Parties: **branch ↔ branch** and **branch → General Manager**.
+- The **sender** (branch manager of the sending branch, or the General Manager; **never a cashier**) records an amount
+  from either the **cash drawer** or the **bank account** of the branch. The sending balance drops at once (the drawer
+  rule applies: it cannot go below zero) and the transfer is **IN_TRANSIT** (through `FUNDS_IN_TRANSIT`).
+- The **receiver** (branch manager of the receiving branch, or the General Manager) **confirms**; the receiving
+  balance rises.
+- A confirmed amount that **differs** from the sent one leaves the transfer **DISPUTED** for the General Manager;
+  nothing is adjusted silently.
+- Idempotency-Key required; every step audited; one transaction with row locks per step.
+
+### HSD-2 — Hasad is a sales channel only: no receivable · TODO · M · P1 · planned with SPL-1 as **PAY-1**
+**Q-7 closed (owner, 2026-10-18, D-dec1-5):** Hasad money lands in the General Manager's own account, not in the branch.
+- Remove the `HASAD_RECEIVABLE` account and the **settle-by-bank** action (Cash › Hasad transfers).
+- Hasad stays a **payment method with a required reference**, and appears as **its own channel** in the sales reports
+  and the daily summary (Hasad versus direct sales).
+- The branch cash reconciliation **never expects Hasad money**.
+- A **forward-only migration with the usual guard** (stop and report on data it cannot transform; no history edited).
+- Plan it together with SPL-1 under the name **PAY-1**.
+
+### RAT-1 — Maximum change of a gold rate in one edit · DONE (DEC-1)
+**Done (owner decision 2026-10-18, D-dec1-11, D-dec1-13, `docs/acceptance/DEC-1.md`):** a change of a selling rate
+(new or used) or a scrap buying rate above `rates.warnChangePercent` (10) needs a reason (422), above
+`rates.confirmChangePercent` (30) the reason and the password in the request (403); first rates are not checked;
+compared inside the transaction under the rate lock; audited with the percentage. History of the item below.
 The setting `rates.rateChangeMaxPct` (default 5) existed on the Settings screen but nothing read it. Since CLN-1 it is
 hidden and every write is refused (stored default and history untouched). **Open client question:** is there a maximum
 percentage by which a rate may change in one edit, and what happens above it (refuse, or ask for a confirmation)?
 Build only after the answer, then make the setting writable again.
 
-### RAT-2 — One gold rate for the company, or one per branch · BLOCKED (client question) · M · P2
+### RAT-2 — One gold rate for the company, or one per branch · DONE (as built)
+**Closed (owner, 2026-10-18, D-dec1-10):** one gold-rate set for the whole company, shared by all branches, exactly as
+built. `rates.goldRateScope` stays hidden (GLOBAL). Nothing to build.
 The setting `rates.goldRateScope` (default GLOBAL) existed on the Settings screen but nothing read it: the rate has
 always been company-wide. Since CLN-1 it is hidden and every write is refused (stored default and history untouched).
 **Open client question:** is the gold rate one for the whole company, or can each branch have its own? A per-branch
 rate needs rate history per branch, the POS and the top bar reading the branch's rate, and the reports.
 
-### SCR-1 — Customer identification on scrap purchases · BLOCKED (Q-12) · S · P2
+### SCR-1 — Customer identification on scrap purchases · CANCELLED (Q-12)
+**Q-12 closed (owner, 2026-10-18, D-dec1-9):** not needed; the optional customer fields stay as they are.
 Name, phone, optionally an ID number, and a printed receipt for the customer.
 
 ### RPT-1 — Report review after the removals · TODO · M · P1
@@ -314,7 +356,8 @@ Enter flow, net-weight sum, plain disabled reason; the scrap customer details in
 **Acceptance:** lists stay correct and fast with 10,000 pieces and 20,000 sales on real PostgreSQL; cost-visibility tests still pass on every page.
 **Done (plan `docs/plans/BE-7.md`, D-be7-1…7):** offset pages with an id tiebreaker and a snapshot id, exact totals, fixed sort keys (cost keys GM only), whole-result table totals, CSV by walking every page, migration 0023 (`sale_items(sale_id)`). Measured on 60,140 sales and 90,376 pieces (PostgreSQL 16): every list p95 ≤ 177 ms (budget 300). `test/paging.test.ts` (every page of every list for every role), `test/business-day.test.ts` (the Khartoum midnight in every list).
 
-### TAX-1 — Official tax invoice · BLOCKED (Q-9) · ? · P2
+### TAX-1 — Official tax invoice · NOT NEEDED (Q-9)
+**Q-9 closed (owner, 2026-10-18, D-dec1-7):** the current invoice is enough; a thermal receipt printer.
 Only if the client is legally required to issue one.
 
 ### ROL-1 — Custom roles · DEFERRED · L · P3
@@ -403,9 +446,10 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
   command prompt (`npm test` with `TEST_DATABASE_URL` does).
 - ~~**The Sales, Purchases and Inventory reports read at most 1,000 rows**~~ (found in BE-7): **fixed by RPT-2** (totals
   in SQL over every row; a visible cap on screen with the true count; every row in the CSV; D-rpt2-1…4).
-- Found in UX-1 (not changed): Settings offers 9, 12 and 14 K as allowed karats, but `POST /gold-rates` takes only
-  `KARATS` (18, 21, 22, 24), so such a karat can never get a selling rate (UX-1 plan §7, question 2). The discount caps
-  3/10/20 % and the time-zone default are settings without a recorded decision (question 1).
+- ~~Found in UX-1: Settings offers 9, 12 and 14 K as allowed karats, but `POST /gold-rates` takes only `KARATS`~~:
+  **fixed by PRC-1** (D-prc1-7, rates follow `inventory.allowedKarats`); DEC-1 closes it with `dec1-karats.test.ts`.
+  ~~The discount caps 3/10/20 %~~: **decided** (Q-2, D-dec1-1: no discounts; caps default 0, DEC-1). The time-zone
+  default is still a setting without a recorded decision.
 - Two lists outside the reports still cap silently (RPT-2 plan, items 6 and 7): Cash › Hasad transfers (newest 200,
   CSV included) and Active users (300 sessions; its four tiles count those rows). Page them with the BE-7 helper, or
   leave them: owner decision.
@@ -419,21 +463,18 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
 
 ## H. Suggested sequence
 
-Updated after UX-0 (D-ux-13, D-ux-14, D-ux-15).
+Updated by DEC-1 (owner decisions of 2026-10-18). Done items are no longer listed.
 
 | Step | Items | Why this order |
 |---|---|---|
-| 0 | Commit `SPEC.md` and `BACKLOG.md`; start REH-1 with the bootstrap → branch → users part | The rehearsal grows with the system |
-| 1 | REM-1, REM-2, CAT-0, UX-0, REM-3 (all done) | Shrink the surface before adding to it; CAT-0 before the seed goes, so stock can always be entered |
-| 1b | REM-5 (done) | Drop the deprecated schema once REM-3 and CAT-0 are proven, before the first production deployment |
-| 2 | **UI-A1**, **UI-A2** (done) | The design system and shell before any new screen is built (D-ux-13); UI-A1 also delivered the shell and a plain login |
-| 3 | FIX-1, FIX-2, REM-4, SEC-2 | Small, visible corrections the owner asked for, built on the new design system |
-| 4 | CAT-1 | Item types and free-text descriptions (Q-3) |
-| 5 | PRC-1 | DONE (Q-1, Q-2, Q-5 still open: settings until answered) |
-| 6 | OPN-1 (+ LBL-1) | Needs CAT-1 and Q-4 |
-| 7 | **BE-1, BE-7** (P1, before the pilot), then UI-B, UI-C | The homes need the attention endpoint; the lists need server-side pagination |
-| 8 | SCR-VOID, PUR-FIX (P1, mistake correction, before real operation); CSH-3, SPL-1, MNY-1, SCR-1, RPT-1 | According to the answers |
-| 9 | HOST-1, DEP-1, BKP-1, 2FA-1, HW-1, TRN-1, LEG-1 | Owner tasks that run in parallel with steps 1–8 |
-| 10 | PIL-1, then SEC-1 | Before relying on the system and before a second branch |
+| 1 | **DEC-1** (done) | Record the owner's decisions; discounts off; the gold-rate edit guard (RAT-1) |
+| 2 | **SCR-VOID + PUR-FIX** | Mistake correction before real operation |
+| 3 | **PAY-1** (SPL-1 + HSD-2) | Two-method payments and Hasad as a channel only, one plan |
+| 4 | **MNY-1** | Money transfers branch ↔ branch and branch → General Manager |
+| 5 | **CAT-1** | Product becomes optional (Q-3) |
+| 6 | **OPN-1** | Opening balance with unknown cost (Q-4), after CAT-1 |
+| — | RPT-1, UI-C (still TODO; not placed in the owner's order) | — |
+| — | HOST-1, DEP-1, BKP-1, 2FA-1, HW-1, TRN-1, LEG-1; then PIL-1, SEC-1 | Owner tasks in parallel; before relying on the system and before a second branch |
 
-**Questions to put to the client first** (they unblock steps 4–8): Q-1, Q-2, Q-3, Q-4, Q-5, Q-6, Q-7, Q-8, Q-9.
+**Still open with the client:** Q-1 (making charge), Q-5 (clean scrap at another karat), Q-11 (hosting, sign-in
+hardware, backups), Q-13 (written agreement), Q11 of CSH-2 (funding: loan or capital).

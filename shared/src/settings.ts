@@ -59,8 +59,15 @@ export interface SystemSettings {
   rates: {
     /** One rate table for the company, or one per branch. */
     goldRateScope: GoldRateScope;
-    /** Rate changes larger than this percentage need an explicit confirmation. */
+    /** Superseded by the two settings below (DEC-1); hidden and write-refused since CLN-1. */
     rateChangeMaxPct: number;
+    /**
+     * DEC-1 (RAT-1, D-dec1-11): a gold or scrap rate edit that moves the rate by more than this whole percentage needs a
+     * written reason. 0 < warn < confirm ≤ 100.
+     */
+    warnChangePercent: number;
+    /** DEC-1 (RAT-1): above this whole percentage the edit needs the reason and the password given again. */
+    confirmChangePercent: number;
   };
   pricing: {
     /**
@@ -145,7 +152,9 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     loginTaglineAr: '',
   },
   sales: {
-    maxDiscountPercentByRole: { CASHIER: 3, BRANCH_MANAGER: 10, GENERAL_MANAGER: 20 },
+    // DEC-1 (Q-2, D-dec1-1): no discounts in this trade. A cap of 0 refuses any discount and the POS shows no discount
+    // field; the General Manager may set caps for a client that gives discounts.
+    maxDiscountPercentByRole: { CASHIER: 0, BRANCH_MANAGER: 0, GENERAL_MANAGER: 0 },
     posPaymentMethods: ['CASH', 'BANK_TRANSFER', 'HASAD'],
     // The owner's rule: no guessed money amount. Every void asks; the General Manager may raise it.
     voidReauthAboveAmount: 0,
@@ -163,6 +172,9 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   rates: {
     goldRateScope: 'GLOBAL',
     rateChangeMaxPct: 5,
+    // DEC-1 (owner, 2026-10-18): up to 10 % as today; above 10 % a reason; above 30 % a reason and the password.
+    warnChangePercent: 10,
+    confirmChangePercent: 30,
   },
   // PRC-1: a new installation computes prices from the rates; an upgraded one keeps FIXED_TAG (migration 0024).
   pricing: {
@@ -264,6 +276,9 @@ export const SETTINGS_REGISTRY = {
   'cash.countDifferenceTolerance': { schema: int(0, 1_000_000_000_000) },
   'rates.goldRateScope': { schema: z.enum(['GLOBAL', 'BRANCH']), notInUse: true },
   'rates.rateChangeMaxPct': { schema: z.number().min(0.1).max(100), notInUse: true },
+  // DEC-1 (RAT-1): whole percentages; the cross-field rule keeps warn < confirm.
+  'rates.warnChangePercent': { schema: int(1, 99) },
+  'rates.confirmChangePercent': { schema: int(2, 100) },
   'pricing.mode': { schema: z.enum(PRICING_SETTING_MODES) },
   'pricing.roundingStep': { schema: int(1, 1_000_000) },
   'transfers.pendingClaimStaleHours': { schema: int(1, 24 * 30) },
@@ -333,6 +348,9 @@ export function flattenSettings(patch: Partial<Record<keyof SystemSettings, Reco
 export function crossFieldProblem(s: SystemSettings): { key: SettingKey; message: string } | null {
   if (s.security.lockoutMaxMinutes < s.security.lockoutBaseMinutes) {
     return { key: 'security.lockoutMaxMinutes', message: 'Must be ≥ lockoutBaseMinutes' };
+  }
+  if (s.rates.warnChangePercent >= s.rates.confirmChangePercent) {
+    return { key: 'rates.confirmChangePercent', message: 'Must be greater than rates.warnChangePercent' };
   }
   return null;
 }

@@ -17,6 +17,7 @@ import { ap, divRound, pureGoldMg, sumInt, validBankReference, valueOfWeight, ty
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requireAny, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
+import { checkRateChanges, confirmPasswordIfGiven, guardAudit, type RateGuardInput } from '../pricing/rate-guard';
 import { badRequest, forbidden, notFound } from '../../core/errors';
 import { maxIdOf, runPaged, type PageRequest, type SortSpec } from '../../core/paging';
 import { assertSellableKarat } from '../../core/karats';
@@ -64,20 +65,31 @@ export async function scrapRatesView(ctx: Ctx, actor: Actor, historyLimit = 60) 
   };
 }
 
-export async function setScrapRates(ctx: Ctx, actor: Actor, rates: Record<number, number>) {
+/** pg advisory lock key that serialises scrap-rate edits (DEC-1: the guard compares with the current previous rate). */
+const SCRAP_RATES_LOCK = 0x53435252; // "SCRR"
+
+export async function setScrapRates(ctx: Ctx, actor: Actor, rates: Record<number, number>, guard: RateGuardInput = {}) {
   requirePerm(actor, 'settings.manage');
+  // DEC-1 (RAT-1): a password given with the request is checked first, like a re-confirmation.
+  const confirmed = await confirmPasswordIfGiven(ctx, actor, guard);
   return ctx.db.transaction(async (tx) => {
+    // scrap_rates is append-only (no FOR UPDATE for the runtime role): an advisory lock serialises the edits instead.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${SCRAP_RATES_LOCK})`);
     const before = await scrapRates(tx);
-    for (const [k, v] of Object.entries(rates)) {
-      const karat = Number(k);
-      if (before[karat]?.pricePerGram === v) continue;
-      await tx.insert(t.scrapRates).values({ karat, pricePerGram: v, setBy: actor.userId });
+    const real = Object.entries(rates)
+      .map(([k, v]) => ({ karat: Number(k), kind: 'SCRAP', from: before[Number(k)]?.pricePerGram ?? null, to: v }))
+      .filter((c) => c.from !== c.to);
+    const checked = checkRateChanges((await ctx.settings.get()).rates, real, guard, confirmed);
+    for (const c of checked) {
+      const g = guardAudit(c, guard);
+      await tx.insert(t.scrapRates).values({ karat: c.karat, pricePerGram: c.to, setBy: actor.userId });
       await writeAudit(tx, actor, {
         action: 'SCRAP_RATE_CHANGED',
         entityType: 'scrap_rate',
-        entityId: `${karat}K`,
-        key: '{karat} scrap buying rate {from} → {to} per gram',
-        params: { karat: ap.karat(karat), from: ap.money(before[karat]?.pricePerGram ?? 0), to: ap.money(v) },
+        entityId: `${c.karat}K`,
+        key: g.guarded ? '{karat} scrap buying rate {from} → {to} per gram ({change}%): {reason}' : '{karat} scrap buying rate {from} → {to} per gram',
+        params: { karat: ap.karat(c.karat), from: ap.money(c.from ?? 0), to: ap.money(c.to), ...(g.guarded ? { change: g.change, reason: g.reason } : {}) },
+        metadata: { from: c.from ?? 0, to: c.to, ...g.metadata },
       });
     }
     return scrapRates(tx);

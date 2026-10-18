@@ -53,8 +53,10 @@ async function login(username: string, password: string): Promise<Agent> {
 }
 const available = async (agent: Agent, origin?: string): Promise<Row[]> =>
   (await agent.get('/api/inventory/items').query({ branchId: krt, status: 'AVAILABLE', pageSize: 200, ...(origin ? { origin } : {}) })).body.rows;
+// DEC-1 (RAT-1): these tests move rates far on purpose (100 → 110, random rates), so every change carries the reason
+// and the password the edit guard asks for above its thresholds (the guard itself is tested in dec1-rate-guard).
 const setRates = async (body: object) => {
-  const r = await gm.post('/api/gold-rates').send(body);
+  const r = await gm.post('/api/gold-rates').send({ reason: 'test: set the rates', confirmPassword: DEMO_PASSWORDS.GENERAL_MANAGER, ...body });
   expect(r.status, JSON.stringify(r.body)).toBe(200);
   return r.body;
 };

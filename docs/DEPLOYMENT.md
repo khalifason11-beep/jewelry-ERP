@@ -384,6 +384,17 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   the body carries the new prices; the POS shows them and the cashier confirms again), **400 `NO_PRICE`** (a piece
   whose karat has no rate), **409 `PRICE_FOLLOWS_RATES`** (a manual price change while prices follow the rates).
 
+### DEC-1: owner decisions; discounts off; the gold-rate edit guard (no migration)
+
+- **Discounts off:** `sales.maxDiscountPercentByRole` now defaults to **0** for every role (Q-2). An installation
+  that saved the setting keeps its values; one that never saved it gives **no discounts** after the upgrade. The
+  General Manager can set caps again in Settings › Sales.
+- **Rate edit guard (RAT-1):** settings `rates.warnChangePercent` (default 10) and `rates.confirmChangePercent`
+  (default 30), General Manager only, `0 < warn < confirm ≤ 100`. A rate edit that moves a rate by more than warn %
+  needs a reason (else **422 `RATE_CHANGE_REASON_REQUIRED`**); by more than confirm %, the reason and the password in
+  the request (else **403 `RATE_CHANGE_CONFIRM_REQUIRED`**; a wrong password **403 `REAUTH_FAILED`**). `POST
+  /gold-rates` and `POST /scrap-rates` accept the optional fields `reason` and `confirmPassword`.
+
 ### Stop and recreate is a pre-production rule only
 
 Four migrations so far stop on trial data instead of transforming it, and ask for the database to be recreated:

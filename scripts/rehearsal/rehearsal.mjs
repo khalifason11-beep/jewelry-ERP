@@ -1044,6 +1044,15 @@ async function main() {
     await page.goto(`${origin}/settings`);
     await page.getByTestId('void-reauth-amount').waitFor({ timeout: 15_000 });
     check((await page.locator('[data-testid=void-reauth-amount] input').inputValue()) === '0', 'Settings › Sales: "Ask for the password to cancel a sale above" is 0 by default (every void asks)');
+    // DEC-1 (Q-2, D-dec1-12): no discounts by default (every role's cap is 0). The SEC-2 part below discounts a line,
+    // so the General Manager gives the cashier a cap of 3 % first (test value; the setting stays editable).
+    const caps0 = (await apiGet(page, '/api/settings')).body.settings.sales.maxDiscountPercentByRole;
+    check(Object.values(caps0).every((v) => v === 0) && (await page.locator('[data-testid=max-discount-CASHIER] input').inputValue()) === '0', 'a new installation gives no discounts: every role\'s cap is 0 (Settings › Sales)');
+    await page.fill('[data-testid=max-discount-CASHIER] input', '3');
+    await page.click('[data-testid=save-sales]');
+    await confirmIfAsked(page, GM.password);
+    await waitFor(async () => (await apiGet(page, '/api/settings')).body.settings.sales.maxDiscountPercentByRole.CASHIER === 3, 'the cashier discount cap', 15_000);
+    ok('the General Manager sets a cashier discount cap of 3 % in Settings › Sales');
     await signOut(page);
     const PRICE_REASON = 'خصم متفق عليه مع العميل (REH-1)';
     await signIn(page, origin, CASHIER.username, CASHIER.password);

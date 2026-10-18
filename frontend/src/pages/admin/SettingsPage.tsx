@@ -242,7 +242,9 @@ function SettingsForm() {
             </Field>
             {Object.entries(draft.sales.maxDiscountPercentByRole).map(([role, v]) => (
               <Field key={role} label={t('Max discount · {role} (%)', { role: humanize(role) })}>
-                {numberInput(v, (n) => set('sales', { maxDiscountPercentByRole: { ...draft.sales.maxDiscountPercentByRole, [role]: n } }), { min: 0, max: 100, unit: '%' })}
+                <span data-testid={`max-discount-${role}`} className="block">
+                  {numberInput(v, (n) => set('sales', { maxDiscountPercentByRole: { ...draft.sales.maxDiscountPercentByRole, [role]: n } }), { min: 0, max: 100, unit: '%' })}
+                </span>
               </Field>
             ))}
             {/* SEC-2 (D-sec2-1): General Manager only, like every setting; saving it needs the password. */}

@@ -9,7 +9,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, PAYMENT_METHODS, SCRAP_KINDS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
+import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, PAYMENT_METHODS, SCRAP_KINDS, CHANGE_REASON_MAX, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
@@ -60,6 +60,8 @@ const zPositiveMoney = z.number().int().min(1).max(MAX_MONEY);
 const zWeightMg = z.number().int().min(1).max(MAX_WEIGHT_MG);
 const zIdBody = z.number().int().positive().max(2_147_483_647);
 const zText = (max: number) => z.string().trim().max(max);
+/** DEC-1 (RAT-1, D-dec1-13): the optional reason and password of a rate edit (SEC-2 reason bounds). */
+const zRateGuard = { reason: zText(CHANGE_REASON_MAX).optional(), confirmPassword: z.string().min(1).max(128).optional() };
 // PRC-1: karats follow the allowed-karats setting (8–24), never a fixed list; the route checks the setting.
 const zKarat = z.coerce.number().int().min(1).max(24);
 /**
@@ -304,8 +306,9 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('POST', '/gold-rates', async (req, res) => {
     // Any karat the allowed-karats setting accepts (8–24); the service refuses one that is not allowed now.
     const zRates = z.record(z.string().regex(/^\d{1,2}$/), zPositiveMoney.max(100_000_000));
-    const body = parse(z.object({ rates: zRates.optional(), usedRates: zRates.optional() }).strict(), req.body);
-    res.json(await pricing.setSellingRates(ctx, actorOf(req), { NEW: body.rates, USED: body.usedRates }));
+    // DEC-1 (RAT-1): a large change carries a reason (and, above the confirm threshold, the password again).
+    const body = parse(z.object({ rates: zRates.optional(), usedRates: zRates.optional(), ...zRateGuard }).strict(), req.body);
+    res.json(await pricing.setSellingRates(ctx, actorOf(req), { NEW: body.rates, USED: body.usedRates }, { reason: body.reason, confirmPassword: body.confirmPassword }));
   });
 
   // ─────────── settings (typed registry, one row per key) ───────────
@@ -611,8 +614,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   // ─────────── scrap gold (Phase 4) ───────────
   route('GET', '/scrap-rates', async (req, res) => res.json(await scrap.scrapRatesView(ctx, actorOf(req))));
   route('POST', '/scrap-rates', async (req, res) => {
-    const body = parse(z.object({ rates: z.array(z.object({ karat: zScrapKarat, pricePerGram: zPositiveMoney }).strict()).min(1).max(24) }).strict(), req.body);
-    await scrap.setScrapRates(ctx, actorOf(req), Object.fromEntries(body.rates.map((r) => [r.karat, r.pricePerGram])));
+    const body = parse(z.object({ rates: z.array(z.object({ karat: zScrapKarat, pricePerGram: zPositiveMoney }).strict()).min(1).max(24), ...zRateGuard }).strict(), req.body);
+    await scrap.setScrapRates(ctx, actorOf(req), Object.fromEntries(body.rates.map((r) => [r.karat, r.pricePerGram])), { reason: body.reason, confirmPassword: body.confirmPassword });
     res.json(await scrap.scrapRatesView(ctx, actorOf(req)));
   });
   route('GET', '/scrap-purchases', async (req, res) => {
