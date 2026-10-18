@@ -263,6 +263,11 @@ graceful shutdown; request id and a working API access log; `/api/ready`; explic
 in production; `TZ=UTC`; cache headers; `.env.example`; `docs/runbooks/`; the read-only `scripts/server/preflight.mjs`;
 `npm run verify`.
 
+### DEC-1 — The owner's decisions of 2026-10-18 · DONE · S · P0
+**Done (plan `docs/plans/DEC-1.md`, D-dec1-1…13, `docs/acceptance/DEC-1.md`, no migration):** Q-2, Q-3, Q-4, Q-6,
+Q-7, Q-8, Q-9, Q-10, Q-12 and RAT-2 recorded in SPEC §20 and here; discounts off (every role's cap defaults to 0, the
+setting stays editable); the gold-rate edit guard (RAT-1); the UX-1 allowed-karats finding closed with a test.
+
 ### SPL-1 — Split payments · TODO · M · P1 · planned with HSD-2 as **PAY-1**
 **Q-7 closed (owner, 2026-10-18, D-dec1-5):** one invoice may be paid by two methods (rare, e.g. cash + bank transfer).
 **Design:** a payment is **one or two lines**; each line has a **method**, an **amount** and a **reference** (required
@@ -291,7 +296,11 @@ method; the invoice **prints one line per method**. Idempotency-Key and audit as
 - A **forward-only migration with the usual guard** (stop and report on data it cannot transform; no history edited).
 - Plan it together with SPL-1 under the name **PAY-1**.
 
-### RAT-1 — Maximum change of a gold rate in one edit · BLOCKED (client question) · S · P2
+### RAT-1 — Maximum change of a gold rate in one edit · DONE (DEC-1)
+**Done (owner decision 2026-10-18, D-dec1-11, D-dec1-13, `docs/acceptance/DEC-1.md`):** a change of a selling rate
+(new or used) or a scrap buying rate above `rates.warnChangePercent` (10) needs a reason (422), above
+`rates.confirmChangePercent` (30) the reason and the password in the request (403); first rates are not checked;
+compared inside the transaction under the rate lock; audited with the percentage. History of the item below.
 The setting `rates.rateChangeMaxPct` (default 5) existed on the Settings screen but nothing read it. Since CLN-1 it is
 hidden and every write is refused (stored default and history untouched). **Open client question:** is there a maximum
 percentage by which a rate may change in one edit, and what happens above it (refuse, or ask for a confirmation)?
@@ -458,7 +467,7 @@ Updated by DEC-1 (owner decisions of 2026-10-18). Done items are no longer liste
 
 | Step | Items | Why this order |
 |---|---|---|
-| 1 | **DEC-1** | Record the owner's decisions; discounts off; the gold-rate edit guard (RAT-1) |
+| 1 | **DEC-1** (done) | Record the owner's decisions; discounts off; the gold-rate edit guard (RAT-1) |
 | 2 | **SCR-VOID + PUR-FIX** | Mistake correction before real operation |
 | 3 | **PAY-1** (SPL-1 + HSD-2) | Two-method payments and Hasad as a channel only, one plan |
 | 4 | **MNY-1** | Money transfers branch ↔ branch and branch → General Manager |
