@@ -67,8 +67,8 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
 - **[OWNER]** **Weight precision (Q-14, closed):** the client's scales read to **0.001 g** (1 mg). Weights are stored as integer milligrams and **shown with three decimals everywhere**. (An earlier version of this document said 0.01 g was the rule; that was wrong: 0.01 g is 10 mg.) A per-deployment precision setting (BACKLOG WGT-1) is deferred until a client weighs to two decimals.
 - **[CLIENT]** The client sells **21 karat only**. This is the setting `allowedKarats = [21]` for this deployment (never hardcode 21). It restricts what can be created and sold as a sellable piece. **Buying is not restricted**: customers' scrap may be any karat from 1 to 24.
 - **[OPEN]** A clean-scrap piece bought at another karat (for example 18): today it cannot be sold, repriced or delivered. Does the client melt it, sell it anyway at its real karat, or reject such purchases?
-- **[OPEN] Item types and names.** The type and name lists must use **real Sudanese jewelry terminology supplied by the client**. The demo data used Modern Standard Arabic categories (خواتم، أساور، قلائد…) and invented names, which the owner rejected. **Do not invent names.** Production ships with an empty catalog. Items need a type and a free-text description with suggestions from previously entered names.
-- **[OPEN]** Whether a separate product catalog (with SKUs) is needed at all, or whether an item is simply type + description + karat + weights. **A new production database must be able to receive stock without a catalog being seeded.** (Today there is no screen to create a product; this blocks every stock entry in production.)
+- **[CLIENT, closed 2026-10-18, Q-3]** The General Manager adds the item types by hand; nothing is shipped. **Item types and names.** The type and name lists must use **real Sudanese jewelry terminology supplied by the client**. The demo data used Modern Standard Arabic categories (خواتم، أساور، قلائد…) and invented names, which the owner rejected. **Do not invent names.** Production ships with an empty catalog. Items need a type and a free-text description with suggestions from previously entered names.
+- **[CLIENT, closed 2026-10-18, Q-3]** A separate product catalog is **not** required: an item is type + free-text description + karat + weights (CAT-1 makes the product optional). **A new production database must be able to receive stock without a catalog being seeded.** (Today there is no screen to create a product; this blocks every stock entry in production.)
 
 ## 5. Pricing
 
@@ -76,14 +76,14 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
 - **[CLIENT]** Scrap buying: the GM sets a **scrap buying rate per karat** (any karat 1–24) manually. **[BUILT]** A branch manager may deviate within `scrapPriceTolerancePct`; beyond it, the GM must approve.
 - **[BUILT]** Gold and scrap rates are effective-dated with immutable history; changes need password re-confirmation and are audited.
 - **[BUILT]** Each sale line stores an acquisition-cost snapshot and profit = final price − cost, enforced by a database CHECK. Price-component columns (`pricing_mode`, gold value, making charge, rate per gram) exist; only `FIXED_TAG` is implemented.
-- **[OPEN] Formula details** (ask the client; implement as settings until answered):
-  - Is a **making charge (المصنعية)** added to the customer price? If so, fixed per piece, per gram, or a percentage?
-  - One sell rate for new and clean-scrap pieces, or separate?
-  - A **fixed-price override** for pieces with stones.
-  - Rounding of the computed price (whole SDG today; nearest 100 or 1,000?).
-  - Cashier discount and who may change a price (today: discount up to 3 %, a setting).
+- **Formula details:**
+  - **[OPEN, Q-1]** Is a **making charge (المصنعية)** added to the customer price? If so, fixed per piece, per gram, or a percentage?
+  - **[CLIENT, PRC-1]** Two sell rates: new pieces and clean-scrap (used) pieces.
+  - **[CLIENT, closed 2026-10-18, Q-2]** **No fixed-price override** for individual pieces (no stones in this shop).
+  - **[CLIENT, closed 2026-10-18, Q-2]** **No rounding** beyond the whole SDG (`pricing.roundingStep` = 1, final).
+  - **[CLIENT, closed 2026-10-18, Q-2]** **No discounts** in this trade: every role's discount cap defaults to 0 (a setting, so another client can switch discounts on).
 - **[OWNER] Proposed behavior:** the price is locked when the sale is confirmed. If the GM changes the rate while a cart is open, the cart warns and reprices. The sale line stores the rate used.
-- **[OPEN]** Cost estimation: the cost of existing pieces at handover is estimated from market price "and other factors the client will define". Those factors are not defined yet. **[BUILT]** `cost_is_estimated` exists.
+- **[CLIENT, closed 2026-10-18, Q-4]** Pieces entered at handover (opening balance) carry weight and karat only; their cost is **unknown (null), never zero** (OPN-1). **[BUILT]** `cost_is_estimated` exists.
 
 ## 6. Sales and the point of sale
 
@@ -91,7 +91,7 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
 - **[CLIENT]** **Payment methods in the POS: Cash, Bank transfer, Hasad.** Card and mobile wallet stay in the data model but are hidden and refused unless the GM enables them.
 - **[OWNER] Bank transfer requires the transaction (reference) number.** The field is mandatory, stored on the sale, shown in the sales list and available for review and export. Warn on a reference already used on another sale. *(Not implemented: see FIX-2.)*
 - **[BUILT]** Hasad payments require the app's invoice number; the transaction reference is optional. This is manual entry only; **there is no connection to any external system.**
-- **[OWNER]** One payment method per sale today. **[OPEN]** If a prepaid Hasad balance does not cover the exact price, the difference must be paid by cash or bank: that needs **split payments**. Ask the client whether differences occur.
+- **[OWNER]** One payment method per sale today. **[CLIENT, closed 2026-10-18, Q-7]** One invoice may be paid by **two methods** (rare, e.g. cash + bank transfer): **split payments** (BACKLOG SPL-1, planned as PAY-1).
 - **[OWNER]** The sales list shows: order number, kind (new/scrap), weight, value, price per gram, customer, payment method with reference, date and time; quick date filters (today, yesterday, 7 days, 30 days, this month, all). Price per gram is displayed derived from the sale; it becomes the real computed rate once §5 is built.
 - **[OWNER] Transfer button in the cart:** the branch manager's POS cart shows a **"Transfer to branch" button below the "Complete sale" button**. See §8.
 
@@ -104,11 +104,11 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
 - The rest is a **gold debt measured in pure-24K weight**: sum over items of `round(net_weight_mg × karat / 24)`, per purchase order.
 - The shop never initiates collection. When the **supplier's representative visits**, the branch manager settles that order **only with broken-scrap weight from the branch pool** (any karat, converted to 24K). Partial settlements are allowed until the debt is exactly zero; over-settlement is refused. Never cash, never bank.
 - Gold debt and settlement weights are visible to the branch manager. Money costs are GM-only.
-- **[OPEN]** The acquisition cost of supplier items for profit reporting ("market price and other factors"): the formula is undefined.
+- **[CLIENT, closed 2026-10-18, Q-4]** The acquisition cost of supplier items stays as built (derived from the supplier order), unless the owner says otherwise.
 
 ### 7.2 From customers (scrap) [CLIENT, BUILT]
 - Counter purchase at the GM's scrap rate for the karat, paid from the drawer or the bank. Sellable scrap becomes an item (§4); broken scrap goes to the pool.
-- **[OPEN]** Customer identification on a scrap purchase (name, phone, ID) and the printed receipt for the customer.
+- **[CLIENT, closed 2026-10-18, Q-12]** Customer identification on a scrap purchase is **not needed**; the optional customer fields stay. No printed receipt for the customer.
 
 ## 8. Transfers between branches
 
@@ -116,31 +116,31 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
   *Built (FIX-1, D-fix-1, D-rem4-1):* the courier's name is required and stored on the transfer; one piece no longer available refuses the whole transfer and nothing changes. The General Manager keeps "New transfer" on the Transfers screen (same rules); there is no other start point.
 - **[BUILT]** Lifecycle: items become **IN_TRANSIT** (not sellable anywhere) until the **receiving branch manager confirms**; then they join the receiving branch's stock with every attribute, **cost unchanged**. Support for partial receipt with disputed items visible to the GM, and cancellation by the sender before receipt.
 - **[OWNER]** The Transfers page is a **log** (outgoing and incoming, with status) and the place where the receiving manager confirms. **It has no "new transfer" button.**
-- **[OPEN] Money transfers between branches** (bank-based: the sender records a claim, the receiver confirms): mentioned early on, **never built** (only the `FUNDS_IN_TRANSIT` account type exists). Is it still required?
+- **[CLIENT, closed 2026-10-18, Q-8] Money transfers between branches, and from a branch to the General Manager, are required** (BACKLOG MNY-1): the sender records the amount, the receiver confirms. **Not built yet** (only the `FUNDS_IN_TRANSIT` account type exists).
 
 ## 9. Cash, the ledger and reconciliation
 
 - **[BUILT]** One append-only ledger per branch with CASH, BANK, FUNDS_IN_TRANSIT, HASAD_RECEIVABLE and (CSH-2) OWED_TO_GM accounts. Balance = sum of entries. Every money event is written in the same transaction as the business change. OWED_TO_GM is what the branch owes the General Manager, never money: every reader of the ledger filters by account kind (guardrail test).
 - **[BUILT]** Expected cash in the drawer, a daily reconciliation per branch, and a **manual cash count**. A count difference is **only a note for the GM**; it is not posted to the ledger. **[CLIENT]**
 - **[CLIENT]** Books start at **zero cash** on handover day; only items are entered. **[BUILT, CSH-2]** The first money in is the General Manager's recorded **advance** into the drawer or the bank (first step "Fund the branch"); his **repayments** take it back. What each branch owes him is derived from the ledger and shown to him only (Cash page). **[OPEN, client Q11]** Is this funding a loan or capital? Until the client answers, opening money recorded as an advance is a **debt** of the branch to the General Manager: answer before opening day.
-- **[CLIENT, CSH-2]** Staff pay a scrap seller from the drawer, by bank transfer, or **both in one purchase** (cash part + bank part, the bank part with its reference). Split payment on **sales** is not built (open).
+- **[CLIENT, CSH-2]** Staff pay a scrap seller from the drawer, by bank transfer, or **both in one purchase** (cash part + bank part, the bank part with its reference). Split payment on **sales** is not built yet (decided, Q-7: BACKLOG SPL-1).
 - **[BUILT, CSH-2]** The drawer can never go below zero: an outflow that would (scrap cash part, sale-void refund, repayment to the GM, correction of an advance into the drawer; since MKC-1 a making charge never touches the drawer) is refused with the shortfall and "ask the General Manager to record an advance". The bank may go below zero (its figure lags the GM's deposits); attention A17 then warns.
 - **[CLIENT, BUILT MKC-1]** A supplier making charge is always one full bank transfer that the owner pays from the owner's personal account, outside the working day; it is a cost borne by the owner, not a debt of the branch, and it moves no branch money (§7.1). Supplier orders are created by the General Manager only.
 - **[REMOVED] Expenses.** The client gives employees a fixed operating amount, so there is no expenses screen, approval flow or expense reports. Removed by BACKLOG REM-1; the old table stays (no new rows) until REM-5.
-- **[OPEN]** Where the operating amount comes from. If it leaves the shop drawer, the daily count will show a shortage unless it is recorded. Recommended: a minimal **cash-out entry** (amount, reason, actor, audited), not an expenses module.
+- **[CLIENT, closed 2026-10-18, Q-6]** The fixed operating amount for staff is handled **outside the system**; nothing is recorded (no cash-out entry).
 
 ## 10. Hasad
 
 - **[OWNER]** The word **Hasad appears only as a payment method / sales channel** in the POS and in reports grouped by channel.
 - **[REMOVED, done by REM-2]** The withdrawal workspace and list, the counter sessions, the entitlement and weight-difference settlement, the simulator, the mock integration package, all `hasad.*` settings and permissions, the Hasad navigation entries and notifications, and `docs/HASAD_INTEGRATION.md`. A customer picking up jewelry against a prepaid balance is **an ordinary sale paid through Hasad**.
-- **[BUILT, OPEN]** Sales paid through Hasad post to a separate `HASAD_RECEIVABLE` account because the money is held elsewhere until Hasad pays the shop by **bank transfer**; the branch manager records that arrival (receivable → bank, one transaction). **[OPEN]** Does the client want to track this receivable, or only tag the channel?
+- **[BUILT]** Sales paid through Hasad post to a separate `HASAD_RECEIVABLE` account; the branch manager records the money's arrival (receivable → bank). **[CLIENT, closed 2026-10-18, Q-7]** Hasad money lands in the **General Manager's own account**, not in the branch: Hasad is a **sales channel for reporting only** (Hasad versus direct sales). The receivable and its settle-by-bank action go (BACKLOG HSD-2, planned as PAY-1); bank transfers land in the branch's own bank account.
 
 ## 11. Reports and dashboards
 
 - **[BUILT]** Branch dashboard, company overview (GM), sales, inventory, stock weight (including the broken-scrap pool), cash and daily reconciliation, audit.
 - **[OWNER]** Add reporting **by payment channel** (cash / bank / Hasad). Re-verify every report after expenses are removed and pricing changes.
 - **[INVARIANT]** Cost, inventory value at cost and profit appear for the GM only; the branch manager's dashboard is designed without them.
-- **[OPEN]** The header shows the current **21K sell rate**; a **USD per gram chip** needs an exchange-rate setting entered by the GM. Does the client want it? **Hidden until Q-10 is answered** (D-ux-3).
+- **[CLIENT, closed 2026-10-18, Q-10]** The header shows the current sell rate; the **USD per gram chip stays hidden** (D-ux-3).
 - **[OWNER]** Dashboards follow `docs/ux/ANALYSIS.md` as decided (D-ux-*): three levels, level 1 of every home fits 1366×768; an **attention list** (BACKLOG BE-1, pilot set A1, A2, A4, A5, A6, A9, A10, A11, A12, A15, A16) with GM-set thresholds; lists paginate on the server (BE-7).
 - **[BUILT, UI-B]** The GM and branch-manager homes and the attention list (`/api/attention`, D-ui-17…22). **Home sales = the sales made in the period that are still valid**, as in the Sales list and report, so **a void on a later day changes an earlier day's home figure**; the ledger keeps its history, and the tie between the two is tested by **ledger entry date** (D-ui-19). The GM's level 2 shows a 14-day sales line instead of the mockup's branch bars (D-ui-20, owner review).
 
@@ -150,17 +150,17 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
 - Content: company, branch, invoice number, date, cashier, customer, lines (code, description, karat, net weight, price), totals, payment method (and reference), Code128 barcode, **footer = a friendly thank-you only** (a setting; no business claims). **No cost, profit or gold-debt figure on any printout, for any role.**
 - Reprints show "نسخة / COPY n", are audited and counted; the cashier may print only the original, once, in the same session.
 - Silent printing uses the browser's `--kiosk-printing` flag with a dedicated profile (see `docs/DEPLOYMENT.md` §9).
-- **[OPEN]** Invoice format (A4, A5 or receipt), printer model and connection, paper size in the driver, **whether item tags/labels are needed** (a different printer), and whether an official **tax invoice** is legally required.
+- **[CLIENT, closed 2026-10-18, Q-9]** A **thermal receipt printer**; the current invoice is enough (**no tax invoice**); the footer text stays optional; item **labels later** (BACKLOG LBL-1, deferred).
 
 ## 13. Handover day and the opening balance [not built]
 
 **[OWNER]** Procedure, at the end of a business day:
 1. Create the branch (and users) from the GM's screens.
-2. The GM enters **the list of the branch's jewelry with exact weights and karats** (items only; no opening cash) so the system computes the branch stock. Each item has an estimated cost (`cost_is_estimated`).
+2. The GM enters **the list of the branch's jewelry with exact weights and karats** (items only; no opening cash) so the system computes the branch stock. **[CLIENT, Q-4]** Each item's cost is **unknown (null), never zero**.
 3. The GM creates the staff users, assigns roles, sets passwords, and tells them their activity is monitored.
 4. The cashier starts working normally.
 
-Requirements: GM-only, once per branch, then **sealed** (changes only through audited adjustments); fast entry (keyboard and barcode scanner); **import from a spreadsheet** (CSV/Excel) for hundreds of pieces; **barcode labels** to stick on the physical pieces (printer unknown); nothing invented in the books. **[OPEN]** the cost formula (§5).
+Requirements: GM-only, once per branch, then **sealed** (changes only through audited adjustments); fast entry (keyboard and barcode scanner); **import from a spreadsheet** (CSV/Excel) for hundreds of pieces; **barcode labels** to stick on the physical pieces (printer unknown); nothing invented in the books. **[CLIENT, Q-4]** No cost formula: the cost of an opening piece is unknown (null) (§5).
 
 ## 14. Branding and settings
 
@@ -221,16 +221,18 @@ Requirements: GM-only, once per branch, then **sealed** (changes only through au
 | ID | Question | Blocks |
 |---|---|---|
 | Q-1 | Making charge in the customer price: yes/no, fixed, per gram or percentage? | PRC-1 |
-| Q-2 | One sell rate for new and clean scrap, or two? Fixed-price override for pieces with stones? Rounding? Who may change a price or discount? | PRC-1 |
-| Q-3 | Item type and name lists in real Sudanese terms; is a product catalog needed? | CAT-1 |
-| Q-4 | Cost estimation formula for existing and supplier items | OPN-1, reports |
+| Q-2 | One sell rate for new and clean scrap, or two? Fixed-price override for pieces with stones? Rounding? Who may change a price or discount? **Closed (owner, 2026-10-18):** two rates (new and used, PRC-1); **no rounding** beyond the whole SDG (final); **no fixed-price override** for individual pieces (no stones in this shop); **no discounts** in this trade (D-dec1-1). | — |
+| Q-3 | Item type and name lists in real Sudanese terms; is a product catalog needed? **Closed (owner, 2026-10-18):** the General Manager adds item types by hand (nothing shipped); an item is type + free-text description + karat + weights; a product catalog is **not** required (CAT-1 makes the product optional) (D-dec1-2). | CAT-1 |
+| Q-4 | Cost estimation formula for existing and supplier items **Closed (owner, 2026-10-18):** opening-balance pieces carry weight and karat only; their cost is **unknown (null), never zero**. Supplier-piece cost stays as built (derived from the supplier order) (D-dec1-3). | OPN-1 |
 | Q-5 | Clean scrap at a karat other than 21: melt, sell as it is, or refuse? | PRC-1, stock |
-| Q-6 | How the fixed operating amount for staff is recorded (cash-out entry or outside the system) | CSH-3 |
-| Q-7 | Hasad: keep tracking the receivable? Do prepaid pickups ever have a difference to pay (split payment)? | REM-2, SPL-1 |
-| Q-8 | Is the branch-to-branch **money** transfer still required? | MNY-1 |
-| Q-9 | Invoice format; printer model; labels printer; tax invoice requirement; footer contents | PRN, LBL-1 |
-| Q-10 | USD chip in the header? | UI-A |
+| Q-6 | How the fixed operating amount for staff is recorded (cash-out entry or outside the system) **Closed (owner, 2026-10-18):** handled **outside the system**; nothing is recorded (D-dec1-4). | — |
+| Q-7 | Hasad: keep tracking the receivable? Do prepaid pickups ever have a difference to pay (split payment)? **Closed (owner, 2026-10-18):** Hasad money lands in the **General Manager's own account**, not in the branch; Hasad is a **sales channel for reporting only** (Hasad versus direct sales); bank transfers land in the **branch's** bank account; one invoice may be paid by **two methods** (rare, e.g. cash + bank transfer) (D-dec1-5). | PAY-1 (SPL-1, HSD-2) |
+| Q-8 | Is the branch-to-branch **money** transfer still required? **Closed (owner, 2026-10-18):** **yes**: money transfers branch ↔ branch and branch → General Manager are required (D-dec1-6). | MNY-1 |
+| Q-9 | Invoice format; printer model; labels printer; tax invoice requirement; footer contents **Closed (owner, 2026-10-18):** **thermal receipt printer**; the current invoice is enough (**no tax invoice**); the footer text stays optional; item labels **later** (D-dec1-7). | LBL-1 (deferred) |
+| Q-10 | USD chip in the header? **Closed (owner, 2026-10-18):** the USD chip **stays hidden** (D-dec1-8). | — |
 | Q-11 | The GM's sign-in hardware; hosting provider and domain; backup frequency | HOST-1 |
-| Q-12 | Customer identification on scrap purchases | SCR |
+| Q-12 | Customer identification on scrap purchases **Closed (owner, 2026-10-18):** **not needed**; the optional customer fields stay as they are (D-dec1-9). | — |
 | Q-13 | Written agreement with the client: hosting cost, support hours, who holds keys and credentials, what happens if the developer is unavailable | go-live |
 | Q-14 | ~~Weight precision~~ **Closed:** the scales read to **0.001 g** (three decimals, 1 mg), as the system already works. | — |
+
+**RAT-2** (one gold rate for the company, or one per branch): **Closed (owner, 2026-10-18):** **one gold-rate set for the whole company**, shared by all branches, as built (D-dec1-10). **RAT-1** (maximum change of a rate in one edit) is built by DEC-1 as settings (D-dec1-11).
