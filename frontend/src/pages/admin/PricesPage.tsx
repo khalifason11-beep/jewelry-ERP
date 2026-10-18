@@ -2,16 +2,18 @@
 // new pieces, the selling rate of used pieces, the scrap buying rate), how selling prices are worked out (mode and
 // rounding step), and the history of every change with who and when. Moved out of Settings: /settings#rates and
 // /settings#scrap-rates lead here.
+// DEC-1 (RAT-1, D-dec1-11): each changed rate shows its percentage change before saving; a change above the warn
+// threshold asks for a reason, above the confirm threshold for the reason and the password (the server checks the same).
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { Save } from 'lucide-react';
-import { computedPrice, type PricingSettingMode, type SystemSettings } from '@jerp/shared';
-import { get, post, put } from '../../lib/api';
+import { CHANGE_REASON_MAX, CHANGE_REASON_MIN, computedPrice, formatChangeBp, rateChangeBp, rateChangeLevel, strictestLevel, type PricingSettingMode, type RateChangeLevel, type SystemSettings } from '@jerp/shared';
+import { ApiError, get, post, put } from '../../lib/api';
 import { currencyLabel, dateTime, grams, karatLabel, money } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import { Alert, Button, Card, CardHeader, ErrorState, Field, IntegerInput, MoneyInput, PageHeader, Select, SkeletonRows } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, Dialog, ErrorState, Field, Input, IntegerInput, MoneyInput, PageHeader, Select, SkeletonRows, Textarea } from '../../components/ui';
 
 type Kind = 'NEW' | 'USED';
 interface RateNow {
@@ -24,6 +26,15 @@ export interface SellingRatesView {
   history: { id: number; karat: number; kind: Kind; pricePerGram: number; effectiveAt: string; setBy: string | null }[];
   pricing: { mode: PricingSettingMode; roundingStep: number };
   allowedKarats: number[];
+  guard: Guard;
+}
+interface Guard {
+  warnChangePercent: number;
+  confirmChangePercent: number;
+}
+interface GuardFields {
+  reason?: string;
+  confirmPassword?: string;
 }
 interface ScrapRatesView {
   rates: { karat: number; pricePerGram: number; effectiveAt: string }[];
@@ -55,7 +66,7 @@ export function PricesPage() {
           <div className="grid gap-5 xl:grid-cols-3">
             <SellingRatesCard view={q.data} kind="NEW" />
             <SellingRatesCard view={q.data} kind="USED" />
-            <ScrapRatesCard karats={q.data.allowedKarats} query={scrap} />
+            <ScrapRatesCard karats={q.data.allowedKarats} guard={q.data.guard} query={scrap} />
           </div>
           <HistoryCard view={q.data} scrap={scrap.data} />
         </>
@@ -72,17 +83,26 @@ function PricingCard({ view }: { view: SellingRatesView }) {
   const s = useQuery({ queryKey: ['settings'], queryFn: () => get<SettingsResponse>('/settings') });
   const [mode, setMode] = useState<PricingSettingMode>(view.pricing.mode);
   const [step, setStep] = useState(String(view.pricing.roundingStep));
+  const [warn, setWarn] = useState(String(view.guard.warnChangePercent));
+  const [confirm, setConfirm] = useState(String(view.guard.confirmChangePercent));
   useEffect(() => {
     setMode(view.pricing.mode);
     setStep(String(view.pricing.roundingStep));
-  }, [view.pricing.mode, view.pricing.roundingStep]);
+    setWarn(String(view.guard.warnChangePercent));
+    setConfirm(String(view.guard.confirmChangePercent));
+  }, [view.pricing.mode, view.pricing.roundingStep, view.guard.warnChangePercent, view.guard.confirmChangePercent]);
   const stepN = Number(step);
   const stepOk = Number.isInteger(stepN) && stepN >= 1 && stepN <= 1_000_000;
+  const [warnN, confirmN] = [Number(warn), Number(confirm)];
+  // DEC-1: whole percentages, 0 < warn < confirm ≤ 100 (the server checks the same).
+  const guardOk = Number.isInteger(warnN) && Number.isInteger(confirmN) && warnN >= 1 && warnN < confirmN && confirmN <= 100;
   const save = useMutation({
     mutationFn: () => {
       const changes: Record<string, unknown> = {};
       if (mode !== view.pricing.mode) changes['pricing.mode'] = mode;
       if (stepN !== view.pricing.roundingStep) changes['pricing.roundingStep'] = stepN;
+      if (warnN !== view.guard.warnChangePercent) changes['rates.warnChangePercent'] = warnN;
+      if (confirmN !== view.guard.confirmChangePercent) changes['rates.confirmChangePercent'] = confirmN;
       if (!Object.keys(changes).length) return Promise.resolve(null);
       const expectedVersions = Object.fromEntries(Object.keys(changes).map((k) => [k, s.data?.versions[k] ?? 0]));
       return put('/settings', { changes, expectedVersions });
@@ -98,7 +118,7 @@ function PricingCard({ view }: { view: SellingRatesView }) {
     <Card padded={false} className="mb-5">
       <CardHeader
         title={t('How selling prices are worked out')}
-        actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} disabled={!stepOk || !s.data} loading={save.isPending} onClick={() => save.mutate()} data-testid="save-pricing">{t('Save')}</Button>}
+        actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} disabled={!stepOk || !guardOk || !s.data} loading={save.isPending} onClick={() => save.mutate()} data-testid="save-pricing">{t('Save')}</Button>}
       />
       <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-3">
         <Field label={t('Selling prices')}>
@@ -107,7 +127,7 @@ function PricingCard({ view }: { view: SellingRatesView }) {
             <option value="FIXED_TAG">{t('Fixed price typed for each piece')}</option>
           </Select>
         </Field>
-        <Field label={t('Round prices to ({currency})', { currency: currencyLabel() })} hint={t('Applied once, after weight × rate. Provisional until the owner confirms it (Q-2).')}>
+        <Field label={t('Round prices to ({currency})', { currency: currencyLabel() })} hint={t('Applied once, after weight × rate. 1 = whole units, no further rounding.')}>
           <IntegerInput min={1} max={1_000_000} value={step} onValueChange={setStep} disabled={mode !== 'RATE_COMPUTED'} data-testid="pricing-step" />
         </Field>
         <div className="self-end pb-2 text-meta text-ink-3" data-testid="pricing-example">
@@ -117,6 +137,12 @@ function PricingCard({ view }: { view: SellingRatesView }) {
               : t('Price = net weight × the rate per gram of the piece’s karat (new or used piece). No making charge is added.')
             : t('Each piece sells at the price typed when it was received; the rates below do not change it.')}
         </div>
+        <Field label={t('Ask for a reason above (%)')} hint={t('A rate edit that moves a rate by more than this asks for a written reason.')}>
+          <IntegerInput min={1} max={99} value={warn} onValueChange={setWarn} invalid={!guardOk} data-testid="rate-warn-pct" />
+        </Field>
+        <Field label={t('Ask for the password too above (%)')} hint={t('Above this, the reason and your password again. Must be more than the first number, at most 100.')}>
+          <IntegerInput min={2} max={100} value={confirm} onValueChange={setConfirm} invalid={!guardOk} data-testid="rate-confirm-pct" />
+        </Field>
       </div>
     </Card>
   );
@@ -132,13 +158,17 @@ function SellingRatesCard({ view, kind }: { view: SellingRatesView; kind: Kind }
   const [draft, setDraft] = useState<Record<string, string>>(initial);
   useEffect(() => setDraft(initial), [initial]);
   const changed = Object.entries(draft).filter(([k, v]) => v.trim() && Number(v) > 0 && Number(v) !== (current[k]?.pricePerGram ?? 0));
+  const prev = (k: number) => current[k]?.pricePerGram || null;
+  const top = strictestLevel(changed.map(([k, v]) => rateChangeLevel(prev(Number(k)), Number(v), view.guard.warnChangePercent, view.guard.confirmChangePercent)));
+  const [ask, setAsk] = useState<RateChangeLevel | null>(null);
   const m = useMutation({
-    mutationFn: () => post('/gold-rates', { [kind === 'NEW' ? 'rates' : 'usedRates']: Object.fromEntries(changed.map(([k, v]) => [k, Number(v)])) }),
+    mutationFn: (g: GuardFields) => post('/gold-rates', { [kind === 'NEW' ? 'rates' : 'usedRates']: Object.fromEntries(changed.map(([k, v]) => [k, Number(v)])), ...g }),
     onSuccess: () => {
+      setAsk(null);
       toast.success(t('Gold rates updated'), t('New rates apply immediately.'));
       qc.invalidateQueries();
     },
-    onError: (e) => toast.fromError(e),
+    onError: (e) => guardError(e, setAsk, toast),
   });
   const tag = kind === 'NEW' ? 'gold-rate' : 'used-rate';
   return (
@@ -147,22 +177,25 @@ function SellingRatesCard({ view, kind }: { view: SellingRatesView; kind: Kind }
         <CardHeader
           title={kind === 'NEW' ? t('Selling rate · new pieces') : t('Selling rate · used pieces')}
           subtitle={kind === 'NEW' ? t('Pieces from suppliers and opening stock ({currency} per gram)', { currency: currencyLabel() }) : t('Pieces bought from customers and put on sale ({currency} per gram)', { currency: currencyLabel() })}
-          actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} disabled={!changed.length} loading={m.isPending} onClick={() => m.mutate()} data-testid={kind === 'NEW' ? 'save-gold-rates' : 'save-used-rates'}>{t('Save')}</Button>}
+          actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} disabled={!changed.length} loading={m.isPending && !ask} onClick={() => (top === 'REASON' || top === 'CONFIRM' ? setAsk(top) : m.mutate({}))} data-testid={kind === 'NEW' ? 'save-gold-rates' : 'save-used-rates'}>{t('Save')}</Button>}
         />
         <RateRows
           karats={view.allowedKarats}
           draft={draft}
           onChange={(k, v) => setDraft({ ...draft, [k]: v })}
           since={(k) => (current[k]?.pricePerGram ? dateTime(current[k].effectiveAt, lang) : null)}
+          prev={prev}
+          guard={view.guard}
           testId={tag}
         />
       </Card>
+      <RateGuardDialog level={ask} guard={view.guard} loading={m.isPending} onCancel={() => setAsk(null)} onConfirm={(g) => m.mutate(g)} />
     </div>
   );
 }
 
 /** What the branches pay customers for scrap, per gram (any karat can be bought as broken scrap). */
-function ScrapRatesCard({ karats, query }: { karats: number[]; query: UseQueryResult<ScrapRatesView> }) {
+function ScrapRatesCard({ karats, guard, query }: { karats: number[]; guard: Guard; query: UseQueryResult<ScrapRatesView> }) {
   const { t, lang } = useI18n();
   const toast = useToast();
   const qc = useQueryClient();
@@ -173,13 +206,18 @@ function ScrapRatesCard({ karats, query }: { karats: number[]; query: UseQueryRe
   }, [query.data]);
   // The allowed karats, plus any other karat that already has a scrap rate or is added here (1–24).
   const shown = [...new Set([...karats, ...Object.keys(draft).map(Number)])].sort((a, b) => a - b);
+  const prev = (k: number) => query.data?.rates.find((r) => r.karat === k)?.pricePerGram ?? null;
+  const filled = Object.entries(draft).filter(([, v]) => v.trim() && Number(v) > 0);
+  const top = strictestLevel(filled.filter(([k, v]) => Number(v) !== prev(Number(k))).map(([k, v]) => rateChangeLevel(prev(Number(k)), Number(v), guard.warnChangePercent, guard.confirmChangePercent)));
+  const [ask, setAsk] = useState<RateChangeLevel | null>(null);
   const m = useMutation({
-    mutationFn: () => post('/scrap-rates', { rates: Object.entries(draft).filter(([, v]) => v.trim() && Number(v) > 0).map(([k, v]) => ({ karat: Number(k), pricePerGram: Number(v) })) }),
+    mutationFn: (g: GuardFields) => post('/scrap-rates', { rates: filled.map(([k, v]) => ({ karat: Number(k), pricePerGram: Number(v) })), ...g }),
     onSuccess: () => {
+      setAsk(null);
       toast.success(t('Scrap rates updated'), t('Recorded as SCRAP_RATE_CHANGED in the audit log.'));
       qc.invalidateQueries();
     },
-    onError: (e) => toast.fromError(e),
+    onError: (e) => guardError(e, setAsk, toast),
   });
   const extraN = Number(extra);
   return (
@@ -188,7 +226,7 @@ function ScrapRatesCard({ karats, query }: { karats: number[]; query: UseQueryRe
         <CardHeader
           title={t('Scrap buying rate')}
           subtitle={t('What the branches pay customers for scrap gold ({currency} per gram)', { currency: currencyLabel() })}
-          actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} disabled={!query.data} loading={m.isPending} onClick={() => m.mutate()} data-testid="save-scrap-rates">{t('Save')}</Button>}
+          actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} disabled={!query.data} loading={m.isPending && !ask} onClick={() => (top === 'REASON' || top === 'CONFIRM' ? setAsk(top) : m.mutate({}))} data-testid="save-scrap-rates">{t('Save')}</Button>}
         />
         {query.isError && <ErrorState error={query.error} onRetry={() => query.refetch()} />}
         {!query.data && !query.isError && <SkeletonRows rows={3} className="p-5" />}
@@ -202,6 +240,8 @@ function ScrapRatesCard({ karats, query }: { karats: number[]; query: UseQueryRe
                 const r = query.data!.rates.find((x) => x.karat === k);
                 return r ? dateTime(r.effectiveAt, lang) : null;
               }}
+              prev={prev}
+              guard={guard}
               testId="scrap-rate"
             />
             <div className="flex items-end gap-2 border-t border-line px-5 py-3">
@@ -215,12 +255,75 @@ function ScrapRatesCard({ karats, query }: { karats: number[]; query: UseQueryRe
           </>
         )}
       </Card>
+      <RateGuardDialog level={ask} guard={guard} loading={m.isPending} onCancel={() => setAsk(null)} onConfirm={(g) => m.mutate(g)} />
     </div>
   );
 }
 
-function RateRows({ karats, draft, onChange, since, testId }: { karats: number[]; draft: Record<string, string>; onChange: (k: number, v: string) => void; since: (k: number) => string | null; testId: string }) {
+/** A server refusal of the edit guard opens the dialog (the page's own check normally does it first). */
+function guardError(e: unknown, setAsk: (l: RateChangeLevel) => void, toast: ReturnType<typeof useToast>) {
+  if (e instanceof ApiError && e.code === 'RATE_CHANGE_CONFIRM_REQUIRED') setAsk('CONFIRM');
+  else if (e instanceof ApiError && e.code === 'RATE_CHANGE_REASON_REQUIRED') setAsk('REASON');
+  else toast.fromError(e);
+}
+
+/** Asks for the reason (and, above the confirm threshold, the password) of a large rate change. */
+function RateGuardDialog({ level, guard, loading, onCancel, onConfirm }: { level: RateChangeLevel | null; guard: Guard; loading: boolean; onCancel: () => void; onConfirm: (g: GuardFields) => void }) {
   const { t } = useI18n();
+  const [reason, setReason] = useState('');
+  const [password, setPassword] = useState('');
+  useEffect(() => {
+    if (!level) {
+      setReason('');
+      setPassword('');
+    }
+  }, [level]);
+  const needsPassword = level === 'CONFIRM';
+  const ok = reason.trim().length >= CHANGE_REASON_MIN && (!needsPassword || password.length > 0);
+  return (
+    <Dialog
+      open={level === 'REASON' || level === 'CONFIRM'}
+      onClose={onCancel}
+      size="sm"
+      title={t('A large rate change')}
+      subtitle={
+        needsPassword
+          ? t('This moves a rate by more than {pct}%: write the reason and enter your password again.', { pct: guard.confirmChangePercent })
+          : t('This moves a rate by more than {pct}%: write the reason. It is kept in the audit log.', { pct: guard.warnChangePercent })
+      }
+      footer={
+        <>
+          <Button onClick={onCancel}>{t('Cancel')}</Button>
+          <Button variant="primary" disabled={!ok} loading={loading} onClick={() => onConfirm({ reason: reason.trim(), ...(needsPassword ? { confirmPassword: password } : {}) })} data-testid="rate-guard-confirm">
+            {t('Save')}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3" data-testid="rate-guard">
+        <Field label={t('Reason for the change')} hint={t('At least {n} characters.', { n: CHANGE_REASON_MIN })}>
+          <Textarea rows={2} value={reason} maxLength={CHANGE_REASON_MAX} onChange={(e) => setReason(e.target.value)} data-testid="rate-guard-reason" />
+        </Field>
+        {needsPassword && (
+          <Field label={t('Your password')}>
+            <Input type="password" autoComplete="current-password" value={password} maxLength={128} onChange={(e) => setPassword(e.target.value)} data-testid="rate-guard-password" />
+          </Field>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
+function RateRows({ karats, draft, onChange, since, prev, guard, testId }: { karats: number[]; draft: Record<string, string>; onChange: (k: number, v: string) => void; since: (k: number) => string | null; prev: (k: number) => number | null; guard: Guard; testId: string }) {
+  const { t } = useI18n();
+  // DEC-1: the change against the current rate, before saving (exact basis points; the level decides the tone).
+  const change = (k: number) => {
+    const next = Number(draft[k]);
+    const from = prev(k);
+    if (!draft[k]?.trim() || !(next > 0) || from == null || next === from) return null;
+    const level = rateChangeLevel(from, next, guard.warnChangePercent, guard.confirmChangePercent);
+    return { bp: rateChangeBp(from, next)!, level };
+  };
   return (
     <div className="divide-y divide-line">
       {karats.map((k) => {
@@ -233,6 +336,18 @@ function RateRows({ karats, draft, onChange, since, testId }: { karats: number[]
               <span className={'mt-0.5 block text-[11.5px] ' + (when ? 'text-ink-3' : 'font-medium text-rose-700')} data-testid={`${testId}-${k}-since`}>
                 {when ? t('Since {when}', { when }) : t('No rate: pieces of this karat cannot be sold')}
               </span>
+              {(() => {
+                const c = change(k);
+                if (!c) return null;
+                const tone = c.level === 'CONFIRM' ? 'font-medium text-rose-700' : c.level === 'REASON' ? 'font-medium text-amber-700' : 'text-ink-3';
+                return (
+                  <span className={'block text-[11.5px] num ' + tone} data-testid={`${testId}-${k}-change`} data-level={c.level}>
+                    {t('{change}% from the current rate', { change: formatChangeBp(c.bp) })}
+                    {c.level === 'REASON' && ` · ${t('needs a reason')}`}
+                    {c.level === 'CONFIRM' && ` · ${t('needs a reason and your password')}`}
+                  </span>
+                );
+              })()}
             </div>
           </div>
         );

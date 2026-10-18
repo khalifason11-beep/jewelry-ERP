@@ -69,6 +69,56 @@ async function pricesPage(page, gm) {
   await shot(page, 'prices');
 }
 
+/** Fill and confirm the re-authentication dialog if the page asks (the rate routes need the re-auth window). */
+async function confirmIfAsked(page, password) {
+  await page.waitForTimeout(400);
+  if (await page.locator('#reauth-form').count()) {
+    await page.fill('#reauth-form input[type=password]', password);
+    await page.click('button[form=reauth-form]');
+    await page.waitForTimeout(400);
+  }
+}
+
+/** Replace a money field's value (select all, then type, as a person would). */
+async function retype(page, testId, value) {
+  await page.click(`[data-testid=${testId}]`);
+  await page.keyboard.press('Control+A');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.type(value);
+}
+
+async function guardFlow(page, gm, world) {
+  section('DEC-1 (RAT-1): the Prices page shows the change and asks for a reason, then the password');
+  const start = (await gm.must('GET', '/gold-rates')).current['21'].pricePerGram;
+  const plus20 = Math.round((start * 120) / 100);
+  await retype(page, 'gold-rate-21', String(plus20));
+  const chip = page.getByTestId('gold-rate-21-change');
+  check((await chip.getAttribute('data-level')) === 'REASON' && /\+20\.00/.test(await chip.innerText()), `+20 %: the row says "${(await chip.innerText()).trim()}" before saving`);
+  await page.click('[data-testid=save-gold-rates]');
+  await page.getByTestId('rate-guard').waitFor({ timeout: 15_000 });
+  check((await page.getByTestId('rate-guard-password').count()) === 0 && (await page.getByTestId('rate-guard-confirm').isDisabled()), 'the dialog asks for a reason only; Save stays disabled without it');
+  await page.fill('[data-testid=rate-guard-reason]', 'اختبار: ارتفاع السوق');
+  await page.click('[data-testid=rate-guard-confirm]');
+  await confirmIfAsked(page, world.gm.password);
+  check(await eventually(async () => (await gm.must('GET', '/gold-rates')).current['21'].pricePerGram === plus20), 'with the reason, the +20 % rate is saved');
+  const plus40 = Math.round((plus20 * 140) / 100);
+  await retype(page, 'gold-rate-21', String(plus40));
+  check((await page.getByTestId('gold-rate-21-change').getAttribute('data-level')) === 'CONFIRM', '+40 %: the row says it needs a reason and the password');
+  await page.click('[data-testid=save-gold-rates]');
+  await page.getByTestId('rate-guard-password').waitFor({ timeout: 15_000 });
+  await page.fill('[data-testid=rate-guard-reason]', 'اختبار: ارتفاع كبير');
+  await page.fill('[data-testid=rate-guard-password]', 'not-the-password');
+  await page.click('[data-testid=rate-guard-confirm]');
+  await page.waitForTimeout(800);
+  check((await gm.must('GET', '/gold-rates')).current['21'].pricePerGram === plus20 && (await page.getByTestId('rate-guard').count()) === 1, 'a wrong password saves nothing and the dialog stays open');
+  await page.fill('[data-testid=rate-guard-password]', world.gm.password);
+  await page.click('[data-testid=rate-guard-confirm]');
+  check(await eventually(async () => (await gm.must('GET', '/gold-rates')).current['21'].pricePerGram === plus40), 'with the reason and the password, the +40 % rate is saved');
+  await gm.reauth(world.gm.password);
+  await gm.must('POST', '/gold-rates', { rates: { 21: start }, reason: 'اختبار: إعادة السعر', confirmPassword: world.gm.password });
+  await page.reload();
+}
+
 async function sundayMonday(page, gm, world) {
   section('The owner’s example: 1 g priced 100,000 on Sunday sells for 110,000 on Monday (test values)');
   const before = (await gm.must('GET', '/gold-rates')).current['21'].pricePerGram;
@@ -172,6 +222,7 @@ async function main() {
     globalThis.__page = page;
     await signIn(page, world.gm);
     await pricesPage(page, gm);
+    await guardFlow(page, gm, world);
     await sundayMonday(page, gm, world);
     await inventoryList(page, gm);
     const cashierCtx = await browser.newContext({ viewport: { width: 1366, height: 768 }, locale: 'ar' });
