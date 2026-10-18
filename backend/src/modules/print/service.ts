@@ -74,6 +74,7 @@ export async function printSale(ctx: Ctx, actor: Actor, id: number): Promise<Pri
       listPrice: t.saleItems.listPrice,
       discount: t.saleItems.discount,
       finalPrice: t.saleItems.finalPrice,
+      pricePerGram: t.saleItems.priceRatePerGram,
     })
     .from(t.saleItems)
     .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.saleItems.itemId))

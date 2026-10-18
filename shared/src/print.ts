@@ -38,6 +38,8 @@ export interface PrintableSaleLine extends NoCost {
   listPrice: number;
   discount: number;
   finalPrice: number;
+  /** PRC-1: the rate per gram of a computed line (null or absent for a tag price). */
+  pricePerGram?: number | null;
 }
 
 export interface PrintableSale extends NoCost {
@@ -68,7 +70,7 @@ export interface InvoicePrintData {
   branch: { name: string; nameAr: string | null; address: string | null; phone: string | null };
   cashier: { name: string; nameAr: string | null };
   customer: { name: string | null; nameAr: string | null; phone: string | null };
-  lines: { code: string; name: string; nameAr: string | null; karat: number; netWeightMg: number; listPrice: number; discount: number; finalPrice: number }[];
+  lines: { code: string; name: string; nameAr: string | null; karat: number; netWeightMg: number; listPrice: number; discount: number; finalPrice: number; pricePerGram: number | null }[];
   netWeightMg: number;
   subtotal: number;
   discountTotal: number;
@@ -118,6 +120,8 @@ export function buildInvoicePrintData(sale: PrintableSale, copy: { n: number; pr
     listPrice: l.listPrice,
     discount: l.discount,
     finalPrice: l.finalPrice,
+    // PRC-1: the rate per gram the line was charged at (computed prices); null for a tag price.
+    pricePerGram: l.pricePerGram ?? null,
   }));
   const data: InvoicePrintData = {
     kind: 'INVOICE',

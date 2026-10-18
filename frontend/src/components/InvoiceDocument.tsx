@@ -50,6 +50,8 @@ export interface SaleDetail {
     listPrice: number;
     discount: number;
     finalPrice: number;
+    /** PRC-1: the rate per gram the line was priced at (null for a fixed price). */
+    priceRatePerGram?: number | null;
     unitCost?: number;
     purchaseCost?: number;
     makingCost?: number;
@@ -63,6 +65,8 @@ export function InvoiceDocument({ sale }: { sale: SaleDetail }) {
   const { t, L, lang } = useI18n();
   const branding = useBranding();
   const weight = sale.items.reduce((s, i) => s + i.netWeightMg, 0);
+  // PRC-1: the per-gram column appears when a line was priced from a rate.
+  const perGram = sale.items.some((i) => i.priceRatePerGram != null);
   return (
     <div className="mx-auto max-w-[720px] bg-white text-[13px] text-ink-900">
       <div className="flex items-start justify-between border-b-2 border-ink-900 pb-4">
@@ -114,6 +118,7 @@ export function InvoiceDocument({ sale }: { sale: SaleDetail }) {
             <th className="py-2 text-start font-medium">{t('Item')}</th>
             <th className="py-2 text-start font-medium">{t('Karat')}</th>
             <th className="py-2 text-end font-medium">{t('Net weight')}</th>
+            {perGram && <th className="py-2 text-end font-medium">{t('Price per gram')}</th>}
             <th className="py-2 text-end font-medium">{t('Price')}</th>
             <th className="py-2 text-end font-medium">{t('Discount')}</th>
             <th className="py-2 text-end font-medium">{t('Total')}</th>
@@ -130,6 +135,7 @@ export function InvoiceDocument({ sale }: { sale: SaleDetail }) {
               </td>
               <td className="py-2">{karatLabel(i.karat)}</td>
               <td className="py-2 text-end num">{grams(i.netWeightMg)}</td>
+              {perGram && <td className="py-2 text-end num" data-testid="invoice-per-gram">{money(i.priceRatePerGram, false)}</td>}
               <td className="py-2 text-end num">{money(i.listPrice, false)}</td>
               <td className="py-2 text-end num">{i.discount ? `−${money(i.discount, false)}` : '—'}</td>
               <td className="py-2 text-end font-medium num">{money(i.finalPrice, false)}</td>

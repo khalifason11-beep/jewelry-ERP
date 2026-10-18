@@ -75,7 +75,9 @@ describe('print data builder', () => {
   it('builds the invoice from a whitelist; Hasad references only for Hasad payments; copy mark only for reprints', () => {
     const d = buildInvoicePrintData(SAMPLE);
     expect(d).toMatchObject({ kind: 'INVOICE', number: 'KRT-S-000123', netWeightMg: 5_250, total: 950_000, hasad: { invoiceRef: 'HSD-INV-1', transactionRef: 'HTX-1' }, copy: null });
-    expect(d.lines[0]).toEqual({ code: 'R21-0001', name: SAMPLE.lines[0].name, nameAr: 'خاتم', karat: 21, netWeightMg: 5_250, listPrice: 1_000_000, discount: 50_000, finalPrice: 950_000 });
+    // PRC-1: a tag-priced line prints no rate per gram (null); a computed line prints the rate it was charged at.
+    expect(d.lines[0]).toEqual({ code: 'R21-0001', name: SAMPLE.lines[0].name, nameAr: 'خاتم', karat: 21, netWeightMg: 5_250, listPrice: 1_000_000, discount: 50_000, finalPrice: 950_000, pricePerGram: null });
+    expect(buildInvoicePrintData({ ...SAMPLE, lines: [{ ...SAMPLE.lines[0], pricePerGram: 190_000 }] }).lines[0].pricePerGram).toBe(190_000);
     expect(buildInvoicePrintData({ ...SAMPLE, paymentMethod: 'CASH' }).hasad).toBeNull();
     expect(buildInvoicePrintData(SAMPLE, { n: 2, printedAt: '2026-10-05T10:00:00Z' }).copy).toEqual({ n: 2, printedAt: '2026-10-05T10:00:00.000Z' });
     expect(scanResponse(d).filter((f) => f.kind !== 'UNCLASSIFIED')).toEqual([]);

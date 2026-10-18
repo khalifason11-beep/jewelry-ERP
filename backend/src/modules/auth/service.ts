@@ -257,6 +257,8 @@ export async function me(ctx: Ctx, actor: Actor) {
     csrfToken: actor.sessionId ? await csrfTokenFor(ctx.db, actor.sessionId) : null,
     allowSelfPasswordChange: settings.security.allowSelfPasswordChange,
     maxDiscountPercent: settings.sales.maxDiscountPercentByRole[actor.roleCode] ?? 0,
+    // PRC-1: RATE_COMPUTED (prices follow the rates; no typed price) or FIXED_TAG; the screens adapt to it.
+    pricingMode: settings.pricing.mode,
     // SEC-2 (D-sec2-1): voids above this total ask for the password again (0 = every void).
     voidReauthAboveAmount: settings.sales.voidReauthAboveAmount,
     // Phase 2fa: second-factor state of this account (no secrets: counts, flags, the new-device alert).

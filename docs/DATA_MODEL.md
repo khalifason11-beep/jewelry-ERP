@@ -132,7 +132,7 @@
 |---|---|
 | `settings` | One row per setting key, holding a JSON value and a version (`shared/src/settings.ts`) |
 | `settings_history` | Append-only: old value, new value, version, who, reason |
-| `gold_rates` | Append-only: the selling rate per karat; the latest row is current |
+| `gold_rates` | Append-only: the selling rate per karat and `kind` (`NEW` for supplier and opening pieces, `USED` for sellable scrap; PRC-1); the latest row per karat and kind is current |
 | `branding_assets` | The logo: type, checksum, size |
 | `audit_logs` | Append-only: user, role, branch, action, entity, `description_key` + `description_params`, metadata, IP, session |
 | `backup_runs` | Append-only: backup and restore-drill runs |
@@ -202,3 +202,4 @@ a conditional update on the current status.
 | `0021_csh2_scrap_split_payment` | CSH-2: cash and bank parts and the bank reference on scrap purchases |
 | `0022_mkc1_owner_making_charge` | MKC-1: making charge paid by the owner (`OWNER_PERSONAL`), reference and date; `purchases.create` for the General Manager only |
 | `0023_be7_sale_items_sale_idx` | BE-7: index `sale_items(sale_id)` (the lines of a sale are read by sale: list pages, sale detail, void). Additive only |
+| `0024_prc1_computed_prices` | PRC-1: `gold_rates.kind` (NEW/USED, validated check, index), permission `scrap.buy_sellable` (every role), and `pricing.mode = FIXED_TAG` written only when pieces already exist (an upgraded installation keeps its tag prices). Additive only |

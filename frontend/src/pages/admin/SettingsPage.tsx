@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ImageUp, Printer, Save, Trash2 } from 'lucide-react';
-import { KARATS, PAYMENT_METHODS, parseDecimalInput, parseIntegerInput, settingValue, type InvoiceFormat, type SettingKey, type SystemSettings } from '@jerp/shared';
-import { del, get, post, put, upload } from '../../lib/api';
+import { PAYMENT_METHODS, parseDecimalInput, parseIntegerInput, settingValue, type InvoiceFormat, type SettingKey, type SystemSettings } from '@jerp/shared';
+import { del, get, put, upload } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useBranding } from '../../lib/branding';
-import { currencyLabel, dateTime, humanize, money } from '../../lib/format';
-import { useGoldRates } from '../../lib/hooks';
+import { currencyLabel, humanize } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { printDocument } from '../../lib/print';
@@ -23,22 +23,24 @@ interface SettingsResponse {
 const KARAT_CHOICES = [9, 12, 14, 18, 21, 22, 24];
 
 export function SettingsPage() {
-  const { t, lang } = useI18n();
+  // PRC-1 (D-prc1-9): /settings#rates and /settings#scrap-rates (bookmarks, older attention links) open the Prices page.
+  const { hash } = useLocation();
+  if (hash === '#rates' || hash === '#scrap-rates') return <Navigate to="/prices" replace />;
+  return <SettingsForm />;
+}
+
+function SettingsForm() {
+  const { t } = useI18n();
   const toast = useToast();
   const qc = useQueryClient();
   const branding = useBranding();
   const s = useQuery({ queryKey: ['settings'], queryFn: () => get<SettingsResponse>('/settings') });
-  const rates = useGoldRates();
   const [draft, setDraft] = useState<SystemSettings | null>(null);
   const [reason, setReason] = useState('');
-  const [rateDraft, setRateDraft] = useState<Record<string, string>>({});
   const fileRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (s.data) setDraft(s.data.settings);
   }, [s.data]);
-  useEffect(() => {
-    if (rates.data) setRateDraft(Object.fromEntries(Object.entries(rates.data.current).map(([k, v]) => [k, String(v.pricePerGram)])));
-  }, [rates.data]);
 
   const refreshAll = () => qc.invalidateQueries();
 
@@ -58,14 +60,6 @@ export function SettingsPage() {
     onSuccess: (res) => {
       if (res) toast.success(t('Settings saved'), t('Recorded as SETTINGS_CHANGED in the audit log.'));
       setReason('');
-      refreshAll();
-    },
-    onError: (e) => toast.fromError(e),
-  });
-  const saveRates = useMutation({
-    mutationFn: () => post('/gold-rates', { rates: Object.fromEntries(Object.entries(rateDraft).filter(([k]) => draft?.inventory.allowedKarats.includes(Number(k))).map(([k, v]) => [k, Number(v)])) }),
-    onSuccess: () => {
-      toast.success(t('Gold rates updated'), t('New rates apply immediately.'));
       refreshAll();
     },
     onError: (e) => toast.fromError(e),
@@ -183,41 +177,7 @@ export function SettingsPage() {
           </div>
         </Card>
 
-        {/* ── Gold rates ── (anchor: the attention list's "no rate" line links here, UI-B) */}
-        <span id="rates" className="-mb-5 block scroll-mt-4" />
-        <Card padded={false}>
-          <CardHeader
-            title={t('Gold rates ({currency} per gram)', { currency: currencyLabel() })}
-            subtitle={t('The selling rate per gram, shown to cashiers')}
-            actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={saveRates.isPending} onClick={() => saveRates.mutate()} data-testid="save-gold-rates">{t('Save rates')}</Button>}
-          />
-          <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
-            {draft.inventory.allowedKarats.map((k) => (
-              <Field key={k} label={`${k}K`}>
-                <MoneyInput value={rateDraft[k] ?? ''} onValueChange={(v) => setRateDraft({ ...rateDraft, [k]: v })} data-testid={`gold-rate-${k}`} />
-              </Field>
-            ))}
-          </div>
-          <div className="scroll-thin max-h-48 overflow-y-auto border-t border-line">
-            {rates.isError && <ErrorState error={rates.error} onRetry={() => rates.refetch()} />}
-            {rates.data && rates.data.history.length === 0 && <p className="px-5 py-3 text-meta text-ink-3">{t('No rate has been set yet.')}</p>}
-            <table className="w-full text-[12.5px]">
-              <tbody className="divide-y divide-line">
-                {rates.data?.history.slice(0, 16).map((h) => (
-                  <tr key={h.id}>
-                    <td className="px-5 py-1.5 text-ink-500">{dateTime(h.effectiveAt, lang)}</td>
-                    <td className="px-3 py-1.5">{h.karat}K</td>
-                    <td className="px-3 py-1.5 text-end num">{money(h.pricePerGram)}</td>
-                    <td className="px-5 py-1.5 text-ink-500">{h.setBy}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-
-        {/* ── Scrap buying rates (Phase 4) ── */}
-        <ScrapRatesCard />
+        {/* PRC-1 (D-prc1-9): the gold and scrap rates moved to the Prices page (/prices); the old anchors lead there. */}
 
         {/* ── Business rules (client to confirm) ── */}
         <Card padded={false}>
@@ -400,79 +360,6 @@ export function SettingsPage() {
         <SecondFactorCard />
       </div>
     </div>
-  );
-}
-
-interface ScrapRatesView {
-  rates: { karat: number; pricePerGram: number; effectiveAt: string }[];
-  tolerancePct: number;
-  requireGmApproval: boolean;
-}
-
-/** Scrap BUYING rates per karat (any karat, not limited to the karats sold), set by the GM. */
-function ScrapRatesCard() {
-  const { t, lang } = useI18n();
-  const toast = useToast();
-  const qc = useQueryClient();
-  const q = useQuery({ queryKey: ['scrap-rates'], queryFn: () => get<ScrapRatesView>('/scrap-rates') });
-  const [draft, setDraft] = useState<Record<string, string>>({});
-  const [extra, setExtra] = useState('');
-  useEffect(() => {
-    if (q.data) setDraft(Object.fromEntries(q.data.rates.map((r) => [String(r.karat), String(r.pricePerGram)])));
-  }, [q.data]);
-  // The usual karats plus any odd karat that already has a rate or was added here (1–24).
-  const shown = [...new Set([...KARATS, ...Object.keys(draft).map(Number)])].sort((a, b) => a - b);
-  const m = useMutation({
-    mutationFn: () =>
-      post('/scrap-rates', {
-        rates: Object.entries(draft)
-          .filter(([, v]) => v.trim() && Number(v) > 0)
-          .map(([k, v]) => ({ karat: Number(k), pricePerGram: Number(v) })),
-      }),
-    onSuccess: () => {
-      toast.success(t('Scrap rates updated'), t('Recorded as SCRAP_RATE_CHANGED in the audit log.'));
-      qc.invalidateQueries({ queryKey: ['scrap-rates'] });
-    },
-    onError: (e) => toast.fromError(e),
-  });
-  return (
-    <Card padded={false}>
-      <CardHeader
-        title={t('Scrap buying rates (per gram)')}
-        subtitle={t('What the branches pay customers for scrap gold, by karat. Any karat can be bought as broken scrap.')}
-        actions={
-          <Button size="sm" variant="primary" icon={<Save className="size-4" />} loading={m.isPending} onClick={() => m.mutate()} data-testid="save-scrap-rates">
-            {t('Save')}
-          </Button>
-        }
-      />
-      {q.isError && <ErrorState error={q.error} onRetry={() => q.refetch()} />}
-      {q.data === undefined && !q.isError && <SkeletonRows rows={2} className="p-5" />}
-      {q.data && (
-      <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
-        {shown.map((k) => {
-          const cur = q.data?.rates.find((r) => r.karat === k);
-          return (
-            <Field key={k} label={`${k}K`} hint={cur ? dateTime(cur.effectiveAt, lang) : t('Not set')}>
-              <MoneyInput value={draft[k] ?? ''} onValueChange={(v) => setDraft({ ...draft, [k]: v })} data-testid={`scrap-rate-${k}`} />
-            </Field>
-          );
-        })}
-      </div>
-      )}
-      <div className="flex items-end gap-2 border-t border-line px-5 py-3">
-        <Field label={t('Add another karat (1–24)')}>
-          <IntegerInput min={1} max={24} value={extra} onValueChange={setExtra} className="w-28" />
-        </Field>
-        <Button
-          size="sm"
-          disabled={!(Number.isInteger(Number(extra)) && Number(extra) >= 1 && Number(extra) <= 24) || shown.includes(Number(extra))}
-          onClick={() => { setDraft({ ...draft, [Number(extra)]: '' }); setExtra(''); }}
-        >
-          {t('Add')}
-        </Button>
-      </div>
-    </Card>
   );
 }
 

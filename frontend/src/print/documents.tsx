@@ -114,6 +114,8 @@ export function When({ at, layout }: { at: string | Date; layout: PrintLayout })
 export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: PrintLayout }) {
   const { t, L } = useI18n();
   const receipt = layout.format === 'RECEIPT';
+  // PRC-1: the per-gram column appears when a line was priced from a rate (an invoice of fixed prices looks as before).
+  const perGram = doc.lines.some((l) => l.pricePerGram != null);
   return (
     <Doc layout={layout}>
       <PrintHeader branch={doc.branch} />
@@ -148,6 +150,8 @@ export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: P
                 </span>
                 <Amount value={l.listPrice} currency={false} />
               </div>
+              {/* PRC-1: the rate per gram the piece was sold at (computed prices; none on a fixed-price line). */}
+              {l.pricePerGram != null && <Row label={t('Price per gram')} value={<span data-testid="invoice-per-gram"><Amount value={l.pricePerGram} currency={false} /></span>} />}
               {l.discount > 0 && <Row label={t('Discount')} value={<Amount value={l.discount} negative currency={false} />} />}
               {l.discount > 0 && <Row label={t('Total')} value={<Amount value={l.finalPrice} currency={false} />} />}
             </div>
@@ -161,6 +165,7 @@ export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: P
               <th>{t('Description')}</th>
               <th>{t('Karat')}</th>
               <th className="pd-end">{t('Net weight')}</th>
+              {perGram && <th className="pd-end">{t('Price per gram')}</th>}
               <th className="pd-end">{t('Price')}</th>
               <th className="pd-end">{t('Discount')}</th>
               <th className="pd-end">{t('Total')}</th>
@@ -177,6 +182,11 @@ export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: P
                 <td className="pd-end">
                   <span className="pd-num">{grams(l.netWeightMg)}</span>
                 </td>
+                {perGram && (
+                  <td className="pd-end" data-testid="invoice-per-gram">
+                    {l.pricePerGram != null ? <Amount value={l.pricePerGram} currency={false} /> : '—'}
+                  </td>
+                )}
                 <td className="pd-end">
                   <Amount value={l.listPrice} currency={false} />
                 </td>

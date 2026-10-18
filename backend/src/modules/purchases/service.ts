@@ -1,4 +1,5 @@
 import { ap, pureGoldMg, sumInt, validBankReference, type MakingChargePayer } from '@jerp/shared';
+import { livePriceSql, pricingOf } from '../pricing/service';
 import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import { nameOrAr } from '../../core/sql';
@@ -23,7 +24,8 @@ export interface PurchaseLine {
   purchaseCost: number;
   makingCost: number;
   otherCost: number;
-  sellingPrice: number;
+  /** FIXED_TAG only (PRC-1): the tag price; with computed prices it is not sent. */
+  sellingPrice?: number;
 }
 
 export interface CreatePurchaseInput {
@@ -77,8 +79,16 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
   if (!input.lines.length) throw badRequest('Add at least one item');
   for (const l of input.lines) {
     if (l.netWeightMg <= 0 || l.grossWeightMg < l.netWeightMg) throw badRequest('Gross weight must be ≥ net weight > 0');
-    if (l.purchaseCost <= 0 || l.sellingPrice <= 0) throw badRequest('Costs and prices must be positive');
+    if (l.purchaseCost <= 0) throw badRequest('Costs and prices must be positive');
     if (l.makingCost < 0 || l.otherCost < 0) throw badRequest('Costs and prices must be positive');
+  }
+  // PRC-1 (D-prc1-8): with computed prices receiving asks for no selling price (one sent is refused, never dropped); with
+  // tag prices every line needs one, as before.
+  const { pricing } = await ctx.settings.get();
+  for (const l of input.lines) {
+    if (pricing.mode === 'RATE_COMPUTED') {
+      if (l.sellingPrice != null) throw badRequest('Selling prices follow the rates: do not send one');
+    } else if (l.sellingPrice == null || l.sellingPrice <= 0) throw badRequest('Costs and prices must be positive');
   }
   // SPEC §7.1, owner decision (CAT-0): a supplier order always names its supplier (the gold debt is owed to them).
   if (!input.supplierId) throw badRequest('Select the supplier');
@@ -187,7 +197,8 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
           costIsEstimated: false,
           supplierId: input.supplierId ?? null,
           supplierInvoiceRef: input.supplierInvoiceNo ?? null,
-          sellingPrice: l.sellingPrice,
+          // PRC-1: 0 = no tag price (computed prices); the live price comes from the new-piece rate.
+          sellingPrice: l.sellingPrice ?? 0,
           branchId,
           status: 'AVAILABLE',
           purchaseId: purchase.id,
@@ -340,6 +351,7 @@ export async function getPurchase(ctx: Ctx, actor: Actor, id: number) {
     .where(eq(t.purchases.id, id));
   if (!p) throw notFound('Purchase');
   branchScope(actor, p.p.branchId);
+  const pricing = await pricingOf(ctx);
   const items = await ctx.db
     .select({
       itemId: t.jewelryItems.id,
@@ -351,7 +363,8 @@ export async function getPurchase(ctx: Ctx, actor: Actor, id: number) {
       purchaseCost: t.purchaseItems.purchaseCost,
       makingCost: t.purchaseItems.makingCost,
       otherCost: t.purchaseItems.otherCost,
-      sellingPrice: t.jewelryItems.sellingPrice,
+      // PRC-1: the piece's live price (computed from the rates, or its tag price), as on every other screen.
+      sellingPrice: livePriceSql(pricing),
       status: t.jewelryItems.status,
     })
     .from(t.purchaseItems)

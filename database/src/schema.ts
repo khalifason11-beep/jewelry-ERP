@@ -548,7 +548,10 @@ export const brandingAssets = pgTable('branding_assets', {
   uploadedAt: ts('uploaded_at').notNull().defaultNow(),
 });
 
-/** Gold rate history; the latest row per karat is the current rate. */
+/**
+ * Selling-rate history; the latest row per karat and kind is the current rate. PRC-1 (D-prc1-2): `kind` NEW prices
+ * supplier and opening pieces, USED prices sellable scrap; rows written before PRC-1 are NEW.
+ */
 export const goldRates = pgTable(
   'gold_rates',
   {
@@ -557,8 +560,9 @@ export const goldRates = pgTable(
     pricePerGram: money('price_per_gram').notNull(),
     effectiveAt: ts('effective_at').notNull().defaultNow(),
     setBy: integer('set_by'),
+    kind: text('kind').notNull().default('NEW'),
   },
-  (t) => [index('gold_rates_karat_idx').on(t.karat, t.effectiveAt)],
+  (t) => [index('gold_rates_karat_idx').on(t.karat, t.effectiveAt), index('gold_rates_karat_kind_idx').on(t.karat, t.kind, t.effectiveAt)],
 );
 
 /** Sequential document numbers per branch & document type. */

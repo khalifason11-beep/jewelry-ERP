@@ -42,7 +42,7 @@ function mulberry32(seed: number) {
   };
 }
 
-export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: boolean } = {}) {
+export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: boolean; pricingMode?: 'FIXED_TAG' | 'RATE_COMPUTED' } = {}) {
   const rand = mulberry32(20260923);
   const between = (a: number, b: number) => a + rand() * (b - a);
   const int = (a: number, b: number) => Math.floor(between(a, b + 1));
@@ -94,6 +94,10 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
       // Demo: no second factor by default, so the login page and the demo script keep working
       // (D-2fa-10). seedWorld(ctx, now, { twoFactor: true }) keeps it required for the General Manager.
       'security.twoFactorRequiredRoles': (opts.twoFactor ?? false) ? ['GENERAL_MANAGER'] : [],
+      // PRC-1: the world's pieces carry tag prices (generated below), so it runs in FIXED_TAG, set explicitly; the
+      // PRC-1 suites switch it to RATE_COMPUTED (both selling rates exist for 21K, below).
+      // (seeded in FIXED_TAG: its historic sales are tag-priced; `opts.pricingMode` is applied at the end)
+      'pricing.mode': 'FIXED_TAG',
     },
     { actor: { id: null, username: 'demo-seed' }, allowGuarded: true },
   );
@@ -140,6 +144,8 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
     const when = off === 0 ? new Date(Math.min(at(0, 8).getTime(), now.getTime() - 60_000)) : at(off, 8);
     // Selling rates only for the karat this client sells; scrap BUYING rates cover every karat (below).
     await db.insert(t.goldRates).values([21].map((k) => ({ karat: k, pricePerGram: rateFor(k, off), effectiveAt: when, setBy: gm.userId })));
+    // PRC-1: the used-piece selling rate (sellable scrap), a separate number the General Manager sets (test value).
+    await db.insert(t.goldRates).values([21].map((k) => ({ karat: k, kind: 'USED', pricePerGram: rateFor(k, off) - 15_000, effectiveAt: when, setBy: gm.userId })));
   }
 
   // ───────── catalogue ─────────
@@ -496,5 +502,8 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
   }
 
   const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(t.jewelryItems).where(eq(t.jewelryItems.status, 'AVAILABLE'));
+  if (opts.pricingMode && opts.pricingMode !== 'FIXED_TAG') {
+    await ctx.settings.apply(db, { 'pricing.mode': opts.pricingMode }, { actor: { id: null, username: 'demo-seed' } });
+  }
   return { availableItems: Number(n) };
 }

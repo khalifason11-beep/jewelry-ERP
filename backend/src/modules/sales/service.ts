@@ -1,4 +1,4 @@
-import { ap, roundMoney, validBankReference } from '@jerp/shared';
+import { ap, goldValue, roundMoney, sumInt, validBankReference } from '@jerp/shared';
 import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import type { PaymentMethod } from '@jerp/shared';
@@ -14,10 +14,15 @@ import { accountKindFor, lockDrawerFor, post, reverseRef } from '../ledger/servi
 import type { TxIdempotency } from '../../core/idempotency';
 import { allowedKarats } from '../../core/karats';
 import { maxIdOf, runPaged, sumOf, type PageRequest, type SortSpec } from '../../core/paging';
+import { currentSellingRates, lockPricingShared, priceOf, type CurrentRate, type Pricing } from '../pricing/service';
 
 export interface CreateSaleInput {
   branchId?: number;
-  items: { itemId: number; discount?: number }[];
+  /**
+   * PRC-1: `listPrice` = the price the cashier saw for the piece. With computed prices the server prices every piece at
+   * confirmation; any difference (a rate changed since) answers 409 PRICES_CHANGED with the new prices (D-prc1-4).
+   */
+  items: { itemId: number; discount?: number; listPrice?: number }[];
   paymentMethod: PaymentMethod;
   /** Hasad (D-4-6): the Hasad invoice number (required) and transaction reference (optional). */
   paymentRefInvoice?: string;
@@ -68,9 +73,14 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
   if (hasDiscount && !can(actor, 'sales.discount')) throw forbidden('You are not allowed to give discounts');
 
   const at = opts.at ?? new Date();
+  const pricing: Pricing = { mode: settings.pricing.mode, step: settings.pricing.roundingStep };
   return ctx.db.transaction(async (tx) => {
     // Money route (D-2b-6): claim the idempotency key first, in this transaction.
     await opts.idem?.claim(tx);
+    // PRC-1 (D-prc1-5): the shared pricing lock, before the rates are read: a rate change waits for this sale, or this
+    // sale waits for the rate change and is priced at the new rate.
+    await lockPricingShared(tx);
+    const rates = pricing.mode === 'RATE_COMPUTED' ? await currentSellingRates(tx) : new Map<string, CurrentRate>();
     const locked = await lockItems(tx, ids);
     const byId = new Map(locked.map((i) => [i.id, i]));
     const [branch] = await tx.select().from(t.branches).where(eq(t.branches.id, branchId));
@@ -81,7 +91,7 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
     // Snapshot of the name at the time of sale; the English name is optional (CAT-0), so fall back to Arabic.
     const productName = new Map(products.map((p) => [p.id, p.name?.trim() ? p.name : p.nameAr]));
 
-    const lines = input.items.map((line) => {
+    const priced = input.items.map((line) => {
       const item = byId.get(line.itemId)!;
       if (item.branchId !== branchId) throw forbidden('Item {code} does not belong to this branch', { code: item.code });
       if (item.status !== 'AVAILABLE') throw badRequest('Item {code} is {status} and cannot be sold', { code: item.code, status: item.status });
@@ -89,16 +99,35 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       if (!sellable.includes(item.karat)) {
         throw badRequest('{karat}K is not sold here: sellable pieces must be {allowed}', { karat: item.karat, allowed: sellable.map((k) => `${k}K`).join(', ') });
       }
+      // PRC-1: the price at confirmation (computed from the current rate, or the tag price). Never 0.
+      const price = priceOf(pricing, rates, item);
+      if (price.sellingPrice == null) {
+        throw pricing.mode === 'RATE_COMPUTED'
+          ? price.rateKind === 'USED'
+            ? new AppError(400, 'NO_PRICE', 'No selling rate for used {karat}K pieces: {code} cannot be sold until the General Manager sets it', { code: item.code, karat: item.karat })
+            : new AppError(400, 'NO_PRICE', 'No selling rate for new {karat}K pieces: {code} cannot be sold until the General Manager sets it', { code: item.code, karat: item.karat })
+          : new AppError(400, 'NO_PRICE', 'Item {code} has no selling price', { code: item.code });
+      }
+      return { line, item, listPrice: price.sellingPrice, ratePerGram: price.pricePerGram };
+    });
+    // PRC-1 (D-prc1-4): never charge a price the cashier has not seen. A difference from the price shown (or no price
+    // sent) refuses the whole sale with every line's current price; the POS shows them and the cashier confirms again.
+    if (pricing.mode === 'RATE_COMPUTED' && priced.some((p) => p.line.listPrice !== p.listPrice)) {
+      throw new AppError(409, 'PRICES_CHANGED', 'Rates changed: the prices were updated. Check the cart and confirm again.', {}, {
+        lines: priced.map((p) => ({ itemId: p.item.id, code: p.item.code, listPrice: p.listPrice, pricePerGram: p.ratePerGram })),
+      });
+    }
+    const lines = priced.map(({ line, item, listPrice, ratePerGram }) => {
       const discount = roundMoney(line.discount ?? 0);
       if (discount < 0) throw badRequest('Discount cannot be negative');
-      if (discount > (item.sellingPrice * maxPct) / 100) {
+      if (discount > (listPrice * maxPct) / 100) {
         throw forbidden('Discount on {code} exceeds your limit of {pct}%', { code: item.code, pct: maxPct });
       }
-      return { item, discount, finalPrice: item.sellingPrice - discount };
+      return { item, listPrice, ratePerGram, discount, finalPrice: listPrice - discount };
     });
 
     // SEC-2 (D-sec2-2): one reason per sale for every changed line, required, stored on the sale and audited.
-    const changed = lines.filter((l) => l.finalPrice !== l.item.sellingPrice);
+    const changed = lines.filter((l) => l.finalPrice !== l.listPrice);
     const priceChangeReason = changed.length ? (input.priceChangeReason ?? '').trim() : '';
     if (changed.length && priceChangeReason.length < PRICE_CHANGE_REASON_MIN) {
       throw badRequest('Give a reason for the price change ({code})', { code: changed.map((l) => l.item.code).join(', ') });
@@ -121,7 +150,7 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       duplicateOf = dup?.number ?? null;
     }
 
-    const subtotal = lines.reduce((s, l) => s + l.item.sellingPrice, 0);
+    const subtotal = sumInt(lines.map((l) => l.listPrice));
     const discountTotal = lines.reduce((s, l) => s + l.discount, 0);
     const costTotal = lines.reduce((s, l) => s + l.item.acquisitionCost, 0);
     const number = await nextNumber(tx, branch.code, 'INV');
@@ -156,14 +185,17 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
         productName: productName.get(l.item.productId) ?? l.item.code,
         karat: l.item.karat,
         netWeightMg: l.item.netWeightMg,
-        listPrice: l.item.sellingPrice,
+        listPrice: l.listPrice,
         discount: l.discount,
         finalPrice: l.finalPrice,
         unitCost: l.item.acquisitionCost,
         // Snapshots: later cost changes never rewrite the profit of a past sale (GM-only fields).
         acquisitionCost: l.item.acquisitionCost,
         profit: l.finalPrice - l.item.acquisitionCost,
-        pricingMode: 'FIXED_TAG',
+        // PRC-1: a computed line keeps the rate used and the gold value; the making charge stays NULL (Q-1 open).
+        pricingMode: pricing.mode === 'RATE_COMPUTED' ? 'COMPUTED' : 'FIXED_TAG',
+        priceRatePerGram: pricing.mode === 'RATE_COMPUTED' ? l.ratePerGram : null,
+        priceGoldValue: pricing.mode === 'RATE_COMPUTED' && l.ratePerGram != null ? goldValue(l.item.netWeightMg, l.ratePerGram) : null,
       });
       await changeStatus(tx, { item: l.item, to: 'SOLD', from: ['AVAILABLE'], userId: actor.userId, ref, at });
       await recordMovement(tx, { item: l.item, type: 'SALE', branchId, ref, userId: actor.userId, at });
@@ -191,7 +223,7 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
         params: { number, codes: changed.map((l) => l.item.code).join(', '), reason: priceChangeReason },
         metadata: {
           reason: priceChangeReason,
-          lines: changed.map((l) => ({ code: l.item.code, listPrice: l.item.sellingPrice, discount: l.discount, finalPrice: l.finalPrice })),
+          lines: changed.map((l) => ({ code: l.item.code, listPrice: l.listPrice, discount: l.discount, finalPrice: l.finalPrice })),
         },
       });
     }
@@ -257,10 +289,17 @@ const saleListBase = {
   paymentRefTransaction: t.sales.paymentRefTransaction,
   status: t.sales.status,
 };
+/**
+ * PRC-1: the price per gram a sale was charged at, for the sales list: the rate of its computed lines when they all share
+ * one; NULL for tag prices or mixed rates (the sale detail shows each line's rate).
+ */
+const perGramOfLines = (table: string) =>
+  sql.raw(`CASE WHEN count(*) = count(${table}.price_rate_per_gram) AND count(DISTINCT ${table}.price_rate_per_gram) = 1 THEN min(${table}.price_rate_per_gram) END`);
 const saleListColumns = {
   ...saleListBase,
   itemCount: sql<number>`(select count(*) from sale_items si where si.sale_id = ${t.sales.id})`,
   weightMg: sql<number>`(select coalesce(sum(si.net_weight_mg),0) from sale_items si where si.sale_id = ${t.sales.id})`,
+  pricePerGram: sql<number | null>`(select ${perGramOfLines('si')} from sale_items si where si.sale_id = ${t.sales.id})`,
 };
 
 const saleListFrom = (db: Ctx['db']) =>
@@ -268,7 +307,7 @@ const saleListFrom = (db: Ctx['db']) =>
 type SaleListRow = Awaited<ReturnType<typeof saleListFrom>>[number];
 
 function saleListRow(actor: Actor, r: SaleListRow) {
-  const base = { ...r, itemCount: Number(r.itemCount), weightMg: Number(r.weightMg) };
+  const base = { ...r, itemCount: Number(r.itemCount), weightMg: Number(r.weightMg), pricePerGram: r.pricePerGram == null ? null : Number(r.pricePerGram) };
   if (!can(actor, 'profit.view')) {
     const { costTotal: _c, ...rest } = base;
     return rest;
@@ -362,12 +401,12 @@ export async function pageSales(ctx: Ctx, actor: Actor, q: SaleQuery & PageReque
         .offset(offset);
       if (!page.length) return [];
       const lines = await ctx.db
-        .select({ saleId: t.saleItems.saleId, itemCount: sql<number>`count(*)`.mapWith(Number), weightMg: sumOf(t.saleItems.netWeightMg) })
+        .select({ saleId: t.saleItems.saleId, itemCount: sql<number>`count(*)`.mapWith(Number), weightMg: sumOf(t.saleItems.netWeightMg), pricePerGram: sql<number | null>`${perGramOfLines('"sale_items"')}`.mapWith((v) => (v == null ? null : Number(v))) })
         .from(t.saleItems)
         .where(inArray(t.saleItems.saleId, page.map((r) => r.id)))
         .groupBy(t.saleItems.saleId);
       const bySale = new Map(lines.map((l) => [l.saleId, l]));
-      return page.map((r) => saleListRow(actor, { ...r, itemCount: bySale.get(r.id)?.itemCount ?? 0, weightMg: bySale.get(r.id)?.weightMg ?? 0 }));
+      return page.map((r) => saleListRow(actor, { ...r, itemCount: bySale.get(r.id)?.itemCount ?? 0, weightMg: bySale.get(r.id)?.weightMg ?? 0, pricePerGram: bySale.get(r.id)?.pricePerGram ?? null }));
     },
     // The footer adds up the completed sales of the whole filtered result (a voided sale counts for nothing).
     totals: opts.withTotals === false ? undefined : async (w) => {

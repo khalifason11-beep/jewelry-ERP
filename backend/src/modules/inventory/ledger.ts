@@ -6,6 +6,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { t, type Executor } from '@jerp/database';
 import { MOVEMENT_DIRECTION, type ItemStatus, type MovementType } from '@jerp/shared';
 import { conflict, notFound } from '../../core/errors';
+import { liveRateSql, livePriceSql, type Pricing } from '../pricing/service';
 
 export type ItemRow = typeof t.jewelryItems.$inferSelect;
 
@@ -56,9 +57,14 @@ export const itemColumns = {
   updatedAt: t.jewelryItems.updatedAt,
 };
 
-export function itemQuery(exec: Executor) {
+/**
+ * The item list query. PRC-1: `sellingPrice` is the piece's LIVE price under the pricing mode (computed from the
+ * current rate of its karat and kind, NULL without a rate; or the stored tag price) and `pricePerGram` the rate that
+ * priced it (NULL with tag prices or without a rate).
+ */
+export function itemQuery(exec: Executor, p: Pricing) {
   return exec
-    .select(itemColumns)
+    .select({ ...itemColumns, sellingPrice: livePriceSql(p), pricePerGram: liveRateSql(p) })
     .from(t.jewelryItems)
     .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
     .innerJoin(t.categories, eq(t.categories.id, t.products.categoryId))

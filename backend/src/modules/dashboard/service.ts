@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import { pricingOf } from '../pricing/service';
 import { t } from '@jerp/database';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requirePerm } from '../../authz';
@@ -26,12 +27,12 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
   if (branchId == null) throw badRequest('Select a branch');
   const { company } = await ctx.settings.get();
   const period = await periodFor(ctx, q.date, q.date);
-  const [m] = [...(await branchMetrics(ctx.db, period, branchId)).values()];
+  const [m] = [...(await branchMetrics(ctx.db, period, branchId, await pricingOf(ctx))).values()];
   const [movement] = await movementSummary(ctx.db, period, branchId);
 
   // Month-to-date for context.
   const mtdFrom = period.fromKey.slice(0, 8) + '01';
-  const mtd = [...(await branchMetrics(ctx.db, await periodFor(ctx, mtdFrom, period.toKey), branchId)).values()][0];
+  const mtd = [...(await branchMetrics(ctx.db, await periodFor(ctx, mtdFrom, period.toKey), branchId, await pricingOf(ctx))).values()][0];
 
   const tz = company.timezone;
   const iso = (d: Date) => d.toISOString();
@@ -162,7 +163,7 @@ export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: strin
   const { company } = await ctx.settings.get();
   const today = dayKey(new Date(), company.timezone);
   const period = await periodFor(ctx, q.from ?? today.slice(0, 8) + '01', q.to ?? today);
-  const metrics = await branchMetrics(ctx.db, period, null);
+  const metrics = await branchMetrics(ctx.db, period, null, await pricingOf(ctx));
   const branches = await ctx.db.select().from(t.branches).orderBy(t.branches.id);
   const stock = await stockWeight(ctx.db, null);
   const list = branches.map((b) => {

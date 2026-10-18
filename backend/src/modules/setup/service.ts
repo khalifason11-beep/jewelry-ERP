@@ -10,7 +10,8 @@
 
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { KARATS } from '@jerp/shared';
+import type { GoldRateKind } from '@jerp/shared';
+import { currentSellingRates, rateKey } from '../pricing/service';
 import type { Actor, Ctx } from '../../core/context';
 import { requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
@@ -19,24 +20,24 @@ import { rows } from '../../core/sql';
 
 export type SetupStepKey = 'karats' | 'rates' | 'branch' | 'staff' | 'fund';
 
-/** Every sellable karat has a gold selling rate and every allowed karat a scrap rate (first step "rates"; A16). */
+/**
+ * The first step "rates" and A16 (PRC-1, D-prc1-7): every allowed karat (any karat the setting accepts, no fixed list)
+ * has its selling rate(s) and a scrap buying rate. Computed prices need both selling rates (NEW and USED); with tag
+ * prices only the NEW rate (the top bar's rate) is asked for, as before PRC-1.
+ */
 export async function setupRatesDone(ctx: Ctx): Promise<boolean> {
-  const { inventory } = await ctx.settings.get();
+  const { inventory, pricing } = await ctx.settings.get();
   const allowed = inventory.allowedKarats;
-  const goldKarats = allowed.filter((k) => (KARATS as readonly number[]).includes(k));
-  const gold = new Set(rows<{ karat: number }>(await ctx.db.execute(sql`SELECT DISTINCT karat FROM gold_rates`)).map((r) => Number(r.karat)));
+  const selling = await currentSellingRates(ctx.db);
+  const kinds: GoldRateKind[] = pricing.mode === 'RATE_COMPUTED' ? ['NEW', 'USED'] : ['NEW'];
   const scrap = new Set(rows<{ karat: number }>(await ctx.db.execute(sql`SELECT DISTINCT karat FROM scrap_rates`)).map((r) => Number(r.karat)));
-  return goldKarats.length > 0 && goldKarats.every((k) => gold.has(k)) && allowed.every((k) => scrap.has(k));
+  return allowed.length > 0 && allowed.every((k) => kinds.every((kind) => selling.has(rateKey(k, kind))) && scrap.has(k));
 }
 
 export async function setupStatus(ctx: Ctx, actor: Actor) {
   requirePerm(actor, 'settings.manage');
   const { inventory } = await ctx.settings.get();
   const allowed = inventory.allowedKarats;
-  // Gold sell rates exist only for the karats the rate form offers (KARATS); scrap rates for any karat.
-  const goldKarats = allowed.filter((k) => (KARATS as readonly number[]).includes(k));
-  const gold = new Set(rows<{ karat: number }>(await ctx.db.execute(sql`SELECT DISTINCT karat FROM gold_rates`)).map((r) => Number(r.karat)));
-  const scrap = new Set(rows<{ karat: number }>(await ctx.db.execute(sql`SELECT DISTINCT karat FROM scrap_rates`)).map((r) => Number(r.karat)));
   const [{ n: branches }] = rows<{ n: number }>(await ctx.db.execute(sql`SELECT count(*)::int AS n FROM branches WHERE is_active`));
   const staff = await ctx.db
     .select({ code: t.roles.code })
@@ -55,7 +56,7 @@ export async function setupStatus(ctx: Ctx, actor: Actor) {
   );
   const steps: { key: SetupStepKey; done: boolean }[] = [
     { key: 'karats', done: inventory.allowedKaratsConfirmed },
-    { key: 'rates', done: goldKarats.length > 0 && goldKarats.every((k) => gold.has(k)) && allowed.every((k) => scrap.has(k)) },
+    { key: 'rates', done: await setupRatesDone(ctx) },
     { key: 'branch', done: Number(branches) > 0 },
     { key: 'staff', done: roles.has('BRANCH_MANAGER') && roles.has('CASHIER') },
     { key: 'fund', done: Number(branches) > 0 && Number(unfunded) === 0 },

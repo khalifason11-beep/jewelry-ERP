@@ -68,7 +68,8 @@ async function supplierOrder(page, world, gm) {
   await page.click('[data-testid=new-purchase]', { timeout: 15_000 });
   await page.getByTestId('purchase-line-hints').waitFor();
   const hints = await page.getByTestId('purchase-line-hints').innerText();
-  check(['الوزن القائم', 'الأحجار', 'الذهب وحده', 'المستحق للمورد', 'حسابه الشخصي', 'سعر البيع'].every((w) => hints.includes(w)), 'every line field has its label and a one-line hint in Arabic');
+  // PRC-1 (D-prc1-8): computed prices: no selling-price column.
+  check(['الوزن القائم', 'الأحجار', 'الذهب وحده', 'المستحق للمورد', 'حسابه الشخصي'].every((w) => hints.includes(w)) && !hints.includes('سعر البيع'), 'every line field has its label and a one-line hint in Arabic (no selling price: it follows the rates)');
   check((await page.getByTestId('purchase-save').isDisabled()) && (await page.getByTestId('purchase-missing').innerText()).includes('اختر الفرع المستلم'), `the receive button is disabled and says why: "${await page.getByTestId('purchase-missing').innerText()}"`);
   await shot(page, 'supplier-order-empty');
   await page.selectOption('[data-testid=purchase-branch]', String(world.branchId));
@@ -104,18 +105,20 @@ async function supplierOrder(page, world, gm) {
   await page.keyboard.press('Enter');
   await page.waitForTimeout(300);
   check((await page.inputValue('[data-testid=line-cost-0]')) === '' && (await focusedTestId(page)) === 'line-cost-0', 'leaving the net weight fills in nothing (no invented cost)');
-  for (const v of ['1000000', '50000', '', '1500000']) {
+  // PRC-1 (D-prc1-8): no selling price on the line (computed prices): cost, making charge, other costs.
+  check((await page.locator('[data-testid=line-price-0]').count()) === 0, 'the line asks for no selling price (it follows the new-piece rate)');
+  for (const v of ['1000000', '50000', '']) {
     if (v) await page.keyboard.type(v);
     await page.keyboard.press('Enter');
   }
   await page.evaluate(() => document.activeElement?.blur());
-  const typed = await Promise.all(['line-gross-0', 'line-net-0', 'line-cost-0', 'line-making-0', 'line-other-0', 'line-price-0'].map((id) => page.inputValue(`[data-testid=${id}]`)));
-  check(JSON.stringify(typed) === JSON.stringify(['5.2', '5', '1,000,000', '50,000', '', '1,500,000']), `the first line holds what was typed (${typed.join(' | ')})`);
+  const typed = await Promise.all(['line-gross-0', 'line-net-0', 'line-cost-0', 'line-making-0', 'line-other-0'].map((id) => page.inputValue(`[data-testid=${id}]`)));
+  check(JSON.stringify(typed) === JSON.stringify(['5.2', '5', '1,000,000', '50,000', '']), `the first line holds what was typed (${typed.join(' | ')})`);
 
   await page.click('[data-testid=purchase-add-piece]');
   check((await page.getAttribute('[data-testid=line-product-1]', 'data-value')) === String(productId), '"Add another piece" copies the product of the line above');
-  check((await eventually(async () => (await focusedTestId(page)) === 'line-gross-1')) && (await page.inputValue('[data-testid=line-net-1]')) === '' && (await page.inputValue('[data-testid=line-price-1]')) === '', 'and focuses its gross weight; weights and prices are not copied');
-  for (const [id, v] of [['line-gross-1', '3.5'], ['line-net-1', '3.25'], ['line-cost-1', '600000'], ['line-price-1', '900000']]) await page.fill(`[data-testid=${id}]`, v);
+  check((await eventually(async () => (await focusedTestId(page)) === 'line-gross-1')) && (await page.inputValue('[data-testid=line-net-1]')) === '' && (await page.inputValue('[data-testid=line-cost-1]')) === '', 'and focuses its gross weight; weights and costs are not copied');
+  for (const [id, v] of [['line-gross-1', '3.5'], ['line-net-1', '3.25'], ['line-cost-1', '600000']]) await page.fill(`[data-testid=${id}]`, v);
   check((await page.getByTestId('purchase-net-sum').innerText()).includes('8.250'), `the sum of net weights is shown for the supplier's invoice: "${await page.getByTestId('purchase-net-sum').innerText()}"`);
   check((await page.getByTestId('purchase-missing').innerText()).includes('مرجع تحويل'), 'with a making charge, the button waits for the transfer reference');
   await page.fill('[data-testid=purchase-mkc-reference]', 'mkc-ux1-١');
@@ -128,7 +131,10 @@ async function supplierOrder(page, world, gm) {
   await Promise.race([confirm.waitFor({ timeout: 15_000 }).then(() => confirm.click()), page.waitForURL((u) => /^\/purchases\/\d+$/.test(u.pathname), { timeout: 15_000 })]);
   await page.waitForURL((u) => /^\/purchases\/\d+$/.test(u.pathname), { timeout: 15_000 });
   const po = await gm.must('GET', `/purchases/${new URL(page.url()).pathname.split('/').pop()}`);
-  check(po.items.length === 2 && po.items.every((i) => i.productName === created.name || i.productNameAr === 'قلادة UX1') && po.items.map((i) => i.netWeightMg).sort().join() === '3250,5000' && po.items.map((i) => i.sellingPrice).sort().join() === '1500000,900000', 'the order is recorded with both pieces exactly as typed');
+  // PRC-1: each piece is priced live: net weight × the 21K new-piece rate (rounding step 1).
+  const rate = (await gm.must('GET', '/gold-rates')).current['21'].pricePerGram;
+  const live = po.items.map((i) => i.sellingPrice === Math.round((i.netWeightMg * rate) / 1000));
+  check(po.items.length === 2 && po.items.every((i) => i.productName === created.name || i.productNameAr === 'قلادة UX1') && po.items.map((i) => i.netWeightMg).sort().join() === '3250,5000' && live.every(Boolean), 'the order is recorded with both pieces exactly as typed, each priced from the new-piece rate');
 }
 
 async function scrapPurchase(page, gm, world) {
@@ -154,7 +160,7 @@ async function scrapPurchase(page, gm, world) {
   check(!!(await page.getAttribute('[data-testid=scrap-product]', 'data-value')), 'the new product is selected');
   await page.fill('[data-testid=scrap-gross]', '2.1');
   await page.fill('[data-testid=scrap-net]', '2');
-  await page.fill('[data-testid=scrap-selling-price]', '500000');
+  check((await page.locator('[data-testid=scrap-selling-price]').count()) === 0, 'PRC-1: no selling-price field (the piece follows the used-piece rate)');
   await shot(page, 'scrap-customer-closed');
   await page.click('[data-testid=scrap-customer-toggle]');
   check(await page.getByTestId('scrap-customer-name').isVisible(), 'one click opens the customer details (name, phone, ID document, note)');

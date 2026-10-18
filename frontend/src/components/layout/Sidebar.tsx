@@ -10,6 +10,7 @@ import {
   Banknote,
   BarChart3,
   Building2,
+  Coins,
   ChevronsLeft,
   ChevronsRight,
   ClipboardList,
@@ -47,6 +48,7 @@ const ICONS: Record<NavIcon, ReactNode> = {
   users: <Users />,
   sessions: <MonitorSmartphone />,
   audit: <ScrollText />,
+  prices: <Coins />,
   settings: <Settings />,
 };
 

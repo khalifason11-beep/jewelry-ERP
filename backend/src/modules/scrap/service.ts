@@ -38,12 +38,27 @@ export async function scrapRates(exec: Executor): Promise<Record<number, { price
 }
 
 /** Today's scrap buying rates and the deviation rules, for the scrap purchase screen and Settings. */
-export async function scrapRatesView(ctx: Ctx, actor: Actor) {
-  requireAny(actor, 'scrap.buy', 'settings.manage');
+export async function scrapRatesView(ctx: Ctx, actor: Actor, historyLimit = 60) {
+  requireAny(actor, 'scrap.buy', 'scrap.buy_sellable', 'settings.manage');
   const rates = await scrapRates(ctx.db);
   const { purchases: p } = await ctx.settings.get();
+  // PRC-1 (D-prc1-9): the Prices page shows every change with who and when (append-only rows; the General Manager only).
+  const history = can(actor, 'settings.manage')
+    ? await ctx.db
+        .select({
+          id: t.scrapRates.id,
+          karat: t.scrapRates.karat,
+          pricePerGram: t.scrapRates.pricePerGram,
+          effectiveAt: t.scrapRates.effectiveAt,
+          setBy: sql<string | null>`(select full_name from users u where u.id = ${t.scrapRates.setBy})`,
+        })
+        .from(t.scrapRates)
+        .orderBy(desc(t.scrapRates.effectiveAt), desc(t.scrapRates.id))
+        .limit(historyLimit)
+    : [];
   return {
     rates: Object.entries(rates).map(([karat, r]) => ({ karat: Number(karat), pricePerGram: r.pricePerGram, effectiveAt: r.effectiveAt })),
+    history,
     tolerancePct: p.scrapPriceTolerancePct,
     requireGmApproval: p.requireGmApprovalForScrapOverride,
   };
@@ -165,7 +180,10 @@ export interface ScrapPurchaseInput {
   paymentMethod?: Exclude<ScrapPaymentMethod, 'SPLIT'>;
   /** The bank's reference of the transfer to the customer; required when the bank part is > 0 (FIX-2 rules). */
   bankReference?: string;
-  /** SELLABLE only: the model the piece is filed under, and its selling price. */
+  /**
+   * SELLABLE only: the model the piece is filed under, and (FIXED_TAG only) its tag price. PRC-1: with computed prices
+   * the piece is priced from the used-piece rate and no price is sent (refused if sent).
+   */
   productId?: number;
   sellingPrice?: number;
   customerName?: string;
@@ -175,7 +193,9 @@ export interface ScrapPurchaseInput {
 }
 
 export async function buyScrap(ctx: Ctx, actor: Actor, input: ScrapPurchaseInput, opts: { at?: Date; idem?: TxIdempotency } = {}) {
-  requirePerm(actor, 'scrap.buy');
+  // PRC-1 (D-prc1-6): broken scrap needs scrap.buy; a sellable piece scrap.buy or scrap.buy_sellable (the cashier).
+  if (input.kind === 'BROKEN') requirePerm(actor, 'scrap.buy');
+  else requireAny(actor, 'scrap.buy', 'scrap.buy_sellable');
   const branchId = branchScope(actor, input.branchId);
   if (branchId == null) throw badRequest('Select a branch');
   if (input.netWeightMg <= 0 || input.grossWeightMg < input.netWeightMg) throw badRequest('Gross weight must be ≥ net weight > 0');
@@ -183,9 +203,17 @@ export async function buyScrap(ctx: Ctx, actor: Actor, input: ScrapPurchaseInput
   if (input.kind === 'SELLABLE') {
     // Sellable stock must be a karat this deployment sells (D-4-1); other karats are bought as broken scrap.
     await assertSellableKarat(ctx, input.karat);
-    if (!input.productId || !input.sellingPrice || input.sellingPrice <= 0) throw badRequest('A sellable piece needs a product and a selling price');
   }
   const settings = await ctx.settings.get();
+  if (input.kind === 'SELLABLE') {
+    if (!input.productId) throw badRequest('A sellable piece needs a product');
+    // PRC-1 (D-prc1-8): computed prices: nobody types a price (one sent is refused, never silently dropped).
+    if (settings.pricing.mode === 'RATE_COMPUTED') {
+      if (input.sellingPrice != null) throw badRequest('Selling prices follow the rates: do not send one');
+    } else if (!input.sellingPrice || input.sellingPrice <= 0) throw badRequest('A sellable piece needs a product and a selling price');
+  } else if (input.sellingPrice != null || input.productId != null) {
+    throw badRequest('Broken scrap has no product and no selling price');
+  }
   const at = opts.at ?? new Date();
 
   return ctx.db.transaction(async (tx) => {
@@ -231,7 +259,8 @@ export async function buyScrap(ctx: Ctx, actor: Actor, input: ScrapPurchaseInput
           acquisitionCost: amount,
           makingCharge: 0,
           costIsEstimated: false,
-          sellingPrice: input.sellingPrice!,
+          // PRC-1: 0 = no tag price (computed prices); the live price comes from the used-piece rate.
+          sellingPrice: input.sellingPrice ?? 0,
           branchId,
           status: 'AVAILABLE',
           createdAt: at,

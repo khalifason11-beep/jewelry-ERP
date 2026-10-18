@@ -151,6 +151,8 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   `scrap.override`, which only the General Manager has, when `requireGmApprovalForScrapOverride` is on.
 - **Sellable** scrap becomes a piece (origin `SCRAP`). **Broken** scrap adds weight to the branch's scrap pool
   (`scrap_weight_entries`).
+- PRC-1: the cashier holds `scrap.buy_sellable`: a **sellable** piece only (no broken scrap), with every limit of the
+  purchase (tolerance and its override, drawer BLOCK, bank WARN). Its price is computed from the used-piece rate.
 - **Payment** (CSH-2):
   - Payment is cash, bank transfer, or split (`cash_amount` + `bank_amount`).
   - The bank part needs a bank reference.

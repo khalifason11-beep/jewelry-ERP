@@ -260,9 +260,11 @@ const noExpenseWords = (page, base, paths, who) => noWords(page, base, paths, wh
 // UI-A1: the sidebar per role equals the approved mockups (docs/ux/mockups/*-home.html; the branch manager also
 // sees Active users, owner answer Q6). Listed as the nav test ids, in order.
 const SHELL_NAV = {
-  gm: ['overview', 'sales', 'inventory', 'transfers', 'scrap', 'catalog', 'purchases', 'cash', 'branches', 'reports', 'users', 'sessions', 'audit', 'settings'],
+  // PRC-1 (D-prc1-9): the General Manager's Prices page sits with stock and gold.
+  gm: ['overview', 'sales', 'inventory', 'transfers', 'scrap', 'prices', 'catalog', 'purchases', 'cash', 'branches', 'reports', 'users', 'sessions', 'audit', 'settings'],
   bm: ['dashboard', 'pos', 'sales', 'inventory', 'transfers', 'scrap', 'catalog', 'purchases', 'cash', 'reports', 'users', 'sessions', 'audit'],
-  cashier: ['pos', 'me'],
+  // PRC-1 (D-prc1-8): the cashier buys a sellable piece from a customer.
+  cashier: ['pos', 'scrap', 'me'],
 };
 const COST_WORDS = /cost|profit|margin|تكلفة|التكلفة|ربح|أرباح|الربح|هامش/i;
 /** A money figure: thousands separators or two or more decimals (the IP address and small counts are not). */
@@ -698,16 +700,30 @@ async function main() {
     const products0 = await apiGet(page, '/api/products');
     const suppliers0 = await apiGet(page, '/api/suppliers');
     check(types0.body.length === 0 && products0.body.length === 0 && suppliers0.body.length === 0, 'no item types, products or suppliers were invented (CAT-0: they come from the client)');
-    await page.goto(`${origin}/settings`);
+    // PRC-1 (D-prc1-9): the rates moved to the Prices page; the old Settings anchor leads there.
+    await page.goto(`${origin}/settings#rates`);
+    await page.waitForURL((u) => u.pathname === '/prices', { timeout: 15_000 });
+    await page.getByTestId('rates-scrap').waitFor({ timeout: 15_000 });
+    check((await page.getByTestId('rates-new').count()) === 1 && (await page.getByTestId('rates-used').count()) === 1 && (await page.getByTestId('rates-scrap').count()) === 1, 'Settings#rates opens the Prices page with its three rate tables (new pieces, used pieces, scrap)');
+    check(/لا يوجد سعر/.test(await page.getByTestId('gold-rate-21-since').innerText()), 'a karat without a rate says so (no rate: its pieces cannot be sold)');
     await page.fill('[data-testid=scrap-rate-21]', String(CAT.scrapRate21));
     await page.click('[data-testid=save-scrap-rates]');
     await confirmIfAsked(page, GM.password);
     await waitFor(async () => (await apiGet(page, '/api/scrap-rates')).body.rates.some((r) => r.karat === 21 && r.pricePerGram === CAT.scrapRate21), 'the 21K scrap rate', 15_000);
-    ok('the General Manager sets the 21K scrap buying rate in Settings');
+    ok('the General Manager sets the 21K scrap buying rate on the Prices page');
     await page.fill('[data-testid=gold-rate-21]', '190000');
     await page.click('[data-testid=save-gold-rates]');
     await confirmIfAsked(page, GM.password);
     await waitFor(async () => (await apiGet(page, '/api/gold-rates')).body.current['21']?.pricePerGram === 190_000, 'the 21K gold rate', 15_000);
+    // PRC-1: a new installation prices from the rates, so the used-piece rate is a first step too (test value).
+    check((await apiGet(page, '/api/gold-rates')).body.pricing.mode === 'RATE_COMPUTED', 'a new installation prices pieces from the rates (pricing.mode RATE_COMPUTED)');
+    await page.fill('[data-testid=used-rate-21]', '175000');
+    await page.click('[data-testid=save-used-rates]');
+    await confirmIfAsked(page, GM.password);
+    await waitFor(async () => (await apiGet(page, '/api/gold-rates')).body.used['21']?.pricePerGram === 175_000, 'the 21K used-piece rate', 15_000);
+    await page.reload();
+    await page.getByTestId('rates-history').waitFor({ timeout: 15_000 });
+    check((await page.getByTestId('rates-history').locator('tbody tr').count()) === 3, 'the rate history shows the three changes, each with who and when');
     await page.goto(`${origin}/overview`);
     await page.waitForLoadState('networkidle');
     check((await page.getByTestId('first-steps').count()) === 0 && /190,000/.test(await page.getByTestId('rate-chip').innerText()), 'gold rate set: all five first steps done, the checklist disappears and the rate chip shows the rate');
@@ -784,7 +800,7 @@ async function main() {
     section('MKC-1: supplier orders are recorded by the General Manager; the owner pays the making charge personally');
     await page.goto(`${origin}/purchases`);
     await page.waitForLoadState('networkidle');
-    const bmOrder = await apiSend(page, 'POST', '/api/purchases', { branchId, supplierId: 1, lines: [{ productId: 1, grossWeightMg: 5_000, netWeightMg: 5_000, purchaseCost: 1, makingCost: 0, otherCost: 0, sellingPrice: 1 }] });
+    const bmOrder = await apiSend(page, 'POST', '/api/purchases', { branchId, supplierId: 1, lines: [{ productId: 1, grossWeightMg: 5_000, netWeightMg: 5_000, purchaseCost: 1, makingCost: 0, otherCost: 0 }] });
     check((await page.getByTestId('new-purchase').count()) === 0 && bmOrder.status === 403, `branch manager: no "New purchase" on Purchases and POST /api/purchases answers ${bmOrder.status}`);
     await signOut(page);
     await signIn(page, origin, GM.username, GM.password);
@@ -819,14 +835,15 @@ async function main() {
     ok(`type "${CAT.type}" and product "${CAT.product}" (21K) created inline from the purchase line, in one panel, and selected`);
     await page.fill('[data-testid=line-gross-0]', '5.2');
     await page.fill('[data-testid=line-net-0]', '5');
-    // UX-1 (PART 2): leaving the net weight fills in nothing; the costs and the price are typed from the invoice.
+    // UX-1 (PART 2): leaving the net weight fills in nothing; the costs are typed from the invoice.
     await page.locator('[data-testid=line-net-0]').blur();
     await page.waitForTimeout(500);
-    const prefilled = await Promise.all(['line-cost-0', 'line-making-0', 'line-price-0'].map((id) => page.inputValue(`[data-testid=${id}]`)));
-    check(prefilled.every((v) => v === ''), `leaving the net weight pre-fills no cost, making charge or price (${JSON.stringify(prefilled)})`);
+    const prefilled = await Promise.all(['line-cost-0', 'line-making-0'].map((id) => page.inputValue(`[data-testid=${id}]`)));
+    check(prefilled.every((v) => v === ''), `leaving the net weight pre-fills no cost or making charge (${JSON.stringify(prefilled)})`);
+    // PRC-1 (D-prc1-8): computed prices: the line asks for no selling price.
+    check((await page.locator('[data-testid=line-price-0]').count()) === 0 && (await page.getByTestId('purchase-price-follows-rate').count()) === 1, 'the supplier-order line has no selling-price field (the piece follows the new-piece rate)');
     await page.fill('[data-testid=line-cost-0]', '1000000');
     await page.fill('[data-testid=line-making-0]', '50000');
-    await page.fill('[data-testid=line-price-0]', '1500000');
     // MKC-1: a making charge above 0 asks for the owner's transfer reference (typed here in Arabic digits) and date.
     await page.getByTestId('purchase-mkc-reference').waitFor();
     check(await page.getByTestId('purchase-save').isDisabled(), 'a making charge above 0 cannot be saved without the owner’s transfer reference');
@@ -834,7 +851,7 @@ async function main() {
     check((await page.inputValue('[data-testid=purchase-mkc-date]')).length === 10, 'the transfer date defaults to today');
     await page.click('[data-testid=purchase-save]');
     await page.waitForURL((u) => /^\/purchases\/\d+$/.test(u.pathname), { timeout: 15_000 }).catch(async (e) => {
-      const vals = await Promise.all(['line-gross-0', 'line-net-0', 'line-cost-0', 'line-price-0'].map((id) => page.inputValue(`[data-testid=${id}]`).catch(() => '?')));
+      const vals = await Promise.all(['line-gross-0', 'line-net-0', 'line-cost-0'].map((id) => page.inputValue(`[data-testid=${id}]`).catch(() => '?')));
       console.error('purchase form at the time of failure:', JSON.stringify(vals), JSON.stringify(await page.locator('[role=status]').allInnerTexts()));
       throw e;
     });
@@ -891,7 +908,8 @@ async function main() {
     await waitFor(async () => !!(await page.getAttribute('[data-testid=scrap-product]', 'data-value')), 'the new scrap product selected', 15_000);
     await page.fill('[data-testid=scrap-gross]', '3');
     await page.fill('[data-testid=scrap-net]', '3');
-    await page.fill('[data-testid=scrap-selling-price]', '900000');
+    // PRC-1 (D-prc1-8): no selling price on the scrap form; the piece follows the used-piece rate.
+    check((await page.locator('[data-testid=scrap-selling-price]').count()) === 0 && (await page.getByTestId('scrap-price-follows-rate').count()) === 1, 'the sellable-scrap form has no selling-price field');
     await page.click('[data-testid=scrap-buy]');
     await waitFor(async () => (await apiGet(page, `/api/inventory/items?branchId=${branchId}&categoryId=${typeId}`)).body.rows.length === 2, 'two pieces of the new type', 15_000);
     ok(`a sellable scrap piece is bought with product "${CAT.scrapProduct}" created inline (karat fixed to 21K); filtering stock by the new type finds both pieces`);
@@ -1030,6 +1048,14 @@ async function main() {
     const PRICE_REASON = 'خصم متفق عليه مع العميل (REH-1)';
     await signIn(page, origin, CASHIER.username, CASHIER.password);
     await pathIs(page, ['/pos']);
+    // PRC-1 (D-prc1-8): the cashier buys a sellable piece only: no broken-scrap choice, no pool, no list, no price field.
+    await page.goto(`${origin}/scrap`);
+    await page.getByTestId('scrap-karat').waitFor({ timeout: 15_000 });
+    check(
+      (await page.getByTestId('scrap-kind-BROKEN').count()) === 0 && (await page.getByTestId('scrap-pool').count()) === 0 && (await page.locator('[data-testid=scrap-selling-price]').count()) === 0,
+      'cashier: "Buy a piece from a customer" offers a sellable piece only (no broken scrap, no pool, no selling price)',
+    );
+    await page.goto(`${origin}/pos`);
     await page.getByTestId('pos-product').first().click();
     const disc = page.getByTestId('pos-discount').first();
     await disc.fill('1000');
@@ -1147,7 +1173,7 @@ async function main() {
     const product = (await apiGet(page, '/api/products')).body[0];
     const productId = product.id;
     const supplierId = (await apiGet(page, '/api/suppliers')).body[0].id;
-    const line = { productId, grossWeightMg: 4_200, netWeightMg: 4_000, purchaseCost: 700_000, makingCost: 0, otherCost: 0, sellingPrice: 1_100_000 };
+    const line = { productId, grossWeightMg: 4_200, netWeightMg: 4_000, purchaseCost: 700_000, makingCost: 0, otherCost: 0 }; // PRC-1: priced from the rates
     // SUP-1: this supplier still has gold owed (the CAT-0 order, settled in part). Choosing it on the form warns before
     // saving, with weights, the order number and days only; "Record anyway" records the order (one piece here).
     const owedOrder = (await apiGet(page, `/api/suppliers/${supplierId}/gold-owed`)).body;
@@ -1170,7 +1196,6 @@ async function main() {
     await page.locator('[data-testid=line-net-0]').blur();
     await page.fill('[data-testid=line-cost-0]', '700000');
     await page.fill('[data-testid=line-making-0]', '0');
-    await page.fill('[data-testid=line-price-0]', '1100000');
     await page.click('[data-testid=purchase-supplier-debt-confirm]');
     await page.waitForURL((u) => /^\/purchases\/\d+$/.test(u.pathname), { timeout: 15_000 });
     const confirmedNumber = (await apiGet(page, `/api/purchases/${new URL(page.url()).pathname.split('/').pop()}`)).body.number;

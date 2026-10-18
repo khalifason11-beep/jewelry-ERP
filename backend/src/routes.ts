@@ -9,7 +9,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, KARATS, PAYMENT_METHODS, SCRAP_KINDS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
+import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, PAYMENT_METHODS, SCRAP_KINDS, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
@@ -43,6 +43,7 @@ import * as backups from './modules/backups/status';
 import * as scrap from './modules/scrap/service';
 import * as funding from './modules/funding/service';
 import * as supplierSettlements from './modules/supplier-settlements/service';
+import * as pricing from './modules/pricing/service';
 import { runIdempotent } from './core/idempotency';
 import { log } from './core/logger';
 import { defineRoutes } from './core/guard';
@@ -59,7 +60,8 @@ const zPositiveMoney = z.number().int().min(1).max(MAX_MONEY);
 const zWeightMg = z.number().int().min(1).max(MAX_WEIGHT_MG);
 const zIdBody = z.number().int().positive().max(2_147_483_647);
 const zText = (max: number) => z.string().trim().max(max);
-const zKarat = z.coerce.number().int().refine((k) => (KARATS as readonly number[]).includes(k), 'Unsupported karat');
+// PRC-1: karats follow the allowed-karats setting (8–24), never a fixed list; the route checks the setting.
+const zKarat = z.coerce.number().int().min(1).max(24);
 /**
  * Scrap BUYING accepts any karat a customer brings (1–24); selling is still limited by allowedKarats. A JSON body sends
  * a number: no coercion (UX-1, D-ux1-3: `z.coerce` read `true` as karat 1 and `[21]` as 21).
@@ -295,36 +297,15 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     requirePerm(actorOf(req), 'users.view');
     res.json(await users.listRoles(ctx));
   });
+  // PRC-1: the selling rates, NEW (supplier and opening pieces) and USED (sellable scrap), per allowed karat (D-prc1-2).
   route('GET', '/gold-rates', async (_req, res) => {
-    res.json({ current: await ctx.settings.goldRates(), history: await ctx.settings.goldRateHistory() });
+    res.json(await pricing.sellingRatesView(ctx));
   });
   route('POST', '/gold-rates', async (req, res) => {
-    const actor = actorOf(req);
-    requirePerm(actor, 'settings.manage');
-    const body = parse(
-      z.object({ rates: z.partialRecord(z.enum(KARATS.map(String) as [string, ...string[]]), zPositiveMoney.max(100_000_000)) }).strict(),
-      req.body,
-    );
-    const { inventory: inv } = await ctx.settings.get();
-    const notAllowed = Object.keys(body.rates).find((k) => !inv.allowedKarats.includes(Number(k)));
-    if (notAllowed) throw badRequest('Karat {karat} is not in the allowed karats', { karat: notAllowed });
-    const before = await ctx.settings.goldRates();
-    await ctx.db.transaction(async (tx) => {
-      for (const [k, v] of Object.entries(body.rates) as [string, number][]) {
-        const karat = Number(k);
-        if (before[karat]?.pricePerGram === v) continue;
-        await tx.insert(t.goldRates).values({ karat, pricePerGram: v, setBy: actor.userId });
-        await writeAudit(tx, actor, {
-          action: 'GOLD_RATE_CHANGED',
-          entityType: 'gold_rate',
-          entityId: `${karat}K`,
-          branchId: null,
-          key: '{karat} gold rate {from} → {to} per gram',
-          params: { karat: ap.karat(karat), from: ap.money(before[karat]?.pricePerGram ?? 0), to: ap.money(v) },
-        });
-      }
-    });
-    res.json({ current: await ctx.settings.goldRates() });
+    // Any karat the allowed-karats setting accepts (8–24); the service refuses one that is not allowed now.
+    const zRates = z.record(z.string().regex(/^\d{1,2}$/), zPositiveMoney.max(100_000_000));
+    const body = parse(z.object({ rates: zRates.optional(), usedRates: zRates.optional() }).strict(), req.body);
+    res.json(await pricing.setSellingRates(ctx, actorOf(req), { NEW: body.rates, USED: body.usedRates }));
   });
 
   // ─────────── settings (typed registry, one row per key) ───────────
@@ -506,6 +487,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
         .strict(),
       req.query,
     );
+    // PRC-1 (D-prc1-7): the karat filter accepts the karats allowed in Settings, not a fixed list.
+    if (q.karat != null && !(await ctx.settings.get()).inventory.allowedKarats.includes(q.karat)) throw badRequest('Invalid value for {field}', { field: 'karat' }, [{ path: 'karat', code: 'custom' }]);
     res.json(await inventory.pageItems(ctx, actorOf(req), { ...q, status: q.status as never }));
   });
   route('GET', '/inventory/items/:id', async (req, res) => res.json(await inventory.getItemDetail(ctx, actorOf(req), parse(zId, req.params.id))));
@@ -525,7 +508,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
       z
         .object({
           branchId: zIdBody.optional(),
-          items: z.array(z.object({ itemId: zIdBody, discount: zMoney.optional() }).strict()).min(1).max(50),
+          // PRC-1 (D-prc1-4): listPrice = the price the cashier saw; computed prices are checked against it (409).
+          items: z.array(z.object({ itemId: zIdBody, discount: zMoney.optional(), listPrice: zPositiveMoney.optional() }).strict()).min(1).max(50),
           paymentMethod: z.enum(PAYMENT_METHODS),
           // Hasad (D-4-6): the Hasad invoice number is required, the transaction reference optional.
           paymentRefInvoice: zText(80).min(1).optional(),
@@ -592,7 +576,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
         purchaseCost: zPositiveMoney,
         makingCost: zMoney,
         otherCost: zMoney,
-        sellingPrice: zPositiveMoney,
+        // PRC-1: FIXED_TAG only; with computed prices the service refuses it.
+        sellingPrice: zPositiveMoney.optional(),
       })
       .strict()
       .refine((l) => l.netWeightMg <= l.grossWeightMg, { message: 'Net weight must not exceed gross weight', path: ['netWeightMg'] });

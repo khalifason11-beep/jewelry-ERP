@@ -362,6 +362,28 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   FIX-2 (local: delete the `PGLITE_DIR` folder, default `.data/pglite`; server: a new database and the bootstrap of
   section 3).
 
+### PRC-1: selling prices computed from the rates (migration 0024)
+
+- **0024 is additive; it stops on nothing and rewrites no sale, piece or money row.** It adds `gold_rates.kind`
+  (`NEW` | `USED`, default `NEW`: every existing rate becomes the rate of new pieces; the append-only trigger is kept)
+  with its index, and the permission `scrap.buy_sellable` (cashier, branch manager, General Manager: the cashier may
+  buy a sellable piece from a customer; broken scrap and supplier orders are unchanged).
+- **An existing installation keeps its fixed prices.** When `jewelry_items` already holds pieces and `pricing.mode`
+  was never set, 0024 writes `pricing.mode = FIXED_TAG` (with a settings-history line by `system:migration-0024`):
+  every piece keeps the price typed when it was received, exactly as before. A **new installation** (and the sample)
+  starts in `RATE_COMPUTED`.
+- **Switching an existing installation to computed prices** (General Manager, Prices page): set the selling rate of
+  new pieces **and** of used pieces for every allowed karat (until then the first-steps "rates" step and attention
+  A16 stay open), then set "Selling prices" to "From the rate per gram". From that moment every available piece sells
+  at net weight × the current rate of its karat and origin; a karat without a rate cannot be sold (never at 0). The
+  stored tag prices stay in the database (history, and `FIXED_TAG` can be chosen again). **Past sales never change.**
+- Settings (General Manager, audited): `pricing.mode` (`RATE_COMPUTED` | `FIXED_TAG`) and `pricing.roundingStep`
+  (whole currency units, default 1, applied once after weight × rate; **provisional until Q-2 is answered**). No
+  making charge is added (Q-1 open).
+- New answers from the API: **409 `PRICES_CHANGED`** (a sale confirmed at a price that is no longer the live price:
+  the body carries the new prices; the POS shows them and the cashier confirms again), **400 `NO_PRICE`** (a piece
+  whose karat has no rate), **409 `PRICE_FOLLOWS_RATES`** (a manual price change while prices follow the rates).
+
 ### Stop and recreate is a pre-production rule only
 
 Four migrations so far stop on trial data instead of transforming it, and ask for the database to be recreated:

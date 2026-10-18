@@ -106,7 +106,8 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
               { key: 'totalCost', header: t('Total cost'), align: 'end' as const, render: (r: ItemRow) => <span className="num">{money(r.totalCost, false)}</span>, footer: money(sum('totalCost'), false) },
             ]
           : []),
-        { key: 'sellingPrice', header: t('Selling price'), align: 'end', render: (r) => <span className="font-medium num">{money(r.sellingPrice, false)}</span>, footer: money(sum('sellingPrice'), false) },
+        // PRC-1: the live price; a piece without a rate shows "No rate" (it cannot be sold), never 0.
+        { key: 'sellingPrice', header: t('Selling price'), align: 'end', render: (r) => (r.sellingPrice == null ? <NoRate /> : <span className="font-medium num">{money(r.sellingPrice, false)}</span>), footer: money(sum('sellingPrice'), false) },
         ...(isGlobal && !branchId ? [{ key: 'branchName', header: t('Branch'), render: (r: ItemRow) => L(r.branchName, r.branchNameAr) }] : []),
         { key: 'status', header: t('Status'), render: (r) => <StatusBadge status={r.status} /> },
       ]}
@@ -153,7 +154,7 @@ function refLink(refType: string | null, refId: number | null, refNumber: string
 export function ItemDetailPage() {
   const id = Number(useParams().id);
   const { t, L, lang } = useI18n();
-  const { can, isGlobal } = useAuth();
+  const { can, isGlobal, me } = useAuth();
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['item', id], queryFn: () => get<ItemDetail>(`/inventory/items/${id}`) });
@@ -173,7 +174,7 @@ export function ItemDetailPage() {
 
   if (!q.data) return <DetailPending query={q} backTo="/inventory" backLabel={t('Back to inventory')} notFoundTitle={t('This piece does not exist')} />;
   const { item: i, history, movements } = q.data!;
-  const margin = i.totalCost ? ((i.sellingPrice - i.totalCost) / i.sellingPrice) * 100 : null;
+  const margin = i.totalCost && i.sellingPrice ? ((i.sellingPrice - i.totalCost) / i.sellingPrice) * 100 : null;
   const saleRef = history.find((h) => h.toStatus === 'SOLD');
 
   return (
@@ -196,7 +197,7 @@ export function ItemDetailPage() {
         subtitle={`${L(i.categoryName, i.categoryNameAr)} · ${karatLabel(i.karat)} · ${L(i.branchName, i.branchNameAr)}`}
         actions={
           <>
-            {can('inventory.price_edit') && i.status === 'AVAILABLE' && (
+            {can('inventory.price_edit') && me?.pricingMode === 'FIXED_TAG' && i.status === 'AVAILABLE' && (
               <Button icon={<Pencil className="size-4" />} onClick={() => { setPrice(String(i.sellingPrice)); setPriceOpen(true); }}>{t('Change price')}</Button>
             )}
             {can('inventory.adjust') && i.status === 'AVAILABLE' && (
@@ -227,7 +228,8 @@ export function ItemDetailPage() {
               items={[
                 { label: t('Gross weight'), value: grams(i.grossWeightMg) },
                 { label: t('Net weight'), value: grams(i.netWeightMg) },
-                { label: t('Selling price'), value: money(i.sellingPrice) },
+                { label: t('Selling price'), value: i.sellingPrice == null ? <NoRate /> : money(i.sellingPrice) },
+                ...(i.pricePerGram != null ? [{ label: t('Price per gram'), value: money(i.pricePerGram) }] : []),
                 { label: t('Received'), value: dateTime(i.createdAt, lang) },
               ]}
             />
@@ -253,7 +255,7 @@ export function ItemDetailPage() {
                 <div className="flex justify-between text-emerald-700">
                   <dt>{t('Expected gross profit')}</dt>
                   <dd className="num">
-                    {money(i.sellingPrice - i.totalCost)} <span className="text-xs">({pct(margin)})</span>
+                    {i.sellingPrice == null ? '—' : money(i.sellingPrice - (i.totalCost ?? 0))} <span className="text-xs">({pct(margin)})</span>
                   </dd>
                 </div>
               </dl>
@@ -347,5 +349,15 @@ export function ItemDetailPage() {
         </Field>
       </Dialog>
     </div>
+  );
+}
+
+/** PRC-1: a piece without a selling rate for its karat and kind: no price, not for sale. */
+function NoRate() {
+  const { t } = useI18n();
+  return (
+    <span className="rounded bg-crit-bg px-1.5 py-0.5 text-[11.5px] font-medium text-crit" title={t('No selling rate is set for this karat yet. The General Manager sets it on the Prices screen.')} data-testid="no-rate">
+      {t('No rate')}
+    </span>
   );
 }

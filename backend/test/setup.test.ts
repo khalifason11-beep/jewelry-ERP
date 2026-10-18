@@ -67,6 +67,9 @@ describe('first-steps checklist (GM home)', () => {
     await ctx.db.insert(t.goldRates).values({ karat: 21, pricePerGram: 190_000, setBy: gm.userId });
     expect(await done()).toMatchObject({ rates: false });
     await setScrapRates(ctx, gm, { 21: 150_000 });
+    // PRC-1 (D-prc1-7): computed prices (the default of a new installation) also need the used-piece selling rate.
+    expect(await done()).toMatchObject({ rates: false });
+    await ctx.db.insert(t.goldRates).values({ karat: 21, kind: 'USED', pricePerGram: 175_000, setBy: gm.userId });
     expect(await done()).toMatchObject({ rates: true, branch: false });
 
     // 3. Branch, 4. staff: a branch manager AND a cashier.
