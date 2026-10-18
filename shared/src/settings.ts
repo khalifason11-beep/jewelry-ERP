@@ -145,7 +145,9 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     loginTaglineAr: '',
   },
   sales: {
-    maxDiscountPercentByRole: { CASHIER: 3, BRANCH_MANAGER: 10, GENERAL_MANAGER: 20 },
+    // DEC-1 (Q-2, D-dec1-1): no discounts in this trade. A cap of 0 refuses any discount and the POS shows no discount
+    // field; the General Manager may set caps for a client that gives discounts.
+    maxDiscountPercentByRole: { CASHIER: 0, BRANCH_MANAGER: 0, GENERAL_MANAGER: 0 },
     posPaymentMethods: ['CASH', 'BANK_TRANSFER', 'HASAD'],
     // The owner's rule: no guessed money amount. Every void asks; the General Manager may raise it.
     voidReauthAboveAmount: 0,
