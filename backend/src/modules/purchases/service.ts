@@ -16,6 +16,7 @@ import { settlementsFor } from '../supplier-settlements/service';
 import { assertProductsUsable } from '../catalog/service';
 import { daysOpen, supplierGoldOwed } from './supplier-debt';
 import { maxIdOf, runPaged, sumOf, type PageRequest, type SortSpec } from '../../core/paging';
+import { correctionsOf, effectiveLineMakingSql, effectiveMakingChargeSql, effectiveReferenceSql, effectiveTotalCostSql, orderWithReference } from './corrections';
 
 export interface PurchaseLine {
   productId: number;
@@ -135,12 +136,8 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
     // refused until the General Manager confirms ("record anyway"); never blocked, and the confirmation is audited.
     let duplicateOf: string | null = null;
     if (transfer.reference) {
-      const [dup] = await tx
-        .select({ number: t.purchases.number })
-        .from(t.purchases)
-        .where(eq(t.purchases.makingChargeReference, transfer.reference))
-        .orderBy(desc(t.purchases.id))
-        .limit(1);
+      // MIS-1: the effective reference of every order (a corrected one included).
+      const dup = await orderWithReference(tx, transfer.reference);
       if (dup && !input.confirmDuplicateReference) {
         throw new AppError(409, 'DUPLICATE_BANK_REFERENCE', 'This transfer reference is already on supplier order {number}. Record it anyway?', { number: dup.number }, { number: dup.number, reference: transfer.reference });
       }
@@ -268,9 +265,10 @@ const purchaseListFrom = (db: Ctx['db']) =>
       supplierInvoiceNo: t.purchases.supplierInvoiceNo,
       itemCount: t.purchases.itemCount,
       totalNetWeightMg: t.purchases.totalNetWeightMg,
-      totalCost: t.purchases.totalCost,
+      // MIS-1: the effective values (the latest corrections included).
+      totalCost: effectiveTotalCostSql(),
       // MKC-1: the owner's transfer reference (COST: the General Manager only, the response filter strips it otherwise).
-      makingChargeReference: t.purchases.makingChargeReference,
+      makingChargeReference: effectiveReferenceSql(),
       createdByName: t.users.fullName,
       status: t.purchases.status,
     })
@@ -293,7 +291,7 @@ export async function listPurchases(ctx: Ctx, actor: Actor, q: PurchaseQuery, ca
 export async function purchasesReportAggregates(ctx: Ctx, actor: Actor, q: PurchaseQuery) {
   const where = await purchasesWhere(ctx, actor, q);
   const [s] = await ctx.db
-    .select({ n: sql<number>`count(*)`.mapWith(Number), itemCount: sumOf(t.purchases.itemCount), totalNetWeightMg: sumOf(t.purchases.totalNetWeightMg), totalCost: sumOf(t.purchases.totalCost) })
+    .select({ n: sql<number>`count(*)`.mapWith(Number), itemCount: sumOf(t.purchases.itemCount), totalNetWeightMg: sumOf(t.purchases.totalNetWeightMg), totalCost: sumOf(effectiveTotalCostSql()) })
     .from(t.purchases)
     .leftJoin(t.suppliers, eq(t.suppliers.id, t.purchases.supplierId))
     .where(where.length ? and(...where) : undefined);
@@ -310,8 +308,8 @@ const purchaseSorts: Record<PurchaseSortKey, SortSpec> = {
   branch: { by: t.branches.name, field: 'branchName', dir: 'asc' },
   supplier: { by: nameOrAr(t.suppliers.name, t.suppliers.nameAr), field: 'supplierName', dir: 'asc' },
   weight: { by: t.purchases.totalNetWeightMg, field: 'totalNetWeightMg', dir: 'desc' },
-  // GM only (BE-7).
-  totalCost: { by: t.purchases.totalCost, field: 'totalCost', dir: 'desc' },
+  // GM only (BE-7). MIS-1: the effective total.
+  totalCost: { by: effectiveTotalCostSql(), field: 'totalCost', dir: 'desc' },
 };
 
 /** BE-7: the purchases list, one page at a time (`GET /purchases`). */
@@ -331,7 +329,7 @@ export async function pagePurchases(ctx: Ctx, actor: Actor, q: PurchaseQuery & P
     rows: ({ where: w, orderBy, limit, offset }) => purchaseListFrom(ctx.db).where(w).orderBy(...orderBy).limit(limit).offset(offset),
     totals: opts.withTotals === false ? undefined : async (w) => {
       const [s] = await ctx.db
-        .select({ itemCount: sumOf(t.purchases.itemCount), totalNetWeightMg: sumOf(t.purchases.totalNetWeightMg), totalCost: sumOf(t.purchases.totalCost) })
+        .select({ itemCount: sumOf(t.purchases.itemCount), totalNetWeightMg: sumOf(t.purchases.totalNetWeightMg), totalCost: sumOf(effectiveTotalCostSql()) })
         .from(t.purchases)
         .leftJoin(t.suppliers, eq(t.suppliers.id, t.purchases.supplierId))
         .where(w);
@@ -343,7 +341,7 @@ export async function pagePurchases(ctx: Ctx, actor: Actor, q: PurchaseQuery & P
 export async function getPurchase(ctx: Ctx, actor: Actor, id: number) {
   requirePerm(actor, 'purchases.view');
   const [p] = await ctx.db
-    .select({ p: t.purchases, branchName: t.branches.name, supplierName: nameOrAr(t.suppliers.name, t.suppliers.nameAr), supplierNameAr: t.suppliers.nameAr, createdByName: t.users.fullName })
+    .select({ p: t.purchases, totalCost: effectiveTotalCostSql(), makingChargePaid: effectiveMakingChargeSql(), makingChargeReference: effectiveReferenceSql(), branchName: t.branches.name, supplierName: nameOrAr(t.suppliers.name, t.suppliers.nameAr), supplierNameAr: t.suppliers.nameAr, createdByName: t.users.fullName })
     .from(t.purchases)
     .innerJoin(t.branches, eq(t.branches.id, t.purchases.branchId))
     .innerJoin(t.users, eq(t.users.id, t.purchases.createdBy))
@@ -361,7 +359,10 @@ export async function getPurchase(ctx: Ctx, actor: Actor, id: number) {
       karat: t.jewelryItems.karat,
       netWeightMg: t.jewelryItems.netWeightMg,
       purchaseCost: t.purchaseItems.purchaseCost,
-      makingCost: t.purchaseItems.makingCost,
+      // MIS-1: the effective making cost (the latest correction of the piece, else the original); the line's id is
+      // what a correction names.
+      makingCost: effectiveLineMakingSql(),
+      purchaseItemId: t.purchaseItems.id,
       otherCost: t.purchaseItems.otherCost,
       // PRC-1: the piece's live price (computed from the rates, or its tag price), as on every other screen.
       sellingPrice: livePriceSql(pricing),
@@ -370,9 +371,12 @@ export async function getPurchase(ctx: Ctx, actor: Actor, id: number) {
     .from(t.purchaseItems)
     .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.purchaseItems.itemId))
     .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
-    .where(eq(t.purchaseItems.purchaseId, id));
+    .where(eq(t.purchaseItems.purchaseId, id))
+    .orderBy(t.purchaseItems.id);
   const settlements = await settlementsFor(ctx, id);
-  return { ...p.p, branchName: p.branchName, supplierName: p.supplierName, supplierNameAr: p.supplierNameAr, createdByName: p.createdByName, items, settlements };
+  // MIS-1: the correction history (original values in valueBefore of the first correction of each field).
+  const corrections = await correctionsOf(ctx.db, id);
+  return { ...p.p, totalCost: p.totalCost, makingChargePaid: p.makingChargePaid, makingChargeReference: p.makingChargeReference, corrections, branchName: p.branchName, supplierName: p.supplierName, supplierNameAr: p.supplierNameAr, createdByName: p.createdByName, items, settlements };
 }
 
 

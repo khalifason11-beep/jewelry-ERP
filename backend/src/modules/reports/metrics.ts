@@ -5,6 +5,7 @@ import { sql } from 'drizzle-orm';
 import type { Executor } from '@jerp/database';
 import { rows, num } from '../../core/sql';
 import { livePriceSql, type Pricing } from '../pricing/service';
+import { effectiveTotalCostSql } from '../purchases/corrections';
 
 export interface Period {
   start: Date;
@@ -56,7 +57,7 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
       WHERE s.status = 'COMPLETED' AND s.created_at >= ${iso(p.start)} AND s.created_at < ${iso(p.end)} ${bFilter('s.branch_id')}
       GROUP BY s.branch_id`),
     exec.execute(sql`
-      SELECT branch_id, count(*) AS cnt, coalesce(sum(item_count),0) AS items, coalesce(sum(total_cost),0) AS cost
+      SELECT branch_id, count(*) AS cnt, coalesce(sum(item_count),0) AS items, coalesce(sum(${effectiveTotalCostSql()}),0) AS cost
       FROM purchases
       WHERE created_at >= ${iso(p.start)} AND created_at < ${iso(p.end)} ${bFilter('branch_id')}
       GROUP BY branch_id`),

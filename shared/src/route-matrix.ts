@@ -157,6 +157,8 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('GET', '/scrap-purchases/:id', 'branch', { any: ['scrap.buy', 'purchases.view'] }),
   r('POST', '/scrap-purchases/:id/void', 'branch', { all: ['scrap.void'], reauth: true, idempotent: true, idempotencyInTx: true }),
   r('GET', '/scrap-pool', 'branch', { any: ['inventory.view', 'scrap.buy'] }),
+  // MIS-1 (PUR-FIX): a correction of one piece's making cost or of the order's transfer reference (General Manager only).
+  r('POST', '/purchases/:id/corrections', 'branch', { all: ['purchases.correct'], reauth: true, idempotent: true, idempotencyInTx: true }),
   r('POST', '/purchases/:id/settlements', 'branch', { all: ['purchases.settle'], idempotent: true, idempotencyInTx: true }),
   // ── cash (Phase 2b): expected drawer balance, daily reconciliation, counted cash
   r('GET', '/cash/drawer', 'branch', { all: ['cash.view'] }),

@@ -20,7 +20,8 @@ export interface Ref {
 /** Cost breakdown of a piece (GM only; redacted for other roles). Needs `purchase_items` LEFT JOINed on the item. */
 export const costBreakdown = {
   purchaseCost: sql<number>`coalesce(${t.purchaseItems.purchaseCost}, ${t.jewelryItems.acquisitionCost})`.mapWith(Number),
-  makingCost: sql<number>`coalesce(${t.purchaseItems.makingCost}, 0)`.mapWith(Number),
+  // MIS-1: a supplier piece's live making charge (kept equal to its line's effective making cost by a correction).
+  makingCost: sql<number>`CASE WHEN ${t.purchaseItems.id} IS NULL THEN 0 ELSE ${t.jewelryItems.makingCharge} END`.mapWith(Number),
   otherCost: sql<number>`coalesce(${t.purchaseItems.otherCost}, 0)`.mapWith(Number),
   totalCost: t.jewelryItems.acquisitionCost,
 };

@@ -9,7 +9,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, PAYMENT_METHODS, SCRAP_KINDS, CHANGE_REASON_MAX, ap, isSettingKey, type RouteRule } from '@jerp/shared';
+import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, PAYMENT_METHODS, SCRAP_KINDS, PURCHASE_CORRECTION_FIELDS, CHANGE_REASON_MAX, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
@@ -42,6 +42,7 @@ import { relyingParty } from './auth/webauthn';
 import * as backups from './modules/backups/status';
 import * as scrap from './modules/scrap/service';
 import * as scrapVoid from './modules/scrap/void';
+import * as purchaseCorrections from './modules/purchases/corrections';
 import * as funding from './modules/funding/service';
 import * as supplierSettlements from './modules/supplier-settlements/service';
 import * as pricing from './modules/pricing/service';
@@ -605,6 +606,21 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
       req.body,
     );
     res.json(await runIdempotent(ctx, req, res, (idem) => purchases.createPurchase(ctx, actorOf(req), body, { idem })));
+  });
+  // MIS-1 (PUR-FIX): one piece's making cost (a number) or the order's transfer reference (a text); the reason's bounds are
+  // checked by the service (422), the password by reauthenticate (403).
+  route('POST', '/purchases/:id/corrections', async (req, res) => {
+    const id = parse(zId, req.params.id);
+    const body = parse(
+      zConfirmation.extend({
+        field: z.enum(PURCHASE_CORRECTION_FIELDS),
+        purchaseItemId: zIdBody.optional(),
+        newValue: z.union([z.number().int().min(0).max(MAX_MONEY), zText(80)]),
+        confirmDuplicateReference: z.boolean().optional(),
+      }),
+      req.body,
+    );
+    res.json(await runIdempotent(ctx, req, res, (idem) => purchaseCorrections.correctPurchase(ctx, actorOf(req), id, body, { idem })));
   });
   // Supplier settlement (D-4-5): broken-scrap weight and karat only. There is deliberately no
   // amount, payment method or account field: a settlement can never move CASH or BANK.

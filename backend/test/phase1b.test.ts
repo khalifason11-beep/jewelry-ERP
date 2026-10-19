@@ -420,6 +420,8 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'GET /scrap-purchases/:id': (f) => ({ path: `/scrap-purchases/${f.omdScrap}` }),
   // MIS-1: no password in the probe, so an allowed call stops at 403 CONFIRM_PASSWORD_REQUIRED and voids nothing.
   'POST /scrap-purchases/:id/void': (f) => ({ path: `/scrap-purchases/${f.omdScrap}/void`, body: { reason: 'matrix probe' } }),
+  // MIS-1: no password in the probe, so an allowed call stops at 403 CONFIRM_PASSWORD_REQUIRED and corrects nothing.
+  'POST /purchases/:id/corrections': (f) => ({ path: `/purchases/${f.omdPurchase}/corrections`, body: { field: 'MAKING_CHARGE_REFERENCE', newValue: 'MATRIX PROBE 1', reason: 'matrix probe' } }),
   'GET /scrap-pool': () => ({ path: '/scrap-pool' }),
   'POST /purchases/:id/settlements': (f) => ({ path: `/purchases/${f.krtPurchase}/settlements`, body: {} }),
   'GET /dashboard/company': () => ({ path: '/dashboard/company' }),
@@ -475,6 +477,7 @@ const CROSS: Record<string, (f: Fixtures) => Req> = {
   'GET /scrap-pool': (f) => ({ path: '/scrap-pool', query: { branchId: f.omd } }),
   'GET /scrap-purchases/:id': (f) => ({ path: `/scrap-purchases/${f.omdScrap}` }),
   'POST /scrap-purchases/:id/void': (f) => ({ path: `/scrap-purchases/${f.omdScrap}/void`, body: { reason: 'cross-branch probe' } }),
+  'POST /purchases/:id/corrections': (f) => ({ path: `/purchases/${f.omdPurchase}/corrections`, body: { field: 'MAKING_CHARGE_REFERENCE', newValue: 'CROSS PROBE 1', reason: 'cross-branch probe' } }),
   'POST /purchases/:id/settlements': (f) => ({ path: `/purchases/${f.omdPurchase}/settlements`, body: { karat: 21, weightMg: 1000 } }),
 };
 
@@ -600,8 +603,9 @@ describe('route permission matrix (generated from shared/src/route-matrix.ts)', 
     const [user] = await ctx.db.select().from(t.users).where(eq(t.users.id, F.omdUser));
     expect(user.fullName).not.toBe('Hacked');
     expect(user.status).toBe('ACTIVE');
-    // MIS-1: no probe voided a scrap purchase (the probes carry no password).
+    // MIS-1: no probe voided a scrap purchase or corrected an order (the probes carry no password).
     expect(await ctx.db.select().from(t.scrapPurchaseVoids)).toEqual([]);
+    expect(await ctx.db.select().from(t.purchaseCorrections)).toEqual([]);
   });
 });
 
