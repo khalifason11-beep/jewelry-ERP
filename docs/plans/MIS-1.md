@@ -1,8 +1,7 @@
 # MIS-1: mistake correction (SCR-VOID and PUR-FIX)
 
-Branch `claude/mis-1-corrections` from main `86cf030` (DEC-1 merged). **Status: plan only, waiting for the owner's
-approval** (the item touches the money ledger and the append-only tables). Questions for the owner are in §6; nothing
-in §6 is built before it is answered.
+Branch `claude/mis-1-corrections` from main `86cf030` (DEC-1 merged). **Approved by the owner on 2026-10-19** with the
+answers in §6.
 
 ## 1. What exists today (read before deciding)
 
@@ -67,23 +66,27 @@ in §6 is built before it is answered.
 - **Concurrency:** a sale of the piece and a void of its purchase both lock the piece row; whoever is second sees the
   other's status → exactly one wins, the other gets 409 (real-PostgreSQL race test).
 
-## 4. PUR-FIX
+## 4. PUR-FIX (owner answer Q1: option B, one piece at a time)
 
-- **Table `purchase_corrections`** (append-only, same grants): `id`, `purchase_id`, `field`
-  (`MAKING_CHARGE` | `MAKING_CHARGE_REFERENCE`), `old_value`, `new_value` (text), `reason`, `corrected_by`,
-  `session_id`, `created_at`, plus `confirmed_duplicate` (boolean). Effective value = the latest correction of the
-  field, else the original column. `purchases` and `purchase_items` are never updated.
-- **`POST /purchases/:id/corrections`** `{ field, newValue, reason, confirmPassword, confirmDuplicateReference? }`,
-  General Manager. Refused with **422** when nothing changes; refused when the order has no making charge (0) for
-  either field (no amount and no reference exist to correct).
-- **Reference:** `validBankReference` (4–40, Arabic-Indic digits and spaces normalized); the same effective reference on
-  another order → **409** `DUPLICATE_REFERENCE` unless `confirmDuplicateReference` (audited), as FIX-2/MKC-1.
-- **Amount:** a new total > 0 (§6 Q1, Q2). Sold pieces keep their cost snapshot; pieces not sold take the new making
-  cost (§6 Q1 for the share rule). For each changed piece: its `acquisition_cost` and `making_charge` on
-  `jewelry_items` change (the live cost of a piece, not history), **and** two ADJUSTMENT movements (−1 at the old cost,
-  +1 at the new cost) so stock value at cost follows and count/weight are unchanged; a per-piece line in the audit.
-  The share is a pure function in `shared/` with a fast-check test: the new piece making costs (sold ones unchanged)
-  add up exactly to the new total; whole SDG; no piece below 0.
+- **Table `purchase_corrections`** (append-only, same grants): `id`, `purchase_id`, `purchase_item_id` (set for
+  `MAKING_COST`, null for `MAKING_CHARGE_REFERENCE`), `field`, `old_value`, `new_value` (text), `reason`,
+  `confirmed_duplicate`, `corrected_by`, `session_id`, `created_at`. Effective value of a field = the latest correction
+  of that (piece or order, field), else the original column. `purchases` and `purchase_items` are never updated.
+- **`POST /purchases/:id/corrections`** `{ field, purchaseItemId?, newValue, reason, confirmPassword,
+  confirmDuplicateReference? }`, General Manager; **422** when nothing changes; refused when the order's effective
+  making charge is 0 (no charge and no reference to correct).
+- **`MAKING_COST` of one piece:** lock the piece row `FOR UPDATE` first, then check: a SOLD piece → **409** naming its
+  code (its sale line keeps its cost snapshot exactly). A new value ≥ 0 is allowed while the order's new effective total
+  stays > 0; a correction that would make the total 0 while a transfer reference exists → **422** (Q5). The piece's live
+  `acquisition_cost` and `making_charge` change (purchase + new making + other), with two ADJUSTMENT movements (−1 at
+  the old cost, +1 at the new cost), so count, weight and stock value at cost reconcile. A sale confirmed after the
+  correction snapshots the new cost; one confirmed before keeps the old cost (race test on real PostgreSQL: exactly one
+  winner).
+- **`MAKING_CHARGE_REFERENCE`:** `validBankReference` (4–40, Arabic-Indic digits and spaces normalized); the same
+  effective reference on another order → **409** `DUPLICATE_REFERENCE` unless `confirmDuplicateReference` (audited).
+- **Property tests (fast-check)** on random orders and corrections: (a) the order's effective total = Σ effective piece
+  values; (b) sold pieces' costs never change; (c) the supplier gold debt never changes; (d) stock value at cost after =
+  before − old cost + new cost for each changed unsold piece.
 - **Reads:** the order detail shows the correction history (original, each correction, who, when, why); reports, the
   order list and CSV use the effective values. **The supplier gold debt never changes** (asserted).
 
@@ -92,31 +95,26 @@ in §6 is built before it is answered.
 New tables with append-only triggers and grants; the two permissions granted to GENERAL_MANAGER; **VOIDED added to the
 piece status checks** (needs `DROP CONSTRAINT` + `ADD CONSTRAINT` on `ck_jewelry_items_status` and the two
 `item_status_history` checks: a pure widening, but the migration guard calls it destructive: §6 Q2). No data row is
-changed. Upgrade test from 0024 with data: counts, money totals and triggers unchanged.
+changed. Upgrade test from 0024 with data: counts, money totals and triggers unchanged. The same definitions in
+`shared/src/db-checks.ts`. **Owner approval (Q2): the three CHECK replacements carry `-- allow-destructive: D-mis1-…`.**
 
-## 6. Questions for the owner (blocking)
+## 6. Owner answers (2026-10-19)
 
-1. **The making-charge share (PUR-FIX).** Today each piece has its own typed making cost; there is no share rule to
-   keep. Choose: **(A) recommended** — the General Manager corrects the order's total; the difference goes to the
-   pieces not yet sold, **in proportion to their current making cost** (equal shares if they are all 0), whole SDG,
-   the remainder one unit at a time to the largest fractional parts (ties: lowest piece id); refused (409) when every
-   piece is sold, or when the new total is below what the sold pieces already carry. **(B)** the General Manager
-   corrects each piece's making cost one by one (the order total follows as the sum). (B) needs a per-piece form.
-2. **VOIDED status = replacing three CHECK constraints** (widening only, no data change). CLAUDE.md asks for the
-   owner's approval and a `-- allow-destructive: D-mis1-…` marker on any DROP CONSTRAINT. Approve, or prefer another
-   way (there is no existing status that means "voided").
-3. **Reconciliation:** confirm the reading in §3 — the original day keeps the purchase (true money flow) and the void
-   day shows the reversal; "excluded from totals" applies to the scrap-purchase lists, CSV and report, not to past
-   cash days (changing a past day would break the reconciled figures and the counts already made).
-4. **Receipt:** there is no scrap receipt to reprint (SCR-1 cancelled). Skip that requirement, or build a printed
-   scrap receipt now (new screen, out of the stated scope)?
-5. **Amount to 0 / from 0:** a correction to 0 would leave a transfer reference with no charge. Refuse a new amount of
-   0 (proposed), or allow it and clear the effective reference?
+1. **Option B:** one piece's making cost at a time; the order total is the sum of the effective piece values; no share
+   function. A SOLD piece is refused (409).
+2. **Approved:** VOIDED added to the three status checks with `allow-destructive` markers and a decision recording the
+   approval.
+3. **Approved as in §3** (original day keeps the purchase; the void day shows the reversal; "excluded from totals" =
+   the scrap lists, CSV and report).
+4. **No scrap receipt:** the reprint requirement is out of scope.
+5. **Approved:** a correction that would make the order's total 0 while a transfer reference exists → 422; a piece's
+   making cost may become 0 while the total stays above 0.
+6. No time limit on how old a voided scrap purchase may be.
 
 ## 7. Commits (after approval)
 
 c1 migration 0025 + schema + permissions + docs (DATA_MODEL, FEATURES) + upgrade test · c2 SCR-VOID service, routes,
-reads, tests (incl. race on PostgreSQL) · c3 PUR-FIX share function + property test, service, routes, reads, tests ·
+reads, tests (incl. race on PostgreSQL) · c3 PUR-FIX service (one piece at a time), routes, reads, property tests, race test ·
 c4 screens (void dialog, status filter and badge, detail; correction dialog and history) + i18n · c5 REH-1, browser e2e,
 perf, acceptance `docs/acceptance/MIS-1.md`, BACKLOG, decisions D-mis1-*, `verify --full`.
 
