@@ -13,7 +13,8 @@ import { useBranches } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { useActionKeys } from '../../lib/idempotency';
-import { Alert, Button, Card, CardHeader, Empty, Field, Input, IntegerInput, Kpi, MoneyInput, Mono, PhoneInput, ReferenceInput, WeightInput, PageHeader, QueryState, Select, SkeletonRows } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, Empty, Field, Input, IntegerInput, Kpi, MoneyInput, Mono, PhoneInput, ReferenceInput, WeightInput, PageHeader, QueryState, Select, SkeletonRows, StatusBadge } from '../../components/ui';
+import { CorrectionDialog, type Confirmation } from '../../components/CorrectionDialog';
 import { useServerList } from '../../lib/paging';
 import { DataTable } from '../../components/ui/DataTable';
 import { NewProductPanel, ProductPicker } from '../../components/ProductPicker';
@@ -54,6 +55,17 @@ interface ScrapRow {
   customerName: string | null;
   createdAt: string;
   createdByName: string;
+  /** MIS-1: VALID, or VOIDED with who, when and why. */
+  status: 'VALID' | 'VOIDED';
+  voidedAt: string | null;
+  voidReason: string | null;
+  voidedByName: string | null;
+}
+interface ScrapTotals {
+  count: number;
+  netWeightMg: number;
+  amount: number;
+  voidedExcluded: number;
 }
 
 /** Money and references read left to right inside Arabic text (no sign flipping). */
@@ -87,7 +99,11 @@ export function ScrapPage() {
   const full = can('scrap.buy');
   const pool = useQuery({ queryKey: ['scrap-pool', branchId ?? 'all'], queryFn: () => get<PoolView>('/scrap-pool', { branchId }), enabled: full });
   // BE-7: one page at a time from the server.
-  const list = useServerList<ScrapRow>('scrap-purchases', '/scrap-purchases', { branchId }, { sortKeys: SCRAP_SORT_KEYS, search: true, enabled: full });
+  // MIS-1: all / valid / voided; the totals count the valid purchases only.
+  const [status, setStatus] = useState<'' | 'VALID' | 'VOIDED'>('');
+  const list = useServerList<ScrapRow>('scrap-purchases', '/scrap-purchases', { branchId, ...(status ? { status } : {}) }, { sortKeys: SCRAP_SORT_KEYS, search: true, enabled: full });
+  const totals = list.totals as ScrapTotals | undefined;
+  const [voiding, setVoiding] = useState<ScrapRow | null>(null);
 
   return (
     <div className="p-5 lg:p-6">
@@ -126,7 +142,16 @@ export function ScrapPage() {
 
       {full && (
       <Card padded={false} className="mt-5">
-        <CardHeader title={t('Scrap bought')} />
+        <CardHeader
+          title={t('Scrap bought')}
+          actions={
+            <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} className="h-9 w-40" aria-label={t('Status')} data-testid="scrap-status-filter">
+              <option value="">{t('All purchases')}</option>
+              <option value="VALID">{t('Valid only')}</option>
+              <option value="VOIDED">{t('Voided only')}</option>
+            </Select>
+          }
+        />
         <DataTable
           query={list.query}
           rows={list.rows}
@@ -147,11 +172,83 @@ export function ScrapPage() {
             { key: 'paymentMethod', header: t('Paid by'), value: (r) => (r.paymentMethod === 'SPLIT' ? `${t('CASH')} ${r.cashAmount} + ${t('BANK_TRANSFER')} ${r.bankAmount}` : t(r.paymentMethod)) + (r.bankReference ? ` ${r.bankReference}` : ''), render: (r) => <PaidBy r={r} /> },
             { key: 'customerName', header: t('Customer'), render: (r) => r.customerName ?? '—' },
             { key: 'createdByName', header: t('Bought by') },
+            {
+              key: 'status',
+              header: t('Status'),
+              value: (r) => (r.status === 'VOIDED' ? `${t('VOIDED')} ${r.voidedByName ?? ''} ${r.voidReason ?? ''}` : t('VALID')),
+              render: (r) =>
+                r.status === 'VOIDED' ? (
+                  <span data-testid={`scrap-voided-${r.number}`}>
+                    <StatusBadge status="VOIDED" />
+                    <span className="block text-[12px] text-ink-500">{t('{who}, {when}: {why}', { who: r.voidedByName ?? '—', when: r.voidedAt ? dateTime(r.voidedAt, lang) : '—', why: r.voidReason ?? '' })}</span>
+                  </span>
+                ) : can('scrap.void') ? (
+                  <Button size="sm" variant="danger" onClick={() => setVoiding(r)} data-testid={`scrap-void-${r.number}`}>{t('Void purchase')}</Button>
+                ) : (
+                  <span className="text-ink-500">{t('VALID')}</span>
+                ),
+            },
           ]}
         />
+        {totals && (
+          <p className="border-t border-line px-5 py-2.5 text-[13px] text-ink-700" data-testid="scrap-totals">
+            {t('Valid purchases: {n} · {weight} · {amount}', { n: totals.count.toLocaleString('en-US'), weight: grams(totals.netWeightMg), amount: ltr(money(totals.amount, false)) })}
+            {totals.voidedExcluded > 0 && <span className="text-ink-500"> · {t('{n} voided, not counted', { n: totals.voidedExcluded.toLocaleString('en-US') })}</span>}
+          </p>
+        )}
       </Card>
       )}
+      <VoidScrapDialog row={voiding} onClose={() => setVoiding(null)} />
     </div>
+  );
+}
+
+/**
+ * MIS-1 (SCR-VOID): the General Manager voids a scrap purchase made by mistake, with a reason and the password. The money
+ * comes back to the drawer and the bank, the piece leaves stock (VOIDED) or the weight leaves the pool. Refusals (the
+ * piece is sold or in transit, the pool is short, already voided) stay in the dialog.
+ */
+function VoidScrapDialog({ row, onClose }: { row: ScrapRow | null; onClose: () => void }) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const actionKeys = useActionKeys();
+  const [error, setError] = useState<string | null>(null);
+  const m = useMutation({
+    mutationFn: (c: Confirmation) => postOnce<{ number: string }>(`/scrap-purchases/${row!.id}/void`, c, actionKeys.for(`void-${row!.id}`)),
+    onSuccess: (r) => {
+      actionKeys.rotate(`void-${row!.id}`);
+      toast.success(t('Scrap purchase {number} voided', { number: r.number }));
+      qc.invalidateQueries({ queryKey: ['scrap-purchases'] });
+      qc.invalidateQueries({ queryKey: ['scrap-pool'] });
+      close();
+    },
+    onError: (e) => setError(errorText(e)),
+  });
+  const close = () => {
+    setError(null);
+    onClose();
+  };
+  return (
+    <CorrectionDialog
+      open={row != null}
+      title={t('Void purchase {number}', { number: row?.number ?? '' })}
+      subtitle={
+        row?.kind === 'SELLABLE'
+          ? t('The {amount} paid comes back to the drawer and the bank, and the piece leaves stock. This cannot be undone.', { amount: ltr(money(row?.amount ?? 0, false)) })
+          : t('The {amount} paid comes back to the drawer and the bank, and {weight} leaves the scrap pool. This cannot be undone.', { amount: ltr(money(row?.amount ?? 0, false)), weight: grams(row?.netWeightMg ?? 0) })
+      }
+      confirmLabel={t('Void purchase')}
+      danger
+      error={error}
+      loading={m.isPending}
+      onCancel={close}
+      onConfirm={(c) => {
+        setError(null);
+        m.mutate(c);
+      }}
+      testId="scrap-void-dialog"
+    />
   );
 }
 

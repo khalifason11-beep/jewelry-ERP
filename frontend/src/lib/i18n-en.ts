@@ -10,6 +10,7 @@ export const EN: Record<string, string> = {
   RETURNED: 'Returned',
   COMPLETED: 'Completed',
   VOIDED: 'Voided',
+  VALID: 'Valid',
   IN_PROGRESS: 'In progress',
   CANCELLED: 'Cancelled',
   APPROVED: 'Approved',
