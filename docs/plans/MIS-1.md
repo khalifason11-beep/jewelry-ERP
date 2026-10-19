@@ -118,6 +118,11 @@ reads, tests (incl. race on PostgreSQL) · c3 PUR-FIX service (one piece at a ti
 c4 screens (void dialog, status filter and badge, detail; correction dialog and history) + i18n · c5 REH-1, browser e2e,
 perf, acceptance `docs/acceptance/MIS-1.md`, BACKLOG, decisions D-mis1-*, `verify --full`.
 
+**As built:** the browser e2e (`scripts/e2e-corrections.mjs`) came with the screens in c4, so the screens were proven in
+the commit that added them; c5 kept REH-1, perf, the acceptance script and the docs. Findings while building are in
+`docs/decisions.md` D-mis1-3 (no foreign key to an append-only table), D-mis1-5 (no scrap CSV or report exists),
+D-mis1-7 (a corrected piece out of stock moves no stock).
+
 ## 8. Out of scope (stated)
 
 Wrong gold weight or wrong pieces on a supplier order (stay uncorrectable); voiding supplier orders or sales; un-void;

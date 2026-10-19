@@ -189,10 +189,12 @@ recorded. Do not build. (Original text kept below for reference.)
 Two P1 items share one goal: a General-Manager-only, audited way to correct a record entered by mistake, with a
 reason and the password re-confirmation, never by editing or deleting history.
 
-#### SCR-VOID — Correct a wrong counter scrap purchase · TODO · S · P1 (before real operation)
+#### SCR-VOID — Correct a wrong counter scrap purchase · DONE · S · P1 (before real operation)
+**Done by MIS-1** (plan `docs/plans/MIS-1.md`, decisions D-mis1-1..5, acceptance `docs/acceptance/MIS-1.md`): `POST /scrap-purchases/:id/void`, General Manager only (`scrap.void`), reason and password; the money reversed (both parts), the sellable piece → VOIDED (only while available in its branch) or the pool weight taken back (only if the pool holds it); the list and the new detail show VOIDED with who, when and why; totals leave voided purchases out. Original request:
 A wrong scrap purchase cannot be corrected today: `scrap_purchases` is append-only and has no void. A General-Manager-only void that reverses the ledger entries (both parts of a split payment: `reverseRef` already does it, tested in `scrap-split.test.ts`), the inventory piece or the pool weight, with a reason and the password re-confirmation. Needed before the shop works on the system.
 
-#### PUR-FIX — Correct a wrong supplier order amount or transfer reference · TODO · S · P1 (before real operation)
+#### PUR-FIX — Correct a wrong supplier order amount or transfer reference · DONE · S · P1 (before real operation)
+**Done by MIS-1** (owner answer Q1 option B; decisions D-mis1-6..8): `POST /purchases/:id/corrections`, General Manager only (`purchases.correct`), reason and password; one unsold piece's making cost at a time (the order's charge is the sum of the pieces; a sold piece is refused) or the order's transfer reference; append-only history; every reader uses the effective values; the gold debt never changes. Wrong gold weight or wrong pieces stay uncorrectable (out of scope). Original request:
 MKC-1 (owner decision Q13): a supplier order recorded with a wrong making-charge amount or a wrong transfer reference
 cannot be corrected today. A General-Manager-only correction, with a reason and the password re-confirmation, audited,
 that keeps the original values in the history. It moves no branch money (the owner pays making charges personally,
@@ -468,7 +470,7 @@ Updated by DEC-1 (owner decisions of 2026-10-18). Done items are no longer liste
 | Step | Items | Why this order |
 |---|---|---|
 | 1 | **DEC-1** (done) | Record the owner's decisions; discounts off; the gold-rate edit guard (RAT-1) |
-| 2 | **SCR-VOID + PUR-FIX** | Mistake correction before real operation |
+| 2 | **SCR-VOID + PUR-FIX** (done, MIS-1) | Mistake correction before real operation |
 | 3 | **PAY-1** (SPL-1 + HSD-2) | Two-method payments and Hasad as a channel only, one plan |
 | 4 | **MNY-1** | Money transfers branch ↔ branch and branch → General Manager |
 | 5 | **CAT-1** | Product becomes optional (Q-3) |

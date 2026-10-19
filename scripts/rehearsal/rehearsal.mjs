@@ -1298,6 +1298,67 @@ async function main() {
     const drawerA = (await apiGet(page, '/api/cash/drawer')).body.branches.find((b) => b.branchId === branchId).expectedCash;
     check(drawerA >= 0, `the main drawer is ${drawerA}, not negative: the money that paid for the scrap and the making charge was recorded`);
 
+    section('MIS-1: the General Manager voids scrap purchases and corrects a supplier order');
+    {
+      const why = (reason) => ({ reason, confirmPassword: GM.password });
+      const recAddsUp = async (label) => {
+        const r = (await apiGet(page, `/api/cash/reconciliation?branchId=${branchId}`)).body;
+        const sum = (lines) => lines.reduce((s, l) => s + l.amount, 0);
+        check(sum(r.cashLines) === r.cashMovement && sum(r.bankLines) === r.bankMovement, `${label}: the reconciliation's lines still add up to the drawer and bank movements (${r.cashMovement}, ${r.bankMovement})`);
+      };
+      const poolOf = async (karat) => (await apiGet(page, `/api/scrap-pool?branchId=${branchId}`)).body.byKarat.find((x) => x.karat === karat)?.weightMg ?? 0;
+      // Broken scrap, voided through the screen.
+      const broken = (await apiSend(page, 'POST', '/api/scrap-purchases', { branchId, kind: 'BROKEN', karat: 21, grossWeightMg: 1_500, netWeightMg: 1_500, paymentMethod: 'CASH' })).body;
+      const pool0 = await poolOf(21);
+      await page.goto(`${origin}/scrap`);
+      await page.click(`[data-testid=scrap-void-${broken.number}]`, { timeout: 15_000 });
+      await page.fill('[data-testid=scrap-void-dialog-reason]', 'سُجّل الكسر خطأً');
+      await page.fill('[data-testid=scrap-void-dialog-password]', GM.password);
+      await page.click('[data-testid=scrap-void-dialog-confirm]');
+      await confirmIfAsked(page, GM.password);
+      await waitFor(async () => (await apiGet(page, `/api/scrap-purchases/${broken.id}`)).body.status === 'VOIDED', 'the broken-scrap void', 15_000);
+      check((await poolOf(21)) === pool0 - 1_500, `broken scrap ${broken.number} voided on the Scrap screen: its 1.500 g leave the pool and its money comes back`);
+      await page.getByTestId(`scrap-voided-${broken.number}`).waitFor({ timeout: 15_000 });
+      check((await page.getByTestId(`scrap-voided-${broken.number}`).innerText()).includes('سُجّل الكسر خطأً'), 'the list shows it VOIDED with who, when and why');
+      // A sellable piece, voided while it is still in stock.
+      const sellable = (await apiSend(page, 'POST', '/api/scrap-purchases', { branchId, kind: 'SELLABLE', karat: product.karat, grossWeightMg: 3_100, netWeightMg: 3_000, productId, paymentMethod: 'CASH' })).body;
+      const v = await apiSend(page, 'POST', `/api/scrap-purchases/${sellable.id}/void`, why('قطعة سُجّلت مرتين'));
+      check(v.status === 200 && (await apiGet(page, `/api/inventory/items/${sellable.itemId}`)).body.item.status === 'VOIDED', `sellable piece ${sellable.itemCode} voided: the piece is VOIDED (out of stock, never sold)`);
+      // A piece already sold: the void is refused, naming it.
+      const sold = (await apiSend(page, 'POST', '/api/scrap-purchases', { branchId, kind: 'SELLABLE', karat: product.karat, grossWeightMg: 3_100, netWeightMg: 3_000, productId, paymentMethod: 'CASH' })).body;
+      const listed = (await apiGet(page, `/api/inventory/items?q=${sold.itemCode}`)).body.rows[0];
+      const sale = await apiSend(page, 'POST', '/api/sales', { branchId, items: [{ itemId: sold.itemId, listPrice: listed.sellingPrice }], paymentMethod: 'CASH' });
+      check(sale.status === 200, `the second piece ${sold.itemCode} is sold (${sale.body?.number})`);
+      const refusedVoid = await apiSend(page, 'POST', `/api/scrap-purchases/${sold.id}/void`, why('محاولة بعد البيع'));
+      check(refusedVoid.status === 409 && refusedVoid.body.error.code === 'SCRAP_PIECE_NOT_AVAILABLE' && refusedVoid.body.error.params.code === sold.itemCode, `a void after the piece is sold is refused (409, naming ${sold.itemCode})`);
+      await recAddsUp('after the voids');
+
+      // A supplier order: one piece's making cost and the transfer reference corrected.
+      const tz = (await apiGet(page, '/api/settings')).body.settings.company.timezone;
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const debt0 = (await apiGet(page, `/api/suppliers/${supplierId}/gold-owed`)).body.pureMg24;
+      const mkc = { ...line, makingCost: 30_000 };
+      const po = (await apiSend(page, 'POST', '/api/purchases', { branchId, supplierId, lines: [mkc, mkc], makingChargeReference: 'REH-MIS1-1', makingChargeTransferDate: today, confirmOpenSupplierDebt: true })).body;
+      const debt1 = (await apiGet(page, `/api/suppliers/${supplierId}/gold-owed`)).body.pureMg24;
+      const before = (await apiGet(page, `/api/purchases/${po.id}`)).body;
+      const piece = before.items[0];
+      await page.goto(`${origin}/purchases/${po.id}`);
+      await page.click(`[data-testid=purchase-fix-making-${piece.code}]`, { timeout: 15_000 });
+      await page.fill('[data-testid=purchase-fix-cost]', '12000');
+      await page.fill('[data-testid=purchase-fix-dialog-reason]', 'المصنعية الصحيحة من فاتورة المورد');
+      await page.fill('[data-testid=purchase-fix-dialog-password]', GM.password);
+      await page.click('[data-testid=purchase-fix-dialog-confirm]');
+      await confirmIfAsked(page, GM.password);
+      await waitFor(async () => (await apiGet(page, `/api/purchases/${po.id}`)).body.items[0].makingCost === 12_000, 'the making-cost correction', 15_000);
+      const ref = await apiSend(page, 'POST', `/api/purchases/${po.id}/corrections`, { field: 'MAKING_CHARGE_REFERENCE', newValue: 'reh-mis1-٢', ...why('رقم التحويل الصحيح') });
+      const after = (await apiGet(page, `/api/purchases/${po.id}`)).body;
+      check(after.makingChargePaid === 42_000 && after.totalCost === before.totalCost - 18_000, `order ${po.number}: piece ${piece.code}'s making cost 30,000 → 12,000; the order's making charge 60,000 → ${after.makingChargePaid}`);
+      check(ref.status === 200 && after.makingChargeReference === 'REH-MIS1-2', `the transfer reference corrected and normalized (${after.makingChargeReference})`);
+      check(after.corrections.length === 2 && after.goldDebtMgPure24 === before.goldDebtMgPure24, 'the order keeps both corrections in its history; its gold debt is unchanged');
+      check((await apiGet(page, `/api/suppliers/${supplierId}/gold-owed`)).body.pureMg24 === debt1 && debt1 > debt0, `the supplier's gold owed is the same before and after the corrections (${debt1} mg 24K)`);
+      await recAddsUp('after the corrections');
+    }
+
     section('UI-B: the General Manager home after the rehearsal sales and transfers');
     await homeChecks(page, origin, branchId);
     // The General Manager's view of one branch: the branch layout plus profit and stock value.
