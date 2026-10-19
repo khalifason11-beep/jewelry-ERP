@@ -110,10 +110,21 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   gm_funding_events: {
     safe: words('id number branch_id kind account amount reason bank_reference paid_directly_to_seller linked_ref reverses_event_id actor_id session_id idempotency_key at'),
   },
+  // MIS-1: the void of a scrap purchase (who, when, why) is SAFE, like the purchase it voids.
+  scrap_purchase_voids: { safe: words('id purchase_id reason voided_by session_id created_at') },
+  // MIS-1: a correction's old and new values are a piece's making cost or the order's transfer reference, both COST
+  // (as purchase_items.making_cost and purchases.making_charge_reference).
+  purchase_corrections: {
+    cost: words('value_before value_after'),
+    safe: words('id purchase_id purchase_item_id field reason confirmed_duplicate corrected_by session_id created_at'),
+  },
 };
 
 /** Response field names that carry cost, acquisition cost, margin or profit. */
 export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
+  // MIS-1: a supplier-order correction's values (a piece's making cost or the order's transfer reference).
+  'valueBefore',
+  'valueAfter',
   'cost',
   'costs',
   'unitCost',

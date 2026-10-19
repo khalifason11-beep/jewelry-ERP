@@ -42,7 +42,7 @@ answers in §6.
 ## 3. SCR-VOID
 
 - **Table `scrap_purchase_voids`** (append-only trigger + runtime grants SELECT/INSERT, as the other append-only
-  tables): `id`, `purchase_id` UNIQUE → `scrap_purchases`, `reason`, `voided_by`, `session_id`, `created_at`.
+  tables): `id`, `purchase_id` UNIQUE (checked by a trigger, not a foreign key: D-mis1-3), `reason`, `voided_by`, `session_id`, `created_at`.
   `scrap_purchases` is never updated.
 - **`POST /scrap-purchases/:id/void`** `{ reason, confirmPassword }`, General Manager:
   1. lock: the purchase's void row by `purchase_id` (a second void → **409** "already voided" after the UNIQUE check,

@@ -176,6 +176,11 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   - **Repayments** take money back the same way.
   - A **correction** (a reversal) undoes one event, once.
   - `OWED_TO_GM` shows what each branch owes the General Manager.
+- **Mistake correction** (MIS-1, General Manager only, reason and password asked again, idempotent):
+  - **Void a scrap purchase** (`scrap.void`): the money is reversed, the sellable piece becomes VOIDED (only while
+    still AVAILABLE in its branch) or the broken-scrap weight leaves the pool (only if the pool still holds it).
+  - **Correct a supplier order** (`purchases.correct`): one unsold piece's making cost, or the order's transfer
+    reference. The original stays; the history shows every correction. The supplier gold debt never changes.
 - **Negative balances:**
   - **The drawer is blocked.** A cash outflow larger than the drawer returns `409 DRAWER_SHORT`, with the shortfall
     and what to do. This covers the scrap cash part, a cash refund on a void, a repayment from the drawer, and the

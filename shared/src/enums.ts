@@ -7,6 +7,8 @@ export const ITEM_STATUSES = [
   'TRANSFERRED',
   'DAMAGED',
   'RETURNED',
+  /** MIS-1 (SCR-VOID): the piece of a voided scrap purchase. Terminal: never sold, valued or moved again. */
+  'VOIDED',
 ] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
@@ -117,6 +119,10 @@ export type ScrapWeightEventType = (typeof SCRAP_WEIGHT_EVENT_TYPES)[number];
 /** CSH-2 (D-csh-2): funding events between the General Manager and a branch; a REVERSAL corrects one of the others. */
 export const GM_FUNDING_KINDS = ['ADVANCE', 'REPAYMENT', 'REVERSAL'] as const;
 export type GmFundingKind = (typeof GM_FUNDING_KINDS)[number];
+
+/** MIS-1 (PUR-FIX): what a supplier-order correction changes: one piece's making cost, or the order's transfer reference. */
+export const PURCHASE_CORRECTION_FIELDS = ['MAKING_COST', 'MAKING_CHARGE_REFERENCE'] as const;
+export type PurchaseCorrectionField = (typeof PURCHASE_CORRECTION_FIELDS)[number];
 
 /** A branch money account: the drawer (CASH) or the bank account (BANK). Used by the General Manager's funding (CSH-2). */
 export const CASH_OR_BANK = ['CASH', 'BANK'] as const;

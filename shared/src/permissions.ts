@@ -58,6 +58,9 @@ export const PERMISSIONS = {
   // CSH-2 (D-csh-5): the General Manager's advances to a branch and the branch's repayments. General Manager only.
   'funding.view': 'See what each branch owes the General Manager and the history of advances and repayments',
   'funding.manage': 'Record an advance to a branch, a repayment from a branch, or correct one of them',
+  // MIS-1: correcting a mistake (reason and password asked again). General Manager only.
+  'scrap.void': 'Void a scrap purchase made by mistake (reason and password; money, piece or pool weight reversed)',
+  'purchases.correct': "Correct a supplier order's piece making cost or transfer reference (reason and password)",
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -113,11 +116,11 @@ const GENERAL_MANAGER: Permission[] = [
 ];
 
 /**
- * Permissions that only the General Manager may ever hold (D-csh-5, D-mkc-6): the funding of a branch and the creation of
- * supplier orders. No screen or API edits role grants; tests prove the defaults, the seed and the migrations never give
+ * Permissions that only the General Manager may ever hold (D-csh-5, D-mkc-6, D-mis1-2): the funding of a branch, the creation of
+ * supplier orders, voiding a scrap purchase and correcting a supplier order. No screen or API edits role grants; tests prove the defaults, the seed and the migrations never give
  * them to another role.
  */
-export const GM_ONLY_PERMISSIONS = ['funding.view', 'funding.manage', 'purchases.create'] as const satisfies readonly Permission[];
+export const GM_ONLY_PERMISSIONS = ['funding.view', 'funding.manage', 'purchases.create', 'scrap.void', 'purchases.correct'] as const satisfies readonly Permission[];
 
 export const DEFAULT_ROLE_PERMISSIONS: Record<SystemRoleCode, Permission[]> = {
   CASHIER,
