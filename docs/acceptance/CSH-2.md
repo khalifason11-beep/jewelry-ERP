@@ -79,6 +79,7 @@ upgraded. Migration 0021 stops and changes nothing; such a database is recreated
 | `attention/service.ts` `attentionFor` | A4 and A5 read CASH only, A17 BANK only |
 | `sales/service.ts` `voidSale` | the cash refund sums the sale's own SALE entries on CASH only |
 | `funding/service.ts` `owedToGm` | OWED_TO_GM only, on purpose |
+| `scrap/service.ts` `getScrapPurchase` | MIS-1: the entries of one scrap purchase and their reversals, each with its account kind; no sum |
 | `backup/stats.ts`, `backup/checks.ts` | integrity counts and one labelled balance per account in the backup summary |
 | Indirect readers: `cashBalance`, the drawer endpoint, `settleHasadReceivable`, the scrap, purchase and funding writes | through `balances` / `lockAccounts` with named kinds |
 

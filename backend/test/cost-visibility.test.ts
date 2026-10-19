@@ -99,6 +99,14 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
     const purchase = await one(ctx.db.select().from(t.purchases).where(eq(t.purchases.branchId, krt.id)));
     // A purchase with supplier settlements (Phase 4): its gold debt and settlements are COST.
     const settled = await one(ctx.db.select().from(t.supplierSettlements).where(eq(t.supplierSettlements.branchId, krt.id)));
+    // MIS-1: a sellable and a broken scrap purchase of the branch (the detail: piece, money entries).
+    const scrapIds = (
+      await Promise.all(
+        (['SELLABLE', 'BROKEN'] as const).map((kind) => one(ctx.db.select({ id: t.scrapPurchases.id }).from(t.scrapPurchases).where(and(eq(t.scrapPurchases.branchId, krt.id), eq(t.scrapPurchases.kind, kind))))),
+      )
+    )
+      .filter(Boolean)
+      .map((x) => x.id);
     const reportPaths = [
       ...REPORT_KEYS.map((k) => `/reports/${k}`),
       '/reports/inventory-ledger',
@@ -134,7 +142,8 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /scrap-rates': ['/scrap-rates'],
       'GET /cash/hasad-settlements': ['/cash/hasad-settlements', `/cash/hasad-settlements?branchId=${krt.id}`],
       'GET /funding': ['/funding', `/funding?branchId=${krt.id}`],
-      'GET /scrap-purchases': ['/scrap-purchases', '/scrap-purchases?kind=SELLABLE'],
+      'GET /scrap-purchases': ['/scrap-purchases', '/scrap-purchases?kind=SELLABLE', '/scrap-purchases?status=VOIDED'],
+      'GET /scrap-purchases/:id': scrapIds.map((id) => `/scrap-purchases/${id}`),
       'GET /scrap-pool': ['/scrap-pool', `/scrap-pool?branchId=${krt.id}`],
       'GET /transfers': ['/transfers'],
       'GET /dashboard/branch': [`/dashboard/branch?branchId=${krt.id}`],

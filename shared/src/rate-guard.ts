@@ -43,3 +43,13 @@ export function strictestLevel(levels: RateChangeLevel[]): RateChangeLevel {
   for (const l of ['CONFIRM', 'REASON', 'NONE'] as const) if (levels.includes(l)) return l;
   return 'FIRST';
 }
+
+/**
+ * MIS-1 (D-mis1-2): the reason of a void or a correction, trimmed, when it is 3–200 characters long (counted as the
+ * database counts them, in code points); otherwise null. The screens and the server use the same rule.
+ */
+export function correctionReason(raw: string | null | undefined): string | null {
+  const r = (raw ?? '').trim();
+  const n = [...r].length;
+  return n >= CHANGE_REASON_MIN && n <= CHANGE_REASON_MAX ? r : null;
+}

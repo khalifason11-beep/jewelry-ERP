@@ -321,7 +321,7 @@ describe('operator console (break-glass)', () => {
 type Req = { method?: string; path: string; query?: Record<string, string | number>; body?: unknown; contentType?: string };
 interface Fixtures {
   krt: number; omd: number; krtItem: number; omdItem: number; krtSale: number; omdSale: number; krtPurchase: number; omdPurchase: number;
-  omdTransferTo: number; omdUser: number; omdSessionKey: string;
+  omdTransferTo: number; omdUser: number; omdSessionKey: string; omdScrap: number;
 }
 const NONE = 999_999;
 
@@ -417,6 +417,9 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'POST /scrap-rates': () => ({ path: '/scrap-rates', body: {} }),
   'GET /scrap-purchases': () => ({ path: '/scrap-purchases' }),
   'POST /scrap-purchases': () => ({ path: '/scrap-purchases', body: {} }),
+  'GET /scrap-purchases/:id': (f) => ({ path: `/scrap-purchases/${f.omdScrap}` }),
+  // MIS-1: no password in the probe, so an allowed call stops at 403 CONFIRM_PASSWORD_REQUIRED and voids nothing.
+  'POST /scrap-purchases/:id/void': (f) => ({ path: `/scrap-purchases/${f.omdScrap}/void`, body: { reason: 'matrix probe' } }),
   'GET /scrap-pool': () => ({ path: '/scrap-pool' }),
   'POST /purchases/:id/settlements': (f) => ({ path: `/purchases/${f.krtPurchase}/settlements`, body: {} }),
   'GET /dashboard/company': () => ({ path: '/dashboard/company' }),
@@ -470,6 +473,8 @@ const CROSS: Record<string, (f: Fixtures) => Req> = {
   'POST /funding/:id/correct': () => ({ path: `/funding/${NONE}/correct`, body: { reason: 'cross-branch probe' } }),
   'POST /scrap-purchases': (f) => ({ path: '/scrap-purchases', body: { branchId: f.omd, kind: 'BROKEN', karat: 21, grossWeightMg: 1000, netWeightMg: 1000, paymentMethod: 'CASH' } }),
   'GET /scrap-pool': (f) => ({ path: '/scrap-pool', query: { branchId: f.omd } }),
+  'GET /scrap-purchases/:id': (f) => ({ path: `/scrap-purchases/${f.omdScrap}` }),
+  'POST /scrap-purchases/:id/void': (f) => ({ path: `/scrap-purchases/${f.omdScrap}/void`, body: { reason: 'cross-branch probe' } }),
   'POST /purchases/:id/settlements': (f) => ({ path: `/purchases/${f.omdPurchase}/settlements`, body: { karat: 21, weightMg: 1000 } }),
 };
 
@@ -512,6 +517,7 @@ describe('route permission matrix (generated from shared/src/route-matrix.ts)', 
       omdTransferTo: await id(ctx.db.select({ id: t.transfers.id }).from(t.transfers).where(ne(t.transfers.toBranchId, krt)).limit(1)),
       omdUser: await id(ctx.db.select({ id: t.users.id }).from(t.users).where(eq(t.users.branchId, omd)).limit(1)),
       omdSessionKey: omdSession.id.slice(0, 16),
+      omdScrap: await id(ctx.db.select({ id: t.scrapPurchases.id }).from(t.scrapPurchases).where(eq(t.scrapPurchases.branchId, omd)).limit(1)),
     };
     for (const role of ROLES) {
       agents[role] = await login(ROLE_USER[role]);
@@ -594,6 +600,8 @@ describe('route permission matrix (generated from shared/src/route-matrix.ts)', 
     const [user] = await ctx.db.select().from(t.users).where(eq(t.users.id, F.omdUser));
     expect(user.fullName).not.toBe('Hacked');
     expect(user.status).toBe('ACTIVE');
+    // MIS-1: no probe voided a scrap purchase (the probes carry no password).
+    expect(await ctx.db.select().from(t.scrapPurchaseVoids)).toEqual([]);
   });
 });
 

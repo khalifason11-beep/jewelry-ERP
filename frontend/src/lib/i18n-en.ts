@@ -100,6 +100,8 @@ export const EN: Record<string, string> = {
   BROKEN: 'Broken scrap',
   SELLABLE: 'Sellable piece',
   SCRAP_PURCHASED: 'Scrap bought',
+  SCRAP_PURCHASE_VOIDED: 'Scrap purchase voided',
+  PURCHASE_CORRECTED: 'Supplier order corrected',
   SCRAP_RATE_CHANGED: 'Scrap rate changed',
   SUPPLIER_SETTLEMENT_RECORDED: 'Supplier settlement recorded',
   HASAD_RECEIVABLE: 'Hasad receivable',

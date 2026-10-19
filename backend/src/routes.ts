@@ -41,6 +41,7 @@ import * as passkeys from './modules/auth/passkeys';
 import { relyingParty } from './auth/webauthn';
 import * as backups from './modules/backups/status';
 import * as scrap from './modules/scrap/service';
+import * as scrapVoid from './modules/scrap/void';
 import * as funding from './modules/funding/service';
 import * as supplierSettlements from './modules/supplier-settlements/service';
 import * as pricing from './modules/pricing/service';
@@ -61,6 +62,8 @@ const zWeightMg = z.number().int().min(1).max(MAX_WEIGHT_MG);
 const zIdBody = z.number().int().positive().max(2_147_483_647);
 const zText = (max: number) => z.string().trim().max(max);
 /** DEC-1 (RAT-1, D-dec1-13): the optional reason and password of a rate edit (SEC-2 reason bounds). */
+/** MIS-1: a void or a correction carries a reason and the password; the service checks both (422 / 403). */
+const zConfirmation = z.object({ reason: z.string().max(2000).optional(), confirmPassword: z.string().max(128).optional() }).strict();
 const zRateGuard = { reason: zText(CHANGE_REASON_MAX).optional(), confirmPassword: z.string().min(1).max(128).optional() };
 // PRC-1: karats follow the allowed-karats setting (8–24), never a fixed list; the route checks the setting.
 const zKarat = z.coerce.number().int().min(1).max(24);
@@ -620,7 +623,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   });
   route('GET', '/scrap-purchases', async (req, res) => {
     const q = parse(
-      z.object({ branchId: zOptId, from: zDay.optional(), to: zDay.optional(), kind: z.enum(SCRAP_KINDS).optional(), q: zQ, ...pageQuerySchema(scrap.SCRAP_SORT_KEYS) }).strict(),
+      z.object({ branchId: zOptId, from: zDay.optional(), to: zDay.optional(), kind: z.enum(SCRAP_KINDS).optional(), status: z.enum(scrap.SCRAP_PURCHASE_STATUSES).optional(), q: zQ, ...pageQuerySchema(scrap.SCRAP_SORT_KEYS) }).strict(),
       req.query,
     );
     res.json(await scrap.listScrapPurchases(ctx, actorOf(req), q));
@@ -653,6 +656,13 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
       req.body,
     );
     res.json(await runIdempotent(ctx, req, res, (idem) => scrap.buyScrap(ctx, actorOf(req), body, { idem })));
+  });
+  route('GET', '/scrap-purchases/:id', async (req, res) => res.json(await scrap.getScrapPurchase(ctx, actorOf(req), parse(zId, req.params.id))));
+  // MIS-1 (SCR-VOID): the reason's bounds are checked by the service (422), the password by reauthenticate (403).
+  route('POST', '/scrap-purchases/:id/void', async (req, res) => {
+    const id = parse(zId, req.params.id);
+    const body = parse(zConfirmation, req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => scrapVoid.voidScrapPurchase(ctx, actorOf(req), id, body, { idem })));
   });
   route('GET', '/scrap-pool', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId }).strict(), req.query);

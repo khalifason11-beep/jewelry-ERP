@@ -158,6 +158,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
   words(`
     used pricing roundingStep rateKind priceMissing pricingMode
     guard warnChangePercent confirmChangePercent
+    voidId reversedEntries itemStatus voidReason voidedByName voidedExcluded
     abortReason abortedAt absDifferenceMg action actions active activeSessions actual address addedAt allowSelfPasswordChange
     allowedKarats allowedKaratsConfirmed alreadyOpen amount appMode ar asOf at attention availableItems availableWeightMg
     balanceGrams barcode basis branch branchAddress branchCode branchId branchName branchNameAr branchPhone branches branding

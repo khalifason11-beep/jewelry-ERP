@@ -81,6 +81,8 @@ describe('idempotency keys', () => {
         'POST /funding/advances',
         'POST /funding/repayments',
         'POST /funding/:id/correct',
+        // MIS-1: the General Manager's void of a scrap purchase (key claimed inside the transaction).
+        'POST /scrap-purchases/:id/void',
       ].sort(),
     );
     // Only mutating routes can be idempotent.
