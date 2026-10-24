@@ -165,13 +165,19 @@ installations stay on it until the General Manager switches). The cashier buys a
 
 ### OPN-1 — Opening balance, import and sealing · TODO · L · P0 · CAT-1
 **Requirements (SPEC §13):** GM-only, one per branch, DRAFT → SEALED.
-- Entry by keyboard and barcode scanner; **CSV/Excel import** with a validation report (row numbers, the whole file rejected on errors, idempotent).
+- Entry by keyboard and barcode scanner; **CSV import** with a validation report (row numbers, the whole file rejected on errors, idempotent) and a CSV template. **CSV only (owner, 2026-10-24, D-opn1-2):** XLSX only if the client's real data needs it later.
 - Items get origin OPENING with **weight and karat only**. **Q-4 closed (owner, 2026-10-18, D-dec1-3): their cost is
   UNKNOWN (null), never zero.** A sale line of a piece with unknown cost shows profit as "—", is **excluded from profit
   totals**, and every report that totals profit says how many lines were excluded. Valuation by weight × current rate
   is unaffected. Supplier-piece cost stays as built. **No cash entries** (books start at zero).
 - Before sealing show count and total weight by karat; sealing needs password and passkey confirmation; afterwards only audited adjustments.
 **Acceptance:** importing a 300-row file creates the items, the stock-weight report matches the sheet's totals, and sealing locks the draft. Part of REH-1.
+
+### OPN-FIX — Correct a piece of a sealed opening · TODO · S · P1 (before real operation) · OPN-1
+**Owner, 2026-10-24 (D-opn1-3):** a sealed opening is final. A General-Manager correction of an opening piece while it
+is AVAILABLE: void it (VOIDED, as MIS-1 does for a scrap piece) or correct its weight or karat, with a reason and the
+password, audited, never by editing history (status history, ADJUSTMENT movements). Not built by OPN-1, which adds a
+review screen and a CSV export of the draft so mistakes are caught before the seal.
 
 ### LBL-1 — Barcode labels for physical pieces · DEFERRED (Q-9: labels later) · M · P3
 Print a label (code, karat, weight, Code128 or QR) for each piece, from the opening import and from every receipt. Needs the printer model and label size.

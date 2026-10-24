@@ -1,7 +1,7 @@
 # OPN-1 (with CAT-1): opening balance and stock entry without a product catalog
 
-Branch `claude/opn-1-opening-balance` from main `e7210d2` (MIS-1 merged). **Waiting for the owner's approval; no code
-yet.** Decisions already taken and not reopened: D-dec1-2 (Q-3: type + free-text description, product optional),
+Branch `claude/opn-1-opening-balance` from main `e7210d2` (MIS-1 merged). **Approved by the owner on 2026-10-24**
+with the answers in §9. Decisions already taken and not reopened: D-dec1-2 (Q-3: type + free-text description, product optional),
 D-dec1-3 (Q-4: opening cost unknown = NULL, never 0), D-dec1-7 (labels later, LBL-1 deferred), SPEC §13.
 
 ## 1. What exists today (survey)
@@ -105,22 +105,33 @@ D-dec1-3 (Q-4: opening cost unknown = NULL, never 0), D-dec1-7 (labels later, LB
   | `GET /openings/:id` | The lines (paged), plus count and total net weight by karat and by type |
   | `POST /openings/:id/lines` | Keyboard entry, one piece |
   | `POST /openings/:id/lines/:lineId/remove` | Draft only |
-  | `POST /openings/:id/import` | Spreadsheet import (§5) |
+  | `POST /openings/:id/import` | CSV import (§5) |
+  | `GET /openings/:id/export` | The draft (or, once sealed, the pieces with their codes) as CSV |
+  | `GET /openings/template.csv` | The CSV template: the header row only, Arabic and English column names |
   | `POST /openings/:id/seal` | Sealing (below) |
 
   The write routes take an Idempotency-Key.
 - **A draft is not stock.** Draft lines are not pieces: they cannot be sold, transferred or counted while the
   General Manager is still entering them.
+- **Review before sealing (owner answer Q3).** A review screen of the draft shows the count and weight by karat and
+  by type, and the lines paged and searchable (type, description, karat). The draft can be exported as CSV, so
+  mistakes are caught before the seal.
+- **Codes (owner answer Q1).** At sealing each piece gets the next system code (`J-…`) and barcode, in the sheet's
+  order (then the keyboard lines in entry order). No custom code column: an old shop number goes in the description
+  (free text, up to 120 characters, searchable). After sealing the export lists code, type, description, karat and
+  weights, so staff can write the codes on the tags until labels exist (LBL-1).
 - **Sealing**, in one transaction:
   - lock the opening row; then for every line create a piece:
     - origin OPENING, status AVAILABLE, `acquisition_cost` NULL;
-    - `selling_price` 0, so the price follows the **new-piece rate** (PRC-1 computed prices; a fixed-tag
-      installation would need tag prices: see Q4);
+    - `selling_price` 0, so the price follows the **new-piece rate** (owner answer Q5; PRC-1 computed prices);
     - a status-history row, and an ADJUSTMENT +1 movement with `cost_value` NULL and ref `opening`;
   - **no ledger entry** (no cash: the books start at zero);
   - the opening becomes SEALED; audit `OPENING_SEALED` with the count and the weight by karat.
 - **What sealing asks for:**
-  - the summary is shown first: count and total weight by karat;
+  - computed prices: on a FIXED_TAG installation sealing is refused (**409 `OPENING_NEEDS_COMPUTED_PRICES`**) until
+    the General Manager switches them on (owner answer Q4);
+  - the summary is shown first: count and total weight by karat, with a checklist ("register a passkey", "set the
+    new-piece rate of every karat in the sheet", "review the draft");
   - the **password** in the body (`reauthenticate`, as MIS-1);
   - a **fresh passkey confirmation** (`passkey_reauth_at` within the window), **always**: a General Manager without
     a passkey is refused (**403 `PASSKEY_REQUIRED`**, "register a passkey first").
@@ -128,18 +139,25 @@ D-dec1-3 (Q-4: opening cost unknown = NULL, never 0), D-dec1-7 (labels later, LB
 - **Barcode scanner entry.** The shop has no labels yet, so there is nothing to scan. The keyboard form is built
   so that Enter moves to the next field and saves the line.
 
-## 5. The importer
+## 5. The importer (CSV only, owner answer Q2)
 
-- **Formats.** CSV (UTF-8, with or without BOM, comma or semicolon, quoted fields) and **XLSX** (first sheet,
-  values only). The file is sent as `{ fileName, contentBase64 }` on a route-specific body limit of **2 MB**, at
-  most **5,000 rows**.
+- **Format.** CSV only: UTF-8 with or without BOM, comma or semicolon (detected from the header row), quoted fields
+  with doubled quotes, Arabic-Indic digits accepted. Excel users "Save as CSV UTF-8". XLSX only if the client's real
+  data needs it later. No new dependency: a small parser in `shared/` with a property test (round trip of random
+  rows, separators, quotes, BOM, digits).
+- **Template.** `GET /openings/template.csv`: the header row only, each column named in Arabic and English.
+- **Transport and size.** The file is sent as the raw request body (`text/csv`), with a parser on **this route
+  only**, limited to **1 MB**; at most **5,000 rows**. Sizing: a typical row (a type of about 15 Arabic letters, a
+  short description, the karat and two weights, with separators) is about 110 bytes in UTF-8, so 5,000 rows are about
+  550 kB. The worst case (120-character Arabic descriptions) is about 360 bytes a row, about 1.8 MB for 5,000 rows:
+  such a sheet is split into two files (each idempotent). The global JSON limit stays 100 kB.
 - **Parsing is on the server**, so the same code serves the screen, REH-1 and the tests.
 - **Columns** (header row in Arabic or English, any order):
 
   | Column | Rule |
   |---|---|
   | type | An existing **active** type, matched by its normalized name; the importer **never creates types** (nothing invented) |
-  | description | Optional |
+  | description | Optional, at most 120 characters |
   | karat | An allowed karat |
   | gross weight (g) | 3 decimals, Arabic-Indic digits accepted, gross ≥ net > 0 |
   | net weight (g) | Same rules as gross weight |
@@ -169,16 +187,22 @@ D-dec1-3 (Q-4: opening cost unknown = NULL, never 0), D-dec1-7 (labels later, LB
   classified in `field-classification.ts`. The counts are **COST**: they only appear beside a cost or profit figure,
   General Manager only. The names, weights and karats are SAFE. The generated role tests cover them.
 - **Tests.** A sale of an opening piece, alone and together with a supplier piece, checks every figure in the
-  table, on PGlite and PostgreSQL.
+  table, on PGlite and PostgreSQL. An opening piece is also **transferred** (sent, received) and **adjusted**
+  (damaged, restocked, returned to a supplier) with its NULL cost: the movements and every report that sums cost stay
+  consistent (known-cost pieces only, with the `unknownCostPieces` count), and the inventory ledger's cost totals
+  reconcile on the known pieces only.
+- **Static guard (owner requirement).** A check in `npm run typecheck` (beside the RPT-2 guard) fails if code joins
+  `jewelry_items` to `products` with an inner join: the join must be LEFT, and the type join goes through
+  `jewelry_items.category_id`.
 
 ## 7. Tests (besides §6)
 
 - **Openings:** one per branch (a second → 409); keyboard lines.
 - **Importer:**
   - a good file, a bad file (every error with its row) and a duplicate file (no change);
-  - CSV and XLSX of the same rows give the same lines;
-  - a **300-row file**;
-  - a property test of the CSV and XLSX readers (round trip of random rows).
+  - a **300-row file**; comma and semicolon, with and without BOM; a file over 5,000 rows or 1 MB refused;
+  - the template's header imports as an empty file (422, nothing written);
+  - a property test of the CSV parser (round trip of random rows).
 - **Sealing:**
   - refused without the password (403);
   - refused without a fresh passkey (403);
@@ -206,51 +230,32 @@ D-dec1-3 (Q-4: opening cost unknown = NULL, never 0), D-dec1-7 (labels later, LB
 | c1 | 0026 + schema + permission + classification + db-checks + docs + upgrade test |
 | c2 | 0027 backfill; CAT-1: readers by type/description, product optional on supplier order and scrap, sale-line snapshots, type rename; tests |
 | c3 | Unknown cost everywhere (§6), with tests that sell a piece of unknown cost |
-| c4 | Openings: service, CSV/XLSX importer, sealing, routes, tests (300 rows, bad, duplicate, idempotent, sealing refusals) |
+| c4 | Openings: service, CSV importer and template, review and export, sealing, routes, tests (300 rows, bad, duplicate, idempotent, sealing refusals) |
 | c5 | 0028 tighten + upgrade test |
-| c6 | Screens (Types rename, type + description forms, Opening page with import report, summary and seal) + i18n + browser e2e |
-| c7 | REH-1, perf, acceptance `docs/acceptance/OPN-1.md`, BACKLOG (CAT-1, OPN-1 → DONE), DATA_MODEL, FEATURES, decisions D-opn1-*, `verify --full` |
+| c6 | Screens (Types rename, type + description forms, Opening page: entry, import report, review, export, checklist and seal) + i18n + browser e2e |
+| c7 | REH-1, perf, acceptance `docs/acceptance/OPN-1.md`, BACKLOG (CAT-1, OPN-1 → DONE; OPN-FIX added), DATA_MODEL, FEATURES, decisions D-opn1-*, `verify --full` |
 
-## 9. Questions for the owner
+## 9. Owner answers (2026-10-24)
 
-1. **Codes of opening pieces (no labels yet, LBL-1 deferred).**
-   - Proposal: at sealing every piece gets the next system code (`J-…`) and barcode, in the sheet's order. The
-     sealed opening can be exported (CSV: code, type, description, karat, weights), so staff can write the code on
-     each piece's tag by hand until labels exist.
-   - **Do the pieces already carry the shop's own numbers that must become the code?** If yes, the sheet gets an
-     optional "code" column, unique and kept as given, and the system codes are used only where it is empty.
-2. **Spreadsheet formats and library.**
-   - Proposal: CSV and XLSX, **with no new dependency**. CSV is read by a small parser in `shared/`. XLSX is read by a
-     small reader of the first sheet's values: `node:zlib` to unzip, plus the sheet and shared-string XML (about 200
-     lines, property-tested).
-   - Alternatives:
-     - `exceljs@4.4.0`: maintained, but a large transitive tree to pin and to check on Windows;
-     - SheetJS: the npm package is stuck at 0.18.5 with published advisories, and newer versions are not on the npm
-       registry;
-     - CSV only: Excel users "Save as CSV UTF-8".
-   - **Approve the no-dependency reader, or choose CSV only?**
-3. **What a sealed opening allows afterwards** (SPEC §13 "only audited adjustments").
-   - **What exists today** for any piece: the audited inventory adjustments (mark damaged, restock, return to
-     supplier: reason, password window), transfers, and price edits.
-   - **Nothing corrects a piece entered wrong** (wrong weight or karat, or a piece that does not exist).
-   - Proposal: **out of scope here.** The opening is final once sealed. A follow-up item **OPN-FIX** would add a
-     General-Manager correction of an opening piece while it is AVAILABLE: void it (VOIDED, as MIS-1) or correct its
-     weight or karat, with a reason and the password. **Agree, or build OPN-FIX now?**
-4. **A fixed-tag installation.**
-   - Opening pieces have no tag price. With computed prices (the default for new installations) they are priced
-     from the new-piece rate.
-   - Proposal: on a FIXED_TAG installation, sealing is refused until the General Manager switches to computed
-     prices. **Agree?** (This client is RATE_COMPUTED, D-prc1.)
-5. **Rate for opening pieces.** Should opening pieces sell at the **new-piece** rate (proposal) or the **used-piece**
-   rate?
-6. **Sealing without a passkey.** The task says password and passkey. Proposal: always both; a General Manager
-   without a registered passkey cannot seal. **Agree?** (In production the General Manager must have one already.)
+1. **Codes:** system codes (`J-…` and barcode) at sealing, in the sheet's order; a CSV export after sealing; no custom
+   code column; an old shop number goes in the description (searchable).
+2. **CSV only** (no XLSX reader); a CSV template; the BACKLOG text says CSV, XLSX later only if the real data needs it.
+3. **Correcting a sealed opening is out of scope:** OPN-FIX is added to the BACKLOG as P1 (void an AVAILABLE opening
+   piece as MIS-1 does, or correct its weight or karat, with a reason and the password). Built now instead: the
+   review screen of the draft and its CSV export.
+4. **FIXED_TAG:** sealing refused until computed prices are on.
+5. **Rate:** opening pieces sell at the new-piece rate. Open question for the client: "does the existing stock include
+   used pieces?" No condition column now.
+6. **Passkey:** always the password and a fresh passkey; without a passkey → 403 `PASSKEY_REQUIRED`; "register a
+   passkey" is in the pre-seal checklist and the acceptance script.
 
 ## 10. Out of scope (stated)
 
 - Labels (LBL-1).
 - Opening cash (none, by decision).
 - Product rename.
-- Correcting a sealed opening (Q3, unless approved).
+- Correcting a sealed opening (OPN-FIX, BACKLOG P1).
+- XLSX import (CSV only, Q2).
+- A condition (new/used) column for opening pieces (Q5).
 - Auto-creating types from a sheet.
 - Per-piece tag prices for opening pieces.
