@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import clsx from 'clsx';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
-import { ApiError, get, postOnce } from '../../lib/api';
+import { ApiError, errorText, get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, karatLabel, money, todayKey } from '../../lib/format';
 import { useBranches } from '../../lib/hooks';
@@ -18,6 +18,7 @@ import { Crumbs } from '../sales/SalesPages';
 import { useActionKeys } from '../../lib/idempotency';
 import { NewButton, NewSupplierDialog, useProducts, useSuppliers } from '../../components/Catalog';
 import { NewProductPanel, ProductPicker } from '../../components/ProductPicker';
+import { CorrectionDialog, type Confirmation } from '../../components/CorrectionDialog';
 
 interface Settlement {
   id: number;
@@ -469,12 +470,17 @@ export function PurchaseDetailPage() {
           makingChargeReference?: string | null;
           makingChargeTransferDate?: string | null;
           settlements: Settlement[];
-          items: { itemId: number; code: string; productName: string; productNameAr: string; karat: number; netWeightMg: number; purchaseCost: number; makingCost: number; otherCost: number; sellingPrice: number | null; status: string }[];
+          items: PurchasePiece[];
+          // MIS-1: the corrections, oldest first (the values are COST: General Manager only).
+          corrections: PurchaseCorrection[];
         }
       >(`/purchases/${id}`),
   });
+  // MIS-1: which correction dialog is open.
+  const [fixing, setFixing] = useState<{ field: 'MAKING_COST'; piece: PurchasePiece } | { field: 'MAKING_CHARGE_REFERENCE' } | null>(null);
   if (!q.data) return <DetailPending query={q} backTo="/purchases" backLabel={t('Back to purchases')} notFoundTitle={t('This purchase does not exist')} />;
   const p = q.data!;
+  const canFix = can('purchases.correct') && showCost;
   return (
     <div className="p-5 lg:p-6">
       <PageHeader
@@ -497,7 +503,12 @@ export function PurchaseDetailPage() {
                   {
                     label: t('Owner’s transfer'),
                     value: p.makingChargeReference ? (
-                      <span data-testid="purchase-mkc-transfer"><Mono>{ltr(p.makingChargeReference)}</Mono> · <span className="num">{ltr(p.makingChargeTransferDate ?? '')}</span></span>
+                      <span data-testid="purchase-mkc-transfer">
+                        <Mono>{ltr(p.makingChargeReference)}</Mono> · <span className="num">{ltr(p.makingChargeTransferDate ?? '')}</span>
+                        {canFix && (
+                          <Button size="sm" variant="ghost" className="ms-2" onClick={() => setFixing({ field: 'MAKING_CHARGE_REFERENCE' })} data-testid="purchase-fix-reference">{t('Correct')}</Button>
+                        )}
+                      </span>
                     ) : '—',
                   },
                 ]
@@ -535,6 +546,7 @@ export function PurchaseDetailPage() {
               )}
               <th className="px-3 py-2 text-end font-medium">{t('Selling price')}</th>
               <th className="px-5 py-2 text-start font-medium">{t('Now')}</th>
+              {canFix && <th className="px-3 py-2" />}
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -551,12 +563,167 @@ export function PurchaseDetailPage() {
                 )}
                 <td className="px-3 py-2.5 text-end num">{money(i.sellingPrice, false)}</td>
                 <td className="px-5 py-2.5"><StatusBadge status={i.status} /></td>
+                {canFix && (
+                  <td className="px-3 py-2.5 text-end">
+                    {i.status !== 'SOLD' && (
+                      <Button size="sm" variant="ghost" onClick={() => setFixing({ field: 'MAKING_COST', piece: i })} data-testid={`purchase-fix-making-${i.code}`}>{t('Correct making')}</Button>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       </Card>
+      {p.corrections.length > 0 && <CorrectionsCard corrections={p.corrections} showValues={showCost} />}
+      <PurchaseFixDialog purchaseId={p.id} fixing={fixing} currentReference={p.makingChargeReference ?? null} onClose={() => setFixing(null)} />
     </div>
+  );
+}
+
+interface PurchasePiece {
+  itemId: number;
+  purchaseItemId: number;
+  code: string;
+  productName: string;
+  productNameAr: string;
+  karat: number;
+  netWeightMg: number;
+  purchaseCost: number;
+  makingCost: number;
+  otherCost: number;
+  sellingPrice: number | null;
+  status: string;
+}
+
+interface PurchaseCorrection {
+  id: number;
+  field: 'MAKING_COST' | 'MAKING_CHARGE_REFERENCE';
+  itemCode: string | null;
+  valueBefore?: string | null;
+  valueAfter?: string;
+  reason: string;
+  confirmedDuplicate: boolean;
+  correctedByName: string;
+  createdAt: string;
+}
+
+/** MIS-1: every correction of the order, oldest first: what, from → to (General Manager only), who, when, why. */
+function CorrectionsCard({ corrections, showValues }: { corrections: PurchaseCorrection[]; showValues: boolean }) {
+  const { t, lang } = useI18n();
+  const shown = (c: PurchaseCorrection, v: string | null | undefined) => (v == null ? '—' : c.field === 'MAKING_COST' ? money(Number(v), false) : ltr(v));
+  return (
+    <Card padded={false} className="mt-5">
+      <CardHeader title={t('Corrections')} subtitle={t('The order as recorded is kept; each line below changed one value after it.')} />
+      <table className="w-full text-[13px]" data-testid="purchase-corrections">
+        <thead className="bg-[#f7f8fa] text-ink-500">
+          <tr>
+            <th className="px-5 py-2 text-start font-medium">{t('Date')}</th>
+            <th className="px-3 py-2 text-start font-medium">{t('What')}</th>
+            {showValues && <th className="px-3 py-2 text-start font-medium">{t('From → to')}</th>}
+            <th className="px-3 py-2 text-start font-medium">{t('Reason')}</th>
+            <th className="px-5 py-2 text-start font-medium">{t('By')}</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line">
+          {corrections.map((c) => (
+            <tr key={c.id}>
+              <td className="px-5 py-2.5">{dateTime(c.createdAt, lang)}</td>
+              <td className="px-3 py-2.5">{c.field === 'MAKING_COST' ? t('Making cost of {code}', { code: c.itemCode ?? '' }) : t('Transfer reference')}{c.confirmedDuplicate ? ` · ${t('used on another order (confirmed)')}` : ''}</td>
+              {showValues && <td className="px-3 py-2.5 num">{shown(c, c.valueBefore)} → {shown(c, c.valueAfter)}</td>}
+              <td className="px-3 py-2.5">{c.reason}</td>
+              <td className="px-5 py-2.5">{c.correctedByName}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
+  );
+}
+
+/**
+ * MIS-1 (PUR-FIX, option B): the General Manager corrects ONE piece's making cost (the order's charge follows as the sum
+ * of the pieces) or the order's transfer reference, with a reason and the password. A sold piece cannot be corrected (its
+ * button is not shown; the server refuses it too). A reference already on another order asks once more ("record anyway").
+ */
+function PurchaseFixDialog({ purchaseId, fixing, currentReference, onClose }: { purchaseId: number; fixing: { field: 'MAKING_COST'; piece: PurchasePiece } | { field: 'MAKING_CHARGE_REFERENCE' } | null; currentReference: string | null; onClose: () => void }) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const actionKeys = useActionKeys();
+  const [cost, setCost] = useState('');
+  const [reference, setReference] = useState('');
+  const [duplicateOf, setDuplicateOf] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const key = `purchase-fix-${purchaseId}`;
+  const newCost = cost.trim() === '' ? null : parseMoneyInput(cost);
+  const newRef = validBankReference(reference);
+  const valid = fixing?.field === 'MAKING_COST' ? newCost != null : newRef != null;
+  const m = useMutation({
+    mutationFn: (c: Confirmation) =>
+      postOnce(
+        `/purchases/${purchaseId}/corrections`,
+        fixing?.field === 'MAKING_COST'
+          ? { field: 'MAKING_COST', purchaseItemId: fixing.piece.purchaseItemId, newValue: newCost ?? -1, ...c }
+          : { field: 'MAKING_CHARGE_REFERENCE', newValue: reference, ...(duplicateOf ? { confirmDuplicateReference: true } : {}), ...c },
+        actionKeys.for(key),
+      ),
+    onSuccess: () => {
+      actionKeys.rotate(key);
+      toast.success(t('Correction saved'));
+      qc.invalidateQueries({ queryKey: ['purchase', purchaseId] });
+      close();
+    },
+    onError: (e) => {
+      actionKeys.rotate(key);
+      if (e instanceof ApiError && e.code === 'DUPLICATE_BANK_REFERENCE') {
+        setDuplicateOf(String((e.details as { number?: string } | undefined)?.number ?? ''));
+        setError(null);
+      } else setError(errorText(e));
+    },
+  });
+  const close = () => {
+    setCost('');
+    setReference('');
+    setDuplicateOf(null);
+    setError(null);
+    onClose();
+  };
+  const piece = fixing?.field === 'MAKING_COST' ? fixing.piece : null;
+  return (
+    <CorrectionDialog
+      open={fixing != null}
+      title={piece ? t('Correct the making cost of {code}', { code: piece.code }) : t('Correct the transfer reference')}
+      subtitle={piece ? t('Now {amount}. The order’s making charge follows (the sum of its pieces). The supplier’s gold debt does not change.', { amount: ltr(money(piece.makingCost, false)) }) : t('Now {reference}.', { reference: ltr(currentReference ?? '—') })}
+      confirmLabel={duplicateOf ? t('Record anyway') : t('Save correction')}
+      valid={valid}
+      error={error}
+      loading={m.isPending}
+      onCancel={close}
+      onConfirm={(c) => {
+        setError(null);
+        m.mutate(c);
+      }}
+      testId="purchase-fix-dialog"
+    >
+      {piece ? (
+        <Field label={t('New making cost')} hint={t('Whole SDG; 0 is allowed while the order’s total stays above 0.')}>
+          <MoneyInput value={cost} onValueChange={setCost} placeholder="0" data-testid="purchase-fix-cost" />
+        </Field>
+      ) : (
+        <Field label={t('New transfer reference')} hint={t('4 to 40 letters or digits, as on the bank’s receipt.')}>
+          <ReferenceInput
+            value={reference}
+            onValueChange={(v) => {
+              setReference(v);
+              setDuplicateOf(null);
+            }}
+            data-testid="purchase-fix-reference-input"
+          />
+        </Field>
+      )}
+      {duplicateOf && <Alert tone="warning">{t('This transfer reference is already on supplier order {number}. Record it anyway?', { number: duplicateOf })}</Alert>}
+    </CorrectionDialog>
   );
 }
 

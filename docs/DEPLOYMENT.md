@@ -395,6 +395,14 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   the request (else **403 `RATE_CHANGE_CONFIRM_REQUIRED`**; a wrong password **403 `REAUTH_FAILED`**). `POST
   /gold-rates` and `POST /scrap-rates` accept the optional fields `reason` and `confirmPassword`.
 
+### MIS-1: voiding a scrap purchase; correcting a supplier order (migration 0025)
+
+- **0025** adds the append-only tables `scrap_purchase_voids` and `purchase_corrections`, the piece status
+  **VOIDED** (the checks `ck_jewelry_items_status`, `ck_item_status_history_from_status` and
+  `ck_item_status_history_to_status` are replaced by wider ones, owner approval D-mis1-1), and the permissions
+  `scrap.void` / `purchases.correct`, granted to the General Manager role only. No existing row is changed and
+  nothing stops the upgrade.
+
 ### Stop and recreate is a pre-production rule only
 
 Four migrations so far stop on trial data instead of transforming it, and ask for the database to be recreated:

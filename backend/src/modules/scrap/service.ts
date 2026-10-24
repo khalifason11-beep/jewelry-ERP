@@ -10,7 +10,8 @@
 //   * The broken-scrap pool: append-only `scrap_weight_entries`; balance per branch and karat =
 //     SUM(weight_mg), never cached. Its 24K equivalent uses the ONE pure-gold helper (pureGoldMg).
 
-import { asc, desc, eq, gte, ilike, lt, or, sql, type SQL } from 'drizzle-orm';
+import { asc, desc, eq, gte, ilike, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { assertProductsUsable } from '../catalog/service';
 import { t, type Executor } from '@jerp/database';
 import { ap, divRound, pureGoldMg, sumInt, validBankReference, valueOfWeight, type ScrapKind, type ScrapPaymentMethod, type ScrapWeightEventType } from '@jerp/shared';
@@ -19,7 +20,7 @@ import { branchScope, can, requireAny, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
 import { checkRateChanges, confirmPasswordIfGiven, guardAudit, type RateGuardInput } from '../pricing/rate-guard';
 import { badRequest, forbidden, notFound } from '../../core/errors';
-import { maxIdOf, runPaged, type PageRequest, type SortSpec } from '../../core/paging';
+import { maxIdOf, runPaged, sumOf, type PageRequest, type SortSpec } from '../../core/paging';
 import { assertSellableKarat } from '../../core/karats';
 import { nextItemCode, nextNumber } from '../../core/numbering';
 import { rows } from '../../core/sql';
@@ -390,17 +391,54 @@ const scrapSorts: Record<ScrapSortKey, SortSpec> = {
   amount: { by: t.scrapPurchases.amount, field: 'amount', dir: 'desc' },
 };
 
-/** BE-7: the scrap purchases list, one page at a time (`GET /scrap-purchases`). */
+/** MIS-1: VALID (no void row) or VOIDED, for the list filter. */
+export const SCRAP_PURCHASE_STATUSES = ['VALID', 'VOIDED'] as const;
+export type ScrapPurchaseStatus = (typeof SCRAP_PURCHASE_STATUSES)[number];
+
+const voider = alias(t.users, 'voider');
+
+/** The columns of a scrap purchase row, with its void (MIS-1: status, who, when and why) joined. */
+const scrapColumns = {
+  id: t.scrapPurchases.id,
+  number: t.scrapPurchases.number,
+  branchId: t.scrapPurchases.branchId,
+  branchName: t.branches.name,
+  kind: t.scrapPurchases.kind,
+  karat: t.scrapPurchases.karat,
+  netWeightMg: t.scrapPurchases.netWeightMg,
+  scrapRatePerGram: t.scrapPurchases.scrapRatePerGram,
+  agreedRatePerGram: t.scrapPurchases.agreedRatePerGram,
+  deviationBp: t.scrapPurchases.deviationBp,
+  overrideApproved: t.scrapPurchases.overrideApproved,
+  amount: t.scrapPurchases.amount,
+  paymentMethod: t.scrapPurchases.paymentMethod,
+  cashAmount: t.scrapPurchases.cashAmount,
+  bankAmount: t.scrapPurchases.bankAmount,
+  bankReference: t.scrapPurchases.bankReference,
+  itemId: t.scrapPurchases.itemId,
+  customerName: t.scrapPurchases.customerName,
+  createdAt: t.scrapPurchases.createdAt,
+  createdByName: t.users.fullName,
+  status: sql<ScrapPurchaseStatus>`CASE WHEN ${t.scrapPurchaseVoids.id} IS NULL THEN 'VALID' ELSE 'VOIDED' END`,
+  voidedAt: t.scrapPurchaseVoids.createdAt,
+  voidReason: t.scrapPurchaseVoids.reason,
+  voidedByName: voider.fullName,
+};
+
+/** BE-7: the scrap purchases list, one page at a time (`GET /scrap-purchases`). MIS-1: the status filter, and totals of
+ * the VALID purchases only, with how many voided ones the filter also matched (left out of the totals). */
 export async function listScrapPurchases(
   ctx: Ctx,
   actor: Actor,
-  q: { branchId?: number; from?: string; to?: string; kind?: ScrapKind; q?: string } & PageRequest<ScrapSortKey>,
+  q: { branchId?: number; from?: string; to?: string; kind?: ScrapKind; status?: ScrapPurchaseStatus; q?: string } & PageRequest<ScrapSortKey>,
 ) {
   requireAny(actor, 'scrap.buy', 'purchases.view');
   const scope = branchScope(actor, q.branchId);
   const where: SQL[] = [];
   if (scope != null) where.push(eq(t.scrapPurchases.branchId, scope));
   if (q.kind) where.push(eq(t.scrapPurchases.kind, q.kind));
+  if (q.status === 'VALID') where.push(isNull(t.scrapPurchaseVoids.id));
+  if (q.status === 'VOIDED') where.push(isNotNull(t.scrapPurchaseVoids.id));
   if (q.from && q.to) {
     const { company } = await ctx.settings.get();
     const r = dayRange(q.from, q.to, company.timezone);
@@ -410,43 +448,71 @@ export async function listScrapPurchases(
     const s = `%${q.q.trim()}%`;
     where.push(or(ilike(t.scrapPurchases.number, s), ilike(t.scrapPurchases.customerName, s))!);
   }
+  const valid = sql`${t.scrapPurchaseVoids.id} IS NULL`;
   return runPaged(actor, q, {
     sorts: scrapSorts,
     defaultSort: 'date',
     id: t.scrapPurchases.id,
     where,
     maxId: async () => Number((await ctx.db.select({ m: maxIdOf(t.scrapPurchases.id) }).from(t.scrapPurchases))[0].m),
-    count: async (w) => Number((await ctx.db.select({ n: sql<number>`count(*)` }).from(t.scrapPurchases).where(w))[0].n),
-    rows: ({ where: w, orderBy, limit, offset }) =>
-      ctx.db
+    count: async (w) =>
+      Number((await ctx.db.select({ n: sql<number>`count(*)` }).from(t.scrapPurchases).leftJoin(t.scrapPurchaseVoids, eq(t.scrapPurchaseVoids.purchaseId, t.scrapPurchases.id)).where(w))[0].n),
+    totals: async (w) => {
+      const [r] = await ctx.db
         .select({
-          id: t.scrapPurchases.id,
-          number: t.scrapPurchases.number,
-          branchId: t.scrapPurchases.branchId,
-          branchName: t.branches.name,
-          kind: t.scrapPurchases.kind,
-          karat: t.scrapPurchases.karat,
-          netWeightMg: t.scrapPurchases.netWeightMg,
-          scrapRatePerGram: t.scrapPurchases.scrapRatePerGram,
-          agreedRatePerGram: t.scrapPurchases.agreedRatePerGram,
-          deviationBp: t.scrapPurchases.deviationBp,
-          overrideApproved: t.scrapPurchases.overrideApproved,
-          amount: t.scrapPurchases.amount,
-          paymentMethod: t.scrapPurchases.paymentMethod,
-          cashAmount: t.scrapPurchases.cashAmount,
-          bankAmount: t.scrapPurchases.bankAmount,
-          bankReference: t.scrapPurchases.bankReference,
-          itemId: t.scrapPurchases.itemId,
-          customerName: t.scrapPurchases.customerName,
-          createdAt: t.scrapPurchases.createdAt,
-          createdByName: t.users.fullName,
+          count: sql<number>`count(*) FILTER (WHERE ${valid})`.mapWith(Number),
+          netWeightMg: sumOf(sql`CASE WHEN ${valid} THEN ${t.scrapPurchases.netWeightMg} END`),
+          amount: sumOf(sql`CASE WHEN ${valid} THEN ${t.scrapPurchases.amount} END`),
+          voidedExcluded: sql<number>`count(*) FILTER (WHERE NOT ${valid})`.mapWith(Number),
         })
         .from(t.scrapPurchases)
-        .innerJoin(t.branches, eq(t.branches.id, t.scrapPurchases.branchId))
-        .innerJoin(t.users, eq(t.users.id, t.scrapPurchases.createdBy))
+        .leftJoin(t.scrapPurchaseVoids, eq(t.scrapPurchaseVoids.purchaseId, t.scrapPurchases.id))
+        .where(w);
+      return r;
+    },
+    rows: ({ where: w, orderBy, limit, offset }) =>
+      scrapQuery(ctx)
         .where(w)
         .orderBy(...orderBy)
         .limit(limit)
         .offset(offset),
   });
+}
+
+const scrapQuery = (ctx: Ctx) =>
+  ctx.db
+    .select(scrapColumns)
+    .from(t.scrapPurchases)
+    .innerJoin(t.branches, eq(t.branches.id, t.scrapPurchases.branchId))
+    .innerJoin(t.users, eq(t.users.id, t.scrapPurchases.createdBy))
+    .leftJoin(t.scrapPurchaseVoids, eq(t.scrapPurchaseVoids.purchaseId, t.scrapPurchases.id))
+    .leftJoin(voider, eq(voider.id, t.scrapPurchaseVoids.voidedBy));
+
+/**
+ * MIS-1: one scrap purchase (`GET /scrap-purchases/:id`): the list row plus the weights, the customer, the note, the
+ * piece's code and status, and the money entries (the purchase's and, once voided, their reversals).
+ */
+export async function getScrapPurchase(ctx: Ctx, actor: Actor, id: number) {
+  requireAny(actor, 'scrap.buy', 'purchases.view');
+  const [row] = await scrapQuery(ctx).where(eq(t.scrapPurchases.id, id));
+  if (!row) throw notFound('Scrap purchase');
+  branchScope(actor, row.branchId);
+  const [p] = await ctx.db.select().from(t.scrapPurchases).where(eq(t.scrapPurchases.id, id));
+  const [item] = p.itemId != null ? await ctx.db.select({ code: t.jewelryItems.code, status: t.jewelryItems.status }).from(t.jewelryItems).where(eq(t.jewelryItems.id, p.itemId)) : [];
+  const money = await ctx.db
+    .select({ id: t.ledgerEntries.id, account: t.ledgerAccounts.kind, amount: t.ledgerEntries.amount, eventType: t.ledgerEntries.eventType, reversesEntryId: t.ledgerEntries.reversesEntryId, at: t.ledgerEntries.at })
+    .from(t.ledgerEntries)
+    .innerJoin(t.ledgerAccounts, eq(t.ledgerAccounts.id, t.ledgerEntries.accountId))
+    .where(sql`${t.ledgerEntries.refType} = 'scrap_purchase' AND ${t.ledgerEntries.refId} = ${id}`)
+    .orderBy(asc(t.ledgerEntries.id));
+  return {
+    ...row,
+    grossWeightMg: p.grossWeightMg,
+    customerPhone: p.customerPhone,
+    customerIdRef: p.customerIdRef,
+    note: p.note,
+    itemCode: item?.code ?? null,
+    itemStatus: item?.status ?? null,
+    money,
+  };
 }

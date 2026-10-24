@@ -69,6 +69,8 @@
 | `scrap_rates` | Append-only rate history per karat; the latest row is current |
 | `scrap_purchases` | Append-only: scrap bought from a customer (see below) |
 | `scrap_weight_entries` | Append-only movements of the broken-scrap pool, per branch and karat (SCRAP_PURCHASE, SUPPLIER_SETTLEMENT, REVERSAL) |
+| `scrap_purchase_voids` | Append-only (MIS-1, migration 0025): the void of a scrap purchase, at most one per purchase (`purchase_id` UNIQUE), with `reason`, `voided_by`, `session_id`, `created_at` |
+| `purchase_corrections` | Append-only (MIS-1, migration 0025): corrections of a supplier order (see below) |
 
 **`purchases`** columns:
 
@@ -84,6 +86,16 @@
   - No ledger entry is written.
   - The migration stops, changing nothing, on a database holding orders paid from branch money. Such databases are
     recreated, not upgraded (pre-production only).
+
+**`purchase_corrections`** columns (MIS-1):
+
+- `field`: `MAKING_COST` (one piece: `purchase_item_id` names its line) or `MAKING_CHARGE_REFERENCE` (the order:
+  `purchase_item_id` is NULL);
+- `value_before` and `value_after` (text, COST; whole SDG for a making cost), `reason` (3–200), `confirmed_duplicate`,
+  `corrected_by`, `session_id`, `created_at`.
+- The **effective** value of a field is the latest correction of that (piece or order, field), else the original
+  column. `purchases` and `purchase_items` are never updated; the order's making charge is the sum of its pieces'
+  effective making costs. The supplier gold debt is never corrected.
 
 **`scrap_purchases`** columns:
 
@@ -144,8 +156,8 @@ These tables are protected by triggers (`jerp_forbid_modification`, against UPDA
 PostgreSQL, the runtime role's privileges are also removed (`jerp_lock_append_only`):
 
 `audit_logs`, `backup_runs`, `cash_counts`, `gm_funding_events`, `gold_rates`, `hasad_receivable_settlements`,
-`inventory_movements`, `item_status_history`, `ledger_entries`, `scrap_purchases`, `scrap_rates`,
-`scrap_weight_entries`, `settings_history`, `supplier_settlements`.
+`inventory_movements`, `item_status_history`, `ledger_entries`, `purchase_corrections`, `scrap_purchase_voids`,
+`scrap_purchases`, `scrap_rates`, `scrap_weight_entries`, `settings_history`, `supplier_settlements`.
 
 The start-up privilege report and the restore drill use the same list (`APPEND_ONLY_TABLES` in
 `backend/src/core/startup.ts`); `backend/test/append-only-list.test.ts` fails if it differs from the migrations (CLN-1).
@@ -157,7 +169,8 @@ The start-up privilege report and the restore drill use the same list (`APPEND_O
                                     ├→ TRANSFERRED → AVAILABLE   (at the receiving branch)
                                     ├→ DAMAGED ─┬→ AVAILABLE     (restock)
                                     │           └→ RETURNED      (to supplier)
-                                    └→ RETURNED                  (to supplier)
+                                    ├→ RETURNED                  (to supplier)
+                                    └→ VOIDED                    (its scrap purchase voided, MIS-1; terminal)
 ```
 
 `PURCHASED` and `RECEIVED` appear in the history only. Every transition goes through one guarded function, which runs
@@ -202,4 +215,5 @@ a conditional update on the current status.
 | `0021_csh2_scrap_split_payment` | CSH-2: cash and bank parts and the bank reference on scrap purchases |
 | `0022_mkc1_owner_making_charge` | MKC-1: making charge paid by the owner (`OWNER_PERSONAL`), reference and date; `purchases.create` for the General Manager only |
 | `0023_be7_sale_items_sale_idx` | BE-7: index `sale_items(sale_id)` (the lines of a sale are read by sale: list pages, sale detail, void). Additive only |
+| `0025_mis1_corrections` | MIS-1: append-only `scrap_purchase_voids` and `purchase_corrections`; piece status `VOIDED` (the three status checks widened, D-mis1-1); permissions `scrap.void` and `purchases.correct` (General Manager only). No row is changed |
 | `0024_prc1_computed_prices` | PRC-1: `gold_rates.kind` (NEW/USED, validated check, index), permission `scrap.buy_sellable` (every role), and `pricing.mode = FIXED_TAG` written only when pieces already exist (an upgraded installation keeps its tag prices). Additive only |

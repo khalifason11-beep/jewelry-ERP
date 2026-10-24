@@ -153,7 +153,12 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/scrap-rates', 'global', { all: ['settings.manage'], reauth: true }),
   r('GET', '/scrap-purchases', 'branch', { any: ['scrap.buy', 'purchases.view'] }),
   r('POST', '/scrap-purchases', 'branch', { any: ['scrap.buy', 'scrap.buy_sellable'], idempotent: true, idempotencyInTx: true }),
+  // MIS-1 (SCR-VOID): one purchase with its void; the void itself (General Manager only, reason and password in the body).
+  r('GET', '/scrap-purchases/:id', 'branch', { any: ['scrap.buy', 'purchases.view'] }),
+  r('POST', '/scrap-purchases/:id/void', 'branch', { all: ['scrap.void'], reauth: true, idempotent: true, idempotencyInTx: true }),
   r('GET', '/scrap-pool', 'branch', { any: ['inventory.view', 'scrap.buy'] }),
+  // MIS-1 (PUR-FIX): a correction of one piece's making cost or of the order's transfer reference (General Manager only).
+  r('POST', '/purchases/:id/corrections', 'branch', { all: ['purchases.correct'], reauth: true, idempotent: true, idempotencyInTx: true }),
   r('POST', '/purchases/:id/settlements', 'branch', { all: ['purchases.settle'], idempotent: true, idempotencyInTx: true }),
   // ── cash (Phase 2b): expected drawer balance, daily reconciliation, counted cash
   r('GET', '/cash/drawer', 'branch', { all: ['cash.view'] }),

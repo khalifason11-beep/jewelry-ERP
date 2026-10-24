@@ -144,4 +144,5 @@ jobs:
       - run: node scripts/e2e-states.mjs
       - run: node scripts/e2e-add-piece.mjs
       - run: node scripts/e2e-prices.mjs
+      - run: node scripts/e2e-corrections.mjs
       - run: node scripts/capture-ui-kit.mjs

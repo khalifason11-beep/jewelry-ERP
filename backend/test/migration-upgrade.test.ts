@@ -1,7 +1,8 @@
 // SAFE-1 part 2: a database created at an OLD schema version, holding realistic data, upgrades cleanly to the current
 // schema. Both projects; the real-PostgreSQL run is the one that matters (it is what a server upgrade does).
 //
-// For each starting version (0015 = before REM-5's drops, 0019 = before CSH-2 and MKC-1, 0023 = before PRC-1): migrate to it, seed rows in
+// For each starting version (0015 = before REM-5's drops, 0019 = before CSH-2 and MKC-1, 0023 = before PRC-1, 0024 = before
+// MIS-1): migrate to it, seed rows in
 // the tables later migrations touch, snapshot counts and money/weight totals, apply ALL remaining migrations, then:
 // row counts unchanged, totals and ledger balances identical, the append-only triggers present and still refusing
 // UPDATE/DELETE, no constraint left NOT VALID, and the app answers /api/health on the upgraded database. A second
@@ -125,11 +126,11 @@ async function migrateAll(h: DatabaseHandle) {
   await migrate(h.db as never, { migrationsFolder: MIGRATIONS_DIR });
 }
 
-describe.each([15, 19, 23])('upgrade from migration %i with data', (from) => {
+describe.each([15, 19, 23, 24])('upgrade from migration %i with data', (from) => {
   it('keeps every row and every total, keeps the protections, boots, and a second migrate is a no-op', async () => {
     const h = await openAt(from);
     try {
-      await runUpgrade(h);
+      await runUpgrade(h, from);
     } finally {
       // Close before the harness drops the database: a still-open pooled connection would be terminated under it.
       await h.close();
@@ -137,7 +138,7 @@ describe.each([15, 19, 23])('upgrade from migration %i with data', (from) => {
   }, 180_000);
 });
 
-async function runUpgrade(h: DatabaseHandle) {
+async function runUpgrade(h: DatabaseHandle, from: number) {
   await seed(h);
   const before = await facts(h);
   expect(before.counts.sales).toBe(2);
@@ -160,12 +161,34 @@ async function runUpgrade(h: DatabaseHandle) {
 
   // PRC-1 (migration 0024): every old selling rate is the NEW-piece rate; this installation already holds pieces, so it
   // keeps its tag prices (pricing.mode = FIXED_TAG, with its history row) until the General Manager switches; every
-  // role that exists gets scrap.buy_sellable.
+  // role that exists gets scrap.buy_sellable. (Starting at 0024, the data came after that migration ran.)
   expect(rowsOf<{ kind: string }>(await h.db.execute(sql.raw(`SELECT DISTINCT kind FROM gold_rates`))).map((r) => r.kind)).toEqual(['NEW']);
-  expect((await one(h, `SELECT value FROM settings WHERE key = 'pricing.mode'`))?.value).toBe('FIXED_TAG');
-  expect(Number((await one(h, `SELECT count(*) AS n FROM settings_history WHERE key = 'pricing.mode' AND actor_username = 'system:migration-0024'`)).n)).toBe(1);
-  expect(rowsOf<{ code: string }>(await h.db.execute(sql.raw(`SELECT r.code FROM role_permissions rp JOIN roles r ON r.id = rp.role_id WHERE rp.permission_code = 'scrap.buy_sellable' ORDER BY r.code`))).map((r) => r.code)).toEqual(['CASHIER', 'GENERAL_MANAGER']);
+  if (from < 24) {
+    expect((await one(h, `SELECT value FROM settings WHERE key = 'pricing.mode'`))?.value).toBe('FIXED_TAG');
+    expect(Number((await one(h, `SELECT count(*) AS n FROM settings_history WHERE key = 'pricing.mode' AND actor_username = 'system:migration-0024'`)).n)).toBe(1);
+    expect(rowsOf<{ code: string }>(await h.db.execute(sql.raw(`SELECT r.code FROM role_permissions rp JOIN roles r ON r.id = rp.role_id WHERE rp.permission_code = 'scrap.buy_sellable' ORDER BY r.code`))).map((r) => r.code)).toEqual(['CASHIER', 'GENERAL_MANAGER']);
+  }
   expect(await refused(h, `INSERT INTO gold_rates (karat, price_per_gram, kind) VALUES (21, 1, 'OTHER')`)).toBe(true);
+
+  // MIS-1 (migration 0025): the two permissions go to the General Manager only; the new tables start empty; the piece
+  // status checks now take VOIDED (and still refuse an unknown status); a void row is append-only.
+  expect(rowsOf<{ p: string }>(await h.db.execute(sql.raw(`SELECT r.code || ':' || rp.permission_code AS p FROM role_permissions rp JOIN roles r ON r.id = rp.role_id WHERE rp.permission_code IN ('scrap.void', 'purchases.correct') ORDER BY 1`))).map((r) => r.p)).toEqual(['GENERAL_MANAGER:purchases.correct', 'GENERAL_MANAGER:scrap.void']);
+  expect(Number((await one(h, `SELECT count(*) AS n FROM scrap_purchase_voids`)).n)).toBe(0);
+  expect(Number((await one(h, `SELECT count(*) AS n FROM purchase_corrections`)).n)).toBe(0);
+  expect(await refused(h, `UPDATE jewelry_items SET status = 'GONE' WHERE code = 'J-92'`)).toBe(true);
+  expect(await refused(h, `INSERT INTO item_status_history (item_id, from_status, to_status, branch_id) SELECT id, 'AVAILABLE', 'VOIDED', branch_id FROM jewelry_items WHERE code = 'J-92'`)).toBe(false);
+  expect(await refused(h, `UPDATE jewelry_items SET status = 'VOIDED' WHERE code = 'J-92'`)).toBe(false);
+  const scrapId = Number((await one(h, `SELECT id FROM scrap_purchases LIMIT 1`)).id);
+  const gmId = Number((await one(h, `SELECT id FROM users WHERE username = 'upgrade.alpha'`)).id);
+  expect(await refused(h, `INSERT INTO scrap_purchase_voids (purchase_id, reason, voided_by) VALUES (${scrapId}, 'x', ${gmId})`)).toBe(true); // reason too short
+  expect(await refused(h, `INSERT INTO scrap_purchase_voids (purchase_id, reason, voided_by) VALUES (${scrapId + 1000}, 'no such purchase', ${gmId})`)).toBe(true);
+  await run(h, `INSERT INTO scrap_purchase_voids (purchase_id, reason, voided_by) VALUES (${scrapId}, 'upgrade check', ${gmId})`);
+  expect(await refused(h, `INSERT INTO scrap_purchase_voids (purchase_id, reason, voided_by) VALUES (${scrapId}, 'a second void', ${gmId})`)).toBe(true);
+  expect(await refused(h, `UPDATE scrap_purchase_voids SET reason = 'changed'`)).toBe(true);
+  expect(await refused(h, `DELETE FROM scrap_purchase_voids`)).toBe(true);
+  await run(h, `UPDATE jewelry_items SET status = 'AVAILABLE' WHERE code = 'J-92'`);
+  // The checks above added one history row; the second migrate below must change nothing from here.
+  const settled = await facts(h);
 
   // The app boots on the upgraded database.
   const app = createApp(createContext(h), loadConfig({ APP_MODE: 'demo', VITEST: '1' } as NodeJS.ProcessEnv));
@@ -175,5 +198,5 @@ async function runUpgrade(h: DatabaseHandle) {
   // A second run applies nothing and changes nothing.
   await migrateAll(h);
   expect(await appliedCount(h)).toBe(total);
-  expect(await facts(h)).toEqual({ ...before, counts: { ...before.counts } });
+  expect(await facts(h)).toEqual(settled);
 }

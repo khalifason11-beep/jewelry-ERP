@@ -410,6 +410,34 @@ export const purchaseItems = pgTable('purchase_items', {
   otherCost: money('other_cost').notNull(),
 });
 
+/**
+ * MIS-1 (PUR-FIX): a correction of a supplier order, append-only. MAKING_COST corrects one piece's line
+ * (`purchase_item_id` set); MAKING_CHARGE_REFERENCE corrects the order's transfer reference (`purchase_item_id` null).
+ * The effective value of a field is the latest correction of that (piece or order, field), else the original column;
+ * `purchases` and `purchase_items` are never updated. The supplier gold debt is never corrected.
+ */
+export const purchaseCorrections = pgTable(
+  'purchase_corrections',
+  {
+    id: serial('id').primaryKey(),
+    purchaseId: integer('purchase_id').notNull().references(() => purchases.id),
+    purchaseItemId: integer('purchase_item_id').references(() => purchaseItems.id),
+    /** MAKING_COST | MAKING_CHARGE_REFERENCE. */
+    field: text('field').notNull(),
+    /** The effective value before and after, as text (whole SDG for MAKING_COST). */
+    valueBefore: text('value_before'),
+    valueAfter: text('value_after').notNull(),
+    /** Why (3–200 characters after trimming). */
+    reason: text('reason').notNull(),
+    /** The General Manager confirmed a reference already used on another order (409 DUPLICATE_REFERENCE). */
+    confirmedDuplicate: boolean('confirmed_duplicate').notNull().default(false),
+    correctedBy: integer('corrected_by').notNull().references(() => users.id),
+    sessionId: text('session_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('purchase_corrections_purchase_idx').on(t.purchaseId, t.id), index('purchase_corrections_item_idx').on(t.purchaseItemId, t.id)],
+);
+
 // ───────────────────────────── Sales ─────────────────────────────
 
 export const sales = pgTable(
@@ -629,6 +657,25 @@ export const scrapPurchases = pgTable(
   },
   (t) => [index('scrap_purchases_branch_at_idx').on(t.branchId, t.createdAt)],
 );
+
+/**
+ * MIS-1 (SCR-VOID): the void of a scrap purchase, append-only. At most one per purchase (UNIQUE). The purchase row
+ * itself is never changed; every read joins this table. The money, the piece or the pool weight are reversed in the
+ * same transaction (ledger REVERSAL, piece → VOIDED, pool REVERSAL).
+ */
+export const scrapPurchaseVoids = pgTable('scrap_purchase_voids', {
+  id: serial('id').primaryKey(),
+  /**
+   * The voided purchase. No foreign key: `scrap_purchases` is append-only and the runtime role has no UPDATE on it, so
+   * PostgreSQL's key check (FOR KEY SHARE) would be refused; trigger `jerp_scrap_purchase_void_check` checks it instead.
+   */
+  purchaseId: integer('purchase_id').notNull().unique(),
+  /** Why (3–200 characters after trimming). */
+  reason: text('reason').notNull(),
+  voidedBy: integer('voided_by').notNull().references(() => users.id),
+  sessionId: text('session_id'),
+  createdAt: createdAt(),
+});
 
 /**
  * Broken-scrap WEIGHT pool per branch (append-only, like ledger_entries). Never a jewelry item.

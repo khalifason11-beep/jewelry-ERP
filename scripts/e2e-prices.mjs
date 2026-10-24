@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { apiClient, buildSalesWorld, loadModule, PEOPLE, ROOT, startEmptyServer } from './lib/e2e-world.mjs';
 import { toWebp } from './lib/screens.mjs';
+import { confirmIfAsked, digits, eventually, retype, signIn as signInAt } from './lib/e2e-ui.mjs';
 
 const { chromium } = loadModule('playwright');
 const SHOTS = process.argv.includes('--shots');
@@ -34,27 +35,8 @@ async function shot(page, name) {
   await page.waitForTimeout(300);
   fs.writeFileSync(path.join(OUT, `${name}.webp`), await toWebp(BROWSER, await page.screenshot({ type: 'png' })));
 }
-/** A condition the screen reaches one render later: poll it, at most `ms`. */
-async function eventually(fn, ms = 8_000) {
-  const end = Date.now() + ms;
-  for (;;) {
-    if (await fn()) return true;
-    if (Date.now() > end) return false;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-}
-const digits = (s) => s.replace(/[^\d]/g, '');
+const signIn = (page, who) => signInAt(page, BASE, who);
 const price = (mg, rate) => Math.round((mg * rate) / 1000); // rounding step 1 (the default)
-
-async function signIn(page, who) {
-  await page.goto(`${BASE}/login`);
-  await page.evaluate(() => localStorage.setItem('jerp.lang', 'ar'));
-  await page.fill('input[autocomplete=username]', who.username);
-  await page.fill('input[autocomplete=current-password]', who.password);
-  await page.click('button[type=submit]');
-  await page.waitForURL((u) => u.pathname !== '/login', { timeout: 15_000 });
-  await page.getByTestId('sidebar').waitFor();
-}
 
 async function pricesPage(page, gm) {
   section('The Prices page (General Manager): three rate tables and the history');
@@ -67,24 +49,6 @@ async function pricesPage(page, gm) {
   const hist = await page.getByTestId('rates-history').locator('tbody tr').allInnerTexts();
   check(hist.length >= 3 && hist.every((r) => r.includes(PEOPLE.gm.fullName)), `the history lists every change with who and when (${hist.length} lines, each by ${PEOPLE.gm.fullName})`);
   await shot(page, 'prices');
-}
-
-/** Fill and confirm the re-authentication dialog if the page asks (the rate routes need the re-auth window). */
-async function confirmIfAsked(page, password) {
-  await page.waitForTimeout(400);
-  if (await page.locator('#reauth-form').count()) {
-    await page.fill('#reauth-form input[type=password]', password);
-    await page.click('button[form=reauth-form]');
-    await page.waitForTimeout(400);
-  }
-}
-
-/** Replace a money field's value (select all, then type, as a person would). */
-async function retype(page, testId, value) {
-  await page.click(`[data-testid=${testId}]`);
-  await page.keyboard.press('Control+A');
-  await page.keyboard.press('Backspace');
-  await page.keyboard.type(value);
 }
 
 async function guardFlow(page, gm, world) {

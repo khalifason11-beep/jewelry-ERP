@@ -29,6 +29,7 @@ import {
   SCRAP_KINDS,
   SCRAP_PAYMENT_METHODS,
   SCRAP_WEIGHT_EVENT_TYPES,
+  PURCHASE_CORRECTION_FIELDS,
   PURCHASE_STATUSES,
   SALE_STATUSES,
   SESSION_STATUSES,
@@ -95,6 +96,8 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   // ── CSH-2: GM funding (migration 0020)
   e('gm_funding_events', 'kind', GM_FUNDING_KINDS),
   e('gm_funding_events', 'account', CASH_OR_BANK),
+  // ── MIS-1: supplier-order corrections (migration 0025; VOIDED reaches the piece status checks through ITEM_STATUSES)
+  e('purchase_corrections', 'field', PURCHASE_CORRECTION_FIELDS),
 ];
 
 const nonNeg = (table: string, ...columns: string[]): ExprCheck[] =>
@@ -215,6 +218,13 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
     expr: "kind = 'REVERSAL' OR account <> 'BANK' OR (bank_reference IS NOT NULL AND length(btrim(bank_reference)) BETWEEN 4 AND 40)",
   },
   { name: 'ck_gm_funding_events_linked_ref', table: 'gm_funding_events', expr: 'linked_ref IS NULL OR length(btrim(linked_ref)) BETWEEN 3 AND 40' },
+  // ── MIS-1: scrap-purchase voids and supplier-order corrections (migration 0025)
+  { name: 'ck_scrap_purchase_voids_reason', table: 'scrap_purchase_voids', expr: 'length(btrim(reason)) BETWEEN 3 AND 200' },
+  { name: 'ck_purchase_corrections_reason', table: 'purchase_corrections', expr: 'length(btrim(reason)) BETWEEN 3 AND 200' },
+  // A piece's making cost names its line; the order's transfer reference names none.
+  { name: 'ck_purchase_corrections_item', table: 'purchase_corrections', expr: "(field = 'MAKING_COST') = (purchase_item_id IS NOT NULL)" },
+  { name: 'ck_purchase_corrections_making_cost', table: 'purchase_corrections', expr: "field <> 'MAKING_COST' OR value_after ~ '^(0|[1-9][0-9]{0,14})$'" },
+  { name: 'ck_purchase_corrections_reference', table: 'purchase_corrections', expr: "field <> 'MAKING_CHARGE_REFERENCE' OR length(btrim(value_after)) BETWEEN 4 AND 40" },
 ];
 
 /** The SQL expression for an enum check. */

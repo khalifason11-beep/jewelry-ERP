@@ -176,6 +176,13 @@
       "when": 1792209107800,
       "tag": "0024_prc1_computed_prices",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1792398740706,
+      "tag": "0025_mis1_corrections",
+      "breakpoints": true
     }
   ]
 }

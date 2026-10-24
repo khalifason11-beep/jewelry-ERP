@@ -4,7 +4,7 @@
 import { pricingOf } from '../pricing/service';
 import { and, desc, eq, gte, ilike, inArray, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { PAYMENT_METHODS, type ReportKey } from '@jerp/shared';
+import { ITEM_STATUSES, PAYMENT_METHODS, type ReportKey } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requirePerm } from '../../authz';
 import { badRequest } from '../../core/errors';
@@ -201,7 +201,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
         ...capInfo(agg.rowCount, cap('inventory'), rowsAll.length),
         totals: agg.totals,
         summary: stockSummary((await stockWeight(ctx.db, scope)).total),
-        filters: { dateRange: false, branch: true, user: false, status: ['AVAILABLE', 'SOLD', 'TRANSFERRED', 'DAMAGED', 'RETURNED'] },
+        filters: { dateRange: false, branch: true, user: false, status: [...ITEM_STATUSES] },
       };
     }
     case 'stock-weight': {
