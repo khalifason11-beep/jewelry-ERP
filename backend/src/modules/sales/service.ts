@@ -84,12 +84,15 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
     const locked = await lockItems(tx, ids);
     const byId = new Map(locked.map((i) => [i.id, i]));
     const [branch] = await tx.select().from(t.branches).where(eq(t.branches.id, branchId));
-    const products = await tx
-      .select({ id: t.products.id, name: t.products.name, nameAr: t.products.nameAr })
-      .from(t.products)
-      .where(inArray(t.products.id, locked.map((i) => i.productId).filter((id): id is number => id != null)));
-    // Snapshot of the name at the time of sale; the English name is optional (CAT-0), so fall back to Arabic.
-    const productName = new Map(products.map((p) => [p.id, p.name?.trim() ? p.name : p.nameAr]));
+    // CAT-1 (D-cat0-3): the names as they are at the sale (product optional, the piece's own type, its description), so a
+    // later rename never rewrites the invoice. The English product name is optional (CAT-0): fall back to Arabic.
+    const names = await tx
+      .select({ itemId: t.jewelryItems.id, productName: t.products.name, productNameAr: t.products.nameAr, categoryName: t.categories.name, categoryNameAr: t.categories.nameAr })
+      .from(t.jewelryItems)
+      .leftJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+      .innerJoin(t.categories, eq(t.categories.id, t.jewelryItems.categoryId))
+      .where(inArray(t.jewelryItems.id, ids));
+    const nameOf = new Map(names.map((n) => [n.itemId, n]));
 
     const priced = input.items.map((line) => {
       const item = byId.get(line.itemId)!;
@@ -188,7 +191,7 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       await tx.insert(t.saleItems).values({
         saleId: sale.id,
         itemId: l.item.id,
-        productName: (l.item.productId != null ? productName.get(l.item.productId) : undefined) ?? l.item.code,
+        ...lineNames(l.item, nameOf.get(l.item.id)),
         karat: l.item.karat,
         netWeightMg: l.item.netWeightMg,
         listPrice: l.listPrice,
@@ -465,8 +468,12 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
       itemId: t.saleItems.itemId,
       itemCode: t.jewelryItems.code,
       barcode: t.jewelryItems.barcode,
+      // CAT-1: the names as they were at the sale (snapshots), never the live product or type.
       productName: t.saleItems.productName,
-      productNameAr: t.products.nameAr,
+      productNameAr: sql<string>`coalesce(${t.saleItems.productNameAr}, ${t.saleItems.productName})`,
+      categoryName: t.saleItems.categoryName,
+      categoryNameAr: t.saleItems.categoryNameAr,
+      description: t.saleItems.description,
       karat: t.saleItems.karat,
       netWeightMg: t.saleItems.netWeightMg,
       grossWeightMg: t.jewelryItems.grossWeightMg,
@@ -486,7 +493,6 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
     })
     .from(t.saleItems)
     .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.saleItems.itemId))
-    .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
     .leftJoin(t.purchaseItems, eq(t.purchaseItems.itemId, t.jewelryItems.id))
     .where(eq(t.saleItems.saleId, id));
 
@@ -589,4 +595,19 @@ export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: strin
     await opts.idem?.complete(tx, result);
     return result;
   });
+}
+
+/** CAT-1: a sale line's name snapshots: the description, else the product, else the type (English falls back to Arabic). */
+function lineNames(
+  item: { code: string; description: string | null },
+  n: { productName: string | null; productNameAr: string | null; categoryName: string | null; categoryNameAr: string } | undefined,
+) {
+  const en = (v: string | null | undefined) => (v?.trim() ? v : null);
+  return {
+    productName: item.description ?? en(n?.productName) ?? n?.productNameAr ?? en(n?.categoryName) ?? n?.categoryNameAr ?? item.code,
+    productNameAr: item.description ?? n?.productNameAr ?? n?.categoryNameAr ?? null,
+    categoryName: n?.categoryName ?? null,
+    categoryNameAr: n?.categoryNameAr ?? null,
+    description: item.description,
+  };
 }

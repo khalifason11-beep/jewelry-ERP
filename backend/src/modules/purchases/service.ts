@@ -1,6 +1,6 @@
 import { ap, pureGoldMg, sumInt, validBankReference, type MakingChargePayer } from '@jerp/shared';
 import { livePriceSql, pricingOf } from '../pricing/service';
-import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, lt, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import { nameOrAr } from '../../core/sql';
 import type { Actor, Ctx } from '../../core/context';
@@ -9,17 +9,21 @@ import { writeAudit } from '../../core/audit';
 import { AppError, badRequest, notFound } from '../../core/errors';
 import { nextItemCode, nextNumber } from '../../core/numbering';
 import { dayKey, dayRange } from '../../core/time';
-import { recordMovement } from '../inventory/ledger';
+import { itemNameArSql, itemNameSql, recordMovement } from '../inventory/ledger';
 import { assertSellableKarat } from '../../core/karats';
 import type { TxIdempotency } from '../../core/idempotency';
 import { settlementsFor } from '../supplier-settlements/service';
-import { assertProductsUsable } from '../catalog/service';
+import { resolvePieceKinds } from '../catalog/service';
 import { daysOpen, supplierGoldOwed } from './supplier-debt';
 import { maxIdOf, runPaged, sumOf, type PageRequest, type SortSpec } from '../../core/paging';
 import { correctionsOf, effectiveLineMakingSql, effectiveMakingChargeSql, effectiveReferenceSql, effectiveTotalCostSql, orderWithReference } from './corrections';
 
 export interface PurchaseLine {
-  productId: number;
+  /** CAT-1: optional. Without a product the line names its type and karat (and an optional description). */
+  productId?: number | null;
+  categoryId?: number | null;
+  karat?: number | null;
+  description?: string | null;
   grossWeightMg: number;
   netWeightMg: number;
   purchaseCost: number;
@@ -102,16 +106,11 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
   return ctx.db.transaction(async (tx) => {
     await opts.idem?.claim(tx);
     const [branch] = await tx.select().from(t.branches).where(eq(t.branches.id, branchId));
-    const products = await tx.select().from(t.products).where(inArray(t.products.id, input.lines.map((l) => l.productId)));
-    const byId = new Map(products.map((p) => [p.id, p]));
-    // Karat restriction (D-4-1): a supplier piece is sellable stock.
-    for (const l of input.lines) {
-      const product = byId.get(l.productId);
-      if (!product) throw notFound('Product');
-      await assertSellableKarat(ctx, product.karat);
-    }
+    // CAT-1: each line is a type + description + karat; a product is optional (then the type and karat are its own).
     // CAT-0: deactivated products and types receive no new stock.
-    await assertProductsUsable(tx, [...byId.keys()]);
+    const kinds = await resolvePieceKinds(tx, input.lines);
+    // Karat restriction (D-4-1): a supplier piece is sellable stock.
+    for (const k of new Set(kinds.map((x) => x.karat))) await assertSellableKarat(ctx, k);
     const [supplier] = await tx.select({ id: t.suppliers.id }).from(t.suppliers).where(eq(t.suppliers.id, input.supplierId!));
     if (!supplier) throw notFound('Supplier');
     // SUP-1 (D-sup-1, D-sup-2): a supplier allows one open order at a time, so a new order while gold is still owed to
@@ -146,7 +145,7 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
     const number = await nextNumber(tx, branch.code, 'PO');
     const totalCost = input.lines.reduce((s, l) => s + l.purchaseCost + l.makingCost + l.otherCost, 0);
     // The gold debt: one pureGoldMg rounding per piece (the system's single conversion, D-2a-6).
-    const goldDebt = sumInt(input.lines.map((l) => pureGoldMg(l.netWeightMg, byId.get(l.productId)!.karat)));
+    const goldDebt = sumInt(input.lines.map((l, i) => pureGoldMg(l.netWeightMg, kinds[i].karat)));
     const makingChargePaid = sumInt(input.lines.map((l) => l.makingCost));
     const [purchase] = await tx
       .insert(t.purchases)
@@ -172,9 +171,8 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
     const ref = { refType: 'purchase', refId: purchase.id, refNumber: number };
     // MKC-1: no ledger entry. The owner's personal transfer moves no branch money (D-mkc-1).
     const codes: string[] = [];
-    for (const l of input.lines) {
-      const product = byId.get(l.productId);
-      if (!product) throw notFound('Product');
+    for (const [i, l] of input.lines.entries()) {
+      const kind = kinds[i];
       const { code, barcode } = await nextItemCode(tx);
       codes.push(code);
       const [item] = await tx
@@ -182,8 +180,10 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
         .values({
           code,
           barcode,
-          productId: product.id,
-          karat: product.karat,
+          productId: kind.productId,
+          categoryId: kind.categoryId,
+          description: kind.description,
+          karat: kind.karat,
           grossWeightMg: l.grossWeightMg,
           netWeightMg: l.netWeightMg,
           // Cost model (Q3): a supplier piece's acquisition cost includes the making charge,
@@ -354,8 +354,11 @@ export async function getPurchase(ctx: Ctx, actor: Actor, id: number) {
     .select({
       itemId: t.jewelryItems.id,
       code: t.jewelryItems.code,
-      productName: nameOrAr(t.products.name, t.products.nameAr),
-      productNameAr: t.products.nameAr,
+      // CAT-1: the description, else the product, else the type.
+      productName: itemNameSql,
+      productNameAr: itemNameArSql,
+      description: t.jewelryItems.description,
+      categoryId: t.jewelryItems.categoryId,
       karat: t.jewelryItems.karat,
       netWeightMg: t.jewelryItems.netWeightMg,
       purchaseCost: t.purchaseItems.purchaseCost,
@@ -370,7 +373,8 @@ export async function getPurchase(ctx: Ctx, actor: Actor, id: number) {
     })
     .from(t.purchaseItems)
     .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.purchaseItems.itemId))
-    .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+    .leftJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+    .innerJoin(t.categories, eq(t.categories.id, t.jewelryItems.categoryId))
     .where(eq(t.purchaseItems.purchaseId, id))
     .orderBy(t.purchaseItems.id);
   const settlements = await settlementsFor(ctx, id);

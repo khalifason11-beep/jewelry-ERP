@@ -270,6 +270,16 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     const body = parse(z.object(zNames).strict(), req.body);
     res.json(await runIdempotent(ctx, req, res, () => catalog.createCategory(ctx, actorOf(req), body)));
   });
+  // CAT-1: the General Manager renames a type (sale lines keep their names: snapshots).
+  route('POST', '/categories/:id/rename', async (req, res) => {
+    const body = parse(z.object(zNames).strict(), req.body);
+    res.json(await catalog.renameCategory(ctx, actorOf(req), parse(zId, req.params.id), body));
+  });
+  // CAT-1: descriptions already used (suggestions of the free-text field).
+  route('GET', '/catalog/descriptions', async (req, res) => {
+    const q = parse(z.object({ categoryId: zOptId, q: zQ }).strict(), req.query);
+    res.json(await catalog.descriptionSuggestions(ctx, q));
+  });
   route('POST', '/categories/:id/deactivate', async (req, res) => {
     const { reason } = parse(zReason, req.body);
     res.json(await catalog.setCategoryActive(ctx, actorOf(req), parse(zId, req.params.id), false, reason));
@@ -577,7 +587,11 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('POST', '/purchases', async (req, res) => {
     const line = z
       .object({
-        productId: zIdBody,
+        // CAT-1: a type + karat (+ description), or a product (then its type and karat).
+        productId: zIdBody.optional(),
+        categoryId: zIdBody.optional(),
+        karat: zScrapKarat.optional(),
+        description: zText(120).optional(),
         grossWeightMg: zWeightMg,
         netWeightMg: zWeightMg,
         purchaseCost: zPositiveMoney,
@@ -661,6 +675,9 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           bankAmount: z.number().int().min(0).max(MAX_MONEY).optional(),
           bankReference: zText(80).optional(),
           productId: zIdBody.optional(),
+          // CAT-1: a sellable piece's type and description (the product is optional).
+          categoryId: zIdBody.optional(),
+          description: zText(120).optional(),
           sellingPrice: zPositiveMoney.optional(),
           customerName: zText(120).optional(),
           customerPhone: zPhone.optional(),

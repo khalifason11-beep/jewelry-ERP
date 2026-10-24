@@ -95,6 +95,9 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('GET', '/products', 'none', { any: ['purchases.create', 'scrap.buy', 'scrap.buy_sellable', 'catalog.create'] }),
   // ── CAT-0: one resource family per entity; the UI calls a category a "Type".
   r('POST', '/categories', 'none', { all: ['catalog.create'], idempotent: true }),
+  // CAT-1: rename a type (General Manager); description suggestions for the stock forms.
+  r('POST', '/categories/:id/rename', 'none', { all: ['catalog.manage'] }),
+  r('GET', '/catalog/descriptions', 'none', { any: ['purchases.create', 'scrap.buy', 'scrap.buy_sellable', 'catalog.create', 'opening.manage'] }),
   r('POST', '/categories/:id/deactivate', 'none', { all: ['catalog.manage'] }),
   r('POST', '/categories/:id/reactivate', 'none', { all: ['catalog.manage'] }),
   r('POST', '/products', 'none', { all: ['catalog.create'], idempotent: true }),

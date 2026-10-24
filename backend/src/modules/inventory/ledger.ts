@@ -26,14 +26,22 @@ export const costBreakdown = {
   totalCost: t.jewelryItems.acquisitionCost,
 };
 
+/** CAT-1: the name of a piece in English and in Arabic (description, else product, else type). */
+export const itemNameSql = sql<string>`coalesce(${t.jewelryItems.description}, nullif(btrim(${t.products.name}), ''), ${t.products.nameAr}, nullif(btrim(${t.categories.name}), ''), ${t.categories.nameAr})`;
+export const itemNameArSql = sql<string>`coalesce(${t.jewelryItems.description}, ${t.products.nameAr}, ${t.categories.nameAr})`;
+
 export const itemColumns = {
   id: t.jewelryItems.id,
   code: t.jewelryItems.code,
   barcode: t.jewelryItems.barcode,
   productId: t.jewelryItems.productId,
-  productName: t.products.name,
-  productNameAr: t.products.nameAr,
+  // CAT-1: a piece is a type + a free-text description; the product is optional. The name shown is the description,
+  // else the product's name, else the type's name (`productName*` keep their meaning for the screens).
+  productName: itemNameSql,
+  productNameAr: itemNameArSql,
+  description: t.jewelryItems.description,
   sku: t.products.sku,
+  categoryId: t.jewelryItems.categoryId,
   categoryCode: t.categories.code,
   categoryName: t.categories.name,
   categoryNameAr: t.categories.nameAr,
@@ -67,8 +75,8 @@ export function itemQuery(exec: Executor, p: Pricing) {
   return exec
     .select({ ...itemColumns, sellingPrice: livePriceSql(p), pricePerGram: liveRateSql(p) })
     .from(t.jewelryItems)
-    .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
-    .innerJoin(t.categories, eq(t.categories.id, t.products.categoryId))
+    .leftJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+    .innerJoin(t.categories, eq(t.categories.id, t.jewelryItems.categoryId))
     .innerJoin(t.branches, eq(t.branches.id, t.jewelryItems.branchId))
     .leftJoin(t.purchaseItems, eq(t.purchaseItems.itemId, t.jewelryItems.id));
 }

@@ -197,6 +197,10 @@ async function runUpgrade(h: DatabaseHandle, from: number) {
   expect(Number((await one(h, `SELECT count(*) AS n FROM sale_items WHERE acquisition_cost IS NULL OR profit IS NULL OR unit_cost IS NULL`)).n)).toBe(0);
   expect(Number((await one(h, `SELECT count(*) AS n FROM sales WHERE unknown_cost_lines <> 0`)).n)).toBe(0);
   for (const tbl of ['openings', 'opening_lines', 'opening_imports']) expect(Number((await one(h, `SELECT count(*) AS n FROM ${tbl}`)).n), tbl).toBe(0);
+  // OPN-1 (migration 0027): every piece got its product's type; every sale line the names as they are now.
+  expect(Number((await one(h, `SELECT count(*) AS n FROM jewelry_items i JOIN products p ON p.id = i.product_id WHERE i.category_id IS DISTINCT FROM p.category_id`)).n)).toBe(0);
+  expect(Number((await one(h, `SELECT count(*) AS n FROM sale_items si JOIN jewelry_items i ON i.id = si.item_id JOIN products p ON p.id = i.product_id JOIN categories c ON c.id = p.category_id WHERE si.product_name_ar IS DISTINCT FROM p.name_ar OR si.category_name_ar IS DISTINCT FROM c.name_ar OR si.category_name IS DISTINCT FROM c.name`)).n)).toBe(0);
+  expect(Number((await one(h, `SELECT count(*) AS n FROM sale_items`)).n)).toBe(2);
   const branchA = Number((await one(h, `SELECT id FROM branches WHERE code = 'UPA'`)).id);
   await run(h, `INSERT INTO openings (branch_id, created_by) VALUES (${branchA}, ${gmId})`);
   expect(await refused(h, `INSERT INTO openings (branch_id, created_by) VALUES (${branchA}, ${gmId})`)).toBe(true); // one per branch

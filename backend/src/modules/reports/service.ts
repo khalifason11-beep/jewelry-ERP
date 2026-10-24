@@ -8,10 +8,11 @@ import { ITEM_STATUSES, PAYMENT_METHODS, type ReportKey } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requirePerm } from '../../authz';
 import { badRequest } from '../../core/errors';
-import { nameOrAr, rows, num } from '../../core/sql';
+import { rows, num } from '../../core/sql';
 import { periodFor } from '../dashboard/service';
 import { maxIdOf, runPaged, type PageRequest, type SortSpec } from '../../core/paging';
 import { itemsReportAggregates, pageItems, searchItems } from '../inventory/service';
+import { itemNameSql } from '../inventory/ledger';
 import { listPurchases, pagePurchases, purchasesReportAggregates } from '../purchases/service';
 import { listSales, pageSales, salesReportAggregates } from '../sales/service';
 import { branchMetrics, movementSummary } from './metrics';
@@ -318,20 +319,20 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
         }));
       } else {
         const dim =
-          group === 'category' ? sql`coalesce(nullif(btrim(c.name), ''), c.name_ar)` : group === 'karat' ? sql`(si.karat || 'K')` : group === 'cashier' ? sql`u.full_name` : sql`to_char(s.created_at AT TIME ZONE ${company.timezone},'YYYY-MM-DD')`;
+          group === 'category' ? sql`coalesce(nullif(btrim(si.category_name), ''), si.category_name_ar)` : group === 'karat' ? sql`(si.karat || 'K')` : group === 'cashier' ? sql`u.full_name` : sql`to_char(s.created_at AT TIME ZONE ${company.timezone},'YYYY-MM-DD')`;
         const r = await ctx.db.execute(sql`
-          SELECT ${dim} AS label, ${group === 'category' ? sql`c.name_ar` : sql`NULL`} AS label_ar, count(DISTINCT s.id) AS sales_count, coalesce(sum(si.final_price),0) AS revenue,
+          SELECT ${dim} AS label, ${group === 'category' ? sql`si.category_name_ar` : sql`NULL`} AS label_ar, count(DISTINCT s.id) AS sales_count, coalesce(sum(si.final_price),0) AS revenue,
                  coalesce(sum(si.discount),0) AS discounts, coalesce(sum(si.unit_cost),0) AS cost
           FROM sale_items si JOIN sales s ON s.id = si.sale_id
-          JOIN jewelry_items i ON i.id = si.item_id JOIN products p ON p.id = i.product_id JOIN categories c ON c.id = p.category_id
           JOIN users u ON u.id = s.cashier_id
           WHERE s.status = 'COMPLETED' AND s.created_at >= ${iso(period.start)} AND s.created_at < ${iso(period.end)}
           ${scope != null ? sql`AND s.branch_id = ${scope}` : sql``}
-          GROUP BY ${group === 'category' ? sql`c.id, c.name, c.name_ar` : sql`1`} ORDER BY 1`);
+          GROUP BY ${group === 'category' ? sql`si.category_name, si.category_name_ar` : sql`1`} ORDER BY 1`);
         rowsAll = rows<Record<string, unknown>>(r).map((x) => {
           const revenue = num(x.revenue);
           const cost = num(x.cost);
-          // Types group by id (two types may share an English name); labelAr is the Arabic companion.
+          // CAT-1: types group by the names snapshotted on the sale line (a rename never moves a past sale); labelAr is
+          // the Arabic companion.
           return { label: String(x.label), ...(group === 'category' ? { labelAr: String(x.label_ar) } : {}), salesCount: num(x.sales_count), revenue, discounts: num(x.discounts), costOfSales: cost, grossProfit: revenue - cost, margin: revenue ? ((revenue - cost) / revenue) * 100 : 0 };
         });
       }
@@ -558,7 +559,7 @@ const ledgerFrom = (db: Ctx['db']) =>
       at: t.inventoryMovements.at,
       itemId: t.jewelryItems.id,
       itemCode: t.jewelryItems.code,
-      productName: nameOrAr(t.products.name, t.products.nameAr),
+      productName: itemNameSql,
       branchName: t.branches.name,
       type: t.inventoryMovements.type,
       direction: t.inventoryMovements.direction,
@@ -568,7 +569,9 @@ const ledgerFrom = (db: Ctx['db']) =>
     })
     .from(t.inventoryMovements)
     .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.inventoryMovements.itemId))
-    .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+    // CAT-1: the product is optional (the row count, countLedger, does not join it either); the type is the piece's own.
+    .leftJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+    .innerJoin(t.categories, eq(t.categories.id, t.jewelryItems.categoryId))
     .innerJoin(t.branches, eq(t.branches.id, t.inventoryMovements.branchId))
     .leftJoin(t.users, eq(t.users.id, t.inventoryMovements.userId));
 

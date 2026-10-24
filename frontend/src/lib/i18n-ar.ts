@@ -1139,6 +1139,13 @@ export const AR: Record<string, string> = {
   "Void purchase {number}": "إلغاء العملية {number}",
   "The {amount} paid comes back to the drawer and the bank, and the piece leaves stock. This cannot be undone.": "يعود المبلغ المدفوع {amount} إلى الدرج والبنك، وتخرج القطعة من المخزون. لا يمكن التراجع عن هذا.",
   "The {amount} paid comes back to the drawer and the bank, and {weight} leaves the scrap pool. This cannot be undone.": "يعود المبلغ المدفوع {amount} إلى الدرج والبنك، ويخرج {weight} من رصيد الكسر. لا يمكن التراجع عن هذا.",
+  // CAT-1: what a piece is (type + description), renaming a type
+  "The name is unchanged": "الاسم لم يتغيّر",
+  "A description can have at most 120 characters": "الوصف لا يزيد على 120 حرفًا",
+  "The product is of another type": "المنتج من نوع آخر",
+  "Choose the item type": "اختر نوع القطعة",
+  "Choose the karat": "اختر العيار",
+  "Item type {code} renamed: {from} → {to}": "أُعيدت تسمية النوع {code}: {from} ← {to}",
   // MIS-1: correcting a supplier order (General Manager)
   "Choose the piece whose making cost is corrected": "اختر القطعة التي تُصحَّح مصنعيتها",
   "A transfer reference belongs to the order, not to a piece": "مرجع التحويل يخص الطلب كله لا قطعة واحدة",

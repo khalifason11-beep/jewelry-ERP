@@ -68,7 +68,8 @@ export async function printSale(ctx: Ctx, actor: Actor, id: number): Promise<Pri
     .select({
       code: t.jewelryItems.code,
       name: t.saleItems.productName,
-      nameAr: t.products.nameAr,
+      // CAT-1: the Arabic name as it was at the sale (snapshot), never the live product.
+      nameAr: sql<string>`coalesce(${t.saleItems.productNameAr}, ${t.saleItems.productName})`,
       karat: t.saleItems.karat,
       netWeightMg: t.saleItems.netWeightMg,
       listPrice: t.saleItems.listPrice,
@@ -78,7 +79,6 @@ export async function printSale(ctx: Ctx, actor: Actor, id: number): Promise<Pri
     })
     .from(t.saleItems)
     .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.saleItems.itemId))
-    .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
     .where(eq(t.saleItems.saleId, id))
     .orderBy(t.saleItems.id);
 

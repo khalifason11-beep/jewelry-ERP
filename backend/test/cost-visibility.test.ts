@@ -122,6 +122,7 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /branches': ['/branches'],
       'GET /branches/directory': ['/branches/directory'],
       'GET /categories': ['/categories'],
+      'GET /catalog/descriptions': ['/catalog/descriptions', '/catalog/descriptions?q=a'],
       'GET /gold-rates': ['/gold-rates'],
       'GET /products': ['/products'],
       'GET /suppliers': ['/suppliers'],

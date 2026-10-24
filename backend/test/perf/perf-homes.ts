@@ -260,8 +260,8 @@ async function scale(ctx: Ctx) {
   await x(sql`ALTER TABLE pf ADD COLUMN sale_at timestamptz`);
   await x(sql`UPDATE pf SET sale_at = least(now() - interval '5 minutes', created_at + make_interval(mins => ((g::bigint * 104729) % (30 * 1440))::int)) WHERE status = 'SOLD'`);
   await x(sql`
-    INSERT INTO jewelry_items (code, barcode, product_id, karat, gross_weight_mg, net_weight_mg, origin, acquisition_cost, selling_price, branch_id, status, created_at, updated_at)
-    SELECT 'PF-' || g, 'PF' || g, product_id, karat, net + 200, net, 'SUPPLIER_NEW', cost, cost + cost / 3, branch_id, status, created_at, created_at FROM pf`);
+    INSERT INTO jewelry_items (code, barcode, product_id, category_id, karat, gross_weight_mg, net_weight_mg, origin, acquisition_cost, selling_price, branch_id, status, created_at, updated_at)
+    SELECT 'PF-' || g, 'PF' || g, product_id, (SELECT category_id FROM products WHERE products.id = pf.product_id), karat, net + 200, net, 'SUPPLIER_NEW', cost, cost + cost / 3, branch_id, status, created_at, created_at FROM pf`);
   await x(sql`ALTER TABLE pf ADD COLUMN item_id int`);
   await x(sql`UPDATE pf SET item_id = i.id FROM jewelry_items i WHERE i.code = 'PF-' || pf.g`);
   await x(sql`
