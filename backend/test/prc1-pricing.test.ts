@@ -150,7 +150,7 @@ describe('a sale locks its price', () => {
       finalPrice: piece.sellingPrice,
       discount: 0,
     });
-    expect(line.profit).toBe(line.finalPrice - line.acquisitionCost);
+    expect(line.profit).toBe(line.finalPrice - line.acquisitionCost!);
     await setRates({ usedRates: { 21: usedRate + 25_000 } });
     const detail = (await gm.get(`/api/sales/${res.body.id}`)).body;
     expect(detail.total).toBe(piece.sellingPrice);

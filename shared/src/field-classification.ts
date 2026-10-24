@@ -38,7 +38,7 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   jewelry_items: {
     // Phase 2b cost model: acquisition cost, the making charge inside it, and whether it is an estimate.
     cost: words('acquisition_cost making_charge cost_is_estimated'),
-    safe: words('id code barcode product_id karat gross_weight_mg net_weight_mg selling_price branch_id status purchase_id created_at updated_at origin supplier_id supplier_invoice_ref'),
+    safe: words('id code barcode product_id category_id description karat gross_weight_mg net_weight_mg selling_price branch_id status purchase_id created_at updated_at origin supplier_id supplier_invoice_ref'),
   },
   permissions: { safe: words('code description') },
   products: { safe: words('id sku name name_ar category_id karat description created_at is_active created_by name_ar_norm') },
@@ -58,10 +58,11 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   // Price components (price_*) describe the SELLING price (Q2), not the cost: SAFE.
   sale_items: {
     cost: words('unit_cost acquisition_cost profit'),
-    safe: words('id sale_id item_id product_name karat net_weight_mg list_price discount final_price pricing_mode price_gold_value price_making_charge price_rate_per_gram'),
+    safe: words('id sale_id item_id product_name product_name_ar category_name category_name_ar description karat net_weight_mg list_price discount final_price pricing_mode price_gold_value price_making_charge price_rate_per_gram'),
   },
   sales: {
-    cost: ['cost_total'],
+    // OPN-1: how many lines have an unknown cost; shown only beside the cost and the profit (General Manager).
+    cost: ['cost_total', 'unknown_cost_lines'],
     safe: words('id number branch_id cashier_id session_id customer_name customer_name_ar customer_phone subtotal discount_total total payment_method status voided_at voided_by void_reason created_at payment_ref_invoice payment_ref_transaction original_printed_at reprint_count price_change_reason'),
   },
   sessions: {
@@ -117,11 +118,17 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   purchase_corrections: {
     cost: words('value_before value_after'),
     safe: words('id purchase_id purchase_item_id field reason confirmed_duplicate corrected_by session_id created_at'),
-  },
+  },  // OPN-1: the opening balance. Weights, karats, names and who/when: SAFE (who sees it is decided by `opening.manage`).
+  openings: { safe: words('id branch_id status created_by created_at sealed_by sealed_at session_id') },
+  opening_lines: { safe: words('id opening_id line_no category_id description karat gross_weight_mg net_weight_mg source import_id item_id created_by created_at') },
+  opening_imports: { safe: words('id opening_id file_name sha256 row_count created_by created_at') },
 };
 
 /** Response field names that carry cost, acquisition cost, margin or profit. */
 export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
+  // OPN-1: how many sale lines / pieces a cost or profit total leaves out because their cost is unknown.
+  'unknownCostLines',
+  'unknownCostPieces',
   // MIS-1: a supplier-order correction's values (a piece's making cost or the order's transfer reference).
   'valueBefore',
   'valueAfter',

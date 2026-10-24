@@ -47,17 +47,20 @@
 | `categories` | Item types: Arabic name required, unique normalised name (`name_ar_norm`), active flag |
 | `products` | Product (name, type, karat), unique per normalised name + karat + type |
 | `suppliers` | Arabic name required, unique normalised name |
-| `jewelry_items` | One row per piece: code, barcode, product, karat, gross/net weight, `origin` (OPENING, SUPPLIER_NEW, SCRAP), `acquisition_cost` (COST), `cost_is_estimated`, `making_charge` (COST), selling price, branch, status, `purchase_id` |
+| `jewelry_items` | One row per piece: code, barcode, type (`category_id`) and free-text `description` (CAT-1, 0026; the product is optional), karat, gross/net weight, `origin` (OPENING, SUPPLIER_NEW, SCRAP), `acquisition_cost` (COST; NULL = unknown, an opening piece, OPN-1), `cost_is_estimated`, `making_charge` (COST), selling price, branch, status, `purchase_id` |
 | `item_status_history` | Append-only: every status transition, with reference, user and note |
-| `inventory_movements` | Append-only stock ledger: type (PURCHASE, SALE, TRANSFER_IN, TRANSFER_OUT, RETURN, ADJUSTMENT, DAMAGE), direction ±1, branch, reference, weight, cost value |
+| `inventory_movements` | Append-only stock ledger: type (PURCHASE, SALE, TRANSFER_IN, TRANSFER_OUT, RETURN, ADJUSTMENT, DAMAGE), direction ±1, branch, reference, weight, cost value (NULL for a piece of unknown cost) |
+| `openings` | OPN-1 (0026): one per branch (UNIQUE `branch_id`), DRAFT → SEALED once (`sealed_by`, `sealed_at`); never changed after the seal or deleted (trigger) |
+| `opening_lines` | OPN-1: the draft, not stock: type, description, karat, weights, `source` (KEYBOARD, IMPORT), `import_id`, and `item_id` once sealed; no change to a sealed opening's lines (trigger) |
+| `opening_imports` | OPN-1, append-only: each CSV file imported (name, SHA-256, rows, who, when); the same file twice changes nothing (UNIQUE `opening_id, sha256`) |
 | `transfers`, `transfer_items` | Transfers between branches: IN_TRANSIT → RECEIVED, `courier_name` (0019) |
 
 ### Sales
 
 | Table | Purpose |
 |---|---|
-| `sales` | The invoice header. Totals; `payment_method`; `payment_ref_invoice` and `payment_ref_transaction` (Hasad references; for a bank transfer the transfer reference, 0018); status COMPLETED / VOIDED with the void reason; `price_change_reason` (0017); print and reprint counters (0012) |
-| `sale_items` | Lines with snapshots: product name, karat, weight, list price, discount, final price, `acquisition_cost` and `profit` (COST), and `pricing_mode` (only FIXED_TAG is used) |
+| `sales` | The invoice header. Totals (`cost_total` = the lines of known cost, `unknown_cost_lines` = the others, OPN-1); `payment_method`; `payment_ref_invoice` and `payment_ref_transaction` (Hasad references; for a bank transfer the transfer reference, 0018); status COMPLETED / VOIDED with the void reason; `price_change_reason` (0017); print and reprint counters (0012) |
+| `sale_items` | Lines with snapshots: product name (and from 0026 its Arabic name, the type's names and the description, so a rename never rewrites an invoice), karat, weight, list price, discount, final price, `acquisition_cost` and `profit` (COST; NULL when the piece's cost is unknown), and `pricing_mode` (only FIXED_TAG is used) |
 
 ### Supplier orders and scrap
 
@@ -156,7 +159,7 @@ These tables are protected by triggers (`jerp_forbid_modification`, against UPDA
 PostgreSQL, the runtime role's privileges are also removed (`jerp_lock_append_only`):
 
 `audit_logs`, `backup_runs`, `cash_counts`, `gm_funding_events`, `gold_rates`, `hasad_receivable_settlements`,
-`inventory_movements`, `item_status_history`, `ledger_entries`, `purchase_corrections`, `scrap_purchase_voids`,
+`inventory_movements`, `item_status_history`, `ledger_entries`, `opening_imports`, `purchase_corrections`, `scrap_purchase_voids`,
 `scrap_purchases`, `scrap_rates`, `scrap_weight_entries`, `settings_history`, `supplier_settlements`.
 
 The start-up privilege report and the restore drill use the same list (`APPEND_ONLY_TABLES` in
@@ -216,4 +219,5 @@ a conditional update on the current status.
 | `0022_mkc1_owner_making_charge` | MKC-1: making charge paid by the owner (`OWNER_PERSONAL`), reference and date; `purchases.create` for the General Manager only |
 | `0023_be7_sale_items_sale_idx` | BE-7: index `sale_items(sale_id)` (the lines of a sale are read by sale: list pages, sale detail, void). Additive only |
 | `0025_mis1_corrections` | MIS-1: append-only `scrap_purchase_voids` and `purchase_corrections`; piece status `VOIDED` (the three status checks widened, D-mis1-1); permissions `scrap.void` and `purchases.correct` (General Manager only). No row is changed |
+| `0026_opn1_catalog_optional` | OPN-1 / CAT-1: `jewelry_items.category_id` and `description`; the product and the cost become optional (DROP NOT NULL; 0028 tightens again); sale-line name snapshots; `sales.unknown_cost_lines`; the tables `openings`, `opening_lines`, `opening_imports`; permission `opening.manage` (General Manager). Additive only |
 | `0024_prc1_computed_prices` | PRC-1: `gold_rates.kind` (NEW/USED, validated check, index), permission `scrap.buy_sellable` (every role), and `pricing.mode = FIXED_TAG` written only when pieces already exist (an upgraded installation keeps its tag prices). Additive only |

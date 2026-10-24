@@ -75,7 +75,7 @@ describe('cost model', () => {
       const l = lines.get(i.id)!;
       expect(i.acquisitionCost).toBe(l.purchaseCost + l.makingCost + l.otherCost);
       expect(i.makingCharge).toBe(l.makingCost);
-      expect(i.makingCharge).toBeLessThanOrEqual(i.acquisitionCost);
+      expect(i.makingCharge).toBeLessThanOrEqual(i.acquisitionCost!);
       expect(i.costIsEstimated).toBe(false);
       expect(i.supplierId).not.toBeNull();
     }
@@ -93,7 +93,7 @@ describe('cost model', () => {
     const lines = await ctx.db.select().from(t.saleItems);
     expect(lines.length).toBeGreaterThan(50);
     for (const l of lines) {
-      expect(l.profit).toBe(l.finalPrice - l.acquisitionCost);
+      expect(l.profit).toBe(l.finalPrice - l.acquisitionCost!);
       expect(l.pricingMode).toBe('FIXED_TAG');
       expect(l.priceGoldValue).toBeNull();
     }

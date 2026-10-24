@@ -2,7 +2,7 @@
 // schema. Both projects; the real-PostgreSQL run is the one that matters (it is what a server upgrade does).
 //
 // For each starting version (0015 = before REM-5's drops, 0019 = before CSH-2 and MKC-1, 0023 = before PRC-1, 0024 = before
-// MIS-1): migrate to it, seed rows in
+// MIS-1, 0025 = before OPN-1): migrate to it, seed rows in
 // the tables later migrations touch, snapshot counts and money/weight totals, apply ALL remaining migrations, then:
 // row counts unchanged, totals and ledger balances identical, the append-only triggers present and still refusing
 // UPDATE/DELETE, no constraint left NOT VALID, and the app answers /api/health on the upgraded database. A second
@@ -126,7 +126,7 @@ async function migrateAll(h: DatabaseHandle) {
   await migrate(h.db as never, { migrationsFolder: MIGRATIONS_DIR });
 }
 
-describe.each([15, 19, 23, 24])('upgrade from migration %i with data', (from) => {
+describe.each([15, 19, 23, 24, 25])('upgrade from migration %i with data', (from) => {
   it('keeps every row and every total, keeps the protections, boots, and a second migrate is a no-op', async () => {
     const h = await openAt(from);
     try {
@@ -172,7 +172,9 @@ async function runUpgrade(h: DatabaseHandle, from: number) {
 
   // MIS-1 (migration 0025): the two permissions go to the General Manager only; the new tables start empty; the piece
   // status checks now take VOIDED (and still refuse an unknown status); a void row is append-only.
-  expect(rowsOf<{ p: string }>(await h.db.execute(sql.raw(`SELECT r.code || ':' || rp.permission_code AS p FROM role_permissions rp JOIN roles r ON r.id = rp.role_id WHERE rp.permission_code IN ('scrap.void', 'purchases.correct') ORDER BY 1`))).map((r) => r.p)).toEqual(['GENERAL_MANAGER:purchases.correct', 'GENERAL_MANAGER:scrap.void']);
+  if (from < 25) {
+    expect(rowsOf<{ p: string }>(await h.db.execute(sql.raw(`SELECT r.code || ':' || rp.permission_code AS p FROM role_permissions rp JOIN roles r ON r.id = rp.role_id WHERE rp.permission_code IN ('scrap.void', 'purchases.correct') ORDER BY 1`))).map((r) => r.p)).toEqual(['GENERAL_MANAGER:purchases.correct', 'GENERAL_MANAGER:scrap.void']);
+  }
   expect(Number((await one(h, `SELECT count(*) AS n FROM scrap_purchase_voids`)).n)).toBe(0);
   expect(Number((await one(h, `SELECT count(*) AS n FROM purchase_corrections`)).n)).toBe(0);
   expect(await refused(h, `UPDATE jewelry_items SET status = 'GONE' WHERE code = 'J-92'`)).toBe(true);
@@ -187,6 +189,18 @@ async function runUpgrade(h: DatabaseHandle, from: number) {
   expect(await refused(h, `UPDATE scrap_purchase_voids SET reason = 'changed'`)).toBe(true);
   expect(await refused(h, `DELETE FROM scrap_purchase_voids`)).toBe(true);
   await run(h, `UPDATE jewelry_items SET status = 'AVAILABLE' WHERE code = 'J-92'`);
+  // OPN-1 (migration 0026): the permission goes to the General Manager only; every existing piece keeps its product and
+  // its cost, every sale line its cost and profit (the columns became optional, no row changed); the opening tables
+  // start empty; an opening is one per branch and its imports are append-only.
+  expect(rowsOf<{ p: string }>(await h.db.execute(sql.raw(`SELECT r.code || ':' || rp.permission_code AS p FROM role_permissions rp JOIN roles r ON r.id = rp.role_id WHERE rp.permission_code = 'opening.manage' ORDER BY 1`))).map((r) => r.p)).toEqual(['GENERAL_MANAGER:opening.manage']);
+  expect(Number((await one(h, `SELECT count(*) AS n FROM jewelry_items WHERE product_id IS NULL OR acquisition_cost IS NULL`)).n)).toBe(0);
+  expect(Number((await one(h, `SELECT count(*) AS n FROM sale_items WHERE acquisition_cost IS NULL OR profit IS NULL OR unit_cost IS NULL`)).n)).toBe(0);
+  expect(Number((await one(h, `SELECT count(*) AS n FROM sales WHERE unknown_cost_lines <> 0`)).n)).toBe(0);
+  for (const tbl of ['openings', 'opening_lines', 'opening_imports']) expect(Number((await one(h, `SELECT count(*) AS n FROM ${tbl}`)).n), tbl).toBe(0);
+  const branchA = Number((await one(h, `SELECT id FROM branches WHERE code = 'UPA'`)).id);
+  await run(h, `INSERT INTO openings (branch_id, created_by) VALUES (${branchA}, ${gmId})`);
+  expect(await refused(h, `INSERT INTO openings (branch_id, created_by) VALUES (${branchA}, ${gmId})`)).toBe(true); // one per branch
+  expect(await refused(h, `DELETE FROM openings`)).toBe(true);
   // The checks above added one history row; the second migrate below must change nothing from here.
   const settled = await facts(h);
 

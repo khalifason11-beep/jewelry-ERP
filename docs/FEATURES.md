@@ -176,6 +176,9 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   - **Repayments** take money back the same way.
   - A **correction** (a reversal) undoes one event, once.
   - `OWED_TO_GM` shows what each branch owes the General Manager.
+- **Opening balance** (OPN-1, `opening.manage`, General Manager only): one per branch, entered by keyboard or imported
+  from a CSV file into a draft, reviewed, then sealed with the password and a passkey; the pieces get the cost
+  "unknown". (Being built; see `docs/plans/OPN-1.md`.)
 - **Mistake correction** (MIS-1, General Manager only, reason and password asked again, idempotent):
   - **Void a scrap purchase** (`scrap.void`): the money is reversed, the sellable piece becomes VOIDED (only while
     still AVAILABLE in its branch) or the broken-scrap weight leaves the pool (only if the pool still holds it).

@@ -403,6 +403,12 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   `scrap.void` / `purchases.correct`, granted to the General Manager role only. No existing row is changed and
   nothing stops the upgrade.
 
+### OPN-1: opening balance and an optional product (migration 0026)
+
+- **0026** adds a type and a description to every piece, makes the product and the cost optional (no existing row
+  changes; a later migration tightens again), adds the sale-line name snapshots, `sales.unknown_cost_lines`, the
+  opening tables and the permission `opening.manage` (General Manager only). Nothing stops the upgrade.
+
 ### Stop and recreate is a pre-production rule only
 
 Four migrations so far stop on trial data instead of transforming it, and ask for the database to be recreated:

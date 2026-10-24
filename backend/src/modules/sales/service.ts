@@ -87,7 +87,7 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
     const products = await tx
       .select({ id: t.products.id, name: t.products.name, nameAr: t.products.nameAr })
       .from(t.products)
-      .where(inArray(t.products.id, locked.map((i) => i.productId)));
+      .where(inArray(t.products.id, locked.map((i) => i.productId).filter((id): id is number => id != null)));
     // Snapshot of the name at the time of sale; the English name is optional (CAT-0), so fall back to Arabic.
     const productName = new Map(products.map((p) => [p.id, p.name?.trim() ? p.name : p.nameAr]));
 
@@ -152,7 +152,13 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
 
     const subtotal = sumInt(lines.map((l) => l.listPrice));
     const discountTotal = lines.reduce((s, l) => s + l.discount, 0);
-    const costTotal = lines.reduce((s, l) => s + l.item.acquisitionCost, 0);
+    // OPN-1 c1: no piece has an unknown cost yet (openings come in c4); c3 replaces this refusal with the unknown-cost
+    // sale line. Refused loudly rather than counted as 0.
+    const knownCost = (item: (typeof lines)[number]['item']) => {
+      if (item.acquisitionCost == null) throw new Error(`piece ${item.code} has an unknown cost: not supported before OPN-1 c3`);
+      return item.acquisitionCost;
+    };
+    const costTotal = lines.reduce((s, l) => s + knownCost(l.item), 0);
     const number = await nextNumber(tx, branch.code, 'INV');
 
     const [sale] = await tx
@@ -182,16 +188,16 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       await tx.insert(t.saleItems).values({
         saleId: sale.id,
         itemId: l.item.id,
-        productName: productName.get(l.item.productId) ?? l.item.code,
+        productName: (l.item.productId != null ? productName.get(l.item.productId) : undefined) ?? l.item.code,
         karat: l.item.karat,
         netWeightMg: l.item.netWeightMg,
         listPrice: l.listPrice,
         discount: l.discount,
         finalPrice: l.finalPrice,
-        unitCost: l.item.acquisitionCost,
+        unitCost: knownCost(l.item),
         // Snapshots: later cost changes never rewrite the profit of a past sale (GM-only fields).
-        acquisitionCost: l.item.acquisitionCost,
-        profit: l.finalPrice - l.item.acquisitionCost,
+        acquisitionCost: knownCost(l.item),
+        profit: l.finalPrice - knownCost(l.item),
         // PRC-1: a computed line keeps the rate used and the gold value; the making charge stays NULL (Q-1 open).
         pricingMode: pricing.mode === 'RATE_COMPUTED' ? 'COMPUTED' : 'FIXED_TAG',
         priceRatePerGram: pricing.mode === 'RATE_COMPUTED' ? l.ratePerGram : null,

@@ -30,6 +30,8 @@ import {
   SCRAP_PAYMENT_METHODS,
   SCRAP_WEIGHT_EVENT_TYPES,
   PURCHASE_CORRECTION_FIELDS,
+  OPENING_LINE_SOURCES,
+  OPENING_STATUSES,
   PURCHASE_STATUSES,
   SALE_STATUSES,
   SESSION_STATUSES,
@@ -98,6 +100,9 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   e('gm_funding_events', 'account', CASH_OR_BANK),
   // ── MIS-1: supplier-order corrections (migration 0025; VOIDED reaches the piece status checks through ITEM_STATUSES)
   e('purchase_corrections', 'field', PURCHASE_CORRECTION_FIELDS),
+  // ── OPN-1: the opening balance (migration 0026)
+  e('openings', 'status', OPENING_STATUSES),
+  e('opening_lines', 'source', OPENING_LINE_SOURCES),
 ];
 
 const nonNeg = (table: string, ...columns: string[]): ExprCheck[] =>
@@ -225,6 +230,16 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   { name: 'ck_purchase_corrections_item', table: 'purchase_corrections', expr: "(field = 'MAKING_COST') = (purchase_item_id IS NOT NULL)" },
   { name: 'ck_purchase_corrections_making_cost', table: 'purchase_corrections', expr: "field <> 'MAKING_COST' OR value_after ~ '^(0|[1-9][0-9]{0,14})$'" },
   { name: 'ck_purchase_corrections_reference', table: 'purchase_corrections', expr: "field <> 'MAKING_CHARGE_REFERENCE' OR length(btrim(value_after)) BETWEEN 4 AND 40" },
+  // ── OPN-1 / CAT-1: optional product, unknown cost, the opening balance (migration 0026)
+  { name: 'ck_jewelry_items_description', table: 'jewelry_items', expr: 'description IS NULL OR length(btrim(description)) BETWEEN 1 AND 120' },
+  { name: 'ck_sales_unknown_cost_lines_nonneg', table: 'sales', expr: 'unknown_cost_lines >= 0' },
+  { name: 'ck_openings_sealed', table: 'openings', expr: "(status = 'SEALED') = (sealed_at IS NOT NULL AND sealed_by IS NOT NULL)" },
+  karat('opening_lines'),
+  { name: 'ck_opening_lines_weights', table: 'opening_lines', expr: 'net_weight_mg > 0 AND net_weight_mg <= gross_weight_mg' },
+  { name: 'ck_opening_lines_description', table: 'opening_lines', expr: 'description IS NULL OR length(btrim(description)) BETWEEN 1 AND 120' },
+  { name: 'ck_opening_lines_import', table: 'opening_lines', expr: "(source = 'IMPORT') = (import_id IS NOT NULL)" },
+  { name: 'ck_opening_imports_row_count', table: 'opening_imports', expr: 'row_count > 0' },
+  { name: 'ck_opening_imports_sha256', table: 'opening_imports', expr: "sha256 ~ '^[0-9a-f]{64}$'" },
 ];
 
 /** The SQL expression for an enum check. */
