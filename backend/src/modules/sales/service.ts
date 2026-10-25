@@ -301,7 +301,6 @@ const saleListBase = {
   total: t.sales.total,
   costTotal: t.sales.costTotal,
   unknownCostLines: t.sales.unknownCostLines,
-  grossProfit: sql<number | null>`${saleProfitSql}`.mapWith((v) => (v == null ? null : Number(v))),
   paymentMethod: t.sales.paymentMethod,
   // FIX-2: the bank-transfer reference (Hasad: its transaction reference), shown in the list.
   paymentRefTransaction: t.sales.paymentRefTransaction,
@@ -315,6 +314,7 @@ const perGramOfLines = (table: string) =>
   sql.raw(`CASE WHEN count(*) = count(${table}.price_rate_per_gram) AND count(DISTINCT ${table}.price_rate_per_gram) = 1 THEN min(${table}.price_rate_per_gram) END`);
 const saleListColumns = {
   ...saleListBase,
+  grossProfit: sql<number | null>`${saleProfitSql}`.mapWith((v) => (v == null ? null : Number(v))),
   itemCount: sql<number>`(select count(*) from sale_items si where si.sale_id = ${t.sales.id})`,
   weightMg: sql<number>`(select coalesce(sum(si.net_weight_mg),0) from sale_items si where si.sale_id = ${t.sales.id})`,
   pricePerGram: sql<number | null>`(select ${perGramOfLines('si')} from sale_items si where si.sale_id = ${t.sales.id})`,
@@ -436,12 +436,24 @@ export async function pageSales(ctx: Ctx, actor: Actor, q: SaleQuery & PageReque
         .offset(offset);
       if (!page.length) return [];
       const lines = await ctx.db
-        .select({ saleId: t.saleItems.saleId, itemCount: sql<number>`count(*)`.mapWith(Number), weightMg: sumOf(t.saleItems.netWeightMg), pricePerGram: sql<number | null>`${perGramOfLines('"sale_items"')}`.mapWith((v) => (v == null ? null : Number(v))) })
+        .select({
+          saleId: t.saleItems.saleId,
+          itemCount: sql<number>`count(*)`.mapWith(Number),
+          weightMg: sumOf(t.saleItems.netWeightMg),
+          pricePerGram: sql<number | null>`${perGramOfLines('"sale_items"')}`.mapWith((v) => (v == null ? null : Number(v))),
+          // OPN-1: the profit of the lines of known cost, for the page's rows only (never for the rows an offset skips).
+          profit: sql<number | null>`sum(${t.saleItems.profit})`.mapWith((v) => (v == null ? null : Number(v))),
+        })
         .from(t.saleItems)
         .where(inArray(t.saleItems.saleId, page.map((r) => r.id)))
         .groupBy(t.saleItems.saleId);
       const bySale = new Map(lines.map((l) => [l.saleId, l]));
-      return page.map((r) => saleListRow(actor, { ...r, itemCount: bySale.get(r.id)?.itemCount ?? 0, weightMg: bySale.get(r.id)?.weightMg ?? 0, pricePerGram: bySale.get(r.id)?.pricePerGram ?? null }));
+      return page.map((r) => {
+        const l = bySale.get(r.id);
+        // A sale with every cost known keeps total − cost (as before OPN-1); otherwise the Σ profit of its known lines.
+        const grossProfit = r.unknownCostLines === 0 ? r.total - r.costTotal : (l?.profit ?? null);
+        return saleListRow(actor, { ...r, itemCount: l?.itemCount ?? 0, weightMg: l?.weightMg ?? 0, pricePerGram: l?.pricePerGram ?? null, grossProfit });
+      });
     },
     // The footer adds up the completed sales of the whole filtered result (a voided sale counts for nothing).
     totals: opts.withTotals === false ? undefined : async (w) => {
