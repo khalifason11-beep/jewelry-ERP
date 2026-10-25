@@ -179,3 +179,19 @@ entered right"), and no current report shows past movements by karat. The passke
 3. **[OPEN] Q3** A time limit after the seal: none (recommended), or N days?
 4. **[OPEN] Q4** FIXED_TAG installations: refuse condition and karat corrections (recommended), or allow?
 5. **[OPEN] Q5** Gross weight: correctable (recommended: it is printed on labels later, LBL-1), or net weight only?
+
+## As built (2026-10-25)
+
+| Commit | Content |
+|---|---|
+| c1 `ef2e42c` | 0032 (table with `branch_id`, checks, trigger, append-only, permission), shared registries, migration and upgrade tests, REH-1 permission checks, docs, D-opnfix-1…5 |
+| c2 `240ee23` | Service, preview, routes, matrix, classification, Arabic, DEPLOYMENT; the before/after test on every reader (both projects) and the property test; REH-1 preview + correction |
+| c3 `2a16aa0` | `pg/opening-fix-race.test.ts` (correction/void vs sale, two corrections) |
+| c4 `7f6bc52` | The sealed opening: `now`, `corrections`, line status, export "now" columns; REH-1 check |
+| c5 `ebc74c8` | Screens: the dialog with its preview, the piece's history, the opening's "now" card; e2e; REH-1 void from the screen, re-weigh, refusal |
+| c6 | Acceptance, BACKLOG, FEATURES, D-opnfix-6, perf, `verify --full` |
+
+Deviations from the plan: the route paths are `…/pieces/:itemId/correction` and `…/correction-preview` (the preview is a
+GET, owner addition 1); the history is shown on the piece page and the opening page (no separate screen); everything
+else as planned.
+

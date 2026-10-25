@@ -203,7 +203,13 @@ refused with 409 `OPENING_RATES_MISSING` naming the karats; 0030 stops on a draf
 sealed before OPN-2 keep their pieces NEW (D-opn2-3). Inventory: a "Used" badge, a new/used filter, the piece page names
 its rate. Not built: correcting the condition after the seal (OPN-FIX).
 
-### OPN-FIX — Correct a piece of a sealed opening · TODO · S · P1 (before real operation) · OPN-1
+### OPN-FIX — Correct a piece of a sealed opening · DONE · S · P1 (before real operation) · OPN-1
+**Done (FIX-5 part 2, plan `docs/plans/OPN-FIX.md`, decisions D-opnfix-1…6, migration 0032,
+`docs/acceptance/OPN-FIX.md`):** the General Manager (`opening.correct`) corrects the condition, karat or weights of an
+AVAILABLE piece of a sealed opening (in any branch), or voids it, with a reason, the password and a fresh passkey; a
+server preview shows the price now, after, and the valuation change before the confirmation; every correction is an
+append-only row with the branch the piece was in; the piece row carries the effective values, so every price, list,
+total, valuation and report follows; the sealed opening keeps its totals as sealed and shows "now" and its corrections.
 **Owner, 2026-10-24 (D-opn1-3):** a sealed opening is final. A General-Manager correction of an opening piece while it
 is AVAILABLE: void it (VOIDED, as MIS-1 does for a scrap piece) or correct its weight or karat, with a reason and the
 password, audited, never by editing history (status history, ADJUSTMENT movements). Not built by OPN-1, which adds a
