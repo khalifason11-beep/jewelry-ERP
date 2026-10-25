@@ -103,6 +103,9 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   // ── OPN-1: the opening balance (migration 0026)
   e('openings', 'status', OPENING_STATUSES),
   e('opening_lines', 'source', OPENING_LINE_SOURCES),
+  // OPN-2: the rate kind of a piece and the condition of an opening line.
+  e('jewelry_items', 'rate_kind', GOLD_RATE_KINDS, true),
+  e('opening_lines', 'condition', GOLD_RATE_KINDS, true),
 ];
 
 const nonNeg = (table: string, ...columns: string[]): ExprCheck[] =>
@@ -242,6 +245,8 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   { name: 'ck_jewelry_items_cost_known', table: 'jewelry_items', expr: "acquisition_cost IS NOT NULL OR origin = 'OPENING'" },
   { name: 'ck_opening_imports_row_count', table: 'opening_imports', expr: 'row_count > 0' },
   { name: 'ck_opening_imports_sha256', table: 'opening_imports', expr: "sha256 ~ '^[0-9a-f]{64}$'" },
+  // ── OPN-2 (migration 0031): only an opening piece may be priced either way; scrap is USED, a supplier piece NEW.
+  { name: 'ck_jewelry_items_rate_kind_origin', table: 'jewelry_items', expr: "(origin <> 'SCRAP' OR rate_kind = 'USED') AND (origin <> 'SUPPLIER_NEW' OR rate_kind = 'NEW')" },
 ];
 
 /** The SQL expression for an enum check. */

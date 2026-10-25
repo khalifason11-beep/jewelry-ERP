@@ -55,6 +55,8 @@ export const itemColumns = {
   // cost its acquisition cost alone. `totalCost` is the acquisition cost.
   ...costBreakdown,
   origin: t.jewelryItems.origin,
+  // OPN-2: which selling rate prices the piece (NEW or USED).
+  rateKind: t.jewelryItems.rateKind,
   acquisitionCost: t.jewelryItems.acquisitionCost,
   makingCharge: t.jewelryItems.makingCharge,
   costIsEstimated: t.jewelryItems.costIsEstimated,

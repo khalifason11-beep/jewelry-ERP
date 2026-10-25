@@ -9,7 +9,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, PAYMENT_METHODS, SCRAP_KINDS, PURCHASE_CORRECTION_FIELDS, CHANGE_REASON_MAX, ap, isSettingKey, type RouteRule } from '@jerp/shared';
+import { GOLD_RATE_KINDS, TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, PAYMENT_METHODS, SCRAP_KINDS, PURCHASE_CORRECTION_FIELDS, CHANGE_REASON_MAX, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
@@ -497,6 +497,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           categoryId: zOptId,
           status: zStatusList,
           origin: z.enum(ITEM_ORIGINS).optional(),
+          // OPN-2: the rate that prices the piece (new or used), e.g. the used opening pieces.
+          rateKind: z.enum(GOLD_RATE_KINDS).optional(),
           minWeightMg: z.coerce.number().int().min(0).max(MAX_WEIGHT_MG).optional(),
           maxWeightMg: z.coerce.number().int().min(0).max(MAX_WEIGHT_MG).optional(),
           targetWeightMg: z.coerce.number().int().min(0).max(MAX_WEIGHT_MG).optional(),
@@ -705,7 +707,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
 
   // ─────────── OPN-1: the opening balance of a branch (General Manager, `opening.manage`) ───────────
   const zOpeningLine = z
-    .object({ categoryId: zId, description: z.string().max(1000).nullable().optional(), karat: zKarat, grossWeightMg: zWeightMg, netWeightMg: zWeightMg })
+    .object({ categoryId: zId, description: z.string().max(1000).nullable().optional(), karat: zKarat, condition: z.enum(GOLD_RATE_KINDS), grossWeightMg: zWeightMg, netWeightMg: zWeightMg })
     .strict();
   const csvFile = (res: Response, file: { fileName: string; text: string }) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');

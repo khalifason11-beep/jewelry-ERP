@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { t, type DatabaseHandle } from '@jerp/database';
-import { COST_RESPONSE_FIELDS, computedPrice, goldValue, rateKindFor } from '@jerp/shared';
+import { COST_RESPONSE_FIELDS, computedPrice, goldValue } from '@jerp/shared';
 import { createApp } from '../src/app';
 import { createContext } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
@@ -38,6 +38,7 @@ interface Row {
   code: string;
   karat: number;
   origin: string;
+  rateKind: string;
   netWeightMg: number;
   sellingPrice: number | null;
   pricePerGram: number | null;
@@ -86,7 +87,9 @@ describe('live computed prices', () => {
     expect(list.length).toBeGreaterThan(5);
     expect(list.some((r) => r.origin === 'SCRAP') && list.some((r) => r.origin !== 'SCRAP')).toBe(true);
     for (const r of list) {
-      const kindRate = rates.get(rateKey(r.karat, rateKindFor(r.origin)))!.pricePerGram;
+      // OPN-2: the piece's own rate kind (scrap pieces USED, supplier pieces NEW).
+      expect(r.rateKind, r.code).toBe(r.origin === 'SCRAP' ? 'USED' : 'NEW');
+      const kindRate = rates.get(rateKey(r.karat, r.rateKind as 'NEW' | 'USED'))!.pricePerGram;
       expect(r.pricePerGram, r.code).toBe(kindRate);
       expect(r.sellingPrice, r.code).toBe(computedPrice(r.netWeightMg, kindRate, s));
     }
@@ -118,8 +121,8 @@ describe('live computed prices', () => {
     // A copy of an available new piece weighing exactly 1 g (a new row; nothing else changes).
     const src = (await available(gm)).find((r) => r.origin !== 'SCRAP')!;
     await ctx.db.execute(sql`
-      INSERT INTO jewelry_items (code, barcode, product_id, category_id, karat, gross_weight_mg, net_weight_mg, origin, acquisition_cost, making_charge, selling_price, branch_id, status)
-      SELECT 'PRC-1G', '6281000PRC1G', product_id, category_id, karat, 1000, 1000, 'SUPPLIER_NEW', 50, 0, 0, branch_id, 'AVAILABLE' FROM jewelry_items WHERE id = ${src.id}`);
+      INSERT INTO jewelry_items (code, barcode, product_id, category_id, karat, gross_weight_mg, net_weight_mg, origin, rate_kind, acquisition_cost, making_charge, selling_price, branch_id, status)
+      SELECT 'PRC-1G', '6281000PRC1G', product_id, category_id, karat, 1000, 1000, 'SUPPLIER_NEW', 'NEW', 50, 0, 0, branch_id, 'AVAILABLE' FROM jewelry_items WHERE id = ${src.id}`);
     const old = await rate(21, 'NEW');
     await setRates({ rates: { 21: 100 } });
     const sunday = (await available(gm)).find((r) => r.code === 'PRC-1G')!;
@@ -203,8 +206,8 @@ describe('no rate, no price', () => {
     // A used piece of its own (a copy of an available piece, origin SCRAP; the world's one used piece was sold above).
     const src = (await available(gm))[0];
     await ctx.db.execute(sql`
-      INSERT INTO jewelry_items (code, barcode, product_id, category_id, karat, gross_weight_mg, net_weight_mg, origin, acquisition_cost, making_charge, selling_price, branch_id, status)
-      SELECT 'PRC-USED', '6281000PRCUS', product_id, category_id, karat, 3500, 3400, 'SCRAP', 400000, 0, 0, branch_id, 'AVAILABLE' FROM jewelry_items WHERE id = ${src.id}`);
+      INSERT INTO jewelry_items (code, barcode, product_id, category_id, karat, gross_weight_mg, net_weight_mg, origin, rate_kind, acquisition_cost, making_charge, selling_price, branch_id, status)
+      SELECT 'PRC-USED', '6281000PRCUS', product_id, category_id, karat, 3500, 3400, 'SCRAP', 'USED', 400000, 0, 0, branch_id, 'AVAILABLE' FROM jewelry_items WHERE id = ${src.id}`);
     const p = (await available(cashier, 'SCRAP')).find((r) => r.code === 'PRC-USED')!;
     expect(p.sellingPrice).toEqual(expect.any(Number));
     const usedRate = await rate(21, 'USED');
@@ -238,8 +241,8 @@ describe('SQL equals TypeScript on random values', () => {
     const src = (await available(gm))[0];
     const weights = Array.from({ length: 300 }, () => 1 + rnd(10_000_000));
     await ctx.db.execute(sql.raw(`
-      INSERT INTO jewelry_items (code, barcode, product_id, category_id, karat, gross_weight_mg, net_weight_mg, origin, acquisition_cost, making_charge, selling_price, branch_id, status)
-      SELECT 'RND-' || g.i, 'RND' || lpad(g.i::text, 9, '0'), product_id, category_id, karat, w.mg, w.mg, 'OPENING', 1, 0, 0, branch_id, 'AVAILABLE'
+      INSERT INTO jewelry_items (code, barcode, product_id, category_id, karat, gross_weight_mg, net_weight_mg, origin, rate_kind, acquisition_cost, making_charge, selling_price, branch_id, status)
+      SELECT 'RND-' || g.i, 'RND' || lpad(g.i::text, 9, '0'), product_id, category_id, karat, w.mg, w.mg, 'OPENING', 'NEW', 1, 0, 0, branch_id, 'AVAILABLE'
       FROM jewelry_items, unnest(ARRAY[${weights.join(',')}]) WITH ORDINALITY AS w(mg, i), LATERAL (SELECT w.i AS i) g
       WHERE id = ${src.id}`));
     const old = await rate(21, 'NEW');
@@ -264,7 +267,7 @@ describe('rounding step (provisional, Q-2)', () => {
     const rates = await currentSellingRates(ctx.db);
     for (const r of await available(gm)) {
       expect(r.sellingPrice! % 1_000).toBe(0);
-      expect(r.sellingPrice).toBe(computedPrice(r.netWeightMg, rates.get(rateKey(r.karat, rateKindFor(r.origin)))!.pricePerGram, 1_000));
+      expect(r.sellingPrice).toBe(computedPrice(r.netWeightMg, rates.get(rateKey(r.karat, r.rateKind as 'NEW' | 'USED'))!.pricePerGram, 1_000));
     }
     await ctx.settings.apply(ctx.db, { 'pricing.roundingStep': 1 }, { actor: { id: null, username: 'test' } });
   });

@@ -14,7 +14,7 @@ import { asc, desc, eq, gte, ilike, isNotNull, isNull, lt, or, sql, type SQL } f
 import { alias } from 'drizzle-orm/pg-core';
 import { resolvePieceKinds } from '../catalog/service';
 import { t, type Executor } from '@jerp/database';
-import { ap, divRound, pureGoldMg, sumInt, validBankReference, valueOfWeight, type ScrapKind, type ScrapPaymentMethod, type ScrapWeightEventType } from '@jerp/shared';
+import { ap, divRound, pureGoldMg, sumInt, validBankReference, valueOfWeight, type ScrapKind, type ScrapPaymentMethod, type ScrapWeightEventType, rateKindFor } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requireAny, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
@@ -273,6 +273,8 @@ export async function buyScrap(ctx: Ctx, actor: Actor, input: ScrapPurchaseInput
           grossWeightMg: input.grossWeightMg,
           netWeightMg: input.netWeightMg,
           origin: 'SCRAP',
+          // OPN-2: the rate that prices it (USED).
+          rateKind: rateKindFor('SCRAP'),
           acquisitionCost: amount,
           makingCharge: 0,
           costIsEstimated: false,

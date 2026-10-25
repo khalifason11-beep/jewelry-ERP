@@ -15,7 +15,7 @@
 import { createHash } from 'node:crypto';
 import { and, asc, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
 import { t, type Executor } from '@jerp/database';
-import { ap, CsvSyntaxError, normalizeName, normalizeDigits, parseIntegerInput, parseWeightInput, readCsv, writeCsv } from '@jerp/shared';
+import { ap, CsvSyntaxError, normalizeName, normalizeDigits, parseIntegerInput, parseWeightInput, readCsv, writeCsv, type GoldRateKind } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
@@ -27,6 +27,7 @@ import { maxIdOf, runPaged, type PageRequest, type SortSpec } from '../../core/p
 import { freshFactors, reauthRequired } from '../../auth/reauth';
 import { reauthenticate } from '../auth/service';
 import { cleanDescription } from '../catalog/service';
+import { currentSellingRates, lockPricingShared, rateKey } from '../pricing/service';
 
 /** At most this many rows in one file (plan §5: about 550 kB for a typical sheet; the route limits the body to 1 MB). */
 export const OPENING_IMPORT_MAX_ROWS = 5_000;
@@ -42,21 +43,32 @@ export const OPENING_COLUMNS = [
   { key: 'type', ar: 'النوع', en: 'Type' },
   { key: 'description', ar: 'الوصف', en: 'Description' },
   { key: 'karat', ar: 'العيار', en: 'Karat' },
+  // OPN-2: new or used, required (no default): it decides the rate that prices the piece.
+  { key: 'condition', ar: 'الحالة', en: 'Condition' },
   { key: 'grossWeight', ar: 'الوزن القائم (جم)', en: 'Gross weight (g)' },
   { key: 'netWeight', ar: 'الوزن الصافي (جم)', en: 'Net weight (g)' },
 ] as const;
 type ColumnKey = (typeof OPENING_COLUMNS)[number]['key'];
-const REQUIRED: ColumnKey[] = ['type', 'karat', 'grossWeight', 'netWeight'];
+const REQUIRED: ColumnKey[] = ['type', 'karat', 'condition', 'grossWeight', 'netWeight'];
 const headerCell = (c: { ar: string; en: string }) => `${c.ar} / ${c.en}`;
 /** A header cell as compared: normalized, without a unit in brackets. */
 const headerKey = (s: string) => typeKey(s.replace(/\([^)]*\)/g, ' '));
 /** A type name as compared (the duplicate rule of the catalog: normalized, case and spaces ignored). */
 const typeKey = (s: string) => normalizeName(s).replace(/\s+/g, ' ').trim().toLowerCase();
+/** OPN-2: the words a sheet may use for the condition (normalized: hamza, tatweel, case). */
+const CONDITION_WORDS = new Map<string, GoldRateKind>([
+  ...['جديد', 'جديده', 'جديدة', 'new'].map((w) => [typeKey(w), 'NEW'] as const),
+  ...['مستعمل', 'مستعمله', 'مستعملة', 'used'].map((w) => [typeKey(w), 'USED'] as const),
+]);
+/** The condition as written in a CSV export (Arabic, so the file imports again). */
+const conditionWord = (c: string | null) => (c === 'USED' ? 'مستعمل' : c === 'NEW' ? 'جديد' : '');
 
 export interface OpeningLineInput {
   categoryId: number;
   description?: string | null;
   karat: number;
+  /** OPN-2: new or used (which rate prices the piece); required. */
+  condition: GoldRateKind;
   grossWeightMg: number;
   netWeightMg: number;
 }
@@ -123,6 +135,19 @@ async function summaryOf(exec: Executor, openingId: number) {
     .where(eq(t.openingLines.openingId, openingId))
     .groupBy(t.openingLines.karat)
     .orderBy(asc(t.openingLines.karat));
+  // OPN-2: by karat AND condition (each prices at its own rate). NULL only for the lines of an opening sealed before OPN-2.
+  const byKaratCondition = await exec
+    .select({
+      karat: t.openingLines.karat,
+      condition: t.openingLines.condition,
+      count: sql<number>`count(*)`.mapWith(Number),
+      grossWeightMg: sql<number>`coalesce(sum(${t.openingLines.grossWeightMg}), 0)`.mapWith(Number),
+      netWeightMg: sql<number>`coalesce(sum(${t.openingLines.netWeightMg}), 0)`.mapWith(Number),
+    })
+    .from(t.openingLines)
+    .where(eq(t.openingLines.openingId, openingId))
+    .groupBy(t.openingLines.karat, t.openingLines.condition)
+    .orderBy(asc(t.openingLines.karat), asc(t.openingLines.condition));
   const byType = await exec
     .select({
       categoryId: t.openingLines.categoryId,
@@ -137,7 +162,7 @@ async function summaryOf(exec: Executor, openingId: number) {
     .groupBy(t.openingLines.categoryId, t.categories.name, t.categories.nameAr)
     .orderBy(asc(t.categories.nameAr));
   const total = byKarat.reduce((s, k) => ({ count: s.count + k.count, grossWeightMg: s.grossWeightMg + k.grossWeightMg, netWeightMg: s.netWeightMg + k.netWeightMg }), { count: 0, grossWeightMg: 0, netWeightMg: 0 });
-  return { total, byKarat, byType };
+  return { total, byKarat, byKaratCondition, byType };
 }
 
 /** `GET /openings`: every active branch with its opening (none, DRAFT or SEALED). */
@@ -210,6 +235,7 @@ export async function getOpening(ctx: Ctx, actor: Actor, id: number, q: PageRequ
         grossWeightMg: t.openingLines.grossWeightMg,
         netWeightMg: t.openingLines.netWeightMg,
         source: t.openingLines.source,
+        condition: t.openingLines.condition,
         itemId: t.openingLines.itemId,
         code: t.jewelryItems.code,
         barcode: t.jewelryItems.barcode,
@@ -278,7 +304,7 @@ export async function addOpeningLine(ctx: Ctx, actor: Actor, id: number, input: 
     const lineNo = await nextLineNo(tx, id);
     const [line] = await tx
       .insert(t.openingLines)
-      .values({ openingId: id, lineNo, categoryId: input.categoryId, description, karat: input.karat, grossWeightMg: input.grossWeightMg, netWeightMg: input.netWeightMg, source: 'KEYBOARD', createdBy: actor.userId })
+      .values({ openingId: id, lineNo, categoryId: input.categoryId, description, karat: input.karat, condition: input.condition, grossWeightMg: input.grossWeightMg, netWeightMg: input.netWeightMg, source: 'KEYBOARD', createdBy: actor.userId })
       .returning();
     await writeAudit(tx, actor, {
       action: 'OPENING_LINE_ADDED',
@@ -376,6 +402,12 @@ export async function parseOpeningCsv(ctx: Ctx, exec: Executor, bytes: Buffer): 
     else if (karat == null) add('karat', 'The karat must be a whole number');
     else if (!allowed.includes(karat)) add('karat', '{karat}K is not sold here: sellable pieces must be {allowed}', { karat, allowed: allowed.map((k) => `${k}K`).join(', ') });
 
+    // OPN-2: the condition, required: no default.
+    const conditionText = cell('condition');
+    const condition = conditionText ? CONDITION_WORDS.get(typeKey(conditionText)) : undefined;
+    if (!conditionText) add('condition', 'Choose the condition: new or used');
+    else if (!condition) add('condition', 'Unknown condition "{value}": write new or used (جديد or مستعمل)', { value: conditionText });
+
     const weight = (k: 'grossWeight' | 'netWeight') => {
       const raw = normalizeDigits(cell(k));
       if (!raw) {
@@ -392,7 +424,7 @@ export async function parseOpeningCsv(ctx: Ctx, exec: Executor, bytes: Buffer): 
       const w = weightProblem(gross, net);
       if (w) add(w.startsWith('The net') ? 'netWeight' : 'grossWeight', w);
     }
-    if (problems.length === before) lines.push({ line: r.line, categoryId: type!.id, description, karat: karat!, grossWeightMg: gross!, netWeightMg: net! });
+    if (problems.length === before) lines.push({ line: r.line, categoryId: type!.id, description, karat: karat!, condition: condition!, grossWeightMg: gross!, netWeightMg: net! });
   }
   return { lines, problems };
 }
@@ -427,6 +459,7 @@ export async function importOpeningCsv(ctx: Ctx, actor: Actor, id: number, input
           categoryId: l.categoryId,
           description: l.description ?? null,
           karat: l.karat,
+          condition: l.condition,
           grossWeightMg: l.grossWeightMg,
           netWeightMg: l.netWeightMg,
           source: 'IMPORT',
@@ -467,7 +500,7 @@ export async function exportOpeningCsv(ctx: Ctx, actor: Actor, id: number) {
   const [o] = await ctx.db.select({ status: t.openings.status, branchCode: t.branches.code }).from(t.openings).innerJoin(t.branches, eq(t.branches.id, t.openings.branchId)).where(eq(t.openings.id, id));
   if (!o) throw notFound('Opening');
   const rowsAll = await ctx.db
-    .select({ code: t.jewelryItems.code, barcode: t.jewelryItems.barcode, typeAr: t.categories.nameAr, description: t.openingLines.description, karat: t.openingLines.karat, gross: t.openingLines.grossWeightMg, net: t.openingLines.netWeightMg })
+    .select({ code: t.jewelryItems.code, barcode: t.jewelryItems.barcode, typeAr: t.categories.nameAr, description: t.openingLines.description, karat: t.openingLines.karat, condition: t.openingLines.condition, rateKind: t.jewelryItems.rateKind, gross: t.openingLines.grossWeightMg, net: t.openingLines.netWeightMg })
     .from(t.openingLines)
     .innerJoin(t.categories, eq(t.categories.id, t.openingLines.categoryId))
     .leftJoin(t.jewelryItems, eq(t.jewelryItems.id, t.openingLines.itemId))
@@ -475,7 +508,8 @@ export async function exportOpeningCsv(ctx: Ctx, actor: Actor, id: number) {
     .orderBy(asc(t.jewelryItems.id), asc(t.openingLines.lineNo));
   const sealed = o.status === 'SEALED';
   const head = [...(sealed ? [headerCell({ ar: 'الرمز', en: 'Code' }), headerCell({ ar: 'الباركود', en: 'Barcode' })] : []), ...OPENING_COLUMNS.map(headerCell)];
-  const body = rowsAll.map((r) => [...(sealed ? [r.code, r.barcode] : []), r.typeAr, r.description, r.karat, grams(r.gross), grams(r.net)]);
+  // OPN-2: the condition (a line sealed before OPN-2 has none: its piece's rate kind, NEW, is shown).
+  const body = rowsAll.map((r) => [...(sealed ? [r.code, r.barcode] : []), r.typeAr, r.description, r.karat, conditionWord(r.condition ?? r.rateKind), grams(r.gross), grams(r.net)]);
   return { fileName: `opening-${o.branchCode}-${sealed ? 'sealed' : 'draft'}.csv`, text: writeCsv([head, ...body], { bom: true }) };
 }
 
@@ -505,6 +539,30 @@ export async function sealOpening(ctx: Ctx, actor: Actor, id: number, input: { c
       .where(eq(t.openingLines.openingId, id))
       .orderBy(sql`${t.openingLines.importId} IS NULL`, asc(t.openingLines.importId), asc(t.openingLines.lineNo));
     if (!lines.length) throw new AppError(422, 'OPENING_EMPTY', 'The opening has no pieces: enter or import them first');
+    // OPN-2 (D-opn2-4): every karat and condition in the draft needs its current selling rate, or its pieces would have
+    // no price. Read under the pricing lock (shared), as a sale does, so a rate change cannot slip in between.
+    await lockPricingShared(tx);
+    const rates = await currentSellingRates(tx);
+    const needed = [...new Set(lines.map((l) => `${l.karat}:${l.condition}`))].map((k) => {
+      const [karat, condition] = k.split(':');
+      return { karat: Number(karat), condition: condition as GoldRateKind };
+    });
+    const missing = needed.filter((n) => !rates.get(rateKey(n.karat, n.condition))).sort((a, b) => a.karat - b.karat || a.condition.localeCompare(b.condition));
+    if (missing.length) {
+      const list = (c: GoldRateKind) => missing.filter((m) => m.condition === c).map((m) => `${m.karat}K`).join(', ');
+      const [newK, usedK] = [list('NEW'), list('USED')];
+      throw new AppError(
+        409,
+        'OPENING_RATES_MISSING',
+        newK && usedK
+          ? 'Set the selling rates first: the new-piece rate of {newKarats} and the used-piece rate of {usedKarats}'
+          : newK
+            ? 'Set the selling rate first: the new-piece rate of {newKarats}'
+            : 'Set the selling rate first: the used-piece rate of {usedKarats}',
+        { newKarats: newK, usedKarats: usedK },
+        { missing },
+      );
+    }
     const codes = await nextItemCodes(tx, lines.length);
     const ref = { refType: 'opening', refId: opening.id, refNumber: `OPN-${branch.code}` };
     const note = 'Opening balance';
@@ -522,6 +580,8 @@ export async function sealOpening(ctx: Ctx, actor: Actor, id: number, input: { c
             grossWeightMg: l.grossWeightMg,
             netWeightMg: l.netWeightMg,
             origin: 'OPENING',
+            // OPN-2 (D-opn2-1): the line's condition decides the rate (never a default).
+            rateKind: l.condition!,
             // D-dec1-3: unknown, never 0.
             acquisitionCost: null,
             costIsEstimated: false,

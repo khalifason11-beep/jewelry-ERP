@@ -19,10 +19,11 @@ import { useToast } from '../../lib/toast';
 import { useActionKeys } from '../../lib/idempotency';
 import { useDebounced } from '../../lib/hooks';
 import { dateTime, grams, karatLabel, num } from '../../lib/format';
-import { Alert, Badge, Button, Card, CardHeader, DataTable, DetailPending, Dialog, Field, Input, Mono, PageHeader, WeightInput } from '../../components/ui';
+import { Alert, Badge, Button, Card, CardHeader, DataTable, DetailPending, Dialog, Field, Input, Mono, PageHeader, Select, WeightInput } from '../../components/ui';
 import { PieceKindFields, descriptionTooLong, emptyKind, type PieceKindValue } from '../../components/PieceKind';
 import { confirmWithPasskey } from '../../components/ReauthDialog';
 
+type Condition = 'NEW' | 'USED';
 interface OpeningRow {
   branchId: number;
   branchCode: string;
@@ -33,6 +34,8 @@ interface OpeningRow {
 interface Summary {
   total: { count: number; grossWeightMg: number; netWeightMg: number };
   byKarat: { karat: number; count: number; grossWeightMg: number; netWeightMg: number }[];
+  /** OPN-2: by karat and condition (the rate each group needs). */
+  byKaratCondition: { karat: number; condition: Condition; count: number; grossWeightMg: number; netWeightMg: number }[];
   byType: { categoryId: number; categoryName: string | null; categoryNameAr: string; count: number; netWeightMg: number }[];
 }
 interface Line {
@@ -43,6 +46,8 @@ interface Line {
   categoryNameAr: string;
   description: string | null;
   karat: number;
+  /** OPN-2: NULL only on a line sealed before OPN-2 (its piece is priced as new, D-opn2-3). */
+  condition: Condition | null;
   grossWeightMg: number;
   netWeightMg: number;
   source: 'KEYBOARD' | 'IMPORT';
@@ -69,7 +74,11 @@ interface ImportProblem {
   params?: Record<string, string | number>;
 }
 
-const COLUMN_LABELS: Record<string, string> = { type: 'Type', description: 'Description', karat: 'Karat', grossWeight: 'Gross weight', netWeight: 'Net weight' };
+const COLUMN_LABELS: Record<string, string> = { type: 'Type', description: 'Description', karat: 'Karat', condition: 'Condition', grossWeight: 'Gross weight', netWeight: 'Net weight' };
+/** OPN-2: the condition decides the rate that prices the piece (new-piece or used-piece rate). */
+const CONDITION_LABELS: Record<Condition, string> = { NEW: 'New', USED: 'Used' };
+/** "21K new", "21K used": a group of the review and the rate it needs. */
+const karatCondition = (k: { karat: number; condition: Condition }, t: (k: string) => string) => `${karatLabel(k.karat)} ${t(CONDITION_LABELS[k.condition])}`;
 const statusBadge = (status: 'DRAFT' | 'SEALED' | null, t: (k: string) => string) =>
   status === 'SEALED' ? <Badge tone="ok">{t('SEALED')}</Badge> : status === 'DRAFT' ? <Badge tone="warn">{t('DRAFT')}</Badge> : <Badge>{t('Not started')}</Badge>;
 
@@ -97,7 +106,7 @@ export function OpeningsPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={t('Opening balance')}
-        subtitle={t('The pieces each branch already holds on the first day, entered once. Their cost is unknown; they sell at the new-piece rate.')}
+        subtitle={t('The pieces each branch already holds on the first day, entered once. Their cost is unknown; they sell at the new-piece or the used-piece rate, by their condition.')}
       />
       <Card padded={false}>
         <DataTable
@@ -200,6 +209,7 @@ export function OpeningPage() {
             { key: 'type', header: t('Type'), value: (r) => L(r.categoryName, r.categoryNameAr), render: (r) => L(r.categoryName, r.categoryNameAr) },
             { key: 'description', header: t('Description'), value: (r) => r.description ?? '', render: (r) => r.description ?? '—' },
             { key: 'karat', header: t('Karat'), value: (r) => r.karat, render: (r) => karatLabel(r.karat) },
+            { key: 'condition', header: t('Condition'), value: (r) => r.condition ?? '', render: (r) => (r.condition ? t(CONDITION_LABELS[r.condition]) : '—') },
             { key: 'gross', header: t('Gross weight'), align: 'end', value: (r) => r.grossWeightMg, render: (r) => grams(r.grossWeightMg) },
             { key: 'net', header: t('Net weight'), align: 'end', value: (r) => r.netWeightMg, render: (r) => grams(r.netWeightMg) },
             { key: 'source', header: t('Entered by'), value: (r) => r.source, render: (r) => (r.source === 'IMPORT' ? t('IMPORT') : t('KEYBOARD')) },
@@ -217,15 +227,16 @@ function SummaryCards({ summary }: { summary: Summary }) {
   return (
     <div className="mb-4 grid gap-4 lg:grid-cols-2" data-testid="opening-summary">
       <Card>
-        <CardHeader title={t('By karat')} subtitle={t('{n} piece(s), {weight} net', { n: num(summary.total.count), weight: grams(summary.total.netWeightMg) })} />
+        <CardHeader title={t('By karat and condition')} subtitle={t('{n} piece(s), {weight} net', { n: num(summary.total.count), weight: grams(summary.total.netWeightMg) })} />
         <table className="w-full text-[13px]">
           <thead className="text-ink-3">
-            <tr><th className="py-1 text-start font-medium">{t('Karat')}</th><th className="py-1 text-end font-medium">{t('Pieces')}</th><th className="py-1 text-end font-medium">{t('Gross weight')}</th><th className="py-1 text-end font-medium">{t('Net weight')}</th></tr>
+            <tr><th className="py-1 text-start font-medium">{t('Karat')}</th><th className="py-1 text-start font-medium">{t('Condition')}</th><th className="py-1 text-end font-medium">{t('Pieces')}</th><th className="py-1 text-end font-medium">{t('Gross weight')}</th><th className="py-1 text-end font-medium">{t('Net weight')}</th></tr>
           </thead>
           <tbody>
-            {summary.byKarat.map((k) => (
-              <tr key={k.karat} className="border-t border-line" data-testid={`opening-karat-${k.karat}`}>
+            {summary.byKaratCondition.map((k) => (
+              <tr key={`${k.karat}-${k.condition}`} className="border-t border-line" data-testid={`opening-karat-${k.karat}-${k.condition}`}>
                 <td className="py-1">{karatLabel(k.karat)}</td>
+                <td className="py-1">{t(CONDITION_LABELS[k.condition])}</td>
                 <td className="py-1 text-end num">{num(k.count)}</td>
                 <td className="py-1 text-end num">{grams(k.grossWeightMg)}</td>
                 <td className="py-1 text-end num">{grams(k.netWeightMg)}</td>
@@ -262,6 +273,8 @@ function KeyboardEntry({ openingId }: { openingId: number }) {
   const qc = useQueryClient();
   const keys = useActionKeys();
   const [kind, setKind] = useState<PieceKindValue>(emptyKind());
+  // OPN-2: required, nothing preselected, and chosen again for every piece (never carried over by mistake).
+  const [condition, setCondition] = useState<Condition | ''>('');
   const [gross, setGross] = useState('');
   const [net, setNet] = useState('');
   const box = useRef<HTMLDivElement>(null);
@@ -273,7 +286,9 @@ function KeyboardEntry({ openingId }: { openingId: number }) {
       ? t('Choose the karat')
       : descriptionTooLong(kind.description)
         ? t('A description can have at most 120 characters')
-        : !grossMg
+        : !condition
+          ? t('Choose the condition: new or used')
+          : !grossMg
           ? t('Enter the gross weight')
           : !netMg
             ? t('Enter the net weight')
@@ -282,11 +297,13 @@ function KeyboardEntry({ openingId }: { openingId: number }) {
               : null;
   const add = useMutation({
     mutationFn: () =>
-      postOnce(`/openings/${openingId}/lines`, { categoryId: kind.categoryId, karat: kind.karat, description: kind.description.trim() || null, grossWeightMg: grossMg, netWeightMg: netMg }, keys.for('opening-line')),
+      postOnce(`/openings/${openingId}/lines`, { categoryId: kind.categoryId, karat: kind.karat, description: kind.description.trim() || null, condition, grossWeightMg: grossMg, netWeightMg: netMg }, keys.for('opening-line')),
     onSuccess: () => {
       keys.rotate('opening-line');
-      // The next piece keeps the type and the karat (a sheet is often one type at a time); weights start empty.
+      // The next piece keeps the type and the karat (a sheet is often one type at a time); the condition and the weights
+      // start empty.
       setKind((k) => ({ ...k, description: '' }));
+      setCondition('');
       setGross('');
       setNet('');
       qc.invalidateQueries({ queryKey: ['opening'] });
@@ -311,7 +328,14 @@ function KeyboardEntry({ openingId }: { openingId: number }) {
       <CardHeader title={t('Type a piece')} subtitle={t('Enter moves to the next field; on the last one it adds the piece.')} />
       <div ref={box} onKeyDown={onKey} className="space-y-2" data-testid="opening-keyboard">
         <PieceKindFields value={kind} onChange={setKind} testId="opening-kind" />
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
+          <Field label={t('Condition')}>
+            <Select value={condition} onChange={(e) => setCondition(e.target.value as Condition | '')} data-testid="opening-condition">
+              <option value="">{t('Choose…')}</option>
+              <option value="NEW">{t('New')}</option>
+              <option value="USED">{t('Used')}</option>
+            </Select>
+          </Field>
           <Field label={t('Gross weight (g)')}>
             <WeightInput value={gross} onValueChange={setGross} data-testid="opening-gross" />
           </Field>
@@ -363,7 +387,7 @@ function ImportPanel({ openingId, imports }: { openingId: number; imports: Openi
   });
   return (
     <Card>
-      <CardHeader title={t('Import a CSV file')} subtitle={t('Columns: type, description, karat, gross weight, net weight (Arabic or English names). Excel: "Save as CSV UTF-8".')} />
+      <CardHeader title={t('Import a CSV file')} subtitle={t('Columns: type, description, karat, condition (new or used), gross weight, net weight (Arabic or English names). Excel: "Save as CSV UTF-8".')} />
       <div className="flex flex-wrap items-center gap-2">
         <input ref={file} type="file" accept=".csv,text/csv" onChange={(e) => { setChosen(e.target.files?.[0] ?? null); setProblems(null); }} className="text-[13px]" data-testid="opening-file" />
         <Button variant="primary" icon={<FileUp className="size-4" />} disabled={!chosen} loading={run.isPending} onClick={() => chosen && run.mutate(chosen)} data-testid="opening-import">{t('Import')}</Button>
@@ -428,7 +452,7 @@ function RemoveLine({ openingId, line }: { openingId: number; line: Line }) {
 function SealPanel({ opening }: { opening: Opening }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const karats = useMemo(() => opening.summary.byKarat.map((k) => karatLabel(k.karat)).join('، '), [opening.summary.byKarat]);
+  const rates = useMemo(() => opening.summary.byKaratCondition.map((k) => karatCondition(k, t)).join('، '), [opening.summary.byKaratCondition, t]);
   return (
     <Card>
       <CardHeader title={t('Before sealing')} />
@@ -437,7 +461,7 @@ function SealPanel({ opening }: { opening: Opening }) {
           {t('Register a passkey on this device (sealing asks for it).')} <Link to="/security" className="text-gold-700 hover:underline">{t('Security')}</Link>
         </li>
         <li>
-          {t('Switch on computed prices and set the new-piece rate of every karat in the sheet: {karats}.', { karats: karats || '—' })}{' '}
+          {t('Switch on computed prices and set the selling rate of every karat and condition in the sheet (new pieces: the new-piece rate; used pieces: the used-piece rate): {rates}.', { rates: rates || '—' })}{' '}
           <Link to="/prices" className="text-gold-700 hover:underline">{t('Prices')}</Link>
         </li>
         <li>{t('Review the draft: the totals above against the paper count, and the lines below (or the CSV export).')}</li>
@@ -497,7 +521,7 @@ function SealDialog({ opening, onClose }: { opening: Opening; onClose: () => voi
     >
       <p className="mb-2 text-[13px]" data-testid="opening-seal-summary">
         {t('{n} piece(s), {weight} net:', { n: num(opening.summary.total.count), weight: grams(opening.summary.total.netWeightMg) })}{' '}
-        {opening.summary.byKarat.map((k) => `${karatLabel(k.karat)} ${num(k.count)} / ${grams(k.netWeightMg)}`).join(' · ')}
+        {opening.summary.byKaratCondition.map((k) => `${karatCondition(k, t)} ${num(k.count)} / ${grams(k.netWeightMg)}`).join(' · ')}
       </p>
       <Field label={t('Your password')}>
         <Input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="opening-seal-password" />

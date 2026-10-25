@@ -150,8 +150,8 @@ describe('REM-5 on a fresh database', () => {
        INSERT INTO products (sku, name_ar, category_id, karat) SELECT 'P-901', 'منتج', id, 21 FROM categories WHERE code = 'T-901';
        INSERT INTO purchases (number, branch_id, item_count, total_net_weight_mg, total_cost, created_by)
          SELECT 'PO-901', b.id, 1, 5000, 1000, u.id FROM branches b, users u WHERE b.code = 'UNQ' AND u.username = 'unique.person';
-       INSERT INTO jewelry_items (code, barcode, product_id, category_id, karat, gross_weight_mg, net_weight_mg, acquisition_cost, selling_price, branch_id, status)
-         SELECT 'J-901', 'J-901', p.id, p.category_id, 21, 5000, 5000, 1000, 2000, b.id, 'AVAILABLE' FROM products p, branches b WHERE p.sku = 'P-901' AND b.code = 'UNQ';
+       INSERT INTO jewelry_items (code, barcode, product_id, category_id, karat, gross_weight_mg, net_weight_mg, rate_kind, acquisition_cost, selling_price, branch_id, status)
+         SELECT 'J-901', 'J-901', p.id, p.category_id, 21, 5000, 5000, 'NEW', 1000, 2000, b.id, 'AVAILABLE' FROM products p, branches b WHERE p.sku = 'P-901' AND b.code = 'UNQ';
        INSERT INTO purchase_items (purchase_id, item_id, purchase_cost, making_cost, other_cost)
          SELECT po.id, i.id, 1000, 0, 0 FROM purchases po, jewelry_items i WHERE po.number = 'PO-901' AND i.code = 'J-901'`,
     );

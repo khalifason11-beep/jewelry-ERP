@@ -271,8 +271,8 @@ async function scale(ctx: Ctx) {
   await x(sql`ALTER TABLE pf ADD COLUMN sale_at timestamptz`);
   await x(sql`UPDATE pf SET sale_at = least(now() - interval '5 minutes', created_at + make_interval(mins => ((g::bigint * 104729) % (30 * 1440))::int)) WHERE status = 'SOLD'`);
   await x(sql`
-    INSERT INTO jewelry_items (code, barcode, product_id, category_id, karat, gross_weight_mg, net_weight_mg, origin, acquisition_cost, selling_price, branch_id, status, created_at, updated_at)
-    SELECT 'PF-' || g, 'PF' || g, product_id, (SELECT category_id FROM products WHERE products.id = pf.product_id), karat, net + 200, net, 'SUPPLIER_NEW', cost, cost + cost / 3, branch_id, status, created_at, created_at FROM pf`);
+    INSERT INTO jewelry_items (code, barcode, product_id, category_id, karat, gross_weight_mg, net_weight_mg, origin, rate_kind, acquisition_cost, selling_price, branch_id, status, created_at, updated_at)
+    SELECT 'PF-' || g, 'PF' || g, product_id, (SELECT category_id FROM products WHERE products.id = pf.product_id), karat, net + 200, net, 'SUPPLIER_NEW', 'NEW', cost, cost + cost / 3, branch_id, status, created_at, created_at FROM pf`);
   await x(sql`ALTER TABLE pf ADD COLUMN item_id int`);
   await x(sql`UPDATE pf SET item_id = i.id FROM jewelry_items i WHERE i.code = 'PF-' || pf.g`);
   await x(sql`
@@ -344,10 +344,10 @@ async function openingAtScale(ctx: Ctx) {
   const grams = (mg: number) => `${Math.trunc(mg / 1000)}.${String(mg % 1000).padStart(3, '0')}`;
   const text = writeCsv(
     [
-      ['النوع', 'الوصف', 'العيار', 'الوزن القائم', 'الوزن الصافي'],
+      ['النوع', 'الوصف', 'العيار', 'الحالة', 'الوزن القائم', 'الوزن الصافي'],
       ...Array.from({ length: 5_000 }, (_, i) => {
         const net = 2_000 + ((i * 37) % 20_000);
-        return [types[i % types.length].nameAr, `قطعة افتتاحية رقم ${i + 1}`, karat, grams(net + 150), grams(net)];
+        return [types[i % types.length].nameAr, `قطعة افتتاحية رقم ${i + 1}`, karat, i % 3 ? 'جديد' : 'مستعمل', grams(net + 150), grams(net)];
       }),
     ],
     { bom: true },

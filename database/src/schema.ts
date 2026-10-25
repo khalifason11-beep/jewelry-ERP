@@ -311,6 +311,12 @@ export const jewelryItems = pgTable(
     /** OPENING | SUPPLIER_NEW | SCRAP */
     origin: text('origin').notNull().default('SUPPLIER_NEW'),
     /**
+     * OPN-2 (D-opn2-1): which selling rate prices the piece, NEW or USED. A supplier piece is NEW, a sellable scrap piece
+     * USED, an opening piece takes its line's condition. Set when the piece is created, never by default; required from
+     * 0031 (CHECK `ck_jewelry_items_rate_kind_origin`: scrap is USED, a supplier piece NEW).
+     */
+    rateKind: text('rate_kind').notNull(),
+    /**
      * What the piece cost the company (for SUPPLIER_NEW it includes the making charge). GM only. OPN-1 (D-dec1-3):
      * NULL = unknown (opening pieces only, from 0028), never 0.
      */
@@ -497,6 +503,8 @@ export const openingLines = pgTable(
     netWeightMg: integer('net_weight_mg').notNull(),
     /** KEYBOARD | IMPORT */
     source: text('source').notNull(),
+    /** OPN-2: NEW | USED, required on every new line (the trigger refuses one without it); NULL only on lines sealed before OPN-2. */
+    condition: text('condition'),
     /**
      * The import that added the line. No foreign key: `opening_imports` is append-only and the runtime role may not take
      * the key check's FOR KEY SHARE on it (D-mis1-3); the trigger `jerp_opening_line_check` checks it instead.

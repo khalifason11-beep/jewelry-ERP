@@ -182,7 +182,7 @@ without one); codes in the sheet's order; pieces origin OPENING, cost NULL, pric
 at a NULL cost, no ledger entry; then 409 `OPENING_SEALED` and database triggers. **Unknown cost everywhere**: every
 profit figure covers the lines of known cost and carries `unknownCostLines` (profit "—" when none is known; margin over
 the known revenue); stock value at cost carries `unknownCostPieces`; valuation by weight × rate unaffected (D-opn1-6).
-Open with the client: does the existing stock include used pieces (they would sell at the new-piece rate today)?
+The used-pieces question was answered on 2026-10-25 and built by OPN-2.
 **Requirements (SPEC §13):** GM-only, one per branch, DRAFT → SEALED.
 - Entry by keyboard and barcode scanner; **CSV import** with a validation report (row numbers, the whole file rejected on errors, idempotent) and a CSV template. **CSV only (owner, 2026-10-24, D-opn1-2):** XLSX only if the client's real data needs it later.
 - Items get origin OPENING with **weight and karat only**. **Q-4 closed (owner, 2026-10-18, D-dec1-3): their cost is
@@ -191,6 +191,17 @@ Open with the client: does the existing stock include used pieces (they would se
   is unaffected. Supplier-piece cost stays as built. **No cash entries** (books start at zero).
 - Before sealing show count and total weight by karat; sealing needs password and passkey confirmation; afterwards only audited adjustments.
 **Acceptance:** importing a 300-row file creates the items, the stock-weight report matches the sheet's totals, and sealing locks the draft. Part of REH-1.
+
+### OPN-2 — Condition (new or used) of opening pieces · DONE · S · P0 · OPN-1
+**Done (plan `docs/plans/OPN-2.md`, decisions D-opn2-1…4, migrations 0029–0031, `docs/acceptance/OPN-2.md`):** owner,
+2026-10-25: the existing stock includes used pieces; a used piece sells at the USED rate, exactly like sellable scrap.
+Every piece carries `rate_kind` (NEW or USED; required from 0031, tied to the origin: scrap USED, supplier NEW), read by
+every price (sale, lists, their sort and totals, POS search, piece page, reports, homes). Every opening line has a
+condition, required with no default (keyboard choice reset for every piece; CSV column, Arabic or English, normalized;
+missing or unknown → row and column, file refused); template, export and review by karat **and** condition; sealing
+refused with 409 `OPENING_RATES_MISSING` naming the karats; 0030 stops on a draft with lines (D-opn2-2); openings
+sealed before OPN-2 keep their pieces NEW (D-opn2-3). Inventory: a "Used" badge, a new/used filter, the piece page names
+its rate. Not built: correcting the condition after the seal (OPN-FIX).
 
 ### OPN-FIX — Correct a piece of a sealed opening · TODO · S · P1 (before real operation) · OPN-1
 **Owner, 2026-10-24 (D-opn1-3):** a sealed opening is final. A General-Manager correction of an opening piece while it

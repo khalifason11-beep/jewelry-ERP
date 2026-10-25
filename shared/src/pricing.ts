@@ -7,11 +7,15 @@
 // opening pieces, USED for sellable scrap. No making charge (Q-1 open): the sale line keeps price_making_charge NULL.
 // A missing rate (none, or ≤ 0) means NO price, never 0.
 
-import type { GoldRateKind, ItemOrigin } from './enums';
+import type { GoldRateKind } from './enums';
 import { mulDivRound, sumInt } from './money';
 
-/** The selling rate that prices a piece of this origin. */
-export function rateKindFor(origin: ItemOrigin | string): GoldRateKind {
+/**
+ * The selling rate of a piece bought by the shop: a sellable scrap piece USED, a supplier piece NEW. OPN-2: an opening
+ * piece is not decided here; it takes its line's condition. The piece stores the result (`rate_kind`), which is what
+ * the pricing reads.
+ */
+export function rateKindFor(origin: 'SCRAP' | 'SUPPLIER_NEW'): GoldRateKind {
   return origin === 'SCRAP' ? 'USED' : 'NEW';
 }
 
