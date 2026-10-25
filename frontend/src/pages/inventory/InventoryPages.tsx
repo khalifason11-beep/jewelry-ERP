@@ -17,6 +17,7 @@ import { useServerList } from '../../lib/paging';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect } from '../../components/Filters';
 import { Crumbs } from '../sales/SalesPages';
+import { OpeningCorrectionButton, OpeningCorrectionsCard, type OpeningCorrectionRow } from './OpeningCorrection';
 
 /** Table column → the inventory list's server sort key (BE-7). */
 const ITEM_SORT_KEYS = { code: 'code', karat: 'karat', netWeightMg: 'weight', totalCost: 'cost', sellingPrice: 'price' };
@@ -166,6 +167,9 @@ interface ItemDetail {
   item: ItemRow;
   history: { id: number; fromStatus: string | null; toStatus: string; branchName: string; refType: string | null; refId: number | null; refNumber: string | null; note: string | null; at: string; userName: string | null }[];
   movements: { id: number; type: string; direction: number; branchName: string; refType: string | null; refId: number | null; refNumber: string | null; at: string; userName: string | null; note: string | null }[];
+  /** OPN-FIX: the sealed opening of an opening piece, and its corrections after the seal. */
+  openingId?: number | null;
+  openingCorrections?: OpeningCorrectionRow[];
 }
 
 function refLink(refType: string | null, refId: number | null, refNumber: string | null) {
@@ -232,6 +236,7 @@ export function ItemDetailPage() {
             {can('inventory.adjust') && i.status === 'AVAILABLE' && (
               <Button icon={<PackageX className="size-4" />} onClick={() => setAdjust('MARK_DAMAGED')}>{t('Mark damaged')}</Button>
             )}
+            {q.data?.openingId != null && <OpeningCorrectionButton item={i} openingId={q.data.openingId} />}
             {can('inventory.adjust') && i.status === 'DAMAGED' && (
               <Button icon={<RotateCcw className="size-4" />} onClick={() => setAdjust('RESTOCK')}>{t('Restock')}</Button>
             )}
@@ -305,6 +310,7 @@ export function ItemDetailPage() {
           )}
         </div>
         <div className="space-y-5">
+          <OpeningCorrectionsCard rows={q.data?.openingCorrections ?? []} />
           <Card padded={false}>
             <CardHeader title={t('Lifecycle')} subtitle={t('Every status change of this piece, with the document that caused it')} />
             {history.length === 0 ? (

@@ -179,6 +179,33 @@ async function seal(page, gm, cashierApi, world, id) {
   await page.goto(`${BASE}/inventory/${items[0].id}`);
   check(await eventually(async () => (await page.getByTestId('item-cost-unknown').count()) === 1), 'the piece says "Cost: unknown (opening balance)"');
 
+  // OPN-FIX: the used piece was entered by mistake as used. Its page offers the correction (General Manager); the dialog
+  // shows the server's preview (price now, price after, the valuation change) before the confirmation, then asks the
+  // reason, the password and the passkey.
+  await page.goto(`${BASE}/inventory/${used[0].id}`);
+  await page.click('[data-testid=opening-correct]');
+  await page.selectOption('[data-testid=opening-correct-condition]', 'NEW');
+  const pv = await gm.must('GET', `/openings/${id}/pieces/${used[0].id}/correction-preview?action=CORRECT&condition=NEW`);
+  check(
+    await eventually(async () => (await page.getByTestId('opening-correct-new-price').innerText().catch(() => '')).replace(/[^\d]/g, '') === String(pv.after.sellingPrice)),
+    `the preview shows the new price (${pv.after.sellingPrice}, now ${pv.before.sellingPrice}) before the confirmation`,
+  );
+  const confirmFix = page.getByTestId('opening-correct-confirm');
+  check(await confirmFix.isDisabled(), 'Save stays grey without the reason, the password and the passkey');
+  await page.fill('[data-testid=opening-correct-reason]', 'سُجّلت مستعملة خطأً');
+  await page.fill('[data-testid=opening-correct-password]', world.gm.password);
+  await page.click('[data-testid=opening-correct-passkey]');
+  await confirmIfAsked(page, world.gm.password);
+  check(await eventually(async () => !(await confirmFix.isDisabled())), 'with the reason, the password and the passkey, Save is enabled');
+  await shot(page, 'opening-correction');
+  await confirmFix.click();
+  await confirmIfAsked(page, world.gm.password);
+  check(await eventually(async () => (await gm.must('GET', `/inventory/items/${used[0].id}`)).item.rateKind === 'NEW', 15_000), 'the piece is corrected to new');
+  check(await eventually(async () => (await page.getByTestId('opening-corrections').count()) === 1 && (await page.getByTestId('item-rate-kind').innerText()).includes('الجديد')), 'its page lists the correction and says it is priced at the new-piece rate');
+  await page.goto(`${BASE}/openings/${id}`);
+  check(await eventually(async () => (await page.getByTestId('opening-now').count()) === 1 && (await page.getByTestId('opening-corrections').innerText()).includes('سُجّلت مستعملة خطأً')), 'the sealed opening shows the pieces now and the correction with its reason');
+  await shot(page, 'opening-corrections');
+
   // A sale of one: its line is left out of the profit, and the sale says so.
   const sale = await cashierApi.call('POST', '/sales', { items: [{ itemId: items[0].id }], paymentMethod: 'CASH' }, { idempotent: true });
   const price = sale.body?.error?.details?.lines?.[0]?.listPrice;
