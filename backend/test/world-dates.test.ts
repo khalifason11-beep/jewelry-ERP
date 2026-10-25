@@ -87,3 +87,29 @@ describe('the fixture world on every weekday and at two hours', () => {
     }
   }, 180_000);
 });
+
+// FIX-5: the same instant builds the same world, on PGlite and on PostgreSQL. The sales pick a piece by a seeded random
+// index into the branch's available pieces; without an ORDER BY, PostgreSQL returned them in heap order and 20 builds of
+// one instant gave 4 different worlds (one of them left a branch's drawer short for a test). Three builds must agree on
+// every sold piece and every ledger balance.
+describe('the fixture world is deterministic', () => {
+  it('three builds of the same instant: the same sold pieces and the same balances', async () => {
+    const now = new Date(dayStart(addDays(FIRST_DAY, 6), TZ).getTime() + (9 * 60 + 50) * 60_000);
+    const prints: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const handle = await openTestDatabase();
+      try {
+        const ctx = createContext(handle);
+        await seedWorld(ctx, now);
+        const [sold] = rowsOf<{ c: string }>(await ctx.db.execute(sql`SELECT string_agg(i.code, ',' ORDER BY s.number, si.id) AS c FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN jewelry_items i ON i.id = si.item_id`));
+        const bals = rowsOf<{ b: string }>(await ctx.db.execute(sql`SELECT string_agg(br.code || ':' || a.kind || '=' || coalesce(x.v, 0), ',' ORDER BY br.code, a.kind) AS b FROM ledger_accounts a JOIN branches br ON br.id = a.branch_id LEFT JOIN (SELECT account_id, sum(amount) AS v FROM ledger_entries GROUP BY account_id) x ON x.account_id = a.id`));
+        prints.push(`${sold.c} | ${bals[0].b}`);
+      } finally {
+        await handle.close();
+      }
+    }
+    expect(prints[0].length).toBeGreaterThan(100);
+    expect(prints[1]).toBe(prints[0]);
+    expect(prints[2]).toBe(prints[0]);
+  }, 300_000);
+});

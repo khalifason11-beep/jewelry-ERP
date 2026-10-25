@@ -26,6 +26,7 @@ import { loadActor } from '../src/modules/sessions/service';
 import { balances, drawer, reconciliation } from '../src/modules/ledger/service';
 import { correctFunding, fundingView, owedOf, recordAdvance, recordRepayment } from '../src/modules/funding/service';
 import { branchDashboard, companyDashboard } from '../src/modules/dashboard/service';
+import { createBranch } from '../src/modules/branches/service';
 import { attentionFor } from '../src/modules/attention/service';
 import { listAudit, runReport } from '../src/modules/reports/service';
 import { seedWorld } from './fixtures/world';
@@ -53,6 +54,9 @@ async function login(username: string, role: keyof typeof DEMO_PASSWORDS): Promi
   agent.set('x-csrf-token', res.body.csrfToken);
   return agent;
 }
+/** FIX-5: a branch of the test's own, created once: it owes nothing and its drawer holds what the test puts in it. */
+let ownBranchId: number | null = null;
+const ownBranch = async () => (ownBranchId ??= (await createBranch(ctx, gm, { code: 'FXF', name: 'Funding test branch', nameAr: 'فرع اختبار التمويل', city: 'Test' })).id);
 const err = async (p: Promise<unknown>) => p.then(() => null, (e: { status?: number; key?: string; message?: string }) => e);
 
 beforeAll(async () => {
@@ -120,14 +124,34 @@ describe('corrections', () => {
     await expect(ctx.db.execute(sql`UPDATE gm_funding_events SET amount = 1 WHERE id = ${a.id}`)).rejects.toThrow();
   });
 
+  // FIX-5: this test once repaid everything the fixture branch BHR owed, in cash, so it depended on what 30 days of
+  // fixture trading left in BHR's drawer: short on some weekdays and hours, and on PostgreSQL also on how the world
+  // happened to be built (4 failures in 100 runs). It now runs on its own branch, whose drawer the test funds itself.
   it('correcting an advance that was already repaid is refused when the branch would owe less than nothing', async () => {
-    const bhr = await branchId('BHR');
-    const owed0 = await owedOf(ctx, bhr);
-    const a = await recordAdvance(ctx, gm, { branchId: bhr, account: 'CASH', amount: 50_000, reason: 'Small float' });
-    await recordRepayment(ctx, gm, { branchId: bhr, account: 'CASH', amount: owed0 + 50_000, reason: 'Everything back' });
+    const own = await ownBranch();
+    expect([await owedOf(ctx, own), await bal(own, 'CASH')]).toEqual([0, 0]);
+    const a = await recordAdvance(ctx, gm, { branchId: own, account: 'CASH', amount: 50_000, reason: 'Small float' });
+    await recordRepayment(ctx, gm, { branchId: own, account: 'CASH', amount: 50_000, reason: 'Everything back' });
     const e = await err(correctFunding(ctx, gm, a.id, { reason: 'wrong amount' }));
     expect(e?.key).toMatch(/already been repaid in part/);
-    expect(await owedOf(ctx, bhr)).toBe(0);
+    expect([await owedOf(ctx, own), await bal(own, 'CASH')]).toEqual([0, 0]);
+  });
+
+  it('a repayment from a drawer that really is short is refused every time with the same error, and writes nothing', async () => {
+    const own = await ownBranch();
+    await recordAdvance(ctx, gm, { branchId: own, account: 'CASH', amount: 30_000, reason: 'test drawer float' });
+    await recordAdvance(ctx, gm, { branchId: own, account: 'BANK', amount: 100_000, reason: 'test bank funding', bankReference: 'TEST-FIX5-1' });
+    const before = { owed: await owedOf(ctx, own), cash: await bal(own, 'CASH'), bank: await bal(own, 'BANK'), events: (await fundingView(ctx, gm, { branchId: own })).events.length };
+    expect([before.owed, before.cash]).toEqual([130_000, 30_000]);
+    for (let i = 0; i < 3; i++) {
+      const e = (await err(recordRepayment(ctx, gm, { branchId: own, account: 'CASH', amount: 40_000, reason: 'More than the drawer holds' }))) as { status?: number; code?: string; params?: Record<string, unknown>; message?: string } | null;
+      expect(e).toMatchObject({ status: 409, code: 'DRAWER_SHORT', params: { balance: '30,000', amount: '40,000', short: '10,000' } });
+      expect(e?.message).toBe('The drawer holds 30,000: a repayment of 40,000 from it is 10,000 more than that. Repay at most 30,000 from the drawer, or repay from the bank');
+    }
+    expect({ owed: await owedOf(ctx, own), cash: await bal(own, 'CASH'), bank: await bal(own, 'BANK'), events: (await fundingView(ctx, gm, { branchId: own })).events.length }).toEqual(before);
+    // Exactly what the drawer holds goes through.
+    await recordRepayment(ctx, gm, { branchId: own, account: 'CASH', amount: 30_000, reason: 'The whole drawer' });
+    expect([await owedOf(ctx, own), await bal(own, 'CASH')]).toEqual([100_000, 0]);
   });
 });
 
