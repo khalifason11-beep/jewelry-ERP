@@ -1463,6 +1463,13 @@ async function main() {
       const valuation1 = (await apiGet(page, `/api/reports/inventory?branchId=${branchId}&status=AVAILABLE`)).body.totals.sellingPrice;
       check(after.item.rateKind === 'NEW' && after.item.sellingPrice === pv.body.after.sellingPrice && after.item.totalCost === null && after.openingCorrections.length === 1, `the piece is priced at the new-piece rate (${after.item.sellingPrice}), its cost still unknown, its history lists the correction`);
       check(valuation1 - valuation0 === pv.body.valuationChange, `the stock valuation moved by exactly the preview's amount (${valuation1 - valuation0})`);
+      // The sealed opening keeps its totals as sealed and shows the pieces now and the correction (OPN-FIX c4).
+      const sealedView = (await apiGet(page, `/api/openings/${openingId}`)).body;
+      const nowNew = sealedView.now.byKaratCondition.find((x) => x.condition === 'NEW')?.count;
+      check(
+        sealedView.summary.total.count === 4 && sealedView.summary.total.netWeightMg === sheetNetMg && sealedView.now.total.count === 4 && sealedView.now.sold === 2 && nowNew === 3 && sealedView.corrections.length === 1 && sealedView.corrections[0].reason === 'سُجّلت مستعملة خطأً',
+        `the sealed opening: 4 pieces as sealed; now 4 (2 sold, 3 new after the correction); the correction listed with its reason`,
+      );
       await signOut(page);
     }
 

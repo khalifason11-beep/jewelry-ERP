@@ -326,3 +326,31 @@ describe('property: any sequence of corrections', () => {
     );
   }, 300_000);
 });
+
+describe('the sealed opening shows its corrections (as sealed, and now)', () => {
+  it('the summary stays as sealed; "now" counts the pieces as they are; the corrections and the export columns', async () => {
+    const o = (await gmHttp.get(`/api/openings/${opening}`)).body;
+    // As sealed: the 10 lines, all new, karat k, 10 g net each (the lines never change).
+    expect(o.summary.total).toEqual({ count: 10, grossWeightMg: 105_000, netWeightMg: 100_000 });
+    expect(o.summary.byKaratCondition).toEqual([{ karat: k, condition: 'NEW', count: 10, grossWeightMg: 105_000, netWeightMg: 100_000 }]);
+    // Now: from the pieces themselves (voided out, sold in, corrected values in).
+    const items = await ctx.db.select().from(t.jewelryItems).where(sql`${t.jewelryItems.id} IN (SELECT item_id FROM opening_lines WHERE opening_id = ${opening})`);
+    const live = items.filter((i) => i.status !== 'VOIDED');
+    expect(o.now.total).toEqual({ count: live.length, grossWeightMg: live.reduce((s, i) => s + i.grossWeightMg, 0), netWeightMg: live.reduce((s, i) => s + i.netWeightMg, 0) });
+    expect([o.now.voided, o.now.sold]).toEqual([1, 1]);
+    expect(o.now.byKaratCondition.reduce((s: number, x: { count: number }) => s + x.count, 0)).toBe(live.length);
+    expect(o.now.byKaratCondition.some((x: { condition: string }) => x.condition === 'USED')).toBe(true);
+    // Every correction, oldest first, with its branch.
+    const rows = await ctx.db.select().from(t.openingPieceCorrections).where(eq(t.openingPieceCorrections.openingId, opening)).orderBy(asc(t.openingPieceCorrections.id));
+    expect(o.corrections.map((c: { id: number; kind: string; branchId: number }) => [c.id, c.kind, c.branchId])).toEqual(rows.map((r) => [r.id, r.kind, r.branchId]));
+    expect(o.lines.rows.find((l: { itemId: number }) => l.itemId === pieces.void)?.itemStatus).toBe('VOIDED');
+    // The export: the sealed columns, then the piece now.
+    const csvText = (await gmHttp.get(`/api/openings/${opening}/export`)).text;
+    const [head, ...lines] = csvText.replace(/^﻿/, '').split('\r\n').filter(Boolean);
+    expect(head.split(',').slice(-5)).toEqual(['الحالة الآن / Status now', 'الجديد/المستعمل الآن / Condition now', 'العيار الآن / Karat now', 'الوزن الصافي الآن (جم) / Net weight now (g)', 'الوزن القائم الآن (جم) / Gross weight now (g)']);
+    const weightRow = lines.find((l) => l.includes(',weight,'))!.split(',');
+    expect(weightRow.slice(-5)).toEqual(['AVAILABLE', 'جديد', String(k), '9.250', '9.700']);
+    expect(weightRow.slice(-7, -5)).toEqual(['10.500', '10.000']); // as sealed
+    expect(lines.find((l) => l.includes(',void,'))!.split(',').slice(-5)[0]).toBe('VOIDED');
+  });
+});
