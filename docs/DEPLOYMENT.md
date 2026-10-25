@@ -455,6 +455,16 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
 - **0034** writes one payment line per existing sale (its method, its whole total, its references). It **stops,
   changing nothing**, if a sale disagrees with its SALE ledger entries (their sum or their payment method), or if a
   sale cannot make a valid line (no Hasad invoice number, no valid bank reference, a total of 0).
+- **0035** checks, when each transaction commits, that every sale has 1 or 2 payment lines (numbered from 1) summing to
+  its total, and that its label is the line's method or `SPLIT` (constraint trigger `jerp_sale_payments_check`). The
+  sale's own reference checks (`ck_sales_hasad_reference`, `ck_sales_bank_transfer_reference`) are replaced by the
+  lines' check. Nothing stops the upgrade (0034 gave every sale its line).
+- `POST /api/sales` takes `payments: [{ method, amount, refInvoice?, refTransaction? }]` (1 or 2 lines, one per
+  method, each accepted by `sales.posPaymentMethods`), or the single-method fields as before (one line of the whole
+  total; REM-6 removes them before go-live); both at once are refused (400). The sale (create, detail, list rows)
+  answers with `payments`; `paymentMethod` may now read `SPLIT`.
+- error code: `PAYMENT_TOTAL_MISMATCH` (422): the payment lines do not add up to the sale's total; the answer names
+  the sum and the total.
 
 ### Stop and recreate is a pre-production rule only
 

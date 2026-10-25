@@ -33,5 +33,6 @@
   "0031_opn2_tighten.sql": "c0a188c0e646c3d31fec751fcbe9027352c96cd8a52f5bd5d7f4691f620cdf27",
   "0032_opnfix_corrections.sql": "50e521715e6fdae586bbb64ba378120f1f9bfc058abb8093d39275185cb911a4",
   "0033_pay1_sale_payments.sql": "cdbd6245c52d24319882cc08903a7f991c7678fadb9673d9761b465450c8df5a",
-  "0034_pay1_backfill_payments.sql": "a3a72c310cefa714d9df9d3e98b17f920cc21cc446d925dce8603221614bd83c"
+  "0034_pay1_backfill_payments.sql": "a3a72c310cefa714d9df9d3e98b17f920cc21cc446d925dce8603221614bd83c",
+  "0035_pay1_tighten_payments.sql": "05a5101970b2b08245dc55bad3c82a00629b8055033e792e54279e44cc66fa15"
 }

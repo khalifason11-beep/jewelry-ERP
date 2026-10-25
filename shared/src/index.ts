@@ -15,3 +15,4 @@ export * from './inputs';
 export * from './pricing';
 export * from './rate-guard';
 export * from './csv';
+export * from './payments';

@@ -198,7 +198,6 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   // ── Phase 2c: backups
   { name: 'ck_backup_runs_size_nonneg', table: 'backup_runs', expr: 'size_bytes IS NULL OR size_bytes >= 0' },
   { name: 'ck_backup_runs_finished_after_start', table: 'backup_runs', expr: 'finished_at >= started_at' },
-  { name: 'ck_sales_hasad_reference', table: 'sales', expr: "payment_method <> 'HASAD' OR payment_ref_invoice IS NOT NULL" },
   // ── CAT-0: names entered by people (migration 0015)
   { name: 'ck_suppliers_has_name', table: 'suppliers', expr: "coalesce(nullif(btrim(name_ar), ''), nullif(btrim(name), '')) IS NOT NULL" },
   { name: 'ck_categories_name_ar_not_blank', table: 'categories', expr: "btrim(name_ar) <> ''" },
@@ -206,8 +205,6 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   // ── FIX-1: the courier's name on a transfer (migration 0019)
   { name: 'ck_transfers_courier_name', table: 'transfers', expr: 'courier_name IS NULL OR length(btrim(courier_name)) BETWEEN 2 AND 80' },
   // ── SEC-2: the price-change reason (migration 0017)
-  // ── FIX-2: a bank-transfer sale carries its bank reference (migration 0018, validated after a guard)
-  { name: 'ck_sales_bank_transfer_reference', table: 'sales', expr: "payment_method <> 'BANK_TRANSFER' OR (payment_ref_transaction IS NOT NULL AND length(btrim(payment_ref_transaction)) BETWEEN 4 AND 40)" },
   { name: 'ck_sales_price_change_reason', table: 'sales', expr: 'price_change_reason IS NULL OR length(btrim(price_change_reason)) BETWEEN 3 AND 200' },
   // ── CSH-2 piece A: split payment on counter scrap purchases (migration 0021, validated after two guards)
   { name: 'ck_scrap_purchases_payment_parts', table: 'scrap_purchases', expr: 'cash_amount >= 0 AND bank_amount >= 0 AND cash_amount + bank_amount = amount' },
@@ -269,7 +266,9 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   },
   // ── OPN-2 (migration 0031): only an opening piece may be priced either way; scrap is USED, a supplier piece NEW.
   { name: 'ck_jewelry_items_rate_kind_origin', table: 'jewelry_items', expr: "(origin <> 'SCRAP' OR rate_kind = 'USED') AND (origin <> 'SUPPLIER_NEW' OR rate_kind = 'NEW')" },
-  // ── PAY-1 (migration 0033): the payment lines of a sale (D-pay1-1); the 1–2 lines and their sum are checked at commit (0035).
+  // ── PAY-1 (migration 0033): the payment lines of a sale (D-pay1-1); the 1–2 lines and their sum are checked at commit
+  // (0035, trigger jerp_sale_payments_check). 0035 replaces ck_sales_hasad_reference and ck_sales_bank_transfer_reference
+  // (FIX-2) with the references check of the lines.
   { name: 'ck_sale_payments_line_no', table: 'sale_payments', expr: 'line_no IN (1, 2)' },
   { name: 'ck_sale_payments_amount_positive', table: 'sale_payments', expr: 'amount > 0' },
   {

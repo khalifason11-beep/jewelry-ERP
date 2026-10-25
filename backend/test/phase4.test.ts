@@ -615,7 +615,9 @@ describe('POS payment methods', () => {
     const gm = await login('general.manager', 'GENERAL_MANAGER');
     const drawer = (await gm.get('/api/cash/drawer')).body.branches.find((x: { branchId: number }) => x.branchId === krt);
     expect(drawer.hasadReceivable).toBe(after.HASAD_RECEIVABLE);
-    expect(await failure(`UPDATE sales SET payment_ref_invoice = NULL WHERE id = ${sale.id}`)).toMatch(/ck_sales_hasad_reference|violates/);
+    // PAY-1 (D-pay1-3): the references live on the append-only payment line, which requires the Hasad invoice number.
+    expect(await failure(`UPDATE sale_payments SET ref_invoice = NULL WHERE sale_id = ${sale.id}`)).toMatch(/append-only|permission denied|violates/);
+    expect(await failure(`INSERT INTO sale_payments (sale_id, line_no, method, amount) VALUES (${sale.id}, 2, 'HASAD', 1)`)).toMatch(/ck_sale_payments_references/);
   });
 });
 

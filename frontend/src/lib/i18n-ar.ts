@@ -1801,6 +1801,13 @@ export const AR: Record<string, string> = {
   "Bank transfer reference": "مرجع التحويل البنكي",
   "Bank transfer reference (required)": "مرجع التحويل البنكي (إلزامي)",
   "Enter the bank transfer reference": "أدخل مرجع التحويل البنكي",
+  // PAY-1: a sale paid by one or two payment lines.
+  "Send the payment lines or one payment method, not both": "أرسل سطور الدفع أو طريقة دفع واحدة، وليس الاثنين معاً",
+  "Choose how the sale is paid": "اختر طريقة دفع البيع",
+  "A sale is paid by at most two payment methods": "يُدفع البيع بطريقتين على الأكثر",
+  "Each payment line must use a different method": "يجب أن يستخدم كل سطر دفع طريقة مختلفة",
+  "Each payment amount must be a whole amount above 0": "يجب أن يكون كل مبلغ دفع مبلغاً صحيحاً أكبر من 0",
+  "The payments add up to {sum}, not the sale total {total}": "مجموع الدفعات {sum} وليس إجمالي البيع {total}",
   "The bank transfer reference must be 4 to 40 letters or digits": "يجب أن يكون مرجع التحويل البنكي من 4 إلى 40 حرفاً أو رقماً",
   "This reference is already on sale {number}. Record it anyway?": "هذا المرجع مسجّل على البيع {number}. هل تسجّله رغم ذلك؟",
   "One bank transfer can pay two sales. Recording it again is noted in the audit log.": "قد يسدّد تحويل بنكي واحد بيعتين. تسجيله مرة أخرى يُدوَّن في سجل التدقيق.",

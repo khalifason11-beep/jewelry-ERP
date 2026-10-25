@@ -1124,6 +1124,10 @@ async function main() {
     await page.click('[data-testid=pos-complete]');
     const bankSale1 = await (await resp).json();
     check(bankSale1.paymentRefTransaction === 'TRF 9012-REH', `sale ${bankSale1.number}: the reference is stored normalized ("TRF 9012-REH", Arabic-Indic digits → ASCII)`);
+    check(
+      JSON.stringify(bankSale1.payments) === JSON.stringify([{ method: 'BANK_TRANSFER', amount: bankSale1.total, refInvoice: null, refTransaction: 'TRF 9012-REH' }]) && bankSale1.paymentMethod === 'BANK_TRANSFER',
+      'PAY-1: the sale answers with its payment lines: one bank-transfer line of the whole total, with its reference',
+    );
     // The receipt dialog opens only after the response is handled: wait for it before Escape, or the key can land
     // before the dialog exists and the dialog then stays open (a race seen once in CLN-3's gate run).
     await page.locator('[role=dialog]').waitFor({ state: 'visible', timeout: 15_000 });
@@ -1154,6 +1158,36 @@ async function main() {
       drill.length === 2 && drill.every((x) => x.includes('TRF 9012-REH')) && recB.bankTransferSales.reduce((a, x) => a + x.amount, 0) === bankLine,
       `Cash: "Bank-transfer sales" lists both sales with their reference; they add up to the bank-transfer sales line (${bankLine})`,
     );
+
+    section('PAY-1: a sale paid by two methods (API); the parts must add up to the total');
+    {
+      // The branch has sold its stock by now: cancel the two FIX-2 bank-transfer sales (refunded through the bank, never
+      // the drawer) so their pieces can be sold again below.
+      check((await apiSend(page, 'POST', '/api/auth/reauth', { password: BM.password })).status === 200, 'branch manager: password confirmed again for the cancellations');
+      for (const s of [bankSale2, bankSale1]) {
+        const v = await apiSend(page, 'POST', `/api/sales/${s.id}/void`, { reason: 'إعادة القطعة للاختبار (PAY-1)' });
+        check(v.status === 200, `bank-transfer sale ${s.number} cancelled: its piece is back in stock`);
+      }
+      const [p] = (await apiGet(page, '/api/inventory/items?status=AVAILABLE&pageSize=1')).body.rows;
+      const total = p.sellingPrice;
+      const cashPart = Math.floor(total / 3);
+      const before = (await apiGet(page, '/api/cash/reconciliation')).body;
+      const bad = await apiSend(page, 'POST', '/api/sales', { items: [{ itemId: p.id, listPrice: total }], payments: [{ method: 'CASH', amount: cashPart }, { method: 'BANK_TRANSFER', amount: total - cashPart - 1, refTransaction: 'SPL-REH-1' }] });
+      check(bad.status === 422 && bad.body?.error?.code === 'PAYMENT_TOTAL_MISMATCH', 'parts 1 short of the total: refused (422), nothing recorded');
+      const both = await apiSend(page, 'POST', '/api/sales', { items: [{ itemId: p.id, listPrice: total }], payments: [{ method: 'CASH', amount: total }], paymentMethod: 'CASH' });
+      check(both.status === 400, 'the payment lines and a single method at once: refused (400)');
+      const split = await apiSend(page, 'POST', '/api/sales', { items: [{ itemId: p.id, listPrice: total }], payments: [{ method: 'CASH', amount: cashPart }, { method: 'BANK_TRANSFER', amount: total - cashPart, refTransaction: 'spl-reh-1' }] });
+      check(
+        split.status === 200 && split.body.paymentMethod === 'SPLIT' && split.body.payments.length === 2 && split.body.payments[1].refTransaction === 'SPL-REH-1' && split.body.payments.reduce((a, x) => a + x.amount, 0) === total,
+        `cash ${cashPart} + bank transfer ${total - cashPart}: sale ${split.body?.number} is SPLIT, with two lines adding up to its total`,
+      );
+      const after = (await apiGet(page, '/api/cash/reconciliation')).body;
+      const line = (r, m) => r.salesByMethod.find((x) => x.paymentMethod === m).amount;
+      check(
+        line(after, 'CASH') - line(before, 'CASH') === cashPart && line(after, 'BANK_TRANSFER') - line(before, 'BANK_TRANSFER') === total - cashPart && after.expectedCash - before.expectedCash === cashPart,
+        'the reconciliation counts the cash part in the drawer and the transfer part on the bank, each once',
+      );
+    }
     await signOut(page);
     await signIn(page, origin, GM.username, GM.password);
     await page.getByTestId('second-step').waitFor();

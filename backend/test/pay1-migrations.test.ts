@@ -4,6 +4,8 @@
 //   0034: one payment line per existing sale (its method, its whole total, its references, its time). Two guards stop
 //         the upgrade, changing nothing: (a) a sale that disagrees with its SALE ledger entries; (b) a sale that cannot
 //         make a valid line. A sale recorded before the ledger (no entry) is converted from its own method.
+//   0035: at commit, every sale has 1–2 lines summing to its total and its label follows them (constraint trigger);
+//         the sale's own reference checks are replaced by the lines' check.
 
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { DatabaseHandle } from '@jerp/database';
@@ -35,7 +37,7 @@ const stopsWith = async (h: DatabaseHandle, text: string) => {
   expect(Number((await one(h, `SELECT count(*) AS n FROM information_schema.tables WHERE table_name = 'sale_payments'`)).n)).toBe(0);
 };
 
-describe('PAY-1 migrations 0033–0034 on a database at 0032', () => {
+describe('PAY-1 migrations 0033–0035 on a database at 0032', () => {
   beforeAll(() => {
     upTo(32);
   });
@@ -86,8 +88,13 @@ describe('PAY-1 migrations 0033–0034 on a database at 0032', () => {
       expect(await refused(h, line(2, 'HASAD', 10))).toBe(true); // no Hasad invoice number
       expect(await refused(h, line(2, 'CARD', 10, 'NULL', `'X-1'`))).toBe(true); // a card takes no reference
       expect(await refused(h, line(2, 'CHEQUE', 10))).toBe(true);
-      expect(await refused(h, `UPDATE sales SET payment_method = 'SPLIT' WHERE number = 'S-CASH'`)).toBe(false);
       expect(await refused(h, `UPDATE sales SET payment_method = 'OTHER' WHERE number = 'S-CASH'`)).toBe(true);
+      // 0035: the label and the total follow the lines (checked at commit); the sale's old reference checks moved to the lines.
+      expect(await refused(h, `UPDATE sales SET payment_method = 'SPLIT' WHERE number = 'S-CASH'`)).toBe(true);
+      expect(await refused(h, `UPDATE sales SET total = total + 1, subtotal = subtotal + 1 WHERE number = 'S-CASH'`)).toBe(true);
+      expect(await refused(h, `INSERT INTO sales (number, branch_id, cashier_id, subtotal, total, cost_total, payment_method) SELECT 'S-NOLINE', branch_id, cashier_id, 10, 10, 0, 'CASH' FROM sales WHERE number = 'S-CASH'`)).toBe(true);
+      expect(await refused(h, `UPDATE sales SET status = 'VOIDED', voided_at = now(), void_reason = 'test' WHERE number = 'S-BANK'`)).toBe(false);
+      expect(Number((await one(h, `SELECT count(*) AS n FROM pg_constraint WHERE conname IN ('ck_sales_hasad_reference', 'ck_sales_bank_transfer_reference')`)).n)).toBe(0);
     } finally {
       await h.close();
     }

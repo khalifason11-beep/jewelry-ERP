@@ -36,11 +36,11 @@ const run = (q: string) => handle.db.execute(sql.raw(q));
 const one = async <T,>(q: string) => rows<T>(await run(q))[0];
 
 /** Copy `n` rows of `table`, cycling over the template rows, with some columns replaced by SQL expressions of `g`. */
-async function cloneMany(table: string, n: number, templateWhere: string, set: Record<string, string>) {
-  const cols = rows<{ c: string }>(await run(`SELECT column_name AS c FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${table}' AND column_name <> 'id' ORDER BY ordinal_position`)).map((r) => r.c);
+async function cloneMany(table: string, n: number, templateWhere: string, set: Record<string, string>, exec: (q: string) => Promise<unknown> = run) {
+  const cols = rows<{ c: string }>(await exec(`SELECT column_name AS c FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${table}' AND column_name <> 'id' ORDER BY ordinal_position`)).map((r) => r.c);
   const list = cols.map((c) => `"${c}"`).join(', ');
   const select = cols.map((c) => (c in set ? set[c] : `s."${c}"`)).join(', ');
-  await run(`
+  await exec(`
     WITH tpl AS (SELECT id, row_number() OVER (ORDER BY id) - 1 AS k, count(*) OVER () AS cnt FROM "${table}" WHERE ${templateWhere})
     INSERT INTO "${table}" (${list})
     SELECT ${select} FROM generate_series(1, ${n}) g
@@ -61,7 +61,15 @@ beforeAll(async () => {
   }
   krt = (await agents.BM.get('/api/auth/me')).body.user.branch.id;
   // Sales with their lines: the copy's number carries its template, so the lines can follow.
-  await cloneMany('sales', EXTRA, `status = 'COMPLETED'`, { number: `'RPT2-' || g || '-' || s.id` });
+  // PAY-1: a sale and its payment lines are written in one transaction (the lines are checked when it commits).
+  await handle.db.transaction(async (tx) => {
+    const exec = (q: string) => tx.execute(sql.raw(q));
+    await cloneMany('sales', EXTRA, `status = 'COMPLETED'`, { number: `'RPT2-' || g || '-' || s.id` }, exec);
+    await exec(`
+      INSERT INTO sale_payments (sale_id, line_no, method, amount, ref_invoice, ref_transaction, created_at)
+      SELECT n.id, p.line_no, p.method, p.amount, p.ref_invoice, p.ref_transaction, p.created_at
+      FROM sales n JOIN sale_payments p ON p.sale_id = split_part(n.number, '-', 3)::int WHERE n.number LIKE 'RPT2-%' ORDER BY n.id, p.line_no`);
+  });
   await run(`
     INSERT INTO sale_items (${(await saleItemCols()).join(', ')})
     SELECT ${(await saleItemCols()).map((c) => (c === '"sale_id"' ? 'n.id' : `si.${c}`)).join(', ')}

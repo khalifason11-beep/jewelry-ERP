@@ -282,14 +282,19 @@ async function scale(ctx: Ctx) {
     INSERT INTO inventory_movements (item_id, branch_id, type, direction, net_weight_mg, cost_value, user_id, at)
     SELECT item_id, branch_id, 'TRANSFER_OUT', -1, net, cost, ${uid}::int, created_at + interval '1 hour' FROM pf WHERE status = 'TRANSFERRED'`);
   // Sales: one piece each, cash or Hasad; 1 in 50 later voided.
+  // PAY-1: each sale with its one payment line, in the same statement (the lines are checked when it commits).
   await x(sql`
-    INSERT INTO sales (number, branch_id, cashier_id, subtotal, discount_total, total, cost_total, payment_method, payment_ref_invoice, status, voided_at, voided_by, void_reason, created_at)
-    SELECT 'PF-INV-' || g, branch_id, ${uid}::int, cost + cost / 3, 0, cost + cost / 3, cost,
-           CASE WHEN g % 10 = 0 THEN 'HASAD' ELSE 'CASH' END, CASE WHEN g % 10 = 0 THEN 'HS-' || g END,
-           CASE WHEN g % 50 = 1 THEN 'VOIDED' ELSE 'COMPLETED' END,
-           CASE WHEN g % 50 = 1 THEN sale_at + interval '1 hour' END, CASE WHEN g % 50 = 1 THEN ${uid}::int END, CASE WHEN g % 50 = 1 THEN 'perf' END,
-           sale_at
-    FROM pf WHERE status = 'SOLD'`);
+    WITH s AS (
+      INSERT INTO sales (number, branch_id, cashier_id, subtotal, discount_total, total, cost_total, payment_method, status, voided_at, voided_by, void_reason, created_at)
+      SELECT 'PF-INV-' || g, branch_id, ${uid}::int, cost + cost / 3, 0, cost + cost / 3, cost,
+             CASE WHEN g % 10 = 0 THEN 'HASAD' ELSE 'CASH' END,
+             CASE WHEN g % 50 = 1 THEN 'VOIDED' ELSE 'COMPLETED' END,
+             CASE WHEN g % 50 = 1 THEN sale_at + interval '1 hour' END, CASE WHEN g % 50 = 1 THEN ${uid}::int END, CASE WHEN g % 50 = 1 THEN 'perf' END,
+             sale_at
+      FROM pf WHERE status = 'SOLD'
+      RETURNING id, number, total, payment_method, created_at)
+    INSERT INTO sale_payments (sale_id, line_no, method, amount, ref_invoice, created_at)
+    SELECT id, 1, payment_method, total, CASE WHEN payment_method = 'HASAD' THEN 'HS-' || substr(number, 8) END, created_at FROM s`);
   await x(sql`ALTER TABLE pf ADD COLUMN sale_id int`);
   await x(sql`UPDATE pf SET sale_id = s.id FROM sales s WHERE s.number = 'PF-INV-' || pf.g`);
   // A voided sale gives its piece back: AVAILABLE again, with the movement.

@@ -46,7 +46,12 @@ async function cloneAt(table: string, at: string, key: string, value: string, wh
   const cols = rows<{ c: string }>(await run(`SELECT column_name AS c FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${table}' AND column_name <> 'id' ORDER BY ordinal_position`)).map((r) => r.c);
   const select = cols.map((c) => (c === at ? `'${when}'::timestamptz` : c === key ? `'${value}'` : `"${c}"`)).join(', ');
   const branchCol = table === 'transfers' ? 'from_branch_id' : 'branch_id';
-  await run(`INSERT INTO "${table}" (${cols.map((c) => `"${c}"`).join(', ')}) SELECT ${select} FROM "${table}" WHERE ${branchCol} = ${branchId} ORDER BY id DESC LIMIT 1`);
+  const insert = `INSERT INTO "${table}" (${cols.map((c) => `"${c}"`).join(', ')}) SELECT ${select} FROM "${table}" WHERE ${branchCol} = ${branchId} ORDER BY id DESC LIMIT 1`;
+  if (table !== 'sales') return void (await run(insert));
+  // PAY-1: a sale and its payment lines are written together (checked when the statement commits): copy the lines.
+  await run(`WITH src AS (SELECT id FROM sales WHERE branch_id = ${branchId} ORDER BY id DESC LIMIT 1), s AS (${insert} RETURNING id)
+             INSERT INTO sale_payments (sale_id, line_no, method, amount, ref_invoice, ref_transaction, created_at)
+             SELECT s.id, p.line_no, p.method, p.amount, p.ref_invoice, p.ref_transaction, '${when}'::timestamptz FROM s, sale_payments p WHERE p.sale_id = (SELECT id FROM src) ORDER BY p.line_no`);
 }
 
 beforeAll(async () => {

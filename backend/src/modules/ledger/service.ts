@@ -316,8 +316,10 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
   const bankSaleIds = entries.filter((e) => e.eventType === 'SALE' && e.paymentMethod === 'BANK_TRANSFER' && e.refType === 'sale' && e.refId != null).map((e) => e.refId!);
   const bankSales = bankSaleIds.length
     ? await ctx.db
-        .select({ id: t.sales.id, number: t.sales.number, at: t.sales.createdAt, reference: t.sales.paymentRefTransaction, status: t.sales.status })
+        // PAY-1: the reference is the sale's bank-transfer payment line's (a sale has at most one).
+        .select({ id: t.sales.id, number: t.sales.number, at: t.sales.createdAt, reference: t.salePayments.refTransaction, status: t.sales.status })
         .from(t.sales)
+        .leftJoin(t.salePayments, and(eq(t.salePayments.saleId, t.sales.id), eq(t.salePayments.method, 'BANK_TRANSFER')))
         .where(inArray(t.sales.id, bankSaleIds))
     : [];
   const bankSaleById = new Map(bankSales.map((s) => [s.id, s]));

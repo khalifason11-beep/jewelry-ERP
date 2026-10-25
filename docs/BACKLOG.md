@@ -93,6 +93,14 @@ Details and reasons are in `docs/decisions.md` and `docs/DEPLOYMENT.md`.
 After FIX-1: remove the inventory multi-select transfer bar and the Transfers page's "New transfer" dialog. **Sub-question for the owner:** keep a GM emergency override (password plus reason, audited) somewhere out of the way, or drop it?
 **Done with FIX-1 (`17300b7`, D-rem4-1).** Owner decision: the General Manager **keeps** "New transfer" on the Transfers screen as the GM's only start point, under the same rules as the POS transfer. Removed: the Inventory "Select & transfer" card view and the branch manager's "Select pieces in Inventory" button. Start points are exactly the BM's POS cart and the GM's "New transfer".
 
+### REM-6 — Remove the single-method shape of `POST /sales` · TODO · S · P1 (before go-live) · PAY-1
+PAY-1 (owner answer Q7, D-pay1-5) keeps the old request shape (`paymentMethod`, `paymentRefInvoice`,
+`paymentRefTransaction`: one payment line of the whole total) next to `payments` so that tests, the fixture world,
+`dev:sample`, the perf script, REH-1 and the e2e scripts keep working. **Before go-live:** move every caller to
+`payments`, then remove the old fields from the route schema and the service (both shapes at once stay refused until
+then). The sales response's single-method fields `paymentRefInvoice` / `paymentRefTransaction` (read from the lines)
+go with it.
+
 ---
 
 ## C. Fix
