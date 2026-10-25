@@ -60,6 +60,12 @@ export type CategoryCode = (typeof CATEGORY_CODES)[number];
  */
 export const PAYMENT_METHODS = ['CASH', 'BANK_TRANSFER', 'CARD', 'MOBILE_WALLET', 'HASAD'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+/**
+ * PAY-1 (D-pay1-1): the label stored on a sale, `sales.payment_method`: the method of its one payment line, or SPLIT for
+ * two lines (one per method). The lines (`sale_payments`) are the truth; a check ties the label to them.
+ */
+export const SALE_PAYMENT_LABELS = [...PAYMENT_METHODS, 'SPLIT'] as const;
+export type SalePaymentLabel = (typeof SALE_PAYMENT_LABELS)[number];
 
 export const SALE_STATUSES = ['COMPLETED', 'VOIDED'] as const;
 

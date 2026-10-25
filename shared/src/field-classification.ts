@@ -126,6 +126,8 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   opening_piece_corrections: {
     safe: words('id item_id opening_id branch_id kind condition_before condition_after karat_before karat_after gross_weight_mg_before gross_weight_mg_after net_weight_mg_before net_weight_mg_after reason corrected_by session_id created_at'),
   },
+  // PAY-1: how a sale was paid (method, amount, references), like the sale's own payment columns: SAFE.
+  sale_payments: { safe: words('id sale_id line_no method amount ref_invoice ref_transaction created_at') },
 };
 
 /** Response field names that carry cost, acquisition cost, margin or profit. */

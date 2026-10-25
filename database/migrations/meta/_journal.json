@@ -232,6 +232,20 @@
       "when": 1792950933412,
       "tag": "0032_opnfix_corrections",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1792966629771,
+      "tag": "0033_pay1_sale_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1792966666232,
+      "tag": "0034_pay1_backfill_payments",
+      "breakpoints": true
     }
   ]
 }

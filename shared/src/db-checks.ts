@@ -25,6 +25,7 @@ import {
   LEDGER_EVENT_TYPES,
   MOVEMENT_TYPES,
   PAYMENT_METHODS,
+  SALE_PAYMENT_LABELS,
   PRICING_MODES,
   SCRAP_KINDS,
   SCRAP_PAYMENT_METHODS,
@@ -73,7 +74,8 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   e('inventory_movements', 'type', MOVEMENT_TYPES),
   e('purchases', 'status', PURCHASE_STATUSES),
   e('sales', 'status', SALE_STATUSES),
-  e('sales', 'payment_method', PAYMENT_METHODS),
+  e('sales', 'payment_method', SALE_PAYMENT_LABELS),
+  e('sale_payments', 'method', PAYMENT_METHODS),
   e('transfers', 'status', TRANSFER_STATUSES),
   e('branding_assets', 'kind', BRANDING_ASSET_KINDS),
   e('branding_assets', 'mime', ['image/png', 'image/jpeg', 'image/webp']),
@@ -267,6 +269,14 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   },
   // ── OPN-2 (migration 0031): only an opening piece may be priced either way; scrap is USED, a supplier piece NEW.
   { name: 'ck_jewelry_items_rate_kind_origin', table: 'jewelry_items', expr: "(origin <> 'SCRAP' OR rate_kind = 'USED') AND (origin <> 'SUPPLIER_NEW' OR rate_kind = 'NEW')" },
+  // ── PAY-1 (migration 0033): the payment lines of a sale (D-pay1-1); the 1–2 lines and their sum are checked at commit (0035).
+  { name: 'ck_sale_payments_line_no', table: 'sale_payments', expr: 'line_no IN (1, 2)' },
+  { name: 'ck_sale_payments_amount_positive', table: 'sale_payments', expr: 'amount > 0' },
+  {
+    name: 'ck_sale_payments_references',
+    table: 'sale_payments',
+    expr: "(method = 'HASAD' AND ref_invoice IS NOT NULL AND btrim(ref_invoice) <> '') OR (method = 'BANK_TRANSFER' AND ref_invoice IS NULL AND ref_transaction IS NOT NULL AND length(btrim(ref_transaction)) BETWEEN 4 AND 40) OR (method NOT IN ('HASAD', 'BANK_TRANSFER') AND ref_invoice IS NULL AND ref_transaction IS NULL)",
+  },
 ];
 
 /** The SQL expression for an enum check. */

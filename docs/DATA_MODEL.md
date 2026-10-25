@@ -61,6 +61,7 @@
 | Table | Purpose |
 |---|---|
 | `sales` | The invoice header. Totals (`cost_total` = the lines of known cost, `unknown_cost_lines` = the others, OPN-1); `payment_method`; `payment_ref_invoice` and `payment_ref_transaction` (Hasad references; for a bank transfer the transfer reference, 0018); status COMPLETED / VOIDED with the void reason; `price_change_reason` (0017); print and reprint counters (0012) |
+| `sale_payments` | PAY-1, append-only: how a sale was paid, **one or two lines** (one per method: `line_no`, `method`, `amount` > 0, `ref_invoice` = the Hasad invoice number, `ref_transaction` = the bank reference or Hasad's transaction reference) summing exactly to `sales.total`; `sales.payment_method` is the label (the method, or `SPLIT`). A HASAD line posts nothing to a branch account (the money is paid to the General Manager's account) |
 | `sale_items` | Lines with snapshots: product name (and from 0026 its Arabic name, the type's names and the description, so a rename never rewrites an invoice), karat, weight, list price, discount, final price, `acquisition_cost` and `profit` (COST; NULL when the piece's cost is unknown), and `pricing_mode` (only FIXED_TAG is used) |
 
 ### Supplier orders and scrap
@@ -160,7 +161,7 @@ These tables are protected by triggers (`jerp_forbid_modification`, against UPDA
 PostgreSQL, the runtime role's privileges are also removed (`jerp_lock_append_only`):
 
 `audit_logs`, `backup_runs`, `cash_counts`, `gm_funding_events`, `gold_rates`, `hasad_receivable_settlements`,
-`inventory_movements`, `item_status_history`, `ledger_entries`, `opening_imports`, `opening_piece_corrections`, `purchase_corrections`, `scrap_purchase_voids`,
+`inventory_movements`, `item_status_history`, `ledger_entries`, `opening_imports`, `opening_piece_corrections`, `purchase_corrections`, `sale_payments`, `scrap_purchase_voids`,
 `scrap_purchases`, `scrap_rates`, `scrap_weight_entries`, `settings_history`, `supplier_settlements`.
 
 The start-up privilege report and the restore drill use the same list (`APPEND_ONLY_TABLES` in
@@ -225,6 +226,8 @@ a conditional update on the current status.
 | `0029_opn2_condition` | OPN-2: `jewelry_items.rate_kind` and `opening_lines.condition` (NEW or USED, CHECKs; nullable until 0031); the opening-line trigger refuses a new line without a condition. Additive only |
 | `0030_opn2_backfill` | OPN-2: every piece's `rate_kind` as it was priced before (SCRAP → USED, every other origin → NEW, D-opn2-3). A DRAFT opening that already has lines stops the upgrade, changing nothing, with its branch (D-opn2-2) |
 | `0032_opnfix_corrections` | OPN-FIX: the append-only table `opening_piece_corrections` (CHECKs on kind, conditions, karats, weights, reason, and that a void changes nothing while a correction changes something; trigger: the piece is a line of that sealed opening) and the permission `opening.correct` (General Manager). Additive only |
+| `0033_pay1_sale_payments` | PAY-1: the append-only table `sale_payments` (CHECKs on method, line number 1–2, amount > 0 and each method's references; UNIQUE per sale on line number and on method) and the `SPLIT` label added to `ck_sales_payment_method`. Additive only |
+| `0034_pay1_backfill_payments` | PAY-1: one payment line per existing sale (its method, its whole total, its references). Two guards stop the upgrade, changing nothing: a sale that disagrees with its SALE ledger entries, and a sale that cannot make a valid line |
 | `0031_opn2_tighten` | OPN-2: `rate_kind` becomes required (no default); CHECK `ck_jewelry_items_rate_kind_origin`: sellable scrap is USED, a supplier piece NEW (only an opening piece may be either). A row breaking either rule stops the upgrade with its count (none can exist after 0030) |
 | `0026_opn1_catalog_optional` | OPN-1 / CAT-1: `jewelry_items.category_id` and `description`; the product and the cost become optional (DROP NOT NULL; 0028 tightens again); sale-line name snapshots; `sales.unknown_cost_lines`; the tables `openings`, `opening_lines`, `opening_imports`; permission `opening.manage` (General Manager). Additive only |
 | `0024_prc1_computed_prices` | PRC-1: `gold_rates.kind` (NEW/USED, validated check, index), permission `scrap.buy_sellable` (every role), and `pricing.mode = FIXED_TAG` written only when pieces already exist (an upgraded installation keeps its tag prices). Additive only |

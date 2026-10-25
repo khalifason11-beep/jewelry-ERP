@@ -577,3 +577,15 @@ Plan `docs/plans/OPN-FIX.md`, approved by the owner on 2026-10-25 with the answe
 | D-opnfix-5 | Preview before the confirmation | The dialog shows the piece's current price, its new price and the change in the stock valuation, computed by the server from the live rates by a read-only preview that writes nothing and needs no Idempotency-Key; the real correction re-reads everything under the piece's lock (addition 1). | owner |
 | D-opnfix-6 | How a correction is applied (as built) | The piece row is the live stock row and carries the effective value (the latest correction's `after`, else the sealed value), as MIS-1 does for a corrected cost; so every reader (sale, lists, sort, totals, POS search, piece page, reports, homes) follows without a join, which the before/after tests check on every path. The history is the sealed line plus every correction row; a database trigger checks the piece belongs to the sealed opening. A net weight change posts ADJUSTMENT −1 at the old weight and +1 at the new (both at a NULL cost); a void posts −1 and makes the piece VOIDED. The locks are taken in a sale's order (pricing, then the piece row), proven by the PostgreSQL race test. The preview is `GET …/correction-preview` (read-only, no Idempotency-Key). | plan |
 
+## PAY-1: split payments (SPL-1) and Hasad as a sales channel only (HSD-2)
+
+Plan `docs/plans/PAY-1.md`, approved by the owner on 2026-10-25 with the answers Q1–Q7 and two additions (the
+dashboard and homes never count Hasad money as cash, drawer or bank; reprints of old sales render the new payment
+block).
+
+| ID | Question | Decision | By |
+|---|---|---|---|
+| D-pay1-1 | How a sale's payment is stored | A new append-only table `sale_payments`: **one or two lines** per sale, one per method (`UNIQUE (sale_id, method)`, Q1: the same method twice is refused), each with an amount > 0 and its references (HASAD: the Hasad invoice number, required, and an optional transaction reference; BANK_TRANSFER: the bank reference, D-fix-2; other methods: none). The lines sum exactly to `sales.total`. `sales.payment_method` stays as a stored **label**: the line's method, or `SPLIT` for two lines (as D-csh-7), so the list and its CSV need no join for it. Any two different accepted methods may be combined, Hasad + bank transfer included (Q2). | owner |
+| D-pay1-2 | Converting existing sales | Migration 0034 writes one line per existing sale (line 1, its method, the whole total, its references, its time). It stops, changing nothing, on a sale whose SALE ledger entries disagree with it (sum or method) and on a sale that cannot make a valid line. A sale recorded before the ledger is converted from its own method. Sales are never rewritten. | plan |
+| D-pay1-3 | The sales columns and checks that change | `ck_sales_payment_method` is replaced to add the `SPLIT` label (0033). `sales.payment_ref_invoice` and `sales.payment_ref_transaction` keep their history and are no longer written for new sales; their checks are replaced by the line checks. | plan |
+

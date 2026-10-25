@@ -448,14 +448,23 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   `OPENING_NEEDS_COMPUTED_PRICES` (a condition or karat correction on FIXED_TAG), `CORRECTION_REASON_REQUIRED`,
   `CONFIRM_PASSWORD_REQUIRED`, `PASSKEY_REQUIRED`, `REAUTH_REQUIRED`.
 
+### PAY-1: split payments and Hasad as a sales channel only (migrations 0033–0036)
+
+- **0033** adds the append-only table `sale_payments` (one or two payment lines per sale) and the `SPLIT` label of
+  `sales.payment_method`. Additive: nothing stops the upgrade.
+- **0034** writes one payment line per existing sale (its method, its whole total, its references). It **stops,
+  changing nothing**, if a sale disagrees with its SALE ledger entries (their sum or their payment method), or if a
+  sale cannot make a valid line (no Hasad invoice number, no valid bank reference, a total of 0).
+
 ### Stop and recreate is a pre-production rule only
 
-Four migrations so far stop on trial data instead of transforming it, and ask for the database to be recreated:
+Five migrations so far stop on trial data instead of transforming it, and ask for the database to be recreated:
 
 - **0016 (REM-5)**: old demo data from removed features;
 - **0018 (FIX-2)**: a bank-transfer sale without its bank reference;
 - **0021 (CSH-2)**: a scrap purchase that disagrees with its ledger entries, or one paid by bank transfer (no reference);
-- **0022 (MKC-1)**: a supplier order whose making charge was paid from branch money.
+- **0022 (MKC-1)**: a supplier order whose making charge was paid from branch money;
+- **0034 (PAY-1)**: a sale that disagrees with its ledger entries or cannot make a valid payment line.
 
 **This is allowed only before the first real client data exists** (decision D-mkc-5). From the day real data is
 entered, a migration must **transform** existing data (with a tested, reviewed backfill), **never reject it**. A
