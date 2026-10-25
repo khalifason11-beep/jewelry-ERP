@@ -745,6 +745,9 @@ async function main() {
     await captureBaseline(page, '02-branch-manager-home');
     const bmSelf = await apiGet(page, '/api/auth/me');
     check(bmSelf.body.user.branch?.id === branchId, 'the branch manager is bound to the new branch');
+    // General-Manager-only permissions never reach the branch manager (OPN-FIX adds opening.correct).
+    const gmOnly = ['funding.manage', 'purchases.create', 'scrap.void', 'purchases.correct', 'opening.manage', 'opening.correct'];
+    check(gmOnly.every((p) => !bmSelf.body.user.permissions.includes(p)), 'the branch manager holds none of the General-Manager-only permissions (opening.correct included)');
     await signOut(page);
 
     await signIn(page, origin, CASHIER.username, temps[CASHIER.username]);
@@ -1379,6 +1382,8 @@ async function main() {
       await page.getByTestId('second-step').waitFor();
       await page.click('[data-testid=use-passkey]');
       await pathIs(page, ['/overview']);
+      const gmPerms = (await apiGet(page, '/api/auth/me')).body.user.permissions;
+      check(gmPerms.includes('opening.manage') && gmPerms.includes('opening.correct'), 'the General Manager holds opening.manage and opening.correct (migration 0032 on a production database)');
       // Types created by the General Manager; the sheet names them (the importer never creates types).
       const ring = (await apiSend(page, 'POST', '/api/categories', { nameAr: 'خواتم الافتتاح' })).body;
       const bangle = (await apiSend(page, 'POST', '/api/categories', { nameAr: 'أساور الافتتاح' })).body;

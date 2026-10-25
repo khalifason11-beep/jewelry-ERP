@@ -122,6 +122,9 @@ export type GmFundingKind = (typeof GM_FUNDING_KINDS)[number];
 
 /** MIS-1 (PUR-FIX): what a supplier-order correction changes: one piece's making cost, or the order's transfer reference. */
 export const PURCHASE_CORRECTION_FIELDS = ['MAKING_COST', 'MAKING_CHARGE_REFERENCE'] as const;
+/** OPN-FIX: a correction of a sealed opening's piece changes its values, or voids it. */
+export const OPENING_CORRECTION_KINDS = ['CORRECT', 'VOID'] as const;
+export type OpeningCorrectionKind = (typeof OPENING_CORRECTION_KINDS)[number];
 export type PurchaseCorrectionField = (typeof PURCHASE_CORRECTION_FIELDS)[number];
 
 /** OPN-1: an opening per branch is a DRAFT until it is sealed, once. */

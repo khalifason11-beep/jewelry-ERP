@@ -52,6 +52,7 @@
 | `inventory_movements` | Append-only stock ledger: type (PURCHASE, SALE, TRANSFER_IN, TRANSFER_OUT, RETURN, ADJUSTMENT, DAMAGE), direction ±1, branch, reference, weight, cost value (NULL for a piece of unknown cost) |
 | `openings` | OPN-1 (0026): one per branch (UNIQUE `branch_id`), DRAFT → SEALED once (`sealed_by`, `sealed_at`); never changed after the seal or deleted (trigger) |
 | `opening_lines` | OPN-1: the draft, not stock: type, description, karat, `condition` (NEW, USED; required on every new line by the trigger, OPN-2; NULL only on lines sealed before OPN-2), weights, `source` (KEYBOARD, IMPORT), `import_id`, and `item_id` once sealed; no change to a sealed opening's lines (trigger) |
+| `opening_piece_corrections` | OPN-FIX, append-only: a correction (condition, karat, weights) or a void of a piece of a sealed opening: before and after values, reason, who, when, the session and the branch the piece was in; the piece row carries the effective values (trigger: the piece is a line of that sealed opening) |
 | `opening_imports` | OPN-1, append-only: each CSV file imported (name, SHA-256, rows, who, when); the same file twice changes nothing (UNIQUE `opening_id, sha256`) |
 | `transfers`, `transfer_items` | Transfers between branches: IN_TRANSIT → RECEIVED, `courier_name` (0019) |
 
@@ -159,7 +160,7 @@ These tables are protected by triggers (`jerp_forbid_modification`, against UPDA
 PostgreSQL, the runtime role's privileges are also removed (`jerp_lock_append_only`):
 
 `audit_logs`, `backup_runs`, `cash_counts`, `gm_funding_events`, `gold_rates`, `hasad_receivable_settlements`,
-`inventory_movements`, `item_status_history`, `ledger_entries`, `opening_imports`, `purchase_corrections`, `scrap_purchase_voids`,
+`inventory_movements`, `item_status_history`, `ledger_entries`, `opening_imports`, `opening_piece_corrections`, `purchase_corrections`, `scrap_purchase_voids`,
 `scrap_purchases`, `scrap_rates`, `scrap_weight_entries`, `settings_history`, `supplier_settlements`.
 
 The start-up privilege report and the restore drill use the same list (`APPEND_ONLY_TABLES` in
@@ -223,6 +224,7 @@ a conditional update on the current status.
 | `0028_opn1_tighten` | OPN-1 / CAT-1: every piece's type becomes required; CHECK `ck_jewelry_items_cost_known`: only an opening piece (origin OPENING) may have an unknown cost (NULL, never 0). A row breaking either rule stops the upgrade with its count (none can exist after 0027) |
 | `0029_opn2_condition` | OPN-2: `jewelry_items.rate_kind` and `opening_lines.condition` (NEW or USED, CHECKs; nullable until 0031); the opening-line trigger refuses a new line without a condition. Additive only |
 | `0030_opn2_backfill` | OPN-2: every piece's `rate_kind` as it was priced before (SCRAP → USED, every other origin → NEW, D-opn2-3). A DRAFT opening that already has lines stops the upgrade, changing nothing, with its branch (D-opn2-2) |
+| `0032_opnfix_corrections` | OPN-FIX: the append-only table `opening_piece_corrections` (CHECKs on kind, conditions, karats, weights, reason, and that a void changes nothing while a correction changes something; trigger: the piece is a line of that sealed opening) and the permission `opening.correct` (General Manager). Additive only |
 | `0031_opn2_tighten` | OPN-2: `rate_kind` becomes required (no default); CHECK `ck_jewelry_items_rate_kind_origin`: sellable scrap is USED, a supplier piece NEW (only an opening piece may be either). A row breaking either rule stops the upgrade with its count (none can exist after 0030) |
 | `0026_opn1_catalog_optional` | OPN-1 / CAT-1: `jewelry_items.category_id` and `description`; the product and the cost become optional (DROP NOT NULL; 0028 tightens again); sale-line name snapshots; `sales.unknown_cost_lines`; the tables `openings`, `opening_lines`, `opening_imports`; permission `opening.manage` (General Manager). Additive only |
 | `0024_prc1_computed_prices` | PRC-1: `gold_rates.kind` (NEW/USED, validated check, index), permission `scrap.buy_sellable` (every role), and `pricing.mode = FIXED_TAG` written only when pieces already exist (an upgraded installation keeps its tag prices). Additive only |

@@ -1,7 +1,12 @@
 # OPN-FIX: correct a piece of a sealed opening
 
-Part 2 of FIX-5 (`docs/plans/FIX-5.md`). Branch `claude/fix-5-opn-fix`; next migration **0032**. **This plan waits for
-the owner's approval: nothing is implemented before it.** Each point has a recommendation; a point marked **[OPEN]** is
+Part 2 of FIX-5 (`docs/plans/FIX-5.md`). Branch `claude/fix-5-opn-fix`; next migration **0032**. **Approved by the
+owner on 2026-10-25** with the answers Q1 password **and** passkey, Q2 any branch (both branches recorded), Q3 no time
+limit, Q4 FIXED_TAG refuses condition and karat corrections (weights and void allowed), Q5 gross weight correctable,
+and two additions: (A1) the dialog shows a server-computed **preview** before the confirmation (current vs new price,
+change in the stock valuation; read-only, no Idempotency-Key, the write re-reads everything under the lock); (A2) the
+record keeps the **branch** the piece was in at the time (`branch_id`, FK, NOT NULL), shown in the history and the
+audit. Decisions D-opnfix-1…5. Each point has a recommendation; a point marked **[OPEN]** is
 a business rule the owner decides.
 
 Context: a sealed opening is final (D-opn1-3): nothing is added to or changed in it, and its lines are protected by

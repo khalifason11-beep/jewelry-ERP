@@ -563,3 +563,16 @@ pieces; a used piece is priced at the USED rate, exactly like sellable scrap.
 | D-opn2-3 | Openings sealed before OPN-2 (tests, staging) | Their pieces keep the NEW rate they were priced at (`rate_kind` NEW); their lines keep no condition (a sealed opening is never edited); the export shows the piece's NEW. Correcting the condition after the seal is OPN-FIX. | engineering |
 | D-opn2-5 | Keyboard entry of the condition | The condition starts at "Choose…" for every typed piece (type and karat carry over): a wrongly carried-over condition is a wrong price; bulk entry belongs to the CSV import. Owner, 2026-10-25. | owner |
 | D-opn2-4 | Sealing without a needed rate | Refused with 409 `OPENING_RATES_MISSING`, naming the karats whose new-piece or used-piece rate is missing (read under the pricing lock, as a sale reads it), so no opening piece is ever without a price. | owner |
+
+## OPN-FIX: correcting a piece of a sealed opening
+
+Plan `docs/plans/OPN-FIX.md`, approved by the owner on 2026-10-25 with the answers to its questions and two additions.
+
+| ID | Question | Decision | By |
+|---|---|---|---|
+| D-opnfix-1 | What can be corrected after the seal | A piece of a sealed opening, while AVAILABLE: its condition (NEW/USED, the rate that prices it), karat, gross and net weight (one correction may change several), or a void (VOIDED, final). The opening and its lines never change; the piece row carries the effective value, every correction is a row of the append-only `opening_piece_corrections` (before → after). Gross weight is correctable (Q5). | owner |
+| D-opnfix-2 | Who, and how they confirm | A new permission `opening.correct`, General Manager only (`GM_ONLY_PERMISSIONS`). The password in the request **and** a fresh passkey confirmation, as the seal (Q1). A reason of 3–200 characters. | owner |
+| D-opnfix-3 | Which pieces | AVAILABLE only, in any branch (a piece transferred and received elsewhere may be corrected, Q2); sold, in transit, damaged, returned or voided pieces are refused. The record and the audit name the branch the piece was in at the time (addition 2, `branch_id` NOT NULL). No time limit after the seal (Q3). | owner |
+| D-opnfix-4 | Prices | A corrected condition or karat needs its current selling rate (else 409 `OPENING_RATES_MISSING`). On a FIXED_TAG installation condition and karat corrections are refused (409 `OPENING_NEEDS_COMPUTED_PRICES`); weights and void are allowed (Q4). The cost stays unknown (NULL). | owner |
+| D-opnfix-5 | Preview before the confirmation | The dialog shows the piece's current price, its new price and the change in the stock valuation, computed by the server from the live rates by a read-only preview that writes nothing and needs no Idempotency-Key; the real correction re-reads everything under the piece's lock (addition 1). | owner |
+
