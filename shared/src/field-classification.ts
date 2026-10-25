@@ -166,6 +166,7 @@ export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
 export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
   words(`
     used pricing roundingStep rateKind priceMissing pricingMode
+    sealedAt lineCount importId duplicate fileName byType imports lineNo source pieces firstCode lastCode errors errorCount column
     guard warnChangePercent confirmChangePercent
     voidId reversedEntries itemStatus voidReason voidedByName voidedExcluded
     corrections correctionId correctedByName confirmedDuplicate field purchaseItemId

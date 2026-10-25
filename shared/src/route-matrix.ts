@@ -159,6 +159,17 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   // MIS-1 (SCR-VOID): one purchase with its void; the void itself (General Manager only, reason and password in the body).
   r('GET', '/scrap-purchases/:id', 'branch', { any: ['scrap.buy', 'purchases.view'] }),
   r('POST', '/scrap-purchases/:id/void', 'branch', { all: ['scrap.void'], reauth: true, idempotent: true, idempotencyInTx: true }),
+  // OPN-1: the opening balance of a branch, General Manager only (D-opn1-1..5). The import's body is the CSV file
+  // (text/csv, 1 MB on that route only); sealing asks the password in the body and a fresh passkey, always.
+  r('GET', '/openings', 'global', { all: ['opening.manage'] }),
+  r('POST', '/openings', 'global', { all: ['opening.manage'], idempotent: true, idempotencyInTx: true }),
+  r('GET', '/openings/template.csv', 'global', { all: ['opening.manage'] }),
+  r('GET', '/openings/:id', 'global', { all: ['opening.manage'] }),
+  r('GET', '/openings/:id/export', 'global', { all: ['opening.manage'] }),
+  r('POST', '/openings/:id/lines', 'global', { all: ['opening.manage'], idempotent: true, idempotencyInTx: true }),
+  r('POST', '/openings/:id/lines/:lineId/remove', 'global', { all: ['opening.manage'], idempotent: true, idempotencyInTx: true }),
+  r('POST', '/openings/:id/import', 'global', { all: ['opening.manage'], idempotent: true, idempotencyInTx: true }),
+  r('POST', '/openings/:id/seal', 'global', { all: ['opening.manage'], reauth: true, idempotent: true, idempotencyInTx: true }),
   r('GET', '/scrap-pool', 'branch', { any: ['inventory.view', 'scrap.buy'] }),
   // MIS-1 (PUR-FIX): a correction of one piece's making cost or of the order's transfer reference (General Manager only).
   r('POST', '/purchases/:id/corrections', 'branch', { all: ['purchases.correct'], reauth: true, idempotent: true, idempotencyInTx: true }),

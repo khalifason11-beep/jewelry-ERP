@@ -408,6 +408,18 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
 - **0026** adds a type and a description to every piece, makes the product and the cost optional (no existing row
   changes; a later migration tightens again), adds the sale-line name snapshots, `sales.unknown_cost_lines`, the
   opening tables and the permission `opening.manage` (General Manager only). Nothing stops the upgrade.
+- **0027** fills the type of every piece from its product and the Arabic and type names of every sale line (a
+  transform, not a refusal: its guard can only fire if a row were left unfilled, which 0026's data cannot produce).
+- **The opening balance** (`/api/openings…`, General Manager only):
+  - the CSV import sends the file as the raw body (`Content-Type: text/csv`), read by a parser on that route only,
+    limited to **1 MB** and **5,000 rows** (a typical row is about 110 bytes; a sheet of long Arabic descriptions is
+    split into two files). Any other route keeps the 100 kB JSON limit. A reverse proxy in front of the app must
+    allow a 1 MB body on `POST /api/openings/:id/import` (nginx: `client_max_body_size 1m;` there).
+  - sealing needs **computed prices** (`pricing.mode` = RATE_COMPUTED), the password in the request **and** a fresh
+    passkey confirmation: the General Manager registers a passkey before the day of the opening.
+  - error codes: `OPENING_EXISTS` (409, one opening per branch), `OPENING_SEALED` (409, nothing changes after the
+    seal), `OPENING_IMPORT_INVALID` (422, every problem with its row and column; nothing imported),
+    `OPENING_EMPTY` (422), `OPENING_NEEDS_COMPUTED_PRICES` (409), `PASSKEY_REQUIRED` (403).
 
 ### Stop and recreate is a pre-production rule only
 

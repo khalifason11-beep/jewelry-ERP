@@ -123,6 +123,11 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /branches/directory': ['/branches/directory'],
       'GET /categories': ['/categories'],
       'GET /catalog/descriptions': ['/catalog/descriptions', '/catalog/descriptions?q=a'],
+      // OPN-1: weights, karats and names only (the world has no opening; opening.test covers a full one); CSV files are not JSON.
+      'GET /openings': ['/openings'],
+      'GET /openings/template.csv': [],
+      'GET /openings/:id': [],
+      'GET /openings/:id/export': [],
       'GET /gold-rates': ['/gold-rates'],
       'GET /products': ['/products'],
       'GET /suppliers': ['/suppliers'],
