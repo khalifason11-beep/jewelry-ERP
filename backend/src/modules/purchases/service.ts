@@ -1,4 +1,4 @@
-import { ap, pureGoldMg, sumInt, validBankReference, type MakingChargePayer } from '@jerp/shared';
+import { ap, pureGoldMg, sumInt, validBankReference, type MakingChargePayer, rateKindFor } from '@jerp/shared';
 import { livePriceSql, pricingOf } from '../pricing/service';
 import { and, desc, eq, gte, ilike, lt, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
@@ -189,6 +189,8 @@ export async function createPurchase(ctx: Ctx, actor: Actor, input: CreatePurcha
           // Cost model (Q3): a supplier piece's acquisition cost includes the making charge,
           // which is also kept on its own for reporting.
           origin: 'SUPPLIER_NEW',
+          // OPN-2: the rate that prices it (NEW).
+          rateKind: rateKindFor('SUPPLIER_NEW'),
           acquisitionCost: l.purchaseCost + l.makingCost + l.otherCost,
           makingCharge: l.makingCost,
           costIsEstimated: false,

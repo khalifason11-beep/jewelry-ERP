@@ -38,7 +38,7 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   jewelry_items: {
     // Phase 2b cost model: acquisition cost, the making charge inside it, and whether it is an estimate.
     cost: words('acquisition_cost making_charge cost_is_estimated'),
-    safe: words('id code barcode product_id category_id description karat gross_weight_mg net_weight_mg selling_price branch_id status purchase_id created_at updated_at origin supplier_id supplier_invoice_ref'),
+    safe: words('id code barcode product_id category_id description karat gross_weight_mg net_weight_mg selling_price branch_id status purchase_id created_at updated_at origin supplier_id supplier_invoice_ref rate_kind'),
   },
   permissions: { safe: words('code description') },
   products: { safe: words('id sku name name_ar category_id karat description created_at is_active created_by name_ar_norm') },
@@ -120,7 +120,7 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
     safe: words('id purchase_id purchase_item_id field reason confirmed_duplicate corrected_by session_id created_at'),
   },  // OPN-1: the opening balance. Weights, karats, names and who/when: SAFE (who sees it is decided by `opening.manage`).
   openings: { safe: words('id branch_id status created_by created_at sealed_by sealed_at session_id') },
-  opening_lines: { safe: words('id opening_id line_no category_id description karat gross_weight_mg net_weight_mg source import_id item_id created_by created_at') },
+  opening_lines: { safe: words('id opening_id line_no category_id description karat gross_weight_mg net_weight_mg source import_id item_id created_by created_at condition') },
   opening_imports: { safe: words('id opening_id file_name sha256 row_count created_by created_at') },
 };
 
@@ -167,6 +167,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
   words(`
     used pricing roundingStep rateKind priceMissing pricingMode
     sealedAt lineCount importId duplicate fileName byType imports lineNo source pieces firstCode lastCode errors errorCount column
+    condition byKaratCondition openingId
     guard warnChangePercent confirmChangePercent
     voidId reversedEntries itemStatus voidReason voidedByName voidedExcluded
     corrections correctionId correctedByName confirmedDuplicate field purchaseItemId

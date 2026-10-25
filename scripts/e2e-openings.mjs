@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 // OPN-1 e2e (docs/plans/OPN-1.md): the opening balance and the type rename, in the Arabic UI, on the BUILT app
 // (npm run build) against its own empty server filled through the API (scripts/lib/e2e-world.mjs).
-//   * Opening balance (General Manager): start the branch's draft; type a piece (Enter moves on, the last Enter adds);
-//     a bad CSV shows every problem with its row and imports nothing; a good CSV adds its rows; the same file again
-//     changes nothing; a line is removed; the summary by karat adds up; the draft exports as CSV.
+//   * Opening balance (General Manager): start the branch's draft; type a piece (Enter moves on, the last Enter adds;
+//     OPN-2: the condition is a required choice with nothing preselected); a bad CSV shows every problem with its row
+//     (an unknown condition too) and imports nothing; a good CSV adds its rows; the same file again changes nothing; a
+//     line is removed; the summary by karat and condition adds up; the draft exports as CSV.
 //   * Sealing: the button waits for the password AND a passkey confirmation (Chromium's virtual authenticator); then
 //     the draft is SEALED, the lines show their codes, the pieces are in stock as "Opening balance" with an unknown
-//     cost, and a sale of one shows that its line is left out of the profit.
+//     cost, priced by their condition (OPN-2: a used piece at the used-piece rate), and a sale of one shows that its
+//     line is left out of the profit.
 //   * Types & products: renaming a type keeps the old name on a past sale.
 //
 //   node scripts/e2e-openings.mjs            checks
@@ -82,30 +84,34 @@ async function opening(page, gm, world) {
   check(id > 0, 'Start opens the branch’s draft');
   check((await gm.call('POST', '/openings', { branchId: world.branchId }, { idempotent: true })).status === 409, 'a second opening of the branch is refused (409)');
 
-  // Keyboard: type, karat, description, weights; the last Enter adds the line.
+  // Keyboard: type, karat, description, condition, weights; the last Enter adds the line.
   await page.selectOption('[data-testid=opening-kind-type]', String(world.openingTypeId));
   await page.selectOption('[data-testid=opening-kind-karat]', '21');
   await page.fill('[data-testid=opening-kind-description]', 'رقم قديم 15');
+  check((await page.inputValue('[data-testid=opening-condition]')) === '' && (await page.getByTestId('opening-add-line').isDisabled()), 'the condition starts unchosen and the piece cannot be added without it');
+  await page.selectOption('[data-testid=opening-condition]', 'USED');
   await page.click('[data-testid=opening-gross]');
   await page.keyboard.type('5.250');
   await page.keyboard.press('Enter');
   await page.keyboard.type('5.000');
   await page.keyboard.press('Enter');
   check(await eventually(async () => (await rowsOf(page).count()) === 1 && (await rowsOf(page).first().innerText()).includes('رقم قديم 15')), 'Enter on the last field adds the typed piece');
+  check((await rowsOf(page).first().innerText()).includes('مستعمل') && (await page.inputValue('[data-testid=opening-condition]')) === '', 'the line shows its condition (used); the next piece starts unchosen again');
 
   // A bad file: every problem with its row; nothing imported.
-  const header = 'النوع / Type,الوصف / Description,العيار / Karat,الوزن القائم (جم) / Gross weight (g),الوزن الصافي (جم) / Net weight (g)';
-  const bad = [header, `${world.openingTypeAr},,21,3,3`, 'نوع لا يوجد,,21,3,3', `${world.openingTypeAr},,21,2,3`].join('\r\n');
+  const header = 'النوع / Type,الوصف / Description,العيار / Karat,الحالة / Condition,الوزن القائم (جم) / Gross weight (g),الوزن الصافي (جم) / Net weight (g)';
+  const bad = [header, `${world.openingTypeAr},,21,جديد,3,3`, 'نوع لا يوجد,,21,جديد,3,3', `${world.openingTypeAr},,21,جديد,2,3`, `${world.openingTypeAr},,21,قديم,3,3`].join('\r\n');
   await page.setInputFiles('[data-testid=opening-file]', { name: 'bad.csv', mimeType: 'text/csv', buffer: Buffer.from(bad) });
   await page.click('[data-testid=opening-import]');
   const problems = page.getByTestId('opening-import-problem');
-  check(await eventually(async () => (await problems.count()) === 2), 'a bad file lists its 2 problems');
-  check((await problems.nth(0).innerText()).startsWith('3') && (await problems.nth(1).innerText()).startsWith('4'), 'each problem names its row (3 and 4)');
+  check(await eventually(async () => (await problems.count()) === 3), 'a bad file lists its 3 problems');
+  check((await problems.nth(0).innerText()).startsWith('3') && (await problems.nth(1).innerText()).startsWith('4') && (await problems.nth(2).innerText()).startsWith('5'), 'each problem names its row (3, 4 and 5)');
+  check((await problems.nth(2).innerText()).includes('قديم'), `an unknown condition is named (${(await problems.nth(2).innerText()).replace(/\s+/g, ' ')})`);
   check((await rowsOf(page).count()) === 1, 'nothing of the bad file is imported');
   await shot(page, 'import-problems');
 
   // A good file (semicolons, BOM, Arabic-Indic digits), then the same file again.
-  const good = '﻿' + ['النوع;الوصف;العيار;الوزن القائم;الوزن الصافي', `${world.openingTypeAr};دبلة;21;٤٫٥;٤`, `${world.openingTypeAr};;21;6;5.5`, `${world.openingTypeAr};"قديم; رقم 9";21;3.2;3`].join('\r\n');
+  const good = '﻿' + ['النوع;الوصف;العيار;الحالة;الوزن القائم;الوزن الصافي', `${world.openingTypeAr};دبلة;21;جديد;٤٫٥;٤`, `${world.openingTypeAr};;21;مستعمل;6;5.5`, `${world.openingTypeAr};"قديم; رقم 9";21;جديدة;3.2;3`].join('\r\n');
   for (const attempt of [1, 2]) {
     await page.setInputFiles('[data-testid=opening-file]', { name: 'branch.csv', mimeType: 'application/vnd.ms-excel', buffer: Buffer.from(good) });
     await page.click('[data-testid=opening-import]');
@@ -113,16 +119,18 @@ async function opening(page, gm, world) {
   }
   check(await eventually(async () => (await page.getByTestId('opening-imports').locator('li').count()) === 1), 'one import is recorded');
 
-  // Remove the typed line; the summary by karat adds up.
+  // Remove the typed line; the summary by karat and condition adds up.
   await page.click('[data-testid=opening-remove-1]');
   check(await eventually(async () => (await rowsOf(page).count()) === 3), 'a draft line is removed');
-  const k21 = page.getByTestId('opening-karat-21');
-  check(await eventually(async () => /3/.test(await k21.innerText()) && (await k21.innerText()).includes('12.500')), `the summary by karat: 21K, 3 pieces, 12.500 g net (${(await k21.innerText()).replace(/\s+/g, ' ')})`);
+  const k21n = page.getByTestId('opening-karat-21-NEW');
+  const k21u = page.getByTestId('opening-karat-21-USED');
+  check(await eventually(async () => /2/.test(await k21n.innerText()) && (await k21n.innerText()).includes('7.000')), `the summary: 21K new, 2 pieces, 7.000 g net (${(await k21n.innerText()).replace(/\s+/g, ' ')})`);
+  check(/1/.test(await k21u.innerText()) && (await k21u.innerText()).includes('5.500'), `the summary: 21K used, 1 piece, 5.500 g net (${(await k21u.innerText()).replace(/\s+/g, ' ')})`);
   await shot(page, 'review');
 
   // The draft's export imports again (the sheet's columns).
   const exported = await page.evaluate(async (u) => (await fetch(u)).text(), `/api/openings/${id}/export`);
-  check(exported.includes('النوع / Type') && exported.split(/\r\n/).filter(Boolean).length === 4, 'the draft exports as CSV (header + 3 rows)');
+  check(exported.includes('النوع / Type') && exported.includes('الحالة / Condition') && exported.split(/\r\n/).filter(Boolean).length === 4, 'the draft exports as CSV (header with the condition + 3 rows)');
   return id;
 }
 
@@ -131,7 +139,8 @@ async function seal(page, gm, cashierApi, world, id) {
   await page.click('[data-testid=opening-seal]');
   const confirm = page.getByTestId('opening-seal-confirm');
   check(await confirm.isDisabled(), 'Seal is grey with no password and no passkey');
-  check((await page.getByTestId('opening-seal-summary').innerText()).includes('12.500'), 'the dialog shows the count and weight by karat');
+  const sealSummary = await page.getByTestId('opening-seal-summary').innerText();
+  check(sealSummary.includes('12.500') && sealSummary.includes('مستعمل') && sealSummary.includes('5.500'), `the dialog shows the count and weight by karat and condition (${sealSummary.replace(/\s+/g, ' ')})`);
   await page.fill('[data-testid=opening-seal-password]', world.gm.password);
   check(await confirm.isDisabled(), 'the password alone keeps Seal grey');
   await page.click('[data-testid=opening-seal-passkey]');
@@ -148,7 +157,10 @@ async function seal(page, gm, cashierApi, world, id) {
 
   // In stock, as "Opening balance", with an unknown cost.
   const items = (await gm.must('GET', `/inventory/items?branchId=${world.branchId}&origin=OPENING`)).rows;
-  check(items.length === 3 && items.every((i) => i.totalCost === null && i.sellingPrice > 0), 'three pieces in stock: origin OPENING, cost unknown, priced from the new-piece rate');
+  check(items.length === 3 && items.every((i) => i.totalCost === null && i.sellingPrice > 0), 'three pieces in stock: origin OPENING, cost unknown, priced');
+  const rates = await gm.must('GET', '/gold-rates');
+  const used = items.filter((i) => i.rateKind === 'USED');
+  check(used.length === 1 && used[0].netWeightMg === 5_500 && used[0].pricePerGram === rates.used['21'].pricePerGram && items.filter((i) => i.rateKind === 'NEW').every((i) => i.pricePerGram === rates.current['21'].pricePerGram), 'the used piece is priced at the used-piece rate, the new ones at the new-piece rate');
   await page.goto(`${BASE}/inventory/${items[0].id}`);
   check(await eventually(async () => (await page.getByTestId('item-cost-unknown').count()) === 1), 'the piece says "Cost: unknown (opening balance)"');
 

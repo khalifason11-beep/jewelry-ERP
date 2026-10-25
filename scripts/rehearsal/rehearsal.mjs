@@ -1373,7 +1373,7 @@ async function main() {
     ok(`branch manager: the incoming transfer ${gmSent.number} is an attention line (A1) on the home`);
     await signOut(page);
 
-    section('OPN-1: the opening balance on a production database (types, CSV import, seal with password and passkey, sale)');
+    section('OPN-1/OPN-2: the opening balance on a production database (types, CSV import with new and used pieces, seal with password and passkey, both prices, a sale of each)');
     {
       await signIn(page, origin, GM.username, GM.password);
       await page.getByTestId('second-step').waitFor();
@@ -1383,14 +1383,15 @@ async function main() {
       const ring = (await apiSend(page, 'POST', '/api/categories', { nameAr: 'خواتم الافتتاح' })).body;
       const bangle = (await apiSend(page, 'POST', '/api/categories', { nameAr: 'أساور الافتتاح' })).body;
       check(ring?.id > 0 && bangle?.id > 0, 'two item types created for the sheet');
+      // OPN-2: every row says whether the piece is new or used (the rate that prices it).
       const sheet = [
-        ['خواتم الافتتاح', 'رقم قديم 101', '21', '4.250', '4.100'],
-        ['خواتم الافتتاح', '', '21', '٣٫٥', '3.400'],
-        ['أساور الافتتاح', 'سوار مشغول', '21', '12.000', '11.750'],
-        ['أساور الافتتاح', '"قديم; رقم 7"', '21', '9.6', '9.5'],
+        ['خواتم الافتتاح', 'رقم قديم 101', '21', 'جديد', '4.250', '4.100'],
+        ['خواتم الافتتاح', '', '21', 'مستعمل', '٣٫٥', '3.400'],
+        ['أساور الافتتاح', 'سوار مشغول', '21', 'جديدة', '12.000', '11.750'],
+        ['أساور الافتتاح', '"قديم; رقم 7"', '21', 'مستعملة', '9.6', '9.5'],
       ];
       const sheetNetMg = 4_100 + 3_400 + 11_750 + 9_500;
-      const csvText = '\ufeff' + ['النوع;الوصف;العيار;الوزن القائم;الوزن الصافي', ...sheet.map((r) => r.join(';'))].join('\r\n') + '\r\n';
+      const csvText = '\ufeff' + ['النوع;الوصف;العيار;الحالة;الوزن القائم;الوزن الصافي', ...sheet.map((r) => r.join(';'))].join('\r\n') + '\r\n';
       const stockBefore = (await apiGet(page, `/api/reports/stock-weight?branchId=${branchId}`)).body.totals.itemsWeightMg;
       await page.goto(`${origin}/openings`);
       await page.click(`[data-testid=opening-start-${BRANCH.code}]`);
@@ -1401,6 +1402,9 @@ async function main() {
       await waitFor(async () => (await apiGet(page, `/api/openings/${openingId}`)).body.summary.total.count === 4, 'the 4 imported lines', 15_000);
       const draft = (await apiGet(page, `/api/openings/${openingId}`)).body;
       check(draft.status === 'DRAFT' && draft.summary.total.netWeightMg === sheetNetMg, `the sheet imported into the draft: 4 pieces, ${sheetNetMg} mg net (semicolons, BOM, Arabic-Indic digits)`);
+      const byCondition = Object.fromEntries(draft.summary.byKaratCondition.map((k) => [`${k.karat}-${k.condition}`, `${k.count}/${k.netWeightMg}`]));
+      check(byCondition['21-NEW'] === `2/${4_100 + 11_750}` && byCondition['21-USED'] === `2/${3_400 + 9_500}`, `the review counts by karat and condition (21K new ${byCondition['21-NEW']}, 21K used ${byCondition['21-USED']})`);
+      check(await page.getByTestId('opening-karat-21-USED').isVisible(), 'the review screen shows the 21K used group');
       check((await apiGet(page, `/api/reports/stock-weight?branchId=${branchId}`)).body.totals.itemsWeightMg === stockBefore, 'a draft is not stock: the stock weight is unchanged before the seal');
       await page.click('[data-testid=opening-seal]');
       await page.fill('[data-testid=opening-seal-password]', GM.password);
@@ -1413,16 +1417,27 @@ async function main() {
       const sw = (await apiGet(page, `/api/reports/stock-weight?branchId=${branchId}`)).body.totals.itemsWeightMg;
       check(sw - stockBefore === sheetNetMg, `the stock-weight report grew by exactly the sheet's net weight (${sw - stockBefore} mg)`);
       const pieces = (await apiGet(page, `/api/inventory/items?branchId=${branchId}&origin=OPENING&pageSize=50`)).body.rows;
-      check(pieces.length === 4 && pieces.every((x) => x.totalCost === null && x.sellingPrice > 0), 'four pieces in stock with an unknown cost (never 0), priced from the new-piece rate');
-      const late = await apiSend(page, 'POST', `/api/openings/${openingId}/lines`, { categoryId: ring.id, karat: 21, grossWeightMg: 1_000, netWeightMg: 1_000 });
+      check(pieces.length === 4 && pieces.every((x) => x.totalCost === null && x.sellingPrice > 0), 'four pieces in stock with an unknown cost (never 0), priced');
+      const rates = (await apiGet(page, '/api/gold-rates')).body;
+      const newPieces = pieces.filter((x) => x.rateKind === 'NEW');
+      const usedPieces = pieces.filter((x) => x.rateKind === 'USED');
+      check(
+        newPieces.length === 2 && usedPieces.length === 2 && newPieces.every((x) => x.pricePerGram === rates.current['21'].pricePerGram) && usedPieces.every((x) => x.pricePerGram === rates.used['21'].pricePerGram),
+        `new pieces at the new-piece rate (${rates.current['21'].pricePerGram}/g), used pieces at the used-piece rate (${rates.used['21'].pricePerGram}/g)`,
+      );
+      const late = await apiSend(page, 'POST', `/api/openings/${openingId}/lines`, { categoryId: ring.id, karat: 21, condition: 'NEW', grossWeightMg: 1_000, netWeightMg: 1_000 });
       check(late.status === 409 && late.body.error.code === 'OPENING_SEALED', 'nothing can be added after the seal (409 OPENING_SEALED)');
-      // Sell one opening piece (the price the POS shows first, PRC-1): its line is left out of the profit and counted.
-      const piece = pieces[0];
-      const shown = await apiSend(page, 'POST', '/api/sales', { branchId, items: [{ itemId: piece.id }], paymentMethod: 'CASH' });
-      const sale = await apiSend(page, 'POST', '/api/sales', { branchId, items: [{ itemId: piece.id, listPrice: shown.body?.error?.details?.lines?.[0]?.listPrice }], paymentMethod: 'CASH' });
-      check(sale.status === 200, `opening piece ${piece.code} sold (${sale.body?.number})`);
-      const detail = (await apiGet(page, `/api/sales/${sale.body.id}`)).body;
-      check(detail.grossProfit === null && detail.unknownCostLines === 1 && detail.items[0].profit === null, 'its sale: profit "—" (NULL), 1 line of unknown cost');
+      // Sell one new and one used opening piece (the price the POS shows first, PRC-1): each line is priced at its own
+      // rate, left out of the profit and counted.
+      for (const piece of [newPieces[0], usedPieces[0]]) {
+        const shown = await apiSend(page, 'POST', '/api/sales', { branchId, items: [{ itemId: piece.id }], paymentMethod: 'CASH' });
+        const listPrice = shown.body?.error?.details?.lines?.[0]?.listPrice;
+        const sale = await apiSend(page, 'POST', '/api/sales', { branchId, items: [{ itemId: piece.id, listPrice }], paymentMethod: 'CASH' });
+        check(sale.status === 200 && listPrice === piece.sellingPrice, `${piece.rateKind === 'USED' ? 'used' : 'new'} opening piece ${piece.code} sold at its listed price ${listPrice} (${sale.body?.number})`);
+        const detail = (await apiGet(page, `/api/sales/${sale.body.id}`)).body;
+        const rate = piece.rateKind === 'USED' ? rates.used['21'].pricePerGram : rates.current['21'].pricePerGram;
+        check(detail.grossProfit === null && detail.unknownCostLines === 1 && detail.items[0].profit === null && detail.items[0].priceRatePerGram === rate, `its sale: the ${piece.rateKind === 'USED' ? 'used' : 'new'}-piece rate per gram, profit "—" (NULL), 1 line of unknown cost`);
+      }
       const profit = (await apiGet(page, `/api/reports/profit?branchId=${branchId}`)).body;
       check(profit.totals.unknownCostLines >= 1 && profit.columns.some((c) => c.key === 'unknownCostLines'), `the profit report counts the excluded line (${profit.totals.unknownCostLines} line(s) of unknown cost)`);
       await signOut(page);

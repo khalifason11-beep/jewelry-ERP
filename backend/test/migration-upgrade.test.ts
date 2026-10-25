@@ -2,7 +2,7 @@
 // schema. Both projects; the real-PostgreSQL run is the one that matters (it is what a server upgrade does).
 //
 // For each starting version (0015 = before REM-5's drops, 0019 = before CSH-2 and MKC-1, 0023 = before PRC-1, 0024 = before
-// MIS-1, 0025 = before OPN-1): migrate to it, seed rows in
+// MIS-1, 0025 = before OPN-1, 0028 = before OPN-2): migrate to it, seed rows in
 // the tables later migrations touch, snapshot counts and money/weight totals, apply ALL remaining migrations, then:
 // row counts unchanged, totals and ledger balances identical, the append-only triggers present and still refusing
 // UPDATE/DELETE, no constraint left NOT VALID, and the app answers /api/health on the upgraded database. A second
@@ -62,7 +62,7 @@ async function seed(h: DatabaseHandle) {
   for (let i = 0; i < 4; i++) {
     const cost = 800_000 + i * 10_000;
     const id = await insert(h, 'jewelry_items', {
-      code: `J-9${i}`, barcode: `62810000999${i}`, product_id: prod, karat: 21, gross_weight_mg: 4_100 + i, net_weight_mg: 4_000 + i,
+      code: `J-9${i}`, barcode: `62810000999${i}`, product_id: prod, category_id: cat, karat: 21, gross_weight_mg: 4_100 + i, net_weight_mg: 4_000 + i,
       purchase_cost: cost, making_cost: 0, other_cost: 0, total_cost: cost, acquisition_cost: cost, origin: 'OPENING', cost_is_estimated: false,
       selling_price: 1_200_000 + i * 10_000, branch_id: krt, status: i < 2 ? 'SOLD' : 'AVAILABLE',
     });
@@ -126,7 +126,7 @@ async function migrateAll(h: DatabaseHandle) {
   await migrate(h.db as never, { migrationsFolder: MIGRATIONS_DIR });
 }
 
-describe.each([15, 19, 23, 24, 25])('upgrade from migration %i with data', (from) => {
+describe.each([15, 19, 23, 24, 25, 28])('upgrade from migration %i with data', (from) => {
   it('keeps every row and every total, keeps the protections, boots, and a second migrate is a no-op', async () => {
     const h = await openAt(from);
     try {
@@ -192,14 +192,19 @@ async function runUpgrade(h: DatabaseHandle, from: number) {
   // OPN-1 (migration 0026): the permission goes to the General Manager only; every existing piece keeps its product and
   // its cost, every sale line its cost and profit (the columns became optional, no row changed); the opening tables
   // start empty; an opening is one per branch and its imports are append-only.
-  expect(rowsOf<{ p: string }>(await h.db.execute(sql.raw(`SELECT r.code || ':' || rp.permission_code AS p FROM role_permissions rp JOIN roles r ON r.id = rp.role_id WHERE rp.permission_code = 'opening.manage' ORDER BY 1`))).map((r) => r.p)).toEqual(['GENERAL_MANAGER:opening.manage']);
+  if (from < 26) {
+    expect(rowsOf<{ p: string }>(await h.db.execute(sql.raw(`SELECT r.code || ':' || rp.permission_code AS p FROM role_permissions rp JOIN roles r ON r.id = rp.role_id WHERE rp.permission_code = 'opening.manage' ORDER BY 1`))).map((r) => r.p)).toEqual(['GENERAL_MANAGER:opening.manage']);
+  }
   expect(Number((await one(h, `SELECT count(*) AS n FROM jewelry_items WHERE product_id IS NULL OR acquisition_cost IS NULL`)).n)).toBe(0);
   expect(Number((await one(h, `SELECT count(*) AS n FROM sale_items WHERE acquisition_cost IS NULL OR profit IS NULL OR unit_cost IS NULL`)).n)).toBe(0);
   expect(Number((await one(h, `SELECT count(*) AS n FROM sales WHERE unknown_cost_lines <> 0`)).n)).toBe(0);
   for (const tbl of ['openings', 'opening_lines', 'opening_imports']) expect(Number((await one(h, `SELECT count(*) AS n FROM ${tbl}`)).n), tbl).toBe(0);
   // OPN-1 (migration 0027): every piece got its product's type; every sale line the names as they are now.
   expect(Number((await one(h, `SELECT count(*) AS n FROM jewelry_items i JOIN products p ON p.id = i.product_id WHERE i.category_id IS DISTINCT FROM p.category_id`)).n)).toBe(0);
-  expect(Number((await one(h, `SELECT count(*) AS n FROM sale_items si JOIN jewelry_items i ON i.id = si.item_id JOIN products p ON p.id = i.product_id JOIN categories c ON c.id = p.category_id WHERE si.product_name_ar IS DISTINCT FROM p.name_ar OR si.category_name_ar IS DISTINCT FROM c.name_ar OR si.category_name IS DISTINCT FROM c.name`)).n)).toBe(0);
+  // (Starting at 0028, the data came after 0027 ran: the lines carry what the seed wrote.)
+  if (from < 27) {
+    expect(Number((await one(h, `SELECT count(*) AS n FROM sale_items si JOIN jewelry_items i ON i.id = si.item_id JOIN products p ON p.id = i.product_id JOIN categories c ON c.id = p.category_id WHERE si.product_name_ar IS DISTINCT FROM p.name_ar OR si.category_name_ar IS DISTINCT FROM c.name_ar OR si.category_name IS DISTINCT FROM c.name`)).n)).toBe(0);
+  }
   expect(Number((await one(h, `SELECT count(*) AS n FROM sale_items`)).n)).toBe(2);
   // OPN-1 (migration 0028): every piece has a type; only an opening piece may have an unknown cost.
   const copy = (code: string, cols: { origin: string; cost: string; category: string }) =>
@@ -212,6 +217,9 @@ async function runUpgrade(h: DatabaseHandle, from: number) {
   await run(h, `INSERT INTO openings (branch_id, created_by) VALUES (${branchA}, ${gmId})`);
   expect(await refused(h, `INSERT INTO openings (branch_id, created_by) VALUES (${branchA}, ${gmId})`)).toBe(true); // one per branch
   expect(await refused(h, `DELETE FROM openings`)).toBe(true);
+  // OPN-2 (migrations 0029, 0030): every piece has the rate that prices it, as before the upgrade: these pieces (all
+  // OPENING origin, as the oldest data was) the NEW-piece rate; no price input moved (facts above).
+  expect(rowsOf<{ k: string }>(await h.db.execute(sql.raw(`SELECT DISTINCT rate_kind AS k FROM jewelry_items`))).map((r) => r.k)).toEqual(['NEW']);
   // The checks above added one history row; the second migrate below must change nothing from here.
   const settled = await facts(h);
 

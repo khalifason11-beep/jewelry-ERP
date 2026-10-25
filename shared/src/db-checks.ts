@@ -103,6 +103,9 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   // ── OPN-1: the opening balance (migration 0026)
   e('openings', 'status', OPENING_STATUSES),
   e('opening_lines', 'source', OPENING_LINE_SOURCES),
+  // OPN-2: the rate kind of a piece and the condition of an opening line.
+  e('jewelry_items', 'rate_kind', GOLD_RATE_KINDS, true),
+  e('opening_lines', 'condition', GOLD_RATE_KINDS, true),
 ];
 
 const nonNeg = (table: string, ...columns: string[]): ExprCheck[] =>

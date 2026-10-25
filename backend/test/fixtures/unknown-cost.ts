@@ -25,6 +25,8 @@ export async function insertUnknownCostPiece(
         grossWeightMg: p.netWeightMg,
         netWeightMg: p.netWeightMg,
         origin: 'OPENING',
+        // OPN-2: the rate that prices it (an opening line's condition; these test pieces are new).
+        rateKind: 'NEW',
         acquisitionCost: null,
         sellingPrice: p.sellingPrice,
         branchId: p.branchId,

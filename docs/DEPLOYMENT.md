@@ -423,6 +423,17 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
     seal), `OPENING_IMPORT_INVALID` (422, every problem with its row and column; nothing imported),
     `OPENING_EMPTY` (422), `OPENING_NEEDS_COMPUTED_PRICES` (409), `PASSKEY_REQUIRED` (403).
 
+### OPN-2: the condition of opening pieces (migrations 0029, 0030)
+
+- **0029** adds `jewelry_items.rate_kind` and `opening_lines.condition` (NEW or USED) and makes the opening-line
+  trigger refuse a new line without a condition. Nothing stops the upgrade.
+- **0030** gives every existing piece the rate it was priced at (sellable scrap USED, every other piece NEW: no price
+  moves). It **stops, changing nothing**, if an opening balance is still a DRAFT with lines: those lines have no
+  condition and the upgrade does not guess one (D-opn2-2). Seal or empty the draft, then upgrade. An empty draft and a
+  sealed opening are fine.
+- error code: `OPENING_RATES_MISSING` (409): sealing needs the current selling rate of every karat and condition in
+  the draft (the new-piece and the used-piece rate); the answer names the karats.
+
 ### Stop and recreate is a pre-production rule only
 
 Four migrations so far stop on trial data instead of transforming it, and ask for the database to be recreated:

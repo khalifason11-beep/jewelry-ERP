@@ -1,7 +1,8 @@
 // PRC-1 (docs/plans/PRC-1.md, D-prc1-*): the selling rates and the computed price of a piece.
 //
-//   * two selling rates per karat in the append-only `gold_rates` history: NEW (supplier and opening pieces) and USED
-//     (sellable scrap); the latest row per karat and kind is current; any karat of `inventory.allowedKarats`;
+//   * two selling rates per karat in the append-only `gold_rates` history: NEW and USED; the latest row per karat and
+//     kind is current; any karat of `inventory.allowedKarats`. OPN-2: the piece's `rate_kind` says which one prices it
+//     (a supplier piece NEW, a sellable scrap piece USED, an opening piece its line's condition);
 //   * `pricing.mode` RATE_COMPUTED prices a piece live: round(net mg × rate / (1000 × step)) × step (shared/pricing.ts);
 //     FIXED_TAG reads the stored tag price. A missing rate, or a tag price ≤ 0, is NO price (never 0);
 //   * a rate change takes the pricing lock exclusively; a sale confirmation takes it shared before reading the rates,
@@ -9,7 +10,7 @@
 
 import { sql, type SQL } from 'drizzle-orm';
 import { t, type Executor } from '@jerp/database';
-import { ap, computedPrice, GOLD_RATE_KINDS, rateKindFor, type GoldRateKind, type PricingSettingMode } from '@jerp/shared';
+import { ap, computedPrice, GOLD_RATE_KINDS, type GoldRateKind, type PricingSettingMode } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
@@ -72,9 +73,11 @@ export interface PricedPiece {
 }
 
 /** The live price of one piece (same result as `livePriceSql`). */
-export function priceOf(p: Pricing, rates: Map<string, CurrentRate>, item: { karat: number; origin: string; netWeightMg: number; sellingPrice: number }): PricedPiece {
+export function priceOf(p: Pricing, rates: Map<string, CurrentRate>, item: { karat: number; rateKind: string | null; netWeightMg: number; sellingPrice: number; code?: string }): PricedPiece {
   if (p.mode === 'FIXED_TAG') return { sellingPrice: item.sellingPrice > 0 ? item.sellingPrice : null, pricePerGram: null, rateKind: null };
-  const kind = rateKindFor(item.origin);
+  // OPN-2 (D-opn2-1): the piece says which rate prices it (set when it was created); never guessed from anything else.
+  if (item.rateKind !== 'NEW' && item.rateKind !== 'USED') throw new Error(`piece ${item.code ?? '?'} has no rate kind`);
+  const kind: GoldRateKind = item.rateKind;
   const rate = rates.get(rateKey(item.karat, kind))?.pricePerGram ?? null;
   return { sellingPrice: computedPrice(item.netWeightMg, rate, p.step), pricePerGram: rate, rateKind: kind };
 }
@@ -91,7 +94,7 @@ export function liveRateSql(p: Pricing): SQL<number | null> {
   return sql<number | null>`(
     SELECT CASE WHEN gr.price_per_gram > 0 THEN gr.price_per_gram END FROM gold_rates gr
     WHERE gr.karat = ${t.jewelryItems.karat}
-      AND gr.kind = CASE WHEN ${t.jewelryItems.origin} = 'SCRAP' THEN 'USED' ELSE 'NEW' END
+      AND gr.kind = ${t.jewelryItems.rateKind}
     ORDER BY gr.effective_at DESC, gr.id DESC LIMIT 1)`.mapWith(nullableNumber);
 }
 
@@ -120,7 +123,7 @@ const intLiteral = (n: number) => {
 /** CASE karat/kind → rate, from a rate snapshot; NULL for a karat and kind without a rate. */
 function rateCaseSql(rates: Map<string, CurrentRate>): SQL<number | null> {
   const arms = [...rates.values()].map(
-    (r) => sql`WHEN ${t.jewelryItems.karat} = ${intLiteral(r.karat)} AND ${t.jewelryItems.origin} ${sql.raw(r.kind === 'USED' ? '=' : '<>')} 'SCRAP' THEN ${intLiteral(r.pricePerGram)}::bigint`,
+    (r) => sql`WHEN ${t.jewelryItems.karat} = ${intLiteral(r.karat)} AND ${t.jewelryItems.rateKind} = ${sql.raw(r.kind === 'USED' ? "'USED'" : "'NEW'")} THEN ${intLiteral(r.pricePerGram)}::bigint`,
   );
   if (!arms.length) return sql<number | null>`NULL::bigint`;
   return sql<number | null>`(CASE ${sql.join(arms, sql` `)} END)`;
@@ -234,9 +237,4 @@ export async function setSellingRates(ctx: Ctx, actor: Actor, input: Partial<Rec
     }
   });
   return sellingRatesView(ctx);
-}
-
-/** The price a piece of this karat and origin would sell at for this weight, or null (for previews and messages). */
-export function previewPrice(p: Pricing, rates: Map<string, CurrentRate>, karat: number, origin: string, netWeightMg: number) {
-  return priceOf(p, rates, { karat, origin, netWeightMg, sellingPrice: 0 }).sellingPrice;
 }

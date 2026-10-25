@@ -91,7 +91,7 @@ describe('computed price', () => {
 
   it('new and used pieces are priced by their own rate', () => {
     expect(rateKindFor('SUPPLIER_NEW')).toBe('NEW');
-    expect(rateKindFor('OPENING')).toBe('NEW');
+    // OPN-2: an opening piece is not decided by its origin; it takes its line's condition (opn2 tests).
     expect(rateKindFor('SCRAP')).toBe('USED');
   });
 });

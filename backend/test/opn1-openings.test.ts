@@ -62,7 +62,7 @@ async function passkey(state: { registered: boolean; confirmedAt: Date | null })
   await ctx.db.update(t.sessions).set({ passkeyReauthAt: state.confirmedAt, passkeyReauthUv: state.confirmedAt != null }).where(eq(t.sessions.id, gmSession));
 }
 const pricingMode = (mode: 'FIXED_TAG' | 'RATE_COMPUTED') => ctx.settings.apply(ctx.db, { 'pricing.mode': mode }, { actor: { id: null, username: 'test' } });
-const sheet = (rows: string[], header = 'النوع / Type,الوصف / Description,العيار / Karat,الوزن القائم (جم) / Gross weight (g),الوزن الصافي (جم) / Net weight (g)') => [header, ...rows].join('\r\n') + '\r\n';
+const sheet = (rows: string[], header = 'النوع / Type,الوصف / Description,العيار / Karat,الحالة / Condition,الوزن القائم (جم) / Gross weight (g),الوزن الصافي (جم) / Net weight (g)') => [header, ...rows].join('\r\n') + '\r\n';
 
 beforeAll(async () => {
   handle = await openTestDatabase();
@@ -107,15 +107,15 @@ describe('an opening per branch, General Manager only', () => {
 
   it('keyboard lines: type, karat and weights checked; a draft line can be removed', async () => {
     const [o] = await ctx.db.select().from(t.openings).where(eq(t.openings.branchId, branch.KRT));
-    const a = await addOpeningLine(ctx, gm, o.id, { categoryId: typeA.id, description: 'رقم قديم 12', karat: k1, grossWeightMg: 5_100, netWeightMg: 5_000 });
+    const a = await addOpeningLine(ctx, gm, o.id, { categoryId: typeA.id, description: 'رقم قديم 12', karat: k1, condition: 'NEW', grossWeightMg: 5_100, netWeightMg: 5_000 });
     expect(a.lineNo).toBe(1);
     const off = await createCategory(ctx, gm, { nameAr: '[اختبار] نوع موقوف افتتاحي' });
     await setCategoryActive(ctx, gm, off.id, false, 'test');
-    expect((await err(addOpeningLine(ctx, gm, o.id, { categoryId: off.id, karat: k1, grossWeightMg: 1_000, netWeightMg: 1_000 })))?.status).toBe(400);
-    expect((await err(addOpeningLine(ctx, gm, o.id, { categoryId: typeA.id, karat: 13, grossWeightMg: 1_000, netWeightMg: 1_000 })))?.status).toBe(400);
-    expect((await err(addOpeningLine(ctx, gm, o.id, { categoryId: typeA.id, karat: k1, grossWeightMg: 900, netWeightMg: 1_000 })))?.key).toBe('The gross weight cannot be below the net weight');
-    expect((await err(addOpeningLine(ctx, gm, o.id, { categoryId: typeA.id, karat: k1, grossWeightMg: 1_000, netWeightMg: 1_000, description: 'x'.repeat(121) })))?.status).toBe(400);
-    const b = await addOpeningLine(ctx, gm, o.id, { categoryId: typeB.id, karat: k2, grossWeightMg: 2_000, netWeightMg: 2_000 });
+    expect((await err(addOpeningLine(ctx, gm, o.id, { categoryId: off.id, karat: k1, condition: 'NEW', grossWeightMg: 1_000, netWeightMg: 1_000 })))?.status).toBe(400);
+    expect((await err(addOpeningLine(ctx, gm, o.id, { categoryId: typeA.id, karat: 13, condition: 'NEW', grossWeightMg: 1_000, netWeightMg: 1_000 })))?.status).toBe(400);
+    expect((await err(addOpeningLine(ctx, gm, o.id, { categoryId: typeA.id, karat: k1, condition: 'NEW', grossWeightMg: 900, netWeightMg: 1_000 })))?.key).toBe('The gross weight cannot be below the net weight');
+    expect((await err(addOpeningLine(ctx, gm, o.id, { categoryId: typeA.id, karat: k1, condition: 'NEW', grossWeightMg: 1_000, netWeightMg: 1_000, description: 'x'.repeat(121) })))?.status).toBe(400);
+    const b = await addOpeningLine(ctx, gm, o.id, { categoryId: typeB.id, karat: k2, condition: 'NEW', grossWeightMg: 2_000, netWeightMg: 2_000 });
     await removeOpeningLine(ctx, gm, o.id, b.id);
     expect(await lineCount(o.id)).toBe(1);
     const audit = await ctx.db.select().from(t.auditLogs).where(eq(t.auditLogs.action, 'OPENING_LINE_REMOVED'));
@@ -130,13 +130,13 @@ describe('the CSV importer', () => {
   });
 
   it('a good file: semicolons, a BOM, Arabic-Indic digits, Arabic or English type names; the same file again changes nothing', async () => {
-    const file = csv('﻿' + `النوع;الوصف;العيار;الوزن القائم;الوزن الصافي\r\n${typeA.nameAr};"قديم; ١٢";${k1};٥٫٢٥٠;5.000\r\n[Test] Opening bangle;;${k2}K;10;9.5\r\n\r\n`);
+    const file = csv('﻿' + `النوع;الوصف;العيار;الحالة;الوزن القائم;الوزن الصافي\r\n${typeA.nameAr};"قديم; ١٢";${k1};مستعملة;٥٫٢٥٠;5.000\r\n[Test] Opening bangle;;${k2}K;New;10;9.5\r\n\r\n`);
     const r = await importOpeningCsv(ctx, gm, omdOpening, { fileName: 'branch.csv', bytes: file });
     expect([r.duplicate, r.rowCount]).toEqual([false, 2]);
     const lines = await ctx.db.select().from(t.openingLines).where(eq(t.openingLines.openingId, omdOpening)).orderBy(asc(t.openingLines.lineNo));
-    expect(lines.map((l) => [l.lineNo, l.categoryId, l.description, l.karat, l.grossWeightMg, l.netWeightMg, l.source])).toEqual([
-      [1, typeA.id, 'قديم; ١٢', k1, 5_250, 5_000, 'IMPORT'],
-      [2, typeB.id, null, k2, 10_000, 9_500, 'IMPORT'],
+    expect(lines.map((l) => [l.lineNo, l.categoryId, l.description, l.karat, l.condition, l.grossWeightMg, l.netWeightMg, l.source])).toEqual([
+      [1, typeA.id, 'قديم; ١٢', k1, 'USED', 5_250, 5_000, 'IMPORT'],
+      [2, typeB.id, null, k2, 'NEW', 10_000, 9_500, 'IMPORT'],
     ]);
     const again = await importOpeningCsv(ctx, gm, omdOpening, { fileName: 'renamed.csv', bytes: file });
     expect([again.duplicate, again.importId, again.rowCount]).toEqual([true, r.importId, 2]);
@@ -146,13 +146,13 @@ describe('the CSV importer', () => {
   it('a bad file: every error with its row and column; nothing is written', async () => {
     const before = [await lineCount(omdOpening), await importCount(omdOpening)];
     const bad = sheet([
-      `${typeA.nameAr},ok,${k1},1.000,1.000`,
-      `نوع غير موجود,,${k1},1,1`,
-      `${typeA.nameAr},,13,1,1`,
-      `${typeA.nameAr},,${k1},1.0001,1`,
-      `${typeA.nameAr},,${k1},1,2`,
+      `${typeA.nameAr},ok,${k1},جديد,1.000,1.000`,
+      `نوع غير موجود,,${k1},جديد,1,1`,
+      `${typeA.nameAr},,13,جديد,1,1`,
+      `${typeA.nameAr},,${k1},جديد,1.0001,1`,
+      `${typeA.nameAr},,${k1},جديد,1,2`,
       `,,,,`,
-      `,${'و'.repeat(121)},${k1},,1`,
+      `,${'و'.repeat(121)},${k1},جديد,,1`,
     ]);
     const e = await err(importOpeningCsv(ctx, gm, omdOpening, { fileName: 'bad.csv', bytes: csv(bad) }));
     expect([e?.status, e?.code]).toEqual([422, 'OPENING_IMPORT_INVALID']);
@@ -172,10 +172,11 @@ describe('the CSV importer', () => {
     expect((e2?.details as { errors: { line: number; key: string }[] }).errors.map((x) => [x.line, x.key])).toEqual([
       [1, 'Unknown column "{name}"'],
       [1, 'The column "{name}" is missing'],
+      [1, 'The column "{name}" is missing'],
     ]);
     // Not UTF-8, and broken quoting.
     expect((await err(importOpeningCsv(ctx, gm, omdOpening, { fileName: 'x.csv', bytes: Buffer.from([0x54, 0x79, 0xff, 0x0a]) })))?.code).toBe('OPENING_IMPORT_INVALID');
-    expect((await err(importOpeningCsv(ctx, gm, omdOpening, { fileName: 'x.csv', bytes: csv(sheet([`"${typeA.nameAr},,21,1,1`])) })))?.code).toBe('OPENING_IMPORT_INVALID');
+    expect((await err(importOpeningCsv(ctx, gm, omdOpening, { fileName: 'x.csv', bytes: csv(sheet([`"${typeA.nameAr},,21,جديد,1,1`])) })))?.code).toBe('OPENING_IMPORT_INVALID');
   });
 
   it('the template: its header imports (as an empty file, 422); limits: 5,000 rows, 1 MB', async () => {
@@ -183,7 +184,7 @@ describe('the CSV importer', () => {
     expect(template).toBe(openingTemplateCsv());
     expect(readCsv(template).rows).toEqual([]);
     expect((await err(importOpeningCsv(ctx, gm, omdOpening, { fileName: 't.csv', bytes: csv(template) })))?.details).toMatchObject({ errors: [{ key: 'The file has no rows' }] });
-    const many = sheet(Array.from({ length: 5_001 }, () => `${typeA.nameAr},,${k1},1,1`));
+    const many = sheet(Array.from({ length: 5_001 }, () => `${typeA.nameAr},,${k1},جديد,1,1`));
     expect((await err(importOpeningCsv(ctx, gm, omdOpening, { fileName: 'm.csv', bytes: csv(many) })))?.details).toMatchObject({ errors: [{ line: 5_002 }] });
     const big = await gmHttp.post(`/api/openings/${omdOpening}/import`).set('Content-Type', 'text/csv').send(Buffer.alloc(1024 * 1024 + 10, 0x41));
     expect([big.status, big.body.error.code]).toEqual([413, 'PAYLOAD_TOO_LARGE']);
@@ -193,7 +194,7 @@ describe('the CSV importer', () => {
 
   it('a 300-row file over HTTP; the same Idempotency-Key replays the answer; the same key with another file → 422', async () => {
     const pzu = (await gmHttp.post('/api/openings').send({ branchId: branch.PZU })).body.id as number;
-    const rows = Array.from({ length: 300 }, (_, i) => `${i % 2 ? typeA.nameAr : typeB.nameAr},قطعة ${i + 1},${i % 3 ? k1 : k2},${(2 + (i % 7) * 0.5).toFixed(3)},${(1.5 + (i % 7) * 0.5).toFixed(3)}`);
+    const rows = Array.from({ length: 300 }, (_, i) => `${i % 2 ? typeA.nameAr : typeB.nameAr},قطعة ${i + 1},${i % 3 ? k1 : k2},${i % 4 ? 'جديد' : 'مستعمل'},${(2 + (i % 7) * 0.5).toFixed(3)},${(1.5 + (i % 7) * 0.5).toFixed(3)}`);
     const body = sheet(rows);
     const key = randomUUID();
     const send = (b: string, k = key) => gmHttp.post(`/api/openings/${pzu}/import?fileName=pzu.csv`).set('Content-Type', 'text/csv').set('Idempotency-Key', k).send(b);
@@ -254,7 +255,7 @@ describe('sealing', () => {
 
   it('sealed: codes in the sheet order, cost unknown, no tag price, ADJUSTMENT +1 at NULL cost, no ledger entry; the stock weight grows by the sheet; then closed for good', async () => {
     await passkey({ registered: true, confirmedAt: new Date() });
-    const kb = await addOpeningLine(ctx, gm, bhr, { categoryId: typeA.id, description: 'typed', karat: k1, grossWeightMg: 3_000, netWeightMg: 3_000 });
+    const kb = await addOpeningLine(ctx, gm, bhr, { categoryId: typeA.id, description: 'typed', karat: k1, condition: 'NEW', grossWeightMg: 3_000, netWeightMg: 3_000 });
     const { summary } = await getOpening(ctx, gm, bhr);
     const weightBefore = (await stockWeight(ctx.db, branch.BHR)).byBranch.get(branch.BHR)!.items.weightMg;
     const ledgerBefore = Number((await ctx.db.select({ n: sql<number>`count(*)` }).from(t.ledgerEntries))[0].n);
@@ -299,9 +300,9 @@ describe('sealing', () => {
 
     // Closed for good: the service (409) and the database.
     for (const write of [
-      () => addOpeningLine(ctx, gm, bhr, { categoryId: typeA.id, karat: k1, grossWeightMg: 1_000, netWeightMg: 1_000 }),
+      () => addOpeningLine(ctx, gm, bhr, { categoryId: typeA.id, karat: k1, condition: 'NEW', grossWeightMg: 1_000, netWeightMg: 1_000 }),
       () => removeOpeningLine(ctx, gm, bhr, kb.id),
-      () => importOpeningCsv(ctx, gm, bhr, { fileName: 'late.csv', bytes: csv(sheet([`${typeA.nameAr},,${k1},1,1`])) }),
+      () => importOpeningCsv(ctx, gm, bhr, { fileName: 'late.csv', bytes: csv(sheet([`${typeA.nameAr},,${k1},جديد,1,1`])) }),
     ]) expect((await err(write()))?.code).toBe('OPENING_SEALED');
     expect((await seal(bhr)).body.error.code).toBe('OPENING_SEALED');
     await expect(ctx.db.update(t.openingLines).set({ netWeightMg: 1 }).where(eq(t.openingLines.openingId, bhr))).rejects.toThrow();
