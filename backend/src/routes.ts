@@ -9,7 +9,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { GOLD_RATE_KINDS, TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, PAYMENT_METHODS, SCRAP_KINDS, PURCHASE_CORRECTION_FIELDS, CHANGE_REASON_MAX, ap, isSettingKey, type RouteRule } from '@jerp/shared';
+import { GOLD_RATE_KINDS, OPENING_CORRECTION_KINDS, TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, PAYMENT_METHODS, SCRAP_KINDS, PURCHASE_CORRECTION_FIELDS, CHANGE_REASON_MAX, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
@@ -47,6 +47,7 @@ import * as funding from './modules/funding/service';
 import * as supplierSettlements from './modules/supplier-settlements/service';
 import * as pricing from './modules/pricing/service';
 import * as openings from './modules/openings/service';
+import * as openingFix from './modules/openings/corrections';
 import { runIdempotent } from './core/idempotency';
 import { log } from './core/logger';
 import { defineRoutes } from './core/guard';
@@ -754,6 +755,25 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     const id = parse(zId, req.params.id);
     const body = parse(z.object({ confirmPassword: z.string().max(128).optional() }).strict(), req.body);
     res.json(await runIdempotent(ctx, req, res, (idem) => openings.sealOpening(ctx, actorOf(req), id, body, { idem })));
+  });
+
+  // OPN-FIX: correct or void a piece of a sealed opening; the preview writes nothing.
+  const zOpeningFix = {
+    action: z.enum(OPENING_CORRECTION_KINDS),
+    condition: z.enum(GOLD_RATE_KINDS).optional(),
+    karat: zKarat.optional(),
+    grossWeightMg: z.coerce.number().int().min(1).max(MAX_WEIGHT_MG).optional(),
+    netWeightMg: z.coerce.number().int().min(1).max(MAX_WEIGHT_MG).optional(),
+  };
+  route('GET', '/openings/:id/pieces/:itemId/correction-preview', async (req, res) => {
+    const [id, itemId] = [parse(zId, req.params.id), parse(zId, req.params.itemId)];
+    const q = parse(z.object(zOpeningFix).strict(), req.query);
+    res.json(await openingFix.previewOpeningCorrection(ctx, actorOf(req), id, itemId, q));
+  });
+  route('POST', '/openings/:id/pieces/:itemId/correction', async (req, res) => {
+    const [id, itemId] = [parse(zId, req.params.id), parse(zId, req.params.itemId)];
+    const body = parse(z.object({ ...zOpeningFix, reason: z.string().max(2000).optional(), confirmPassword: z.string().max(128).optional() }).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => openingFix.correctOpeningPiece(ctx, actorOf(req), id, itemId, body, { idem })));
   });
 
   // ─────────── Cash: expected drawer balance, daily reconciliation, counted cash (Phase 2b) ───────────

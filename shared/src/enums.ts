@@ -204,6 +204,9 @@ export const AUDIT_ACTIONS = [
   'OPENING_LINE_ADDED',
   'OPENING_LINE_REMOVED',
   'OPENING_SEALED',
+  // OPN-FIX: a piece of a sealed opening corrected or voided after the seal
+  'OPENING_PIECE_CORRECTED',
+  'OPENING_PIECE_VOIDED',
   'ITEM_TYPE_RENAMED',
   'USER_CREATED',
   'USER_UPDATED',

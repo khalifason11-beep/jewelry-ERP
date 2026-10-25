@@ -1445,6 +1445,24 @@ async function main() {
       }
       const profit = (await apiGet(page, `/api/reports/profit?branchId=${branchId}`)).body;
       check(profit.totals.unknownCostLines >= 1 && profit.columns.some((c) => c.key === 'unknownCostLines'), `the profit report counts the excluded line (${profit.totals.unknownCostLines} line(s) of unknown cost)`);
+
+      // OPN-FIX (routes): a used piece entered by mistake is corrected to new after the seal. The preview gives both
+      // prices and writes nothing; the correction (reason, password, the passkey confirmed for the seal) moves the
+      // piece to the new-piece rate, and the valuation by exactly the preview's amount.
+      const wrong = usedPieces[1];
+      const corrUrl = `/api/openings/${openingId}/pieces/${wrong.id}/correction`;
+      const pv = await apiGet(page, `${corrUrl}-preview?action=CORRECT&condition=NEW`);
+      check(
+        pv.status === 200 && pv.body.before.sellingPrice === wrong.sellingPrice && pv.body.after.condition === 'NEW' && pv.body.valuationChange === pv.body.after.sellingPrice - wrong.sellingPrice,
+        `the correction preview: ${wrong.sellingPrice} now, ${pv.body?.after?.sellingPrice} as a new piece (valuation ${pv.body?.valuationChange >= 0 ? '+' : ''}${pv.body?.valuationChange}); nothing written`,
+      );
+      const valuation0 = (await apiGet(page, `/api/reports/inventory?branchId=${branchId}&status=AVAILABLE`)).body.totals.sellingPrice;
+      const fixed = await apiSend(page, 'POST', corrUrl, { action: 'CORRECT', condition: 'NEW', reason: 'سُجّلت مستعملة خطأً', confirmPassword: GM.password });
+      check(fixed.status === 200 && fixed.body.kind === 'CORRECT' && fixed.body.branchId === branchId, `opening piece ${wrong.code} corrected from used to new (${fixed.status} ${fixed.body?.error?.code ?? ''})`);
+      const after = (await apiGet(page, `/api/inventory/items/${wrong.id}`)).body;
+      const valuation1 = (await apiGet(page, `/api/reports/inventory?branchId=${branchId}&status=AVAILABLE`)).body.totals.sellingPrice;
+      check(after.item.rateKind === 'NEW' && after.item.sellingPrice === pv.body.after.sellingPrice && after.item.totalCost === null && after.openingCorrections.length === 1, `the piece is priced at the new-piece rate (${after.item.sellingPrice}), its cost still unknown, its history lists the correction`);
+      check(valuation1 - valuation0 === pv.body.valuationChange, `the stock valuation moved by exactly the preview's amount (${valuation1 - valuation0})`);
       await signOut(page);
     }
 
