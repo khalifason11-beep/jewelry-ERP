@@ -494,6 +494,12 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
 - BE-7 limits that the screens show: the POS grid and the transfer picker hold the largest page (200 pieces) and offer
   the search for the rest (the picker says so); a page changed under a filter by a void can still move a row (the
   snapshot only stops new rows). The next index if sales grow far beyond 60,000: `sales(created_at, id)` (D-be7-6).
+- **PERF-1 (known debt, FIX-5):** the perf script's sales CSV walk (`/reports/sales`, 60,137 rows in 301 pages) takes
+  about 35 s against its 30 s budget on the development container, on main as on the OPN-2 branch: median 35,132 ms
+  on main (`22d18b4`, 4 runs: 33,643 / 35,547 / 38,486 / 34,716 ms) against 35,220 ms on the branch (4 runs, alternated
+  with main: 35,113 / 35,843 / 35,326 / 35,067 ms), every other perf row within budget. Not an OPN-2 regression (the sales report code is unchanged). The
+  budget is **not** changed. Re-measure on the production server (Hostinger VPS) at the first deployment; only if it
+  still fails there, open an investigation (profile the paged `/reports/sales` query). Owner, 2026-10-25.
 - ~~The API access log never logged a request~~ (`req.path` was read after Express rewrote it under `/api`): **fixed in
   SAFE-1**, with a request id in the `X-Request-Id` header and every log line.
 
