@@ -134,7 +134,15 @@ In the invoice summary a negative discount renders as "32,000−" while the line
 **Acceptance:** on an empty production database (REH-1) a branch manager creates a product inline and records a supplier order and a sellable scrap purchase. CAT-1 stays as written and still waits for Q-3.
 **Done:** "New type", "New product" and "New supplier" dialogs (Arabic name required, English optional), inline from the supplier-purchase line and supplier select and from the sellable-scrap form (karat fixed); a **Types & products** screen (GM deactivates/reactivates with a reason). Duplicates refused after normalization (migration 0015, unique indexes, `jerp_normalize_name`). A supplier purchase now requires a supplier. Production bootstrap seeds no types. Filters use the type id. REH-1 does all of it on an empty production database. See `docs/decisions.md` D-cat0-*; manual script `docs/acceptance/CAT-0.md`.
 
-### CAT-1 — Item types and stock entry without a product catalog · TODO · M · P0
+### CAT-1 — Item types and stock entry without a product catalog · DONE · M · P0
+**Done (with OPN-1, plan `docs/plans/OPN-1.md`, migrations 0026–0028, `docs/acceptance/OPN-1.md`):** a piece is a
+**type** (required, active) + a free-text **description** (≤ 120 characters, searchable, suggestions from the
+descriptions already used for the type) + **karat** + weights. The product is optional on the supplier order line, the
+sellable scrap purchase and the opening balance; when given, it fixes the type and the karat. Existing products stay.
+Every reader joins the product LEFT and the type through the piece (static guard `check:item-joins`). The General
+Manager creates, **renames** (`POST /categories/:id/rename`, audited, duplicates refused) and deactivates types; sale
+lines snapshot both product names, both type names and the description (0027 filled the old lines), so a rename never
+changes a past sale, invoice or profit-by-type report.
 **Q-3 closed (owner, 2026-10-18, D-dec1-2):** the General Manager adds item types by hand (nothing shipped); an item is
 type + free-text description + karat + weights; **a product catalog is not required: CAT-1 makes the product optional**
 on every stock entry (supplier order, sellable scrap, opening balance) without removing existing products.
@@ -163,7 +171,18 @@ installations stay on it until the General Manager switches). The cashier buys a
 - Exact integer arithmetic through `shared/src/money.ts`; property tests; a concurrency test of a rate change racing a sale; invoice and sales list show the price per gram; migration keeps existing fixed-tag lines valid.
 **Acceptance:** after the GM changes the rate, a new cart shows the new price; a confirmed sale keeps its price; all money tests and cost-visibility tests pass.
 
-### OPN-1 — Opening balance, import and sealing · TODO · L · P0 · CAT-1
+### OPN-1 — Opening balance, import and sealing · DONE · L · P0 · CAT-1
+**Done (plan `docs/plans/OPN-1.md`, decisions D-opn1-1…7, `docs/acceptance/OPN-1.md`):** General Manager only
+(`opening.manage`), one per branch (409), DRAFT → SEALED. Keyboard entry (Enter moves on; no labels exist to scan,
+LBL-1) and **CSV import** (`text/csv` body on that route only, 1 MB, 5,000 rows; Arabic or English headers; types matched
+by name, never created; one bad row rejects the file with every problem by row and column; the same bytes again change
+nothing), a CSV template, the review (count and weight by karat and by type, lines paged and searchable) and the CSV
+export. Sealing: computed prices (409 on FIXED_TAG), the password and a fresh passkey always (403 `PASSKEY_REQUIRED`
+without one); codes in the sheet's order; pieces origin OPENING, cost NULL, price from the new-piece rate, ADJUSTMENT +1
+at a NULL cost, no ledger entry; then 409 `OPENING_SEALED` and database triggers. **Unknown cost everywhere**: every
+profit figure covers the lines of known cost and carries `unknownCostLines` (profit "—" when none is known; margin over
+the known revenue); stock value at cost carries `unknownCostPieces`; valuation by weight × rate unaffected (D-opn1-6).
+Open with the client: does the existing stock include used pieces (they would sell at the new-piece rate today)?
 **Requirements (SPEC §13):** GM-only, one per branch, DRAFT → SEALED.
 - Entry by keyboard and barcode scanner; **CSV import** with a validation report (row numbers, the whole file rejected on errors, idempotent) and a CSV template. **CSV only (owner, 2026-10-24, D-opn1-2):** XLSX only if the client's real data needs it later.
 - Items get origin OPENING with **weight and karat only**. **Q-4 closed (owner, 2026-10-18, D-dec1-3): their cost is

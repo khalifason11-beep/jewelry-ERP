@@ -119,7 +119,12 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   - The branch manager ticks pieces and sends one transfer, with the courier's name.
   - The pieces are in transit until the receiving branch confirms receipt.
   - There is no cancel action.
-- Opening stock import is **open** (OPN-1, Q-4).
+- **A piece is a type + a description + a karat + weights** (CAT-1): the product is optional on a supplier order line,
+  a sellable scrap purchase and the opening balance; the description (≤ 120 characters, searchable) has suggestions
+  from the descriptions already used for the type. The General Manager renames a type; past sale lines keep the names
+  they were sold under.
+- **Opening stock** (OPN-1): see §7, "Opening balance". Pieces of unknown cost (opening pieces) are left out of every
+  cost and profit total, which says how many it left out; their price and weight count as usual.
 
 ## 5. Supplier orders (General Manager only, `purchases.create`)
 
@@ -176,9 +181,14 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   - **Repayments** take money back the same way.
   - A **correction** (a reversal) undoes one event, once.
   - `OWED_TO_GM` shows what each branch owes the General Manager.
-- **Opening balance** (OPN-1, `opening.manage`, General Manager only): one per branch, entered by keyboard or imported
-  from a CSV file into a draft, reviewed, then sealed with the password and a passkey; the pieces get the cost
-  "unknown". (Being built; see `docs/plans/OPN-1.md`.)
+- **Opening balance** (OPN-1, `opening.manage`, General Manager only): one per branch, DRAFT → SEALED.
+  - The draft is not stock. Pieces are typed in (Enter moves to the next field) or imported from a CSV file (template
+    in Arabic and English; comma or semicolon; one wrong row rejects the file with every problem by row and column; the
+    same file twice changes nothing; at most 5,000 rows and 1 MB a file).
+  - The review shows count and weight by karat and by type and the lines (paged, searchable); the draft exports as CSV.
+  - Sealing needs computed prices, the password and a passkey. Each line becomes a piece with the next code in the
+    sheet's order, origin OPENING, cost unknown (never 0), price from the new-piece rate; no cash moves. Then nothing
+    can change (correcting a sealed piece is OPN-FIX); the export lists the codes.
 - **Mistake correction** (MIS-1, General Manager only, reason and password asked again, idempotent):
   - **Void a scrap purchase** (`scrap.void`): the money is reversed, the sellable piece becomes VOIDED (only while
     still AVAILABLE in its branch) or the broken-scrap weight leaves the pool (only if the pool still holds it).
@@ -274,8 +284,7 @@ A review of the reports after the removals is still to do (RPT-1).
 ## 13. Not built or open (summary)
 
 - Computed pricing (PRC-1).
-- Item types without a product catalogue (CAT-1).
-- Opening stock (OPN-1).
+- Correcting a piece of a sealed opening (OPN-FIX); XLSX import of the opening.
 - Barcode labels (LBL-1).
 - Tax invoice (TAX-1).
 - Cash-out for the operating amount (CSH-3).
