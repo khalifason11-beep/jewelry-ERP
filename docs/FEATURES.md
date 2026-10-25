@@ -104,6 +104,9 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   - the type and product;
   - the karat, and the gross and net weight in mg;
   - the origin (`OPENING`, `SUPPLIER_NEW` or `SCRAP`);
+  - the rate that prices it (OPN-2): new (a supplier piece, a new opening piece) or used (sellable scrap, a used
+    opening piece). The list shows a "Used" badge on a used opening piece and filters new or used; the piece page
+    says "Priced at the new-piece / the used-piece rate";
   - the selling price and the status.
 
   The acquisition cost, and whether it is an estimate, are shown to the General Manager only.
@@ -185,9 +188,13 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   - The draft is not stock. Pieces are typed in (Enter moves to the next field) or imported from a CSV file (template
     in Arabic and English; comma or semicolon; one wrong row rejects the file with every problem by row and column; the
     same file twice changes nothing; at most 5,000 rows and 1 MB a file).
-  - The review shows count and weight by karat and by type and the lines (paged, searchable); the draft exports as CSV.
+  - Every line says whether the piece is **new or used** (OPN-2): a required choice when typing (nothing preselected,
+    chosen again for every piece) and a required CSV column (جديد / مستعمل / new / used).
+  - The review shows count and weight by karat and condition and by type and the lines (paged, searchable); the draft
+    exports as CSV.
   - Sealing needs computed prices, the password and a passkey. Each line becomes a piece with the next code in the
-    sheet's order, origin OPENING, cost unknown (never 0), price from the new-piece rate; no cash moves. Then nothing
+    sheet's order, origin OPENING, cost unknown (never 0), price from the new-piece or the used-piece rate by its
+    condition (sealing is refused while a needed rate is missing); no cash moves. Then nothing
     can change (correcting a sealed piece is OPN-FIX); the export lists the codes.
 - **Mistake correction** (MIS-1, General Manager only, reason and password asked again, idempotent):
   - **Void a scrap purchase** (`scrap.void`): the money is reversed, the sellable piece becomes VOIDED (only while

@@ -86,6 +86,16 @@ sealed opening is never edited; its export shows the piece's NEW). Recorded as D
 | c4 | Screens (form, review, checklist, inventory badge/filter, item page) + i18n + e2e; REH-1 and browser scripts re-run |
 | c5 | REH-1, perf, acceptance, BACKLOG, DATA_MODEL, FEATURES, decisions D-opn2-*, `verify --full` |
 
+**As built** (the order changed so that no pushed commit breaks REH-1 or a browser script: the server requires a
+condition from c1, so the opening screen, REH-1 and `e2e-openings` moved into c1):
+
+| Commit | Content |
+|---|---|
+| c1 `47abd32` | 0029 + 0030 + schema; pricing reads `rate_kind`; openings condition (keyboard, CSV, template, export, review, seal check); the opening screen; REH-1 and e2e; decisions D-opn2-1..4 |
+| c2 `c5a77ab` | 0031 tighten + guard test + upgrade test; the pricing proof extended to the list sort and totals, POS search and the homes |
+| c3 `cfbfa4e` | Inventory: "Used" badge, new/used filter (`rateKind` on `GET /inventory/items`), the piece page's rate; e2e |
+| c4 | Acceptance, BACKLOG, FEATURES, decision D-opn2-5, perf comparison with main, `verify --full` |
+
 ## 7. Out of scope
 
 Correcting the condition after sealing (OPN-FIX); any other new column; any change to how scrap pieces are priced.
