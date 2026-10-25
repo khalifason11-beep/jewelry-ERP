@@ -207,19 +207,27 @@ async function runUpgrade(h: DatabaseHandle, from: number) {
   }
   expect(Number((await one(h, `SELECT count(*) AS n FROM sale_items`)).n)).toBe(2);
   // OPN-1 (migration 0028): every piece has a type; only an opening piece may have an unknown cost.
-  const copy = (code: string, cols: { origin: string; cost: string; category: string }) =>
-    `INSERT INTO jewelry_items (code, barcode, product_id, category_id, karat, gross_weight_mg, net_weight_mg, origin, acquisition_cost, selling_price, branch_id, status)
-     SELECT '${code}', '${code}', product_id, ${cols.category}, karat, gross_weight_mg, net_weight_mg, '${cols.origin}', ${cols.cost}, selling_price, branch_id, 'AVAILABLE' FROM jewelry_items LIMIT 1`;
+  // (Each copy carries the rate kind its origin needs, so a refusal below is for the rule named, not for OPN-2's.)
+  const copy = (code: string, cols: { origin: string; cost: string; category: string; rateKind?: string }) =>
+    `INSERT INTO jewelry_items (code, barcode, product_id, category_id, karat, gross_weight_mg, net_weight_mg, origin, rate_kind, acquisition_cost, selling_price, branch_id, status)
+     SELECT '${code}', '${code}', product_id, ${cols.category}, karat, gross_weight_mg, net_weight_mg, '${cols.origin}', ${cols.rateKind ?? (cols.origin === 'SCRAP' ? "'USED'" : "'NEW'")}, ${cols.cost}, selling_price, branch_id, 'AVAILABLE' FROM jewelry_items LIMIT 1`;
   expect(await refused(h, copy('UPG-T1', { origin: 'SUPPLIER_NEW', cost: 'NULL', category: 'category_id' }))).toBe(true);
   expect(await refused(h, copy('UPG-T2', { origin: 'SCRAP', cost: 'NULL', category: 'category_id' }))).toBe(true);
   expect(await refused(h, copy('UPG-T3', { origin: 'SUPPLIER_NEW', cost: 'acquisition_cost', category: 'NULL' }))).toBe(true);
+  // OPN-2 (migration 0031): every piece says which rate prices it; only an opening piece may be either.
+  expect(await refused(h, copy('UPG-T4', { origin: 'SUPPLIER_NEW', cost: 'acquisition_cost', category: 'category_id', rateKind: 'NULL' }))).toBe(true);
+  expect(await refused(h, copy('UPG-T5', { origin: 'SUPPLIER_NEW', cost: 'acquisition_cost', category: 'category_id', rateKind: "'USED'" }))).toBe(true);
+  expect(await refused(h, copy('UPG-T6', { origin: 'SCRAP', cost: 'acquisition_cost', category: 'category_id', rateKind: "'NEW'" }))).toBe(true);
+  expect(await refused(h, copy('UPG-T7', { origin: 'OPENING', cost: 'NULL', category: 'category_id', rateKind: "'OTHER'" }))).toBe(true);
+  expect(await refused(h, `UPDATE jewelry_items SET rate_kind = NULL WHERE code = 'J-92'`)).toBe(true);
+  expect(await refused(h, copy('UPG-T8', { origin: 'OPENING', cost: 'NULL', category: 'category_id', rateKind: "'USED'" }))).toBe(false);
   const branchA = Number((await one(h, `SELECT id FROM branches WHERE code = 'UPA'`)).id);
   await run(h, `INSERT INTO openings (branch_id, created_by) VALUES (${branchA}, ${gmId})`);
   expect(await refused(h, `INSERT INTO openings (branch_id, created_by) VALUES (${branchA}, ${gmId})`)).toBe(true); // one per branch
   expect(await refused(h, `DELETE FROM openings`)).toBe(true);
   // OPN-2 (migrations 0029, 0030): every piece has the rate that prices it, as before the upgrade: these pieces (all
   // OPENING origin, as the oldest data was) the NEW-piece rate; no price input moved (facts above).
-  expect(rowsOf<{ k: string }>(await h.db.execute(sql.raw(`SELECT DISTINCT rate_kind AS k FROM jewelry_items`))).map((r) => r.k)).toEqual(['NEW']);
+  expect(rowsOf<{ k: string }>(await h.db.execute(sql.raw(`SELECT DISTINCT rate_kind AS k FROM jewelry_items WHERE code NOT LIKE 'UPG-%'`))).map((r) => r.k)).toEqual(['NEW']);
   // The checks above added one history row; the second migrate below must change nothing from here.
   const settled = await facts(h);
 

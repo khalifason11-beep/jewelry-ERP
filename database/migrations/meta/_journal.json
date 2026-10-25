@@ -218,6 +218,13 @@
       "when": 1792916015155,
       "tag": "0030_opn2_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1792921563169,
+      "tag": "0031_opn2_tighten",
+      "breakpoints": true
     }
   ]
 }

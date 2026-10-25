@@ -73,7 +73,7 @@ export interface PricedPiece {
 }
 
 /** The live price of one piece (same result as `livePriceSql`). */
-export function priceOf(p: Pricing, rates: Map<string, CurrentRate>, item: { karat: number; rateKind: string | null; netWeightMg: number; sellingPrice: number; code?: string }): PricedPiece {
+export function priceOf(p: Pricing, rates: Map<string, CurrentRate>, item: { karat: number; rateKind: string; netWeightMg: number; sellingPrice: number; code?: string }): PricedPiece {
   if (p.mode === 'FIXED_TAG') return { sellingPrice: item.sellingPrice > 0 ? item.sellingPrice : null, pricePerGram: null, rateKind: null };
   // OPN-2 (D-opn2-1): the piece says which rate prices it (set when it was created); never guessed from anything else.
   if (item.rateKind !== 'NEW' && item.rateKind !== 'USED') throw new Error(`piece ${item.code ?? '?'} has no rate kind`);

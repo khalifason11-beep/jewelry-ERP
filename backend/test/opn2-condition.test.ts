@@ -7,7 +7,8 @@
 //   * sealing is refused (409 OPENING_RATES_MISSING, naming the karats) while a needed rate is missing, accepted once
 //     set; each piece carries its line's condition as the rate that prices it;
 //   * the pricing proof: a new and a used opening piece of the same karat and weight have different prices (detail,
-//     list, valuation); changing only the used rate changes only the used pieces; a used opening piece sells at the
+//     list, its price sort and totals, the POS search, the inventory valuation, the homes' stock value); changing only
+//     the used rate changes only the used pieces, and every one of those figures by the same amount; a used opening piece sells at the
 //     used rate with an unknown profit.
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -23,7 +24,9 @@ import type { Actor, Ctx } from '../src/core/context';
 import { loadActor } from '../src/modules/sessions/service';
 import { createCategory } from '../src/modules/catalog/service';
 import { createSale } from '../src/modules/sales/service';
-import { currentSellingRates, rateKey } from '../src/modules/pricing/service';
+import { currentSellingRates, pricingOf, rateKey } from '../src/modules/pricing/service';
+import { branchMetrics } from '../src/modules/reports/metrics';
+import { periodFor } from '../src/modules/dashboard/service';
 import { addOpeningLine, createOpening, exportOpeningCsv, getOpening, importOpeningCsv } from '../src/modules/openings/service';
 import { seedWorld } from './fixtures/world';
 import { DEMO_PASSWORDS } from './fixtures/world-data';
@@ -66,6 +69,20 @@ async function bhrStock(): Promise<Map<number, Row>> {
   }
 }
 const valuation = async () => (await gmHttp.get('/api/reports/inventory').query({ branchId: bhr, status: 'AVAILABLE' })).body.totals.sellingPrice as number;
+/** The inventory list's own totals line (the same SQL price, summed over the filtered result). */
+const listTotal = async () => (await gmHttp.get('/api/inventory/items').query({ branchId: bhr, status: 'AVAILABLE', pageSize: 1 })).body.totals.sellingPrice as number;
+/** The homes' stock value: branch metrics (Σ live price of the available pieces), which the company home sums. */
+const homesRetail = async () => [...(await branchMetrics(ctx.db, await periodFor(ctx), bhr, await pricingOf(ctx))).values()][0].inventoryRetail;
+/** Every available piece of BHR in the list's price order (the sort reads the same live price). */
+async function byPrice(): Promise<Row[]> {
+  const out: Row[] = [];
+  for (let page = 1; ; page++) {
+    const body = (await gmHttp.get('/api/inventory/items').query({ branchId: bhr, status: 'AVAILABLE', sort: 'price', pageSize: 200, page })).body as { rows: Row[]; total: number };
+    out.push(...body.rows);
+    if (!body.rows.length || out.length >= body.total) return out;
+  }
+}
+const ascending = (rows: Row[]) => rows.every((r, i) => i === 0 || (rows[i - 1].sellingPrice ?? -1) <= (r.sellingPrice ?? -1));
 
 beforeAll(async () => {
   handle = await openTestDatabase();
@@ -199,7 +216,7 @@ describe('sealing needs the rate of every karat and condition; the pieces are pr
     expect(exported.slice(1, 5).map((l) => l.split(',')[5])).toEqual(['جديد', 'مستعمل', 'جديد', 'مستعمل']);
   });
 
-  it('the pricing proof: same karat and weight, different prices (detail, list, valuation); only the used rate moves only the used pieces', async () => {
+  it('the pricing proof: same karat and weight, different prices (detail, list, its sort and totals, POS search, valuation, homes); only the used rate moves only the used pieces', async () => {
     const [newPiece, usedPiece] = (await pieces()).map((p) => p.item);
     const step = (await ctx.settings.get()).pricing.roundingStep;
     const expected = async (kind: GoldRateKind) => computedPrice(10_000, (await rate(k, kind))!, step);
@@ -209,9 +226,19 @@ describe('sealing needs the rate of every karat and condition; the pieces are pr
     expect(await expected('NEW')).not.toBe(await expected('USED'));
     const list = await bhrStock();
     expect([list.get(newPiece.id)?.sellingPrice, list.get(usedPiece.id)?.sellingPrice]).toEqual([await expected('NEW'), await expected('USED')]);
+    // The POS search is the cashier's view of the same list.
+    const cashier = withIdempotencyKeys(request.agent(app));
+    const login = await cashier.post('/api/auth/login').send({ username: 'cashier.bhr.01', password: DEMO_PASSWORDS.CASHIER });
+    cashier.set('x-csrf-token', login.body.csrfToken);
+    const posPrice = async (code: string) => ((await cashier.get('/api/inventory/items').query({ q: code })).body.rows as Row[]).find((r) => r.code === code)?.sellingPrice;
+    expect([await posPrice(newPiece.code), await posPrice(usedPiece.code)]).toEqual([await expected('NEW'), await expected('USED')]);
+    const sorted = await byPrice();
+    expect(ascending(sorted) && sorted.length === list.size).toBe(true);
 
     // Change only the used rate of k.
     const valueBefore = await valuation();
+    const listTotalBefore = await listTotal();
+    const homesBefore = await homesRetail();
     const newRateBefore = await rate(k, 'NEW');
     await setRates({ usedRates: { [k]: (await rate(k, 'USED'))! + 500_000 } });
     expect(await rate(k, 'NEW')).toBe(newRateBefore);
@@ -228,6 +255,13 @@ describe('sealing needs the rate of every karat and condition; the pieces are pr
     }
     expect(after.get(usedPiece.id)!.sellingPrice).not.toBe(list.get(usedPiece.id)!.sellingPrice);
     expect(await valuation()).toBe(valueBefore + delta);
+    expect(await listTotal()).toBe(listTotalBefore + delta);
+    expect(await homesRetail()).toBe(homesBefore + delta);
+    expect([await posPrice(newPiece.code), await posPrice(usedPiece.code)]).toEqual([list.get(newPiece.id)?.sellingPrice, await expected('USED')]);
+    // The sort follows the new used price at once (the same SQL), still in order and with every piece.
+    const resorted = await byPrice();
+    expect(ascending(resorted) && resorted.length === after.size).toBe(true);
+    expect(resorted.find((r) => r.id === usedPiece.id)?.sellingPrice).toBe(await expected('USED'));
   });
 
   it('a used opening piece sells at the used rate, with an unknown cost and profit', async () => {

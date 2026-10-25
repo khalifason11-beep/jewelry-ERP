@@ -312,9 +312,10 @@ export const jewelryItems = pgTable(
     origin: text('origin').notNull().default('SUPPLIER_NEW'),
     /**
      * OPN-2 (D-opn2-1): which selling rate prices the piece, NEW or USED. A supplier piece is NEW, a sellable scrap piece
-     * USED, an opening piece takes its line's condition. Set when the piece is created, never by default.
+     * USED, an opening piece takes its line's condition. Set when the piece is created, never by default; required from
+     * 0031 (CHECK `ck_jewelry_items_rate_kind_origin`: scrap is USED, a supplier piece NEW).
      */
-    rateKind: text('rate_kind'),
+    rateKind: text('rate_kind').notNull(),
     /**
      * What the piece cost the company (for SUPPLIER_NEW it includes the making charge). GM only. OPN-1 (D-dec1-3):
      * NULL = unknown (opening pieces only, from 0028), never 0.

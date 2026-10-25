@@ -1,10 +1,11 @@
-// OPN-2 migrations 0029 (additive) and 0030 (backfill + guard) on a database migrated up to 0028 holding data (both
+// OPN-2 migrations 0029 (additive), 0030 (backfill + guard) and 0031 (tighten + guard) on a database migrated up to 0028 holding data (both
 // projects; the general upgrade from older versions is in migration-upgrade.test.ts):
 //   * a sealed opening (as OPN-1 sealed it): its pieces get the NEW rate kind, its lines keep no condition (D-opn2-3),
 //     a sellable scrap piece gets USED, a supplier piece NEW; no price input, cost or weight changes;
 //   * a DRAFT opening that already has lines stops the upgrade with a clear message and nothing is applied; once the
 //     draft is emptied the same upgrade goes through (an empty draft is fine);
-//   * after the upgrade a new line needs a condition (the trigger), and the values are checked.
+//   * after the upgrade a new line needs a condition (the trigger), and the values are checked;
+//   * 0031 stops, changing nothing, on a piece without a rate kind or a scrap / supplier piece of the other kind.
 
 import { describe, expect, it } from 'vitest';
 import type { DatabaseHandle } from '@jerp/database';
@@ -13,7 +14,7 @@ import { one, openAt, run } from './migration-harness';
 const refused = async (h: DatabaseHandle, q: string) => run(h, q).then(() => false, () => true);
 
 /** Two branches, a type, a sealed opening of 2 pieces in branch A, a scrap and a supplier piece; branch B gets a draft. */
-async function seed(h: DatabaseHandle) {
+async function seed(h: DatabaseHandle, at = 28) {
   const id = async (q: string) => Number((await one(h, q)).id);
   const role = await id(`INSERT INTO roles (code, name, name_ar, is_system, rank) VALUES ('GENERAL_MANAGER', 'General Manager', 'المدير العام', true, 100) RETURNING id`);
   const a = await id(`INSERT INTO branches (code, name, name_ar, city) VALUES ('UPA', '[Test] A', '[اختبار] أ', 'X') RETURNING id`);
@@ -25,7 +26,9 @@ async function seed(h: DatabaseHandle) {
     id(`INSERT INTO jewelry_items (code, barcode, category_id, karat, gross_weight_mg, net_weight_mg, origin, acquisition_cost, selling_price, branch_id, status)
         VALUES ('${code}', '${code}', ${cat}, 21, 5100, 5000, '${origin}', ${cost}, 0, ${a}, 'AVAILABLE') RETURNING id`);
   for (const n of [1, 2]) {
-    const line = await id(`INSERT INTO opening_lines (opening_id, line_no, category_id, karat, gross_weight_mg, net_weight_mg, source, created_by) VALUES (${opening}, ${n}, ${cat}, 21, 5100, 5000, 'KEYBOARD', ${gm}) RETURNING id`);
+    // From 0029 a line needs a condition (the trigger); at 0028 the column does not exist yet.
+    const [cc, cv] = at >= 29 ? [', condition', `, 'NEW'`] : ['', ''];
+    const line = await id(`INSERT INTO opening_lines (opening_id, line_no, category_id, karat, gross_weight_mg, net_weight_mg, source, created_by${cc}) VALUES (${opening}, ${n}, ${cat}, 21, 5100, 5000, 'KEYBOARD', ${gm}${cv}) RETURNING id`);
     const item = await piece(`OP-${n}`, 'OPENING', 'NULL');
     await run(h, `UPDATE opening_lines SET item_id = ${item} WHERE id = ${line}`);
   }
@@ -81,4 +84,24 @@ describe('migrations 0029 and 0030 (OPN-2) on a database at 0028 with data', () 
       await h.close();
     }
   }, 120_000);
+
+  it('0031 stops, changing nothing, on a piece without a rate kind or a scrap/supplier piece of the other kind', async () => {
+    for (const [what, bad] of [
+      ['no rate kind', `UPDATE jewelry_items SET rate_kind = NULL WHERE code = 'SN-1'`],
+      ['scrap priced as new', `UPDATE jewelry_items SET rate_kind = 'NEW' WHERE code = 'SC-1'`],
+      ['supplier piece priced as used', `UPDATE jewelry_items SET rate_kind = 'USED' WHERE code = 'SN-1'`],
+    ] as const) {
+      const h = await openAt(30);
+      try {
+        await seed(h, 30);
+        await run(h, `UPDATE jewelry_items SET rate_kind = CASE WHEN origin = 'SCRAP' THEN 'USED' ELSE 'NEW' END`);
+        await run(h, bad);
+        const e = await h.migrate().then(() => null, (x: Error & { cause?: Error }) => x);
+        expect(`${e?.message} ${e?.cause?.message ?? ''}`, what).toMatch(/Migration 0031 \(OPN-2\) stopped: 1 /);
+        expect(Number((await one(h, `SELECT count(*) AS n FROM information_schema.columns WHERE table_name = 'jewelry_items' AND column_name = 'rate_kind' AND is_nullable = 'YES'`)).n), what).toBe(1);
+      } finally {
+        await h.close();
+      }
+    }
+  }, 180_000);
 });
