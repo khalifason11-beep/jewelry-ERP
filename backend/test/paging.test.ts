@@ -240,7 +240,8 @@ describe('table totals cover the whole filtered result, not one page', () => {
       expect(totals).toMatchObject({ sales: done.length, itemCount: done.reduce((s, r) => s + r.itemCount, 0), weightMg: done.reduce((s, r) => s + r.weightMg, 0), total: done.reduce((s, r) => s + r.total, 0) });
       if (role === 'GENERAL_MANAGER') {
         expect(totals.costTotal).toBe(done.reduce((s, r) => s + (r.costTotal ?? 0), 0));
-        expect(totals.grossProfit).toBe(totals.total - totals.costTotal);
+        expect(totals.grossProfit).toBe(totals.total! - totals.costTotal!);
+        expect(totals.unknownCostLines).toBe(0);
       } else {
         expect(Object.keys(totals).some((k) => COST_RESPONSE_FIELDS.has(k))).toBe(false);
       }
@@ -249,8 +250,8 @@ describe('table totals cover the whole filtered result, not one page', () => {
 
   it('inventory and purchases: the same sums as the rows of every page', async () => {
     const inv = await walk(agents.GENERAL_MANAGER, 'inventory', { status: 'AVAILABLE' }, 25);
-    const items = inv.flatMap((p) => p.rows) as (Row & { netWeightMg: number; sellingPrice: number; totalCost: number })[];
-    expect(inv[0].totals).toEqual({ netWeightMg: items.reduce((s, r) => s + r.netWeightMg, 0), sellingPrice: items.reduce((s, r) => s + r.sellingPrice, 0), totalCost: items.reduce((s, r) => s + r.totalCost, 0) });
+    const items = inv.flatMap((p) => p.rows) as (Row & { netWeightMg: number; sellingPrice: number; totalCost: number | null })[];
+    expect(inv[0].totals).toEqual({ netWeightMg: items.reduce((s, r) => s + r.netWeightMg, 0), sellingPrice: items.reduce((s, r) => s + r.sellingPrice, 0), totalCost: items.reduce((s, r) => s + (r.totalCost ?? 0), 0), unknownCostPieces: items.filter((r) => r.totalCost == null).length });
     const pur = await walk(agents.BRANCH_MANAGER, 'purchases', {}, 2);
     const ps = pur.flatMap((p) => p.rows) as (Row & { itemCount: number; totalNetWeightMg: number })[];
     expect(pur[0].totals).toEqual({ itemCount: ps.reduce((s, r) => s + r.itemCount, 0), totalNetWeightMg: ps.reduce((s, r) => s + r.totalNetWeightMg, 0) });

@@ -261,7 +261,7 @@ const noExpenseWords = (page, base, paths, who) => noWords(page, base, paths, wh
 // sees Active users, owner answer Q6). Listed as the nav test ids, in order.
 const SHELL_NAV = {
   // PRC-1 (D-prc1-9): the General Manager's Prices page sits with stock and gold.
-  gm: ['overview', 'sales', 'inventory', 'transfers', 'scrap', 'prices', 'catalog', 'purchases', 'cash', 'branches', 'reports', 'users', 'sessions', 'audit', 'settings'],
+  gm: ['overview', 'sales', 'inventory', 'transfers', 'scrap', 'prices', 'catalog', 'openings', 'purchases', 'cash', 'branches', 'reports', 'users', 'sessions', 'audit', 'settings'],
   bm: ['dashboard', 'pos', 'sales', 'inventory', 'transfers', 'scrap', 'catalog', 'purchases', 'cash', 'reports', 'users', 'sessions', 'audit'],
   // PRC-1 (D-prc1-8): the cashier buys a sellable piece from a customer.
   cashier: ['pos', 'scrap', 'me'],
@@ -1372,6 +1372,61 @@ async function main() {
     await page.locator('[data-testid=home-attention-line][data-code=A1]').waitFor({ timeout: 15_000 });
     ok(`branch manager: the incoming transfer ${gmSent.number} is an attention line (A1) on the home`);
     await signOut(page);
+
+    section('OPN-1: the opening balance on a production database (types, CSV import, seal with password and passkey, sale)');
+    {
+      await signIn(page, origin, GM.username, GM.password);
+      await page.getByTestId('second-step').waitFor();
+      await page.click('[data-testid=use-passkey]');
+      await pathIs(page, ['/overview']);
+      // Types created by the General Manager; the sheet names them (the importer never creates types).
+      const ring = (await apiSend(page, 'POST', '/api/categories', { nameAr: 'خواتم الافتتاح' })).body;
+      const bangle = (await apiSend(page, 'POST', '/api/categories', { nameAr: 'أساور الافتتاح' })).body;
+      check(ring?.id > 0 && bangle?.id > 0, 'two item types created for the sheet');
+      const sheet = [
+        ['خواتم الافتتاح', 'رقم قديم 101', '21', '4.250', '4.100'],
+        ['خواتم الافتتاح', '', '21', '٣٫٥', '3.400'],
+        ['أساور الافتتاح', 'سوار مشغول', '21', '12.000', '11.750'],
+        ['أساور الافتتاح', '"قديم; رقم 7"', '21', '9.6', '9.5'],
+      ];
+      const sheetNetMg = 4_100 + 3_400 + 11_750 + 9_500;
+      const csvText = '\ufeff' + ['النوع;الوصف;العيار;الوزن القائم;الوزن الصافي', ...sheet.map((r) => r.join(';'))].join('\r\n') + '\r\n';
+      const stockBefore = (await apiGet(page, `/api/reports/stock-weight?branchId=${branchId}`)).body.totals.itemsWeightMg;
+      await page.goto(`${origin}/openings`);
+      await page.click(`[data-testid=opening-start-${BRANCH.code}]`);
+      await page.waitForURL((u) => /\/openings\/\d+$/.test(u.pathname), { timeout: 15_000 });
+      const openingId = Number(new URL(page.url()).pathname.split('/').pop());
+      await page.setInputFiles('[data-testid=opening-file]', { name: 'opening-RHA.csv', mimeType: 'text/csv', buffer: Buffer.from(csvText) });
+      await page.click('[data-testid=opening-import]');
+      await waitFor(async () => (await apiGet(page, `/api/openings/${openingId}`)).body.summary.total.count === 4, 'the 4 imported lines', 15_000);
+      const draft = (await apiGet(page, `/api/openings/${openingId}`)).body;
+      check(draft.status === 'DRAFT' && draft.summary.total.netWeightMg === sheetNetMg, `the sheet imported into the draft: 4 pieces, ${sheetNetMg} mg net (semicolons, BOM, Arabic-Indic digits)`);
+      check((await apiGet(page, `/api/reports/stock-weight?branchId=${branchId}`)).body.totals.itemsWeightMg === stockBefore, 'a draft is not stock: the stock weight is unchanged before the seal');
+      await page.click('[data-testid=opening-seal]');
+      await page.fill('[data-testid=opening-seal-password]', GM.password);
+      await page.click('[data-testid=opening-seal-passkey]');
+      await waitFor(async () => !(await page.getByTestId('opening-seal-confirm').isDisabled()), 'the passkey confirmation', 15_000);
+      await page.click('[data-testid=opening-seal-confirm]');
+      await confirmIfAsked(page, GM.password);
+      await waitFor(async () => (await apiGet(page, `/api/openings/${openingId}`)).body.status === 'SEALED', 'the seal', 20_000);
+      ok('sealed with the password and a passkey confirmation (virtual authenticator)');
+      const sw = (await apiGet(page, `/api/reports/stock-weight?branchId=${branchId}`)).body.totals.itemsWeightMg;
+      check(sw - stockBefore === sheetNetMg, `the stock-weight report grew by exactly the sheet's net weight (${sw - stockBefore} mg)`);
+      const pieces = (await apiGet(page, `/api/inventory/items?branchId=${branchId}&origin=OPENING&pageSize=50`)).body.rows;
+      check(pieces.length === 4 && pieces.every((x) => x.totalCost === null && x.sellingPrice > 0), 'four pieces in stock with an unknown cost (never 0), priced from the new-piece rate');
+      const late = await apiSend(page, 'POST', `/api/openings/${openingId}/lines`, { categoryId: ring.id, karat: 21, grossWeightMg: 1_000, netWeightMg: 1_000 });
+      check(late.status === 409 && late.body.error.code === 'OPENING_SEALED', 'nothing can be added after the seal (409 OPENING_SEALED)');
+      // Sell one opening piece (the price the POS shows first, PRC-1): its line is left out of the profit and counted.
+      const piece = pieces[0];
+      const shown = await apiSend(page, 'POST', '/api/sales', { branchId, items: [{ itemId: piece.id }], paymentMethod: 'CASH' });
+      const sale = await apiSend(page, 'POST', '/api/sales', { branchId, items: [{ itemId: piece.id, listPrice: shown.body?.error?.details?.lines?.[0]?.listPrice }], paymentMethod: 'CASH' });
+      check(sale.status === 200, `opening piece ${piece.code} sold (${sale.body?.number})`);
+      const detail = (await apiGet(page, `/api/sales/${sale.body.id}`)).body;
+      check(detail.grossProfit === null && detail.unknownCostLines === 1 && detail.items[0].profit === null, 'its sale: profit "—" (NULL), 1 line of unknown cost');
+      const profit = (await apiGet(page, `/api/reports/profit?branchId=${branchId}`)).body;
+      check(profit.totals.unknownCostLines >= 1 && profit.columns.some((c) => c.key === 'unknownCostLines'), `the profit report counts the excluded line (${profit.totals.unknownCostLines} line(s) of unknown cost)`);
+      await signOut(page);
+    }
 
     section('REM-5: no deprecated schema left');
     const rdb = new pg.Client({ connectionString: dbUrl.toString() });

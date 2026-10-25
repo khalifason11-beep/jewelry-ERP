@@ -25,6 +25,7 @@ export function CatalogPage() {
   const [newType, setNewType] = useState(false);
   const [newProduct, setNewProduct] = useState(false);
   const [target, setTarget] = useState<Target | null>(null);
+  const [renaming, setRenaming] = useState<Category | null>(null);
   // The General Manager also sees deactivated rows, to reactivate them.
   const types = useQuery({ queryKey: ['categories', 'all', manage], queryFn: () => get<Category[]>('/categories', manage ? { includeInactive: 'true' } : {}) });
   const products = useQuery({ queryKey: ['products', 'all', manage], queryFn: () => get<Product[]>('/products', manage ? { includeInactive: 'true' } : {}) });
@@ -88,7 +89,21 @@ export function CatalogPage() {
               { key: 'code', header: t('Code'), render: (r) => <Mono>{r.code}</Mono> },
               { key: 'name', header: t('Type'), value: (r) => L(r.name, r.nameAr), render: (r) => L(r.name, r.nameAr) },
               { key: 'isActive', header: t('Status'), value: (r) => (r.isActive ? t('Active') : t('Deactivated')), render: (r) => state(r.isActive) },
-              ...(manage ? [{ key: 'actions', header: '', sortable: false, render: (r: Category) => toggle({ kind: 'categories', id: r.id, label: L(r.name, r.nameAr), active: r.isActive }) }] : []),
+              ...(manage
+                ? [
+                    {
+                      key: 'actions',
+                      header: '',
+                      sortable: false,
+                      render: (r: Category) => (
+                        <span className="flex justify-end gap-1">
+                          <Button size="sm" variant="ghost" onClick={() => setRenaming(r)} data-testid={`rename-type-${r.id}`}>{t('Rename')}</Button>
+                          {toggle({ kind: 'categories', id: r.id, label: L(r.name, r.nameAr), active: r.isActive })}
+                        </span>
+                      ),
+                    },
+                  ]
+                : []),
             ]}
           />
         )}
@@ -96,6 +111,7 @@ export function CatalogPage() {
       {newType && <NewTypeDialog onClose={() => setNewType(false)} onCreated={() => setNewType(false)} />}
       {newProduct && <NewProductDialog onClose={() => setNewProduct(false)} onCreated={() => setNewProduct(false)} />}
       {target && <ActiveDialog target={target} onClose={() => setTarget(null)} />}
+      {renaming && <RenameTypeDialog type={renaming} onClose={() => setRenaming(null)} />}
     </div>
   );
 }
@@ -143,3 +159,48 @@ function ActiveDialog({ target, onClose }: { target: Target; onClose: () => void
   );
 }
 
+
+/**
+ * CAT-1: rename an item type (General Manager). Past sales keep the name they were sold under (the sale lines hold a
+ * copy); the stock and new sales show the new name. A name already used by another type is refused by the server.
+ */
+function RenameTypeDialog({ type, onClose }: { type: Category; onClose: () => void }) {
+  const { t, L } = useI18n();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [nameAr, setNameAr] = useState(type.nameAr);
+  const [name, setName] = useState(type.name ?? '');
+  const m = useMutation({
+    mutationFn: () => post(`/categories/${type.id}/rename`, { nameAr: nameAr.trim(), ...(name.trim() ? { name: name.trim() } : {}) }),
+    onSuccess: () => {
+      toast.success(t('{name} renamed', { name: L(type.name, type.nameAr) }));
+      qc.invalidateQueries({ queryKey: ['categories'] });
+      qc.invalidateQueries({ queryKey: ['products'] });
+      onClose();
+    },
+    onError: (e) => toast.fromError(e),
+  });
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={t('Rename {name}', { name: L(type.name, type.nameAr) })}
+      subtitle={t('Past sales and invoices keep the old name; the stock and new sales show the new one.')}
+      footer={
+        <>
+          <Button onClick={onClose}>{t('Cancel')}</Button>
+          <Button variant="primary" disabled={nameAr.trim().length < 2} loading={m.isPending} onClick={() => m.mutate()} data-testid="confirm-rename">
+            {t('Rename')}
+          </Button>
+        </>
+      }
+    >
+      <Field label={t('Name in Arabic (required)')}>
+        <Input dir="rtl" lang="ar" value={nameAr} onChange={(e) => setNameAr(e.target.value)} maxLength={80} data-testid="rename-name-ar" />
+      </Field>
+      <Field label={t('Name in English (optional)')}>
+        <Input dir="ltr" lang="en" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} data-testid="rename-name-en" />
+      </Field>
+    </Dialog>
+  );
+}

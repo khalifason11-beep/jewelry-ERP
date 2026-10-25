@@ -84,6 +84,12 @@ describe('idempotency keys', () => {
         // MIS-1: the General Manager's void of a scrap purchase (key claimed inside the transaction).
         'POST /scrap-purchases/:id/void',
         'POST /purchases/:id/corrections',
+        // OPN-1: the opening balance's writes (key claimed inside the transaction; the import's key covers the file).
+        'POST /openings',
+        'POST /openings/:id/lines',
+        'POST /openings/:id/lines/:lineId/remove',
+        'POST /openings/:id/import',
+        'POST /openings/:id/seal',
       ].sort(),
     );
     // Only mutating routes can be idempotent.

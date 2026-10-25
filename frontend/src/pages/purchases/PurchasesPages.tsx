@@ -18,6 +18,7 @@ import { Crumbs } from '../sales/SalesPages';
 import { useActionKeys } from '../../lib/idempotency';
 import { NewButton, NewSupplierDialog, useProducts, useSuppliers } from '../../components/Catalog';
 import { NewProductPanel, ProductPicker } from '../../components/ProductPicker';
+import { PieceKindFields, descriptionTooLong, emptyKind, kindBody, type PieceKindValue } from '../../components/PieceKind';
 import { CorrectionDialog, type Confirmation } from '../../components/CorrectionDialog';
 
 interface Settlement {
@@ -127,6 +128,8 @@ export function PurchasesPage() {
 
 interface Line {
   productId: number | '';
+  /** CAT-1: the piece's type, karat and description when no product is chosen (the product's otherwise). */
+  kind: PieceKindValue;
   gross: string;
   net: string;
   purchaseCost: string;
@@ -136,7 +139,7 @@ interface Line {
 }
 /** UX-1 PART 3: the line fields, in their order, with a one-line hint each (D-4-4, MKC-1, SUP-1). */
 const LINE_COLUMNS = [
-  { key: 'product', label: tk('Product'), hint: tk('Type to search, or create it here.') },
+  { key: 'product', label: tk('Product (optional)'), hint: tk('Or leave it empty and choose the type and karat under the line.') },
   { key: 'gross', label: tk('Gross weight'), hint: tk('The whole piece, with any stones or other parts.') },
   { key: 'net', label: tk('Net gold weight'), hint: tk('Gold only: the weight that counts for the karat and for the gold owed to the supplier.') },
   { key: 'cost', label: tk('Purchase cost'), hint: tk('Your value of the piece for cost and profit; the supplier is paid in gold, not money.') },
@@ -148,7 +151,7 @@ const LINE_COLUMNS = [
 const LINE_GRID = 'grid grid-cols-2 gap-2 md:grid-cols-[minmax(10.5rem,1.4fr)_repeat(6,minmax(0,1fr))_2.25rem] md:items-start';
 // PRC-1 (D-prc1-8): with computed prices the line has no selling price (the piece follows the new-piece rate).
 const LINE_GRID_NO_PRICE = 'grid grid-cols-2 gap-2 md:grid-cols-[minmax(10.5rem,1.4fr)_repeat(5,minmax(0,1fr))_2.25rem] md:items-start';
-const emptyLine = (): Line => ({ productId: '', gross: '', net: '', purchaseCost: '', makingCost: '', otherCost: '', sellingPrice: '' });
+const emptyLine = (): Line => ({ productId: '', kind: emptyKind(), gross: '', net: '', purchaseCost: '', makingCost: '', otherCost: '', sellingPrice: '' });
 
 function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
   const { me, isGlobal } = useAuth();
@@ -201,7 +204,9 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
       const n = i + 1;
       const net = parseWeightInput(l.net);
       const gross = parseWeightInput(l.gross);
-      if (!l.productId) return t('Piece {n}: choose the product', { n });
+      if (!l.productId && !l.kind.categoryId) return t('Piece {n}: choose the type (or a product)', { n });
+      if (!l.productId && !l.kind.karat) return t('Piece {n}: choose the karat', { n });
+      if (descriptionTooLong(l.kind.description)) return t('Piece {n}: the description is too long', { n });
       if (!gross) return t('Piece {n}: enter the gross weight', { n });
       if (!net) return t('Piece {n}: enter the net gold weight', { n });
       if (gross < net) return t('Piece {n}: the net weight is more than the gross weight', { n });
@@ -225,7 +230,10 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
     setFocusLine(null);
   }, [focusLine]);
   const addPiece = () => {
-    setLines((ls) => [...ls, { ...emptyLine(), productId: ls[ls.length - 1]?.productId ?? '' }]);
+    setLines((ls) => {
+      const last = ls[ls.length - 1];
+      return [...ls, { ...emptyLine(), productId: last?.productId ?? '', kind: { ...emptyKind(), categoryId: last?.kind.categoryId ?? '', karat: last?.kind.karat ?? '' } }];
+    });
     setFocusLine(lines.length);
   };
   // Enter moves to the next field of the form (a product list open on an option picks it instead).
@@ -252,7 +260,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
           : {}),
         ...(opts.confirmDebt || confirmed.debt ? { confirmOpenSupplierDebt: true } : {}),
         lines: lines.map((l) => ({
-          productId: Number(l.productId),
+          ...kindBody(l.productId, l.kind),
           grossWeightMg: gramsToMg(l.gross),
           netWeightMg: gramsToMg(l.net),
           purchaseCost: Number(l.purchaseCost),
@@ -410,6 +418,18 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
                     <Trash2 className="size-4" />
                   </button>
                 </div>
+              </div>
+              <div className="mt-2">
+                <PieceKindFields
+                  compact
+                  value={l.kind}
+                  onChange={(kind) => upd(i, { kind })}
+                  fixed={(() => {
+                    const p = l.productId ? products.data?.find((x) => x.id === l.productId) : undefined;
+                    return p ? { categoryId: p.categoryId, karat: p.karat } : null;
+                  })()}
+                  testId={`line-kind-${i}`}
+                />
               </div>
               {creating?.line === i && (
                 <div className="mt-2">

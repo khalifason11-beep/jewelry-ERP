@@ -101,6 +101,40 @@ export async function createCategory(ctx: Ctx, actor: Actor, input: NameInput) {
   }
 }
 
+/**
+ * CAT-1 (D-cat0-3): the General Manager renames a type. Safe for the past: every sale line keeps the names it had at the
+ * sale (snapshots, migration 0026/0027), so invoices, reprints and the profit report by type do not change. Duplicates
+ * are refused after normalization (409), as for a new type. Audited with the old and the new names.
+ */
+export async function renameCategory(ctx: Ctx, actor: Actor, id: number, input: NameInput) {
+  requirePerm(actor, 'catalog.manage');
+  const { nameAr, name } = cleanNames(input);
+  const norm = normalizeName(nameAr);
+  try {
+    return await ctx.db.transaction(async (tx) => {
+      const [cur] = await tx.select(categoryColumns).from(t.categories).where(eq(t.categories.id, id)).for('update');
+      if (!cur) throw notFound('Item type');
+      const clash = await categoryByNorm(tx, norm);
+      if (clash && clash.id !== id) throw conflict('This type already exists: {name}', { name: clash.nameAr }, { existing: clash });
+      if (cur.nameAr === nameAr && (cur.name ?? null) === name) throw badRequest('The name is unchanged');
+      const [row] = await tx.update(t.categories).set({ nameAr, name }).where(eq(t.categories.id, id)).returning(categoryColumns);
+      await writeAudit(tx, actor, {
+        action: 'ITEM_TYPE_RENAMED',
+        entityType: 'category',
+        entityId: row.code,
+        key: 'Item type {code} renamed: {from} → {to}',
+        params: { code: row.code, from: ap.text(cur.name, cur.nameAr), to: ap.text(row.name, row.nameAr) },
+        metadata: { before: { nameAr: cur.nameAr, name: cur.name }, after: { nameAr: row.nameAr, name: row.name } },
+      });
+      return row;
+    });
+  } catch (e) {
+    if (!isUniqueViolation(e)) throw e;
+    const row = await categoryByNorm(ctx.db, norm);
+    throw conflict('This type already exists: {name}', { name: row?.nameAr ?? nameAr }, { existing: row });
+  }
+}
+
 export async function setCategoryActive(ctx: Ctx, actor: Actor, id: number, active: boolean, reason: string) {
   requirePerm(actor, 'catalog.manage');
   const why = cleanName(reason);
@@ -218,6 +252,83 @@ export async function assertProductsUsable(exec: Executor, productIds: number[])
   for (const r of rows) {
     if (!r.isActive || !r.categoryActive) throw badRequest('{name} is deactivated and cannot receive new stock', { name: r.nameAr });
   }
+}
+
+// ───────────────────────── CAT-1: what a piece is ─────────────────────────
+
+/** A new piece as typed: a type + an optional description + a karat; a product may still be named (optional). */
+export interface PieceKindInput {
+  productId?: number | null;
+  categoryId?: number | null;
+  karat?: number | null;
+  description?: string | null;
+}
+
+export interface PieceKind {
+  productId: number | null;
+  categoryId: number;
+  karat: number;
+  description: string | null;
+}
+
+/** CAT-1: the description of a piece: trimmed, empty = none, at most 120 characters. */
+export function cleanDescription(raw: string | null | undefined): string | null {
+  const d = cleanName(raw ?? '');
+  if (!d) return null;
+  if ([...d].length > 120) throw badRequest('A description can have at most 120 characters');
+  return d;
+}
+
+/**
+ * CAT-1 (D-dec1-2): resolve the pieces of a stock entry (supplier order, sellable scrap, opening). With a product, the
+ * type and the karat are the product's (a different one sent is refused); without, the type and the karat are required.
+ * The type (and the product) must be active: deactivated ones receive no new stock. The karat check (allowed karats)
+ * is the caller's, as before.
+ */
+export async function resolvePieceKinds(exec: Executor, inputs: PieceKindInput[]): Promise<PieceKind[]> {
+  const productIds = [...new Set(inputs.map((i) => i.productId).filter((x): x is number => x != null))];
+  const products = productIds.length ? await exec.select({ id: t.products.id, karat: t.products.karat, categoryId: t.products.categoryId }).from(t.products).where(sql`${t.products.id} IN ${productIds}`) : [];
+  const productById = new Map(products.map((p) => [p.id, p]));
+  await assertProductsUsable(exec, productIds);
+  const kinds = inputs.map((i): PieceKind => {
+    const description = cleanDescription(i.description);
+    if (i.productId != null) {
+      const p = productById.get(i.productId);
+      if (!p) throw notFound('Product');
+      if (i.categoryId != null && i.categoryId !== p.categoryId) throw badRequest('The product is of another type');
+      if (i.karat != null && i.karat !== p.karat) throw badRequest('The product is {pkarat}K but the piece is {karat}K', { pkarat: p.karat, karat: i.karat });
+      return { productId: p.id, categoryId: p.categoryId, karat: p.karat, description };
+    }
+    if (i.categoryId == null) throw badRequest('Choose the item type');
+    if (i.karat == null) throw badRequest('Choose the karat');
+    return { productId: null, categoryId: i.categoryId, karat: i.karat, description };
+  });
+  const categoryIds = [...new Set(kinds.map((k) => k.categoryId))];
+  const cats = await exec.select({ id: t.categories.id, isActive: t.categories.isActive, nameAr: t.categories.nameAr }).from(t.categories).where(sql`${t.categories.id} IN ${categoryIds}`);
+  const catById = new Map(cats.map((c) => [c.id, c]));
+  for (const id of categoryIds) {
+    const c = catById.get(id);
+    if (!c) throw notFound('Item type');
+    if (!c.isActive) throw badRequest('{name} is deactivated and cannot receive new stock', { name: c.nameAr });
+  }
+  return kinds;
+}
+
+/**
+ * CAT-1: descriptions already used for a type (the suggestions of the free-text field), most used first, at most 20.
+ */
+export async function descriptionSuggestions(ctx: Ctx, q: { categoryId?: number; q?: string }) {
+  const where = [sql`${t.jewelryItems.description} IS NOT NULL`];
+  if (q.categoryId) where.push(sql`${t.jewelryItems.categoryId} = ${q.categoryId}`);
+  if (q.q?.trim()) where.push(sql`${t.jewelryItems.description} ILIKE ${`%${q.q.trim()}%`}`);
+  const rows = await ctx.db
+    .select({ description: t.jewelryItems.description, uses: sql<number>`count(*)`.mapWith(Number) })
+    .from(t.jewelryItems)
+    .where(and(...where))
+    .groupBy(t.jewelryItems.description)
+    .orderBy(sql`count(*) DESC`, asc(t.jewelryItems.description))
+    .limit(20);
+  return rows.map((r) => r.description as string);
 }
 
 // ───────────────────────── suppliers ─────────────────────────

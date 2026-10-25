@@ -296,15 +296,25 @@ export const jewelryItems = pgTable(
     id: serial('id').primaryKey(),
     code: text('code').notNull().unique(),
     barcode: text('barcode').notNull().unique(),
-    productId: integer('product_id').notNull().references(() => products.id),
+    /** CAT-1 (D-dec1-2): optional; a piece is a type + a free-text description + karat + weights. */
+    productId: integer('product_id').references(() => products.id),
+    /** CAT-1: the piece's type (item type). Backfilled from the product (0027), required from 0028. */
+    categoryId: integer('category_id')
+      .notNull()
+      .references(() => categories.id),
+    /** CAT-1: free text (an old shop number may be written here), at most 120 characters. */
+    description: text('description'),
     karat: smallint('karat').notNull(),
     grossWeightMg: integer('gross_weight_mg').notNull(),
     netWeightMg: integer('net_weight_mg').notNull(),
     // ── Cost model (Phase 2b, decisions Q3/Q4/Q9) ──
     /** OPENING | SUPPLIER_NEW | SCRAP */
     origin: text('origin').notNull().default('SUPPLIER_NEW'),
-    /** What the piece cost the company (for SUPPLIER_NEW it includes the making charge). GM only. */
-    acquisitionCost: money('acquisition_cost').notNull(),
+    /**
+     * What the piece cost the company (for SUPPLIER_NEW it includes the making charge). GM only. OPN-1 (D-dec1-3):
+     * NULL = unknown (opening pieces only, from 0028), never 0.
+     */
+    acquisitionCost: money('acquisition_cost'),
     /** True when the acquisition cost is an estimate (e.g. opening stock without invoices). */
     costIsEstimated: boolean('cost_is_estimated').notNull().default(false),
     supplierId: integer('supplier_id').references(() => suppliers.id),
@@ -321,6 +331,7 @@ export const jewelryItems = pgTable(
   (t) => [
     index('items_branch_status_idx').on(t.branchId, t.status),
     index('items_product_idx').on(t.productId),
+    index('items_category_idx').on(t.categoryId),
   ],
 );
 
@@ -359,7 +370,8 @@ export const inventoryMovements = pgTable(
     refId: integer('ref_id'),
     refNumber: text('ref_number'),
     netWeightMg: integer('net_weight_mg').notNull(),
-    costValue: money('cost_value').notNull(),
+    /** The piece's cost at the movement; NULL when it is unknown (an opening piece, OPN-1). */
+    costValue: money('cost_value'),
     userId: integer('user_id').references(() => users.id),
     note: text('note'),
     at: ts('at').notNull().defaultNow(),
@@ -438,6 +450,65 @@ export const purchaseCorrections = pgTable(
   (t) => [index('purchase_corrections_purchase_idx').on(t.purchaseId, t.id), index('purchase_corrections_item_idx').on(t.purchaseItemId, t.id)],
 );
 
+// ───────────────────────────── Opening balance (OPN-1) ─────────────────────────────
+
+/**
+ * OPN-1 (SPEC §13): one opening per branch, DRAFT → SEALED, General Manager only. The draft lines are not stock;
+ * sealing turns them into pieces (origin OPENING, cost unknown) in one transaction. Nothing changes after the seal.
+ */
+export const openings = pgTable('openings', {
+  id: serial('id').primaryKey(),
+  branchId: integer('branch_id').notNull().unique().references(() => branches.id),
+  /** DRAFT | SEALED */
+  status: text('status').notNull().default('DRAFT'),
+  createdBy: integer('created_by').notNull().references(() => users.id),
+  createdAt: createdAt(),
+  sealedBy: integer('sealed_by').references(() => users.id),
+  sealedAt: ts('sealed_at'),
+  sessionId: text('session_id'),
+});
+
+/** OPN-1: a CSV file imported into an opening; the same file twice changes nothing (UNIQUE opening, sha256). */
+export const openingImports = pgTable(
+  'opening_imports',
+  {
+    id: serial('id').primaryKey(),
+    openingId: integer('opening_id').notNull().references(() => openings.id),
+    fileName: text('file_name').notNull(),
+    sha256: text('sha256').notNull(),
+    rowCount: integer('row_count').notNull(),
+    createdBy: integer('created_by').notNull().references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('opening_imports_file_uq').on(t.openingId, t.sha256)],
+);
+
+/** OPN-1: a line of the draft (not stock yet). `item_id` is set when the opening is sealed. */
+export const openingLines = pgTable(
+  'opening_lines',
+  {
+    id: serial('id').primaryKey(),
+    openingId: integer('opening_id').notNull().references(() => openings.id),
+    lineNo: integer('line_no').notNull(),
+    categoryId: integer('category_id').notNull().references(() => categories.id),
+    description: text('description'),
+    karat: smallint('karat').notNull(),
+    grossWeightMg: integer('gross_weight_mg').notNull(),
+    netWeightMg: integer('net_weight_mg').notNull(),
+    /** KEYBOARD | IMPORT */
+    source: text('source').notNull(),
+    /**
+     * The import that added the line. No foreign key: `opening_imports` is append-only and the runtime role may not take
+     * the key check's FOR KEY SHARE on it (D-mis1-3); the trigger `jerp_opening_line_check` checks it instead.
+     */
+    importId: integer('import_id'),
+    itemId: integer('item_id').unique().references(() => jewelryItems.id),
+    createdBy: integer('created_by').notNull().references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('opening_lines_no_uq').on(t.openingId, t.lineNo), index('opening_lines_karat_idx').on(t.openingId, t.karat)],
+);
+
 // ───────────────────────────── Sales ─────────────────────────────
 
 export const sales = pgTable(
@@ -455,7 +526,9 @@ export const sales = pgTable(
     discountTotal: money('discount_total').notNull().default(0),
     total: money('total').notNull(),
     /** Snapshot of Σ item total cost at the time of sale. */
+    /** Σ cost of the lines whose cost is known (OPN-1); `unknown_cost_lines` counts the others. */
     costTotal: money('cost_total').notNull(),
+    unknownCostLines: smallint('unknown_cost_lines').notNull().default(0),
     paymentMethod: text('payment_method').notNull(),
     status: text('status').notNull().default('COMPLETED'),
     voidedAt: ts('voided_at'),
@@ -481,18 +554,23 @@ export const saleItems = pgTable(
     saleId: integer('sale_id').notNull().references(() => sales.id),
     itemId: integer('item_id').notNull().references(() => jewelryItems.id),
     productName: text('product_name').notNull(),
+    // CAT-1 (D-cat0-3): the names as they were at the sale, so a later rename never rewrites an invoice.
+    productNameAr: text('product_name_ar'),
+    categoryName: text('category_name'),
+    categoryNameAr: text('category_name_ar'),
+    description: text('description'),
     karat: smallint('karat').notNull(),
     netWeightMg: integer('net_weight_mg').notNull(),
     listPrice: money('list_price').notNull(),
     discount: money('discount').notNull().default(0),
     finalPrice: money('final_price').notNull(),
     /** Cost snapshot so later cost edits never rewrite historical profit. DEPRECATED: see acquisition_cost. */
-    unitCost: money('unit_cost').notNull(),
+    unitCost: money('unit_cost'),
     // ── Phase 2b ──
-    /** Acquisition cost of the piece at the time of sale (snapshot). GM only. */
-    acquisitionCost: money('acquisition_cost').notNull(),
-    /** final_price − acquisition_cost, computed and stored by the server. GM only. */
-    profit: money('profit').notNull(),
+    /** Acquisition cost of the piece at the time of sale (snapshot). GM only. NULL = unknown (OPN-1). */
+    acquisitionCost: money('acquisition_cost'),
+    /** final_price − acquisition_cost, computed and stored by the server. GM only. NULL when the cost is unknown. */
+    profit: money('profit'),
     /** FIXED_TAG today; COMPUTED (rate × weight + making) once the client decides (Q2). */
     pricingMode: text('pricing_mode').notNull().default('FIXED_TAG'),
     /** Price components for a computed price; NULL for a fixed tag price. */

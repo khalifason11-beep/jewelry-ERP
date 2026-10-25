@@ -28,7 +28,7 @@ export interface Page<T> {
    * Sums over every row matching the filters (not only this page), for the lists whose table shows totals. Cost sums
    * carry their COST field names, so the response filter removes them for anyone without `profit.view`.
    */
-  totals?: Record<string, number>;
+  totals?: Record<string, number | null>;
 }
 
 /** The query parameters that select a page (added to the list's own filters). */

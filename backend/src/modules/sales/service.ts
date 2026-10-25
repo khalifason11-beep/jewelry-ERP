@@ -84,12 +84,15 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
     const locked = await lockItems(tx, ids);
     const byId = new Map(locked.map((i) => [i.id, i]));
     const [branch] = await tx.select().from(t.branches).where(eq(t.branches.id, branchId));
-    const products = await tx
-      .select({ id: t.products.id, name: t.products.name, nameAr: t.products.nameAr })
-      .from(t.products)
-      .where(inArray(t.products.id, locked.map((i) => i.productId)));
-    // Snapshot of the name at the time of sale; the English name is optional (CAT-0), so fall back to Arabic.
-    const productName = new Map(products.map((p) => [p.id, p.name?.trim() ? p.name : p.nameAr]));
+    // CAT-1 (D-cat0-3): the names as they are at the sale (product optional, the piece's own type, its description), so a
+    // later rename never rewrites the invoice. The English product name is optional (CAT-0): fall back to Arabic.
+    const names = await tx
+      .select({ itemId: t.jewelryItems.id, productName: t.products.name, productNameAr: t.products.nameAr, categoryName: t.categories.name, categoryNameAr: t.categories.nameAr })
+      .from(t.jewelryItems)
+      .leftJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+      .innerJoin(t.categories, eq(t.categories.id, t.jewelryItems.categoryId))
+      .where(inArray(t.jewelryItems.id, ids));
+    const nameOf = new Map(names.map((n) => [n.itemId, n]));
 
     const priced = input.items.map((line) => {
       const item = byId.get(line.itemId)!;
@@ -152,7 +155,10 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
 
     const subtotal = sumInt(lines.map((l) => l.listPrice));
     const discountTotal = lines.reduce((s, l) => s + l.discount, 0);
-    const costTotal = lines.reduce((s, l) => s + l.item.acquisitionCost, 0);
+    // OPN-1 (§6): a piece of unknown cost (an opening piece) sells with NULL cost and profit; the sale's cost total
+    // sums the known lines only and counts the others. Never 0.
+    const costTotal = lines.reduce((s, l) => s + (l.item.acquisitionCost ?? 0), 0);
+    const unknownCostLines = lines.filter((l) => l.item.acquisitionCost == null).length;
     const number = await nextNumber(tx, branch.code, 'INV');
 
     const [sale] = await tx
@@ -169,6 +175,7 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
         discountTotal,
         total: subtotal - discountTotal,
         costTotal,
+        unknownCostLines,
         paymentMethod: input.paymentMethod,
         paymentRefInvoice: refInvoice,
         paymentRefTransaction: refTransaction,
@@ -182,16 +189,16 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       await tx.insert(t.saleItems).values({
         saleId: sale.id,
         itemId: l.item.id,
-        productName: productName.get(l.item.productId) ?? l.item.code,
+        ...lineNames(l.item, nameOf.get(l.item.id)),
         karat: l.item.karat,
         netWeightMg: l.item.netWeightMg,
         listPrice: l.listPrice,
         discount: l.discount,
         finalPrice: l.finalPrice,
         unitCost: l.item.acquisitionCost,
-        // Snapshots: later cost changes never rewrite the profit of a past sale (GM-only fields).
+        // Snapshots: later cost changes never rewrite the profit of a past sale (GM-only fields). Unknown cost: NULL.
         acquisitionCost: l.item.acquisitionCost,
-        profit: l.finalPrice - l.item.acquisitionCost,
+        profit: l.item.acquisitionCost == null ? null : l.finalPrice - l.item.acquisitionCost,
         // PRC-1: a computed line keeps the rate used and the gold value; the making charge stays NULL (Q-1 open).
         pricingMode: pricing.mode === 'RATE_COMPUTED' ? 'COMPUTED' : 'FIXED_TAG',
         priceRatePerGram: pricing.mode === 'RATE_COMPUTED' ? l.ratePerGram : null,
@@ -270,6 +277,15 @@ async function salesWhere(ctx: Ctx, actor: Actor, q: SaleQuery): Promise<SQL[]> 
   return where;
 }
 
+/**
+ * OPN-1 (§6): a sale's gross profit is the profit of its lines of KNOWN cost: total − cost when every cost is known,
+ * else the sum of the lines' profit (NULL when no line has a known cost: shown "—", never 0). The correlated
+ * sub-query only runs for a sale with unknown lines. Table names are explicit (Drizzle renders a one-table select
+ * unqualified).
+ */
+const saleProfitSql = sql.raw(
+  `(case when "sales"."unknown_cost_lines" = 0 then "sales"."total" - "sales"."cost_total" else (select sum(si.profit) from sale_items si where si.sale_id = "sales"."id") end)`,
+);
 const saleListBase = {
   id: t.sales.id,
   number: t.sales.number,
@@ -284,6 +300,7 @@ const saleListBase = {
   discountTotal: t.sales.discountTotal,
   total: t.sales.total,
   costTotal: t.sales.costTotal,
+  unknownCostLines: t.sales.unknownCostLines,
   paymentMethod: t.sales.paymentMethod,
   // FIX-2: the bank-transfer reference (Hasad: its transaction reference), shown in the list.
   paymentRefTransaction: t.sales.paymentRefTransaction,
@@ -297,6 +314,7 @@ const perGramOfLines = (table: string) =>
   sql.raw(`CASE WHEN count(*) = count(${table}.price_rate_per_gram) AND count(DISTINCT ${table}.price_rate_per_gram) = 1 THEN min(${table}.price_rate_per_gram) END`);
 const saleListColumns = {
   ...saleListBase,
+  grossProfit: sql<number | null>`${saleProfitSql}`.mapWith((v) => (v == null ? null : Number(v))),
   itemCount: sql<number>`(select count(*) from sale_items si where si.sale_id = ${t.sales.id})`,
   weightMg: sql<number>`(select coalesce(sum(si.net_weight_mg),0) from sale_items si where si.sale_id = ${t.sales.id})`,
   pricePerGram: sql<number | null>`(select ${perGramOfLines('si')} from sale_items si where si.sale_id = ${t.sales.id})`,
@@ -309,10 +327,10 @@ type SaleListRow = Awaited<ReturnType<typeof saleListFrom>>[number];
 function saleListRow(actor: Actor, r: SaleListRow) {
   const base = { ...r, itemCount: Number(r.itemCount), weightMg: Number(r.weightMg), pricePerGram: r.pricePerGram == null ? null : Number(r.pricePerGram) };
   if (!can(actor, 'profit.view')) {
-    const { costTotal: _c, ...rest } = base;
+    const { costTotal: _c, unknownCostLines: _u, grossProfit: _g, ...rest } = base;
     return rest;
   }
-  return { ...base, grossProfit: r.status === 'COMPLETED' ? r.total - r.costTotal : 0 };
+  return { ...base, grossProfit: r.status === 'COMPLETED' ? r.grossProfit : 0 };
 }
 
 
@@ -350,16 +368,33 @@ export async function salesReportAggregates(ctx: Ctx, actor: Actor, q: SaleQuery
     .where(done)
     .groupBy(t.sales.paymentMethod);
   const [lines] = await ctx.db
-    .select({ itemCount: sql<number>`count(*)`.mapWith(Number), weightMg: sumOf(t.saleItems.netWeightMg) })
+    .select(saleLineTotals)
     .from(t.saleItems)
     .innerJoin(t.sales, eq(t.sales.id, t.saleItems.saleId))
     .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
     .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
     .where(done);
   const sum = (k: 'total' | 'discountTotal' | 'costTotal') => channels.reduce((s, c) => s + c[k], 0);
-  const totals: Record<string, number> = { itemCount: lines.itemCount, weightMg: lines.weightMg, discountTotal: sum('discountTotal'), total: sum('total') };
-  if (can(actor, 'profit.view')) Object.assign(totals, { costTotal: sum('costTotal'), grossProfit: sum('total') - sum('costTotal') });
+  const totals: Record<string, number | null> = { itemCount: lines.itemCount, weightMg: lines.weightMg, discountTotal: sum('discountTotal'), total: sum('total') };
+  if (can(actor, 'profit.view')) Object.assign(totals, profitTotals(sum('total'), sum('costTotal'), lines));
   return { rowCount: n, totals, byChannel: new Map(channels.map((c) => [c.method, c.total])) };
+}
+
+/** The lines of the completed sales behind a footer: counts, weight, and the revenue of the lines of unknown cost. */
+const saleLineTotals = {
+  itemCount: sql<number>`count(*)`.mapWith(Number),
+  weightMg: sumOf(t.saleItems.netWeightMg),
+  unknownCostLines: sql<number>`count(*) filter (where ${t.saleItems.unitCost} is null)`.mapWith(Number),
+  unknownRevenue: sumOf(sql`case when ${t.saleItems.unitCost} is null then ${t.saleItems.finalPrice} else 0 end`),
+};
+
+/**
+ * OPN-1 (§6): cost and gross profit over the lines of KNOWN cost, with the count of lines left out. Gross profit is
+ * NULL when no line has a known cost (an empty result keeps 0).
+ */
+function profitTotals(total: number, costTotal: number, lines: { itemCount: number; unknownCostLines: number; unknownRevenue: number }) {
+  const noneKnown = lines.itemCount > 0 && lines.unknownCostLines === lines.itemCount;
+  return { costTotal, grossProfit: noneKnown ? null : total - lines.unknownRevenue - costTotal, unknownCostLines: lines.unknownCostLines };
 }
 
 export const SALE_SORT_KEYS = ['date', 'number', 'branch', 'cashier', 'total', 'grossProfit'] as const;
@@ -371,7 +406,7 @@ const saleSorts: Record<SaleSortKey, SortSpec> = {
   cashier: { by: t.users.fullName, field: 'cashierName', dir: 'asc' },
   total: { by: t.sales.total, field: 'total', dir: 'desc' },
   // GM only: ordering by profit would reveal it (BE-7).
-  grossProfit: { by: sql`(case when ${t.sales.status} = 'COMPLETED' then ${t.sales.total} - ${t.sales.costTotal} else 0 end)`, field: 'grossProfit', dir: 'desc' },
+  grossProfit: { by: sql`(case when ${t.sales.status} = 'COMPLETED' then coalesce(${saleProfitSql}, 0) else 0 end)`, field: 'grossProfit', dir: 'desc' },
 };
 
 /** BE-7: the sales list, one page at a time (`GET /sales`). */
@@ -401,12 +436,24 @@ export async function pageSales(ctx: Ctx, actor: Actor, q: SaleQuery & PageReque
         .offset(offset);
       if (!page.length) return [];
       const lines = await ctx.db
-        .select({ saleId: t.saleItems.saleId, itemCount: sql<number>`count(*)`.mapWith(Number), weightMg: sumOf(t.saleItems.netWeightMg), pricePerGram: sql<number | null>`${perGramOfLines('"sale_items"')}`.mapWith((v) => (v == null ? null : Number(v))) })
+        .select({
+          saleId: t.saleItems.saleId,
+          itemCount: sql<number>`count(*)`.mapWith(Number),
+          weightMg: sumOf(t.saleItems.netWeightMg),
+          pricePerGram: sql<number | null>`${perGramOfLines('"sale_items"')}`.mapWith((v) => (v == null ? null : Number(v))),
+          // OPN-1: the profit of the lines of known cost, for the page's rows only (never for the rows an offset skips).
+          profit: sql<number | null>`sum(${t.saleItems.profit})`.mapWith((v) => (v == null ? null : Number(v))),
+        })
         .from(t.saleItems)
         .where(inArray(t.saleItems.saleId, page.map((r) => r.id)))
         .groupBy(t.saleItems.saleId);
       const bySale = new Map(lines.map((l) => [l.saleId, l]));
-      return page.map((r) => saleListRow(actor, { ...r, itemCount: bySale.get(r.id)?.itemCount ?? 0, weightMg: bySale.get(r.id)?.weightMg ?? 0, pricePerGram: bySale.get(r.id)?.pricePerGram ?? null }));
+      return page.map((r) => {
+        const l = bySale.get(r.id);
+        // A sale with every cost known keeps total − cost (as before OPN-1); otherwise the Σ profit of its known lines.
+        const grossProfit = r.unknownCostLines === 0 ? r.total - r.costTotal : (l?.profit ?? null);
+        return saleListRow(actor, { ...r, itemCount: l?.itemCount ?? 0, weightMg: l?.weightMg ?? 0, pricePerGram: l?.pricePerGram ?? null, grossProfit });
+      });
     },
     // The footer adds up the completed sales of the whole filtered result (a voided sale counts for nothing).
     totals: opts.withTotals === false ? undefined : async (w) => {
@@ -418,14 +465,14 @@ export async function pageSales(ctx: Ctx, actor: Actor, q: SaleQuery & PageReque
         .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
         .where(done);
       const [lines] = await ctx.db
-        .select({ itemCount: sql<number>`count(*)`.mapWith(Number), weightMg: sumOf(t.saleItems.netWeightMg) })
+        .select(saleLineTotals)
         .from(t.saleItems)
         .innerJoin(t.sales, eq(t.sales.id, t.saleItems.saleId))
         .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
         .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
         .where(done);
-      const out: Record<string, number> = { sales: s.count, itemCount: lines.itemCount, weightMg: lines.weightMg, total: s.total };
-      return can(actor, 'profit.view') ? { ...out, costTotal: s.costTotal, grossProfit: s.total - s.costTotal } : out;
+      const out: Record<string, number | null> = { sales: s.count, itemCount: lines.itemCount, weightMg: lines.weightMg, total: s.total };
+      return can(actor, 'profit.view') ? { ...out, ...profitTotals(s.total, s.costTotal, lines) } : out;
     },
   });
 }
@@ -459,8 +506,12 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
       itemId: t.saleItems.itemId,
       itemCode: t.jewelryItems.code,
       barcode: t.jewelryItems.barcode,
+      // CAT-1: the names as they were at the sale (snapshots), never the live product or type.
       productName: t.saleItems.productName,
-      productNameAr: t.products.nameAr,
+      productNameAr: sql<string>`coalesce(${t.saleItems.productNameAr}, ${t.saleItems.productName})`,
+      categoryName: t.saleItems.categoryName,
+      categoryNameAr: t.saleItems.categoryNameAr,
+      description: t.saleItems.description,
       karat: t.saleItems.karat,
       netWeightMg: t.saleItems.netWeightMg,
       grossWeightMg: t.jewelryItems.grossWeightMg,
@@ -480,7 +531,6 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
     })
     .from(t.saleItems)
     .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.saleItems.itemId))
-    .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
     .leftJoin(t.purchaseItems, eq(t.purchaseItems.itemId, t.jewelryItems.id))
     .where(eq(t.saleItems.saleId, id));
 
@@ -490,10 +540,13 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
     voidedByName = u?.n ?? null;
   }
 
-  const { costTotal, ...saleFields } = sale.sale;
+  const { costTotal, unknownCostLines, ...saleFields } = sale.sale;
+  // OPN-1 (§6): the profit of the lines of known cost; NULL ("—") when no line has one.
+  const known = items.filter((i) => i.profit != null);
+  const grossProfit = unknownCostLines === 0 ? sale.sale.total - costTotal : known.length ? known.reduce((s, i) => s + i.profit!, 0) : null;
   return {
     ...saleFields,
-    ...(showProfit ? { costTotal, grossProfit: sale.sale.total - costTotal } : {}),
+    ...(showProfit ? { costTotal, grossProfit, unknownCostLines } : {}),
     branchName: sale.branchName,
     branchNameAr: sale.branchNameAr,
     branchCode: sale.branchCode,
@@ -583,4 +636,19 @@ export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: strin
     await opts.idem?.complete(tx, result);
     return result;
   });
+}
+
+/** CAT-1: a sale line's name snapshots: the description, else the product, else the type (English falls back to Arabic). */
+function lineNames(
+  item: { code: string; description: string | null },
+  n: { productName: string | null; productNameAr: string | null; categoryName: string | null; categoryNameAr: string } | undefined,
+) {
+  const en = (v: string | null | undefined) => (v?.trim() ? v : null);
+  return {
+    productName: item.description ?? en(n?.productName) ?? n?.productNameAr ?? en(n?.categoryName) ?? n?.categoryNameAr ?? item.code,
+    productNameAr: item.description ?? n?.productNameAr ?? n?.categoryNameAr ?? null,
+    categoryName: n?.categoryName ?? null,
+    categoryNameAr: n?.categoryNameAr ?? null,
+    description: item.description,
+  };
 }

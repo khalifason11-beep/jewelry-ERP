@@ -22,6 +22,7 @@ import { PurchasesPage, PurchaseDetailPage } from './pages/purchases/PurchasesPa
 import { CashPage } from './pages/cash/CashPage';
 import { ScrapPage } from './pages/scrap/ScrapPage';
 import { PricesPage } from './pages/admin/PricesPage';
+import { OpeningsPage, OpeningPage } from './pages/openings/OpeningPages';
 import { TransfersPage } from './pages/transfers/TransfersPage';
 import { ReportsHubPage, ReportPage } from './pages/reports/ReportPages';
 import { UsersPage } from './pages/admin/UsersPage';
@@ -137,6 +138,8 @@ export function App() {
             <Route path="audit" element={<Guard perm="audit.view"><AuditPage /></Guard>} />
             <Route path="settings" element={<Guard perm="settings.manage"><SettingsPage /></Guard>} />
             <Route path="prices" element={<Guard perm="settings.manage"><PricesPage /></Guard>} />
+            <Route path="openings" element={<Guard perm="opening.manage"><OpeningsPage /></Guard>} />
+            <Route path="openings/:id" element={<Guard perm="opening.manage"><OpeningPage /></Guard>} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>

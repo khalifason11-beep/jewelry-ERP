@@ -12,7 +12,7 @@
 
 import { asc, desc, eq, gte, ilike, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
-import { assertProductsUsable } from '../catalog/service';
+import { resolvePieceKinds } from '../catalog/service';
 import { t, type Executor } from '@jerp/database';
 import { ap, divRound, pureGoldMg, sumInt, validBankReference, valueOfWeight, type ScrapKind, type ScrapPaymentMethod, type ScrapWeightEventType } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
@@ -198,6 +198,9 @@ export interface ScrapPurchaseInput {
    * the piece is priced from the used-piece rate and no price is sent (refused if sent).
    */
   productId?: number;
+  /** CAT-1: SELLABLE only: the type and an optional description (the product is optional). */
+  categoryId?: number;
+  description?: string;
   sellingPrice?: number;
   customerName?: string;
   customerPhone?: string;
@@ -219,12 +222,13 @@ export async function buyScrap(ctx: Ctx, actor: Actor, input: ScrapPurchaseInput
   }
   const settings = await ctx.settings.get();
   if (input.kind === 'SELLABLE') {
-    if (!input.productId) throw badRequest('A sellable piece needs a product');
+    // CAT-1: a sellable piece is a type (+ description); a product is optional.
+    if (!input.productId && !input.categoryId) throw badRequest('Choose the item type');
     // PRC-1 (D-prc1-8): computed prices: nobody types a price (one sent is refused, never silently dropped).
     if (settings.pricing.mode === 'RATE_COMPUTED') {
       if (input.sellingPrice != null) throw badRequest('Selling prices follow the rates: do not send one');
     } else if (!input.sellingPrice || input.sellingPrice <= 0) throw badRequest('A sellable piece needs a product and a selling price');
-  } else if (input.sellingPrice != null || input.productId != null) {
+  } else if (input.sellingPrice != null || input.productId != null || input.categoryId != null || input.description != null) {
     throw badRequest('Broken scrap has no product and no selling price');
   }
   const at = opts.at ?? new Date();
@@ -253,19 +257,19 @@ export async function buyScrap(ctx: Ctx, actor: Actor, input: ScrapPurchaseInput
     let itemId: number | null = null;
     let itemCode: string | null = null;
     if (input.kind === 'SELLABLE') {
-      const [product] = await tx.select().from(t.products).where(eq(t.products.id, input.productId!));
-      if (!product) throw notFound('Product');
-      if (product.karat !== input.karat) throw badRequest('The product is {pkarat}K but the piece is {karat}K', { pkarat: product.karat, karat: input.karat });
+      // CAT-1: the type and description (the product optional, then its type and karat must match the piece's).
       // CAT-0: deactivated products and types receive no new stock.
-      await assertProductsUsable(tx, [product.id]);
+      const [kind] = await resolvePieceKinds(tx, [{ productId: input.productId ?? null, categoryId: input.categoryId ?? null, karat: input.karat, description: input.description ?? null }]);
       const { code, barcode } = await nextItemCode(tx);
       const [item] = await tx
         .insert(t.jewelryItems)
         .values({
           code,
           barcode,
-          productId: product.id,
-          karat: product.karat,
+          productId: kind.productId,
+          categoryId: kind.categoryId,
+          description: kind.description,
+          karat: kind.karat,
           grossWeightMg: input.grossWeightMg,
           netWeightMg: input.netWeightMg,
           origin: 'SCRAP',

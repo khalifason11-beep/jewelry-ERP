@@ -50,7 +50,9 @@ export function canonicalJson(value: unknown): string {
 }
 
 export function requestHash(method: string, path: string, body: unknown): string {
-  return createHash('sha256').update(`${method.toUpperCase()} ${path}\n${canonicalJson(body ?? {})}`).digest('hex');
+  // OPN-1: a raw body (the opening's CSV file) is hashed by its bytes, so the same key with another file is refused.
+  const canonical = Buffer.isBuffer(body) ? `bytes:${createHash('sha256').update(body).digest('hex')}` : canonicalJson(body ?? {});
+  return createHash('sha256').update(`${method.toUpperCase()} ${path}\n${canonical}`).digest('hex');
 }
 
 function parseBody(body: unknown): unknown {

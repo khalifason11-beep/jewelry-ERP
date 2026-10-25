@@ -18,6 +18,7 @@ import { CorrectionDialog, type Confirmation } from '../../components/Correction
 import { useServerList } from '../../lib/paging';
 import { DataTable } from '../../components/ui/DataTable';
 import { NewProductPanel, ProductPicker } from '../../components/ProductPicker';
+import { PieceKindFields, descriptionTooLong, emptyKind, type PieceKindValue } from '../../components/PieceKind';
 import type { Product } from '../../lib/types';
 
 export interface ScrapRates {
@@ -313,6 +314,8 @@ function BuyForm({ branchId }: { branchId: number }) {
   // CSH-2 (Q7): the drawer's refusal (the shortfall and what to do) stays on the form until the payment changes.
   const [drawerShort, setDrawerShort] = useState<string | null>(null);
   const [productId, setProductId] = useState<number | ''>('');
+  // CAT-1: without a product, a sellable piece is its type (+ an optional description); its karat is the scrap's.
+  const [pieceKind, setPieceKind] = useState<PieceKindValue>(emptyKind());
   const [sellingPrice, setSellingPrice] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -337,13 +340,14 @@ function BuyForm({ branchId }: { branchId: number }) {
   const piecesProducts = useMemo(() => products.data?.filter((p) => p.karat === karat) ?? [], [products.data, karat]);
   const valid =
     karat !== '' && rate > 0 && netMg > 0 && (grossMg == null || grossMg >= netMg) && agreedRate > 0 && !needsGm && partsOk && refOk &&
-    (kind === 'BROKEN' || (productId !== '' && (!tagPrices || Number(sellingPrice) > 0)));
+    (kind === 'BROKEN' || ((productId !== '' || pieceKind.categoryId !== '') && !descriptionTooLong(pieceKind.description) && (!tagPrices || Number(sellingPrice) > 0)));
 
   const reset = () => {
     setGross('');
     setNet('');
     setAgreed('');
     setProductId('');
+    setPieceKind(emptyKind());
     setSellingPrice('');
     setCustomerName('');
     setCustomerPhone('');
@@ -368,7 +372,13 @@ function BuyForm({ branchId }: { branchId: number }) {
           cashAmount: cash,
           bankAmount: bank,
           ...(bank > 0 ? { bankReference: validBankReference(bankRef) ?? bankRef } : {}),
-          ...(kind === 'SELLABLE' ? { productId, ...(tagPrices ? { sellingPrice: Number(sellingPrice) } : {}) } : {}),
+          ...(kind === 'SELLABLE'
+            ? {
+                ...(productId !== '' ? { productId } : { categoryId: Number(pieceKind.categoryId) }),
+                description: pieceKind.description.trim() || undefined,
+                ...(tagPrices ? { sellingPrice: Number(sellingPrice) } : {}),
+              }
+            : {}),
           customerName: customerName.trim() || undefined,
           customerPhone: customerPhone.trim() || undefined,
           customerIdRef: customerIdRef.trim() || undefined,
@@ -448,7 +458,7 @@ function BuyForm({ branchId }: { branchId: number }) {
           </Field>
           {kind === 'SELLABLE' && (
             <>
-              <Field label={t('Product')} hint={karat === '' ? t('Choose the karat first') : undefined}>
+              <Field label={t('Product (optional)')} hint={karat === '' ? t('Choose the karat first') : undefined}>
                 <ProductPicker
                   products={piecesProducts}
                   value={productId}
@@ -466,6 +476,20 @@ function BuyForm({ branchId }: { branchId: number }) {
                 <Field label={t('Selling price')}>
                   <span className="block pt-2 text-meta text-ink-3" data-testid="scrap-price-follows-rate">{t('Follows the used-piece rate per gram')}</span>
                 </Field>
+              )}
+              {karat !== '' && (
+                <div className="sm:col-span-2 lg:col-span-4">
+                  <PieceKindFields
+                    value={{ ...pieceKind, karat }}
+                    onChange={(v) => setPieceKind({ ...v, karat })}
+                    karats={[karat]}
+                    fixed={(() => {
+                      const p = productId !== '' ? products.data?.find((x) => x.id === productId) : undefined;
+                      return p ? { categoryId: p.categoryId, karat: p.karat } : null;
+                    })()}
+                    testId="scrap-kind"
+                  />
+                </div>
               )}
               {creating != null && karat !== '' && (
                 <div className="sm:col-span-2 lg:col-span-4">

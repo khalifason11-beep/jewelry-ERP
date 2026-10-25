@@ -24,3 +24,17 @@ export async function nextItemCode(exec: Executor): Promise<{ code: string; barc
   const n = await nextSeq(exec, 'ITEM', 1001);
   return { code: `J-${n}`, barcode: `628100${String(n).padStart(6, '0')}` };
 }
+
+/**
+ * OPN-1: `count` consecutive item codes in one statement (the sealing of an opening numbers thousands of pieces in the
+ * sheet's order). Same sequence, code and barcode shape as nextItemCode.
+ */
+export async function nextItemCodes(exec: Executor, count: number): Promise<{ code: string; barcode: string }[]> {
+  if (count <= 0) return [];
+  const res = await exec.execute(sql`
+    INSERT INTO document_sequences (scope, next) VALUES ('ITEM', ${1001 + count})
+    ON CONFLICT (scope) DO UPDATE SET next = document_sequences.next + ${count}
+    RETURNING next - ${count} AS n`);
+  const first = Number(rows<{ n: number }>(res)[0].n);
+  return Array.from({ length: count }, (_, i) => ({ code: `J-${first + i}`, barcode: `628100${String(first + i).padStart(6, '0')}` }));
+}

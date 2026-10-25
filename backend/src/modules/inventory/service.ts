@@ -61,6 +61,9 @@ function itemsWhere(actor: Actor, s: Omit<ItemSearch, 'sort' | 'limit' | 'offset
       or(
         ilike(t.jewelryItems.code, q),
         ilike(t.jewelryItems.barcode, q),
+        // CAT-1: the free-text description (an old shop number may be written there) and the type's names.
+        ilike(t.jewelryItems.description, q),
+        ilike(t.categories.nameAr, q),
         ilike(t.products.name, q),
         ilike(t.products.nameAr, q),
         ilike(t.products.sku, q),
@@ -75,8 +78,8 @@ const countItems = (exec: Ctx['db'], where: SQL | undefined) =>
   exec
     .select({ count: sql<number>`count(*)` })
     .from(t.jewelryItems)
-    .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
-    .innerJoin(t.categories, eq(t.categories.id, t.products.categoryId))
+    .leftJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+    .innerJoin(t.categories, eq(t.categories.id, t.jewelryItems.categoryId))
     .where(where);
 
 /** The inventory report's rows on screen: at most `s.limit` (RPT-2: the report says when it is cut). */
@@ -118,17 +121,19 @@ export async function itemsReportAggregates(ctx: Ctx, actor: Actor, s: Omit<Item
       netWeightMg: sumOf(t.jewelryItems.netWeightMg),
       purchaseCost: sumOf(sql`coalesce(${t.purchaseItems.purchaseCost}, ${t.jewelryItems.acquisitionCost})`),
       totalCost: sumOf(t.jewelryItems.acquisitionCost),
+      // OPN-1: the cost sums cover the pieces of known cost; this counts the others.
+      unknownCostPieces: sql<number>`count(*) filter (where ${t.jewelryItems.acquisitionCost} is null)`.mapWith(Number),
       // PRC-1: the live price (a piece without a rate adds nothing; it shows "no rate" on its row).
       sellingPrice: sumOf(livePriceSql(p)),
     })
     .from(t.jewelryItems)
-    .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
-    .innerJoin(t.categories, eq(t.categories.id, t.products.categoryId))
+    .leftJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+    .innerJoin(t.categories, eq(t.categories.id, t.jewelryItems.categoryId))
     .innerJoin(t.branches, eq(t.branches.id, t.jewelryItems.branchId))
     .leftJoin(t.purchaseItems, eq(t.purchaseItems.itemId, t.jewelryItems.id))
     .where(where.length ? and(...where) : undefined);
   const totals: Record<string, number> = can(actor, 'profit.view')
-    ? { netWeightMg: r.netWeightMg, purchaseCost: r.purchaseCost, totalCost: r.totalCost, sellingPrice: r.sellingPrice }
+    ? { netWeightMg: r.netWeightMg, purchaseCost: r.purchaseCost, totalCost: r.totalCost, unknownCostPieces: r.unknownCostPieces, sellingPrice: r.sellingPrice }
     : { netWeightMg: r.netWeightMg, sellingPrice: r.sellingPrice };
   return { rowCount: r.n, totals };
 }
@@ -164,10 +169,16 @@ export async function pageItems(ctx: Ctx, actor: Actor, s: Omit<ItemSearch, 'sor
       (await itemQuery(ctx.db, p).where(w).orderBy(...orderBy).limit(limit).offset(offset)).map((r) => redactCosts(actor, r)),
     totals: opts.withTotals === false ? undefined : async (w) => {
       const [s] = await ctx.db
-        .select({ netWeightMg: sumOf(t.jewelryItems.netWeightMg), sellingPrice: sumOf(livePriceSql(p)), totalCost: sumOf(t.jewelryItems.acquisitionCost) })
+        .select({
+          netWeightMg: sumOf(t.jewelryItems.netWeightMg),
+          sellingPrice: sumOf(livePriceSql(p)),
+          totalCost: sumOf(t.jewelryItems.acquisitionCost),
+          // OPN-1: pieces of unknown cost, left out of the cost total.
+          unknownCostPieces: sql<number>`count(*) filter (where ${t.jewelryItems.acquisitionCost} is null)`.mapWith(Number),
+        })
         .from(t.jewelryItems)
-        .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
-        .innerJoin(t.categories, eq(t.categories.id, t.products.categoryId))
+        .leftJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+        .innerJoin(t.categories, eq(t.categories.id, t.jewelryItems.categoryId))
         .where(w);
       return can(actor, 'profit.view') ? s : { netWeightMg: s.netWeightMg, sellingPrice: s.sellingPrice };
     },

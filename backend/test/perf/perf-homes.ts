@@ -10,6 +10,8 @@
 //    PRC-1: the POS grid, the inventory list, the homes' valuation and the stock report again with prices computed from
 //    the rates (pricing.mode RATE_COMPUTED; the cases marked "· computed").
 // 4. Prints the slowest SQL statements with EXPLAIN (ANALYZE, BUFFERS), the machine and the data size.
+//    OPN-1: before the timings, a 5,000-row opening balance is imported (CSV) and sealed into a new branch (each timed
+//    once, budget 30 s); every case below then runs with those 5,000 pieces of unknown cost in stock.
 // Exit code 1 when any p95 is above the budget (300 ms).
 
 import os from 'node:os';
@@ -29,7 +31,9 @@ import { pagePurchases } from '../../src/modules/purchases/service';
 import { listScrapPurchases } from '../../src/modules/scrap/service';
 import { listTransfers } from '../../src/modules/transfers/service';
 import { pageAudit, reportRowsPage, runReport } from '../../src/modules/reports/service';
-import { fetchAllPages, type PricingSettingMode } from '@jerp/shared';
+import { createOpening, importOpeningCsv, sealOpening } from '../../src/modules/openings/service';
+import { DEMO_PASSWORDS } from '../fixtures/world-data';
+import { fetchAllPages, writeCsv, type PricingSettingMode } from '@jerp/shared';
 import { rows } from '../../src/core/sql';
 import { seedWorld } from '../fixtures/world';
 import { dropTestDatabase } from '../helpers';
@@ -37,6 +41,8 @@ import { dropTestDatabase } from '../helpers';
 const BUDGET_MS = 300;
 const REPORT_BUDGET_MS = 1_000;
 const CSV_BUDGET_MS = 30_000;
+/** OPN-1: one import of 5,000 rows, and one seal of them (each run once). */
+const OPENING_BUDGET_MS = 30_000;
 const RUNS = 20;
 const ARGS = new Set(process.argv.slice(2));
 const ADMIN = process.env.REHEARSAL_ADMIN_URL ?? '';
@@ -55,6 +61,7 @@ async function main() {
     const t0 = Date.now();
     await seedWorld(ctx);
     await scale(ctx);
+    const opening = await openingAtScale(ctx);
     const size = await dataSize(ctx);
     console.log(`data ready in ${Math.round((Date.now() - t0) / 1000)} s: ${JSON.stringify(size)}`);
     const machine = `${os.cpus()[0]?.model ?? '?'} × ${os.cpus().length}, ${Math.round(os.totalmem() / 2 ** 30)} GB RAM, ${rows<{ v: string }>(await ctx.db.execute(sql`SELECT version() AS v`))[0].v.split(' on ')[0]}`;
@@ -138,6 +145,10 @@ async function main() {
     const orig = ctx.db.execute.bind(ctx.db);
     let failed = false;
     console.log(`\n| endpoint | p50 ms | p95 ms | budget |\n|---|---|---|---|`);
+    for (const [label, ms] of [[`OPN-1 import: 5,000 rows (${Math.round(opening.bytes / 1024)} kB CSV)`, opening.importMs], ['OPN-1 seal: 5,000 pieces', opening.sealMs]] as const) {
+      if (ms > OPENING_BUDGET_MS) failed = true;
+      console.log(`| ${label} | ${ms.toFixed(0)} | — | ${ms > OPENING_BUDGET_MS ? `OVER ${OPENING_BUDGET_MS}` : `ok (${OPENING_BUDGET_MS})`} |`);
+    }
     for (const [label, fn, budget = BUDGET_MS, want = 'FIXED_TAG'] of cases) {
       if (want !== mode) {
         await ctx.settings.apply(ctx.db, { 'pricing.mode': want }, { actor: { id: null, username: 'perf' } });
@@ -260,8 +271,8 @@ async function scale(ctx: Ctx) {
   await x(sql`ALTER TABLE pf ADD COLUMN sale_at timestamptz`);
   await x(sql`UPDATE pf SET sale_at = least(now() - interval '5 minutes', created_at + make_interval(mins => ((g::bigint * 104729) % (30 * 1440))::int)) WHERE status = 'SOLD'`);
   await x(sql`
-    INSERT INTO jewelry_items (code, barcode, product_id, karat, gross_weight_mg, net_weight_mg, origin, acquisition_cost, selling_price, branch_id, status, created_at, updated_at)
-    SELECT 'PF-' || g, 'PF' || g, product_id, karat, net + 200, net, 'SUPPLIER_NEW', cost, cost + cost / 3, branch_id, status, created_at, created_at FROM pf`);
+    INSERT INTO jewelry_items (code, barcode, product_id, category_id, karat, gross_weight_mg, net_weight_mg, origin, acquisition_cost, selling_price, branch_id, status, created_at, updated_at)
+    SELECT 'PF-' || g, 'PF' || g, product_id, (SELECT category_id FROM products WHERE products.id = pf.product_id), karat, net + 200, net, 'SUPPLIER_NEW', cost, cost + cost / 3, branch_id, status, created_at, created_at FROM pf`);
   await x(sql`ALTER TABLE pf ADD COLUMN item_id int`);
   await x(sql`UPDATE pf SET item_id = i.id FROM jewelry_items i WHERE i.code = 'PF-' || pf.g`);
   await x(sql`
@@ -315,11 +326,51 @@ async function scale(ctx: Ctx) {
   await x(sql`ANALYZE`);
 }
 
+/**
+ * OPN-1: a 5,000-row opening balance for a new branch, through the services (the CSV importer and the seal), timed once
+ * each. The General Manager's session gets a passkey and fresh confirmations (the HTTP flow is in REH-1 and the tests).
+ */
+async function openingAtScale(ctx: Ctx) {
+  const x = (q: SQL) => ctx.db.execute(q);
+  const [b] = rows<{ id: number }>(await x(sql`INSERT INTO branches (code, name, name_ar, city) VALUES ('PFO', 'Perf opening', 'فرع افتتاح الأداء', 'Perf City') RETURNING id`));
+  const [u] = await ctx.db.select().from(t.users).where(eq(t.users.username, 'general.manager'));
+  const sessionId = `perf-${randomBytes(8).toString('hex')}`;
+  await ctx.db.insert(t.sessions).values({ id: sessionId, userId: u.id, reauthAt: new Date(), passkeyReauthAt: new Date(), passkeyReauthUv: true });
+  await ctx.db.insert(t.webauthnCredentials).values({ userId: u.id, credentialId: `perf-${randomBytes(8).toString('hex')}`, publicKey: 'perf', nickname: 'Perf key', uvAtRegistration: true });
+  const gm = (await loadActor(ctx.db, u.id, sessionId))!;
+  await ctx.settings.apply(ctx.db, { 'pricing.mode': 'RATE_COMPUTED' }, { actor: { id: null, username: 'perf' } });
+  const types = await ctx.db.select({ nameAr: t.categories.nameAr }).from(t.categories).where(eq(t.categories.isActive, true)).limit(4);
+  const karat = (await ctx.settings.get()).inventory.allowedKarats[0];
+  const grams = (mg: number) => `${Math.trunc(mg / 1000)}.${String(mg % 1000).padStart(3, '0')}`;
+  const text = writeCsv(
+    [
+      ['النوع', 'الوصف', 'العيار', 'الوزن القائم', 'الوزن الصافي'],
+      ...Array.from({ length: 5_000 }, (_, i) => {
+        const net = 2_000 + ((i * 37) % 20_000);
+        return [types[i % types.length].nameAr, `قطعة افتتاحية رقم ${i + 1}`, karat, grams(net + 150), grams(net)];
+      }),
+    ],
+    { bom: true },
+  );
+  const bytes = Buffer.from(text, 'utf8');
+  const o = await createOpening(ctx, gm, { branchId: b.id });
+  let s = performance.now();
+  await importOpeningCsv(ctx, gm, o.id, { fileName: 'perf.csv', bytes });
+  const importMs = performance.now() - s;
+  s = performance.now();
+  const sealed = await sealOpening(ctx, gm, o.id, { confirmPassword: DEMO_PASSWORDS.GENERAL_MANAGER });
+  const sealMs = performance.now() - s;
+  if (sealed.pieces !== 5_000) throw new Error(`the seal made ${sealed.pieces} pieces, not 5,000`);
+  await x(sql`ANALYZE`);
+  return { bytes: bytes.length, importMs, sealMs };
+}
+
 async function dataSize(ctx: Ctx) {
   const [r] = rows<Record<string, number>>(
     await ctx.db.execute(sql`SELECT (SELECT count(*) FROM branches)::int AS branches, (SELECT count(*) FROM sales)::int AS sales,
       (SELECT count(*) FROM jewelry_items)::int AS pieces, (SELECT count(*) FROM inventory_movements)::int AS movements,
       (SELECT count(*) FROM ledger_entries)::int AS ledger_entries, (SELECT count(*) FROM purchases)::int AS purchases,
+      (SELECT count(*) FROM jewelry_items WHERE origin = 'OPENING')::int AS opening_pieces,
       (SELECT min(created_at)::date::text FROM sales) AS first_sale`),
   );
   return r;

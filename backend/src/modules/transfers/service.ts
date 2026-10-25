@@ -5,7 +5,6 @@ import { ap } from '@jerp/shared';
 
 import { and, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { nameOrAr } from '../../core/sql';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, isGlobal, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
@@ -14,7 +13,7 @@ import type { TxIdempotency } from '../../core/idempotency';
 import { nextNumber } from '../../core/numbering';
 import { maxIdOf, runPaged, type PageRequest, type SortSpec } from '../../core/paging';
 import { dayRange } from '../../core/time';
-import { changeStatus, lockItems, recordMovement } from '../inventory/ledger';
+import { changeStatus, itemNameArSql, itemNameSql, lockItems, recordMovement } from '../inventory/ledger';
 
 /** FIX-1 (D-fix-1): the courier's name, required for every new transfer (SPEC §8). */
 export const COURIER_NAME_MIN = 2;
@@ -165,10 +164,12 @@ export async function listTransfers(
       const userRows = await ctx.db.select({ id: t.users.id, name: t.users.fullName }).from(t.users).where(inArray(t.users.id, userIds));
       const un = new Map(userRows.map((u) => [u.id, u.name]));
       const links = await ctx.db
-        .select({ transferId: t.transferItems.transferId, code: t.jewelryItems.code, netWeightMg: t.jewelryItems.netWeightMg, productName: nameOrAr(t.products.name, t.products.nameAr), productNameAr: t.products.nameAr })
+        .select({ transferId: t.transferItems.transferId, code: t.jewelryItems.code, netWeightMg: t.jewelryItems.netWeightMg, productName: itemNameSql, productNameAr: itemNameArSql })
         .from(t.transferItems)
         .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.transferItems.itemId))
-        .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+        // CAT-1: the product is optional; the type is the piece's own.
+        .leftJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+        .innerJoin(t.categories, eq(t.categories.id, t.jewelryItems.categoryId))
         .where(inArray(t.transferItems.transferId, rowsAll.map((r) => r.id)));
       return rowsAll.map((r) => {
         const items = links.filter((l) => l.transferId === r.id);

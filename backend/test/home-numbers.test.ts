@@ -117,7 +117,7 @@ describe('cash, stock and gold', () => {
   it('the branch strips add up to the company; gold held = Σ branches + in transit; gold owed = open orders', async () => {
     for (const range of [{ from: today, to: today }, { from: addDays(today, -29), to: today }]) {
       const c = await companyDashboard(ctx, gm, range);
-      const sum = (k: 'revenue' | 'grossProfit' | 'salesCount' | 'availableItems' | 'availableWeightMg' | 'inventoryCost') => c.branches.reduce((s, b) => s + b[k], 0);
+      const sum = (k: 'revenue' | 'grossProfit' | 'salesCount' | 'availableItems' | 'availableWeightMg' | 'inventoryCost') => c.branches.reduce((s, b) => s + b[k]!, 0);
       expect(sum('revenue')).toBe(c.totals.revenue);
       expect(sum('grossProfit')).toBe(c.totals.grossProfit);
       expect(sum('salesCount')).toBe(c.totals.salesCount);

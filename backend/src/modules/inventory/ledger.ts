@@ -16,24 +16,35 @@ export interface Ref {
   refNumber: string;
 }
 
+const nullableNumber = (v: unknown) => (v == null ? null : Number(v));
+
 /** Selected columns for item listings (item + product + category + branch). */
 /** Cost breakdown of a piece (GM only; redacted for other roles). Needs `purchase_items` LEFT JOINed on the item. */
 export const costBreakdown = {
-  purchaseCost: sql<number>`coalesce(${t.purchaseItems.purchaseCost}, ${t.jewelryItems.acquisitionCost})`.mapWith(Number),
+  // OPN-1: a piece of unknown cost (an opening piece) has no components either: NULL ("—"), never 0.
+  purchaseCost: sql<number | null>`coalesce(${t.purchaseItems.purchaseCost}, ${t.jewelryItems.acquisitionCost})`.mapWith(nullableNumber),
   // MIS-1: a supplier piece's live making charge (kept equal to its line's effective making cost by a correction).
-  makingCost: sql<number>`CASE WHEN ${t.purchaseItems.id} IS NULL THEN 0 ELSE ${t.jewelryItems.makingCharge} END`.mapWith(Number),
-  otherCost: sql<number>`coalesce(${t.purchaseItems.otherCost}, 0)`.mapWith(Number),
+  makingCost: sql<number | null>`CASE WHEN ${t.jewelryItems.acquisitionCost} IS NULL THEN NULL WHEN ${t.purchaseItems.id} IS NULL THEN 0 ELSE ${t.jewelryItems.makingCharge} END`.mapWith(nullableNumber),
+  otherCost: sql<number | null>`CASE WHEN ${t.jewelryItems.acquisitionCost} IS NULL THEN NULL ELSE coalesce(${t.purchaseItems.otherCost}, 0) END`.mapWith(nullableNumber),
   totalCost: t.jewelryItems.acquisitionCost,
 };
+
+/** CAT-1: the name of a piece in English and in Arabic (description, else product, else type). */
+export const itemNameSql = sql<string>`coalesce(${t.jewelryItems.description}, nullif(btrim(${t.products.name}), ''), ${t.products.nameAr}, nullif(btrim(${t.categories.name}), ''), ${t.categories.nameAr})`;
+export const itemNameArSql = sql<string>`coalesce(${t.jewelryItems.description}, ${t.products.nameAr}, ${t.categories.nameAr})`;
 
 export const itemColumns = {
   id: t.jewelryItems.id,
   code: t.jewelryItems.code,
   barcode: t.jewelryItems.barcode,
   productId: t.jewelryItems.productId,
-  productName: t.products.name,
-  productNameAr: t.products.nameAr,
+  // CAT-1: a piece is a type + a free-text description; the product is optional. The name shown is the description,
+  // else the product's name, else the type's name (`productName*` keep their meaning for the screens).
+  productName: itemNameSql,
+  productNameAr: itemNameArSql,
+  description: t.jewelryItems.description,
   sku: t.products.sku,
+  categoryId: t.jewelryItems.categoryId,
   categoryCode: t.categories.code,
   categoryName: t.categories.name,
   categoryNameAr: t.categories.nameAr,
@@ -67,8 +78,8 @@ export function itemQuery(exec: Executor, p: Pricing) {
   return exec
     .select({ ...itemColumns, sellingPrice: livePriceSql(p), pricePerGram: liveRateSql(p) })
     .from(t.jewelryItems)
-    .innerJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
-    .innerJoin(t.categories, eq(t.categories.id, t.products.categoryId))
+    .leftJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
+    .innerJoin(t.categories, eq(t.categories.id, t.jewelryItems.categoryId))
     .innerJoin(t.branches, eq(t.branches.id, t.jewelryItems.branchId))
     .leftJoin(t.purchaseItems, eq(t.purchaseItems.itemId, t.jewelryItems.id));
 }
@@ -166,7 +177,9 @@ export async function ledgerStock(exec: Executor, branchId: number | null, at: D
     .select({
       items: sql<number>`coalesce(sum(${t.inventoryMovements.direction}), 0)`,
       weightMg: sql<number>`coalesce(sum(${t.inventoryMovements.direction} * ${t.inventoryMovements.netWeightMg}), 0)`,
+      // OPN-1: the cost of the pieces of known cost; `unknownCostPieces` counts the others on hand.
       cost: sql<number>`coalesce(sum(${t.inventoryMovements.direction} * ${t.inventoryMovements.costValue}), 0)`,
+      unknownCostPieces: sql<number>`coalesce(sum(${t.inventoryMovements.direction}) filter (where ${t.inventoryMovements.costValue} is null), 0)`,
     })
     .from(t.inventoryMovements)
     .where(
@@ -175,5 +188,5 @@ export async function ledgerStock(exec: Executor, branchId: number | null, at: D
         sql`${t.inventoryMovements.at} < ${at.toISOString()}`,
       ),
     );
-  return { items: Number(res[0].items), weightMg: Number(res[0].weightMg), cost: Number(res[0].cost) };
+  return { items: Number(res[0].items), weightMg: Number(res[0].weightMg), cost: Number(res[0].cost), unknownCostPieces: Number(res[0].unknownCostPieces) };
 }

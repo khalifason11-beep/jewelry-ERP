@@ -55,7 +55,7 @@ export interface PagedList<K extends string, R> {
   count: (where: SQL | undefined) => Promise<number>;
   rows: (q: { where: SQL | undefined; orderBy: SQL[]; limit: number; offset: number }) => Promise<R[]>;
   /** Sums over the whole filtered result (the table footer), when the list shows totals. */
-  totals?: (where: SQL | undefined) => Promise<Record<string, number>>;
+  totals?: (where: SQL | undefined) => Promise<Record<string, number | null>>;
 }
 
 /** The sort the caller asked for, refused when it would order by a cost they may not see. */

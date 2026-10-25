@@ -46,6 +46,7 @@ import * as purchaseCorrections from './modules/purchases/corrections';
 import * as funding from './modules/funding/service';
 import * as supplierSettlements from './modules/supplier-settlements/service';
 import * as pricing from './modules/pricing/service';
+import * as openings from './modules/openings/service';
 import { runIdempotent } from './core/idempotency';
 import { log } from './core/logger';
 import { defineRoutes } from './core/guard';
@@ -269,6 +270,16 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('POST', '/categories', async (req, res) => {
     const body = parse(z.object(zNames).strict(), req.body);
     res.json(await runIdempotent(ctx, req, res, () => catalog.createCategory(ctx, actorOf(req), body)));
+  });
+  // CAT-1: the General Manager renames a type (sale lines keep their names: snapshots).
+  route('POST', '/categories/:id/rename', async (req, res) => {
+    const body = parse(z.object(zNames).strict(), req.body);
+    res.json(await catalog.renameCategory(ctx, actorOf(req), parse(zId, req.params.id), body));
+  });
+  // CAT-1: descriptions already used (suggestions of the free-text field).
+  route('GET', '/catalog/descriptions', async (req, res) => {
+    const q = parse(z.object({ categoryId: zOptId, q: zQ }).strict(), req.query);
+    res.json(await catalog.descriptionSuggestions(ctx, q));
   });
   route('POST', '/categories/:id/deactivate', async (req, res) => {
     const { reason } = parse(zReason, req.body);
@@ -577,7 +588,11 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('POST', '/purchases', async (req, res) => {
     const line = z
       .object({
-        productId: zIdBody,
+        // CAT-1: a type + karat (+ description), or a product (then its type and karat).
+        productId: zIdBody.optional(),
+        categoryId: zIdBody.optional(),
+        karat: zScrapKarat.optional(),
+        description: zText(120).optional(),
         grossWeightMg: zWeightMg,
         netWeightMg: zWeightMg,
         purchaseCost: zPositiveMoney,
@@ -661,6 +676,9 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           bankAmount: z.number().int().min(0).max(MAX_MONEY).optional(),
           bankReference: zText(80).optional(),
           productId: zIdBody.optional(),
+          // CAT-1: a sellable piece's type and description (the product is optional).
+          categoryId: zIdBody.optional(),
+          description: zText(120).optional(),
           sellingPrice: zPositiveMoney.optional(),
           customerName: zText(120).optional(),
           customerPhone: zPhone.optional(),
@@ -683,6 +701,57 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('GET', '/scrap-pool', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId }).strict(), req.query);
     res.json(await scrap.poolView(ctx, actorOf(req), q));
+  });
+
+  // ─────────── OPN-1: the opening balance of a branch (General Manager, `opening.manage`) ───────────
+  const zOpeningLine = z
+    .object({ categoryId: zId, description: z.string().max(1000).nullable().optional(), karat: zKarat, grossWeightMg: zWeightMg, netWeightMg: zWeightMg })
+    .strict();
+  const csvFile = (res: Response, file: { fileName: string; text: string }) => {
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    res.send(file.text);
+  };
+  route('GET', '/openings', async (req, res) => res.json(await openings.listOpenings(ctx, actorOf(req))));
+  route('POST', '/openings', async (req, res) => {
+    const body = parse(z.object({ branchId: zId }).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => openings.createOpening(ctx, actorOf(req), body, { idem })));
+  });
+  // Before /openings/:id, so "template.csv" is never read as an id.
+  route('GET', '/openings/template.csv', async (req, res) => {
+    requirePerm(actorOf(req), 'opening.manage');
+    csvFile(res, { fileName: 'opening-template.csv', text: openings.openingTemplateCsv() });
+  });
+  route('GET', '/openings/:id', async (req, res) => {
+    const q = parse(z.object({ ...pageQuerySchema(['lineNo']), q: zQ, karat: zKarat.optional(), categoryId: zOptId }).strict(), req.query);
+    res.json(await openings.getOpening(ctx, actorOf(req), parse(zId, req.params.id), q));
+  });
+  route('GET', '/openings/:id/export', async (req, res) => csvFile(res, await openings.exportOpeningCsv(ctx, actorOf(req), parse(zId, req.params.id))));
+  route('POST', '/openings/:id/lines', async (req, res) => {
+    const id = parse(zId, req.params.id);
+    const body = parse(zOpeningLine, req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => openings.addOpeningLine(ctx, actorOf(req), id, body, { idem })));
+  });
+  route('POST', '/openings/:id/lines/:lineId/remove', async (req, res) => {
+    const id = parse(zId, req.params.id);
+    const lineId = parse(zId, req.params.lineId);
+    res.json(await runIdempotent(ctx, req, res, (idem) => openings.removeOpeningLine(ctx, actorOf(req), id, lineId, { idem })));
+  });
+  // The CSV file is the raw body (text/csv), read by a parser on THIS route only (plan §5: at most 1 MB, 5,000 rows),
+  // ahead of the access rule and the Idempotency-Key check, whose hash then covers the file's bytes. The global JSON
+  // limit stays 100 kB.
+  r.post('/openings/:id/import', express.raw({ type: 'text/csv', limit: openings.OPENING_IMPORT_MAX_BYTES }));
+  route('POST', '/openings/:id/import', async (req, res) => {
+    const id = parse(zId, req.params.id);
+    const { fileName } = parse(z.object({ fileName: zText(200).optional() }).strict(), req.query);
+    if (!Buffer.isBuffer(req.body)) throw badRequest('Send the file as CSV (text/csv)');
+    const bytes = req.body;
+    res.json(await runIdempotent(ctx, req, res, (idem) => openings.importOpeningCsv(ctx, actorOf(req), id, { fileName: fileName ?? 'opening.csv', bytes }, { idem })));
+  });
+  route('POST', '/openings/:id/seal', async (req, res) => {
+    const id = parse(zId, req.params.id);
+    const body = parse(z.object({ confirmPassword: z.string().max(128).optional() }).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => openings.sealOpening(ctx, actorOf(req), id, body, { idem })));
   });
 
   // ─────────── Cash: expected drawer balance, daily reconciliation, counted cash (Phase 2b) ───────────

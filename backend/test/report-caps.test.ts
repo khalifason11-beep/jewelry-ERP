@@ -222,6 +222,7 @@ describe('static guard: no constant limit on a report path', () => {
     'auth/second-factor.ts': [/\.limit\(500\)/], // new-device check of one user over 30 days (internal)
     'modules/auth/passkeys.ts': [/\.limit\(10\)/], // "the last 10 sign-ins" (the screen says so)
     'modules/dashboard/service.ts': [/LIMIT 1\b/], // the last cash count
+    'modules/catalog/service.ts': [/\.limit\(20\)/], // CAT-1: description suggestions of a free-text field (not a report)
   };
   const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : e.name.endsWith('.ts') ? [path.join(dir, e.name)] : []));
 

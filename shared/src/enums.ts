@@ -124,6 +124,13 @@ export type GmFundingKind = (typeof GM_FUNDING_KINDS)[number];
 export const PURCHASE_CORRECTION_FIELDS = ['MAKING_COST', 'MAKING_CHARGE_REFERENCE'] as const;
 export type PurchaseCorrectionField = (typeof PURCHASE_CORRECTION_FIELDS)[number];
 
+/** OPN-1: an opening per branch is a DRAFT until it is sealed, once. */
+export const OPENING_STATUSES = ['DRAFT', 'SEALED'] as const;
+export type OpeningStatus = (typeof OPENING_STATUSES)[number];
+/** OPN-1: how a draft line was entered. */
+export const OPENING_LINE_SOURCES = ['KEYBOARD', 'IMPORT'] as const;
+export type OpeningLineSource = (typeof OPENING_LINE_SOURCES)[number];
+
 /** A branch money account: the drawer (CASH) or the bank account (BANK). Used by the General Manager's funding (CSH-2). */
 export const CASH_OR_BANK = ['CASH', 'BANK'] as const;
 export type CashOrBank = (typeof CASH_OR_BANK)[number];
@@ -188,6 +195,13 @@ export const AUDIT_ACTIONS = [
   // MIS-1: mistake correction by the General Manager
   'SCRAP_PURCHASE_VOIDED',
   'PURCHASE_CORRECTED',
+  // OPN-1: the opening balance and the types (CAT-1)
+  'OPENING_CREATED',
+  'OPENING_IMPORTED',
+  'OPENING_LINE_ADDED',
+  'OPENING_LINE_REMOVED',
+  'OPENING_SEALED',
+  'ITEM_TYPE_RENAMED',
   'USER_CREATED',
   'USER_UPDATED',
   'USER_DISABLED',

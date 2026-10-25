@@ -25,6 +25,7 @@ import {
   Tags,
   Truck,
   Users,
+  PackageOpen,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useBranding } from '../../lib/branding';
@@ -49,6 +50,7 @@ const ICONS: Record<NavIcon, ReactNode> = {
   sessions: <MonitorSmartphone />,
   audit: <ScrollText />,
   prices: <Coins />,
+  opening: <PackageOpen />,
   settings: <Settings />,
 };
 
