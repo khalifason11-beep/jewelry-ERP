@@ -201,6 +201,13 @@ async function runUpgrade(h: DatabaseHandle, from: number) {
   expect(Number((await one(h, `SELECT count(*) AS n FROM jewelry_items i JOIN products p ON p.id = i.product_id WHERE i.category_id IS DISTINCT FROM p.category_id`)).n)).toBe(0);
   expect(Number((await one(h, `SELECT count(*) AS n FROM sale_items si JOIN jewelry_items i ON i.id = si.item_id JOIN products p ON p.id = i.product_id JOIN categories c ON c.id = p.category_id WHERE si.product_name_ar IS DISTINCT FROM p.name_ar OR si.category_name_ar IS DISTINCT FROM c.name_ar OR si.category_name IS DISTINCT FROM c.name`)).n)).toBe(0);
   expect(Number((await one(h, `SELECT count(*) AS n FROM sale_items`)).n)).toBe(2);
+  // OPN-1 (migration 0028): every piece has a type; only an opening piece may have an unknown cost.
+  const copy = (code: string, cols: { origin: string; cost: string; category: string }) =>
+    `INSERT INTO jewelry_items (code, barcode, product_id, category_id, karat, gross_weight_mg, net_weight_mg, origin, acquisition_cost, selling_price, branch_id, status)
+     SELECT '${code}', '${code}', product_id, ${cols.category}, karat, gross_weight_mg, net_weight_mg, '${cols.origin}', ${cols.cost}, selling_price, branch_id, 'AVAILABLE' FROM jewelry_items LIMIT 1`;
+  expect(await refused(h, copy('UPG-T1', { origin: 'SUPPLIER_NEW', cost: 'NULL', category: 'category_id' }))).toBe(true);
+  expect(await refused(h, copy('UPG-T2', { origin: 'SCRAP', cost: 'NULL', category: 'category_id' }))).toBe(true);
+  expect(await refused(h, copy('UPG-T3', { origin: 'SUPPLIER_NEW', cost: 'acquisition_cost', category: 'NULL' }))).toBe(true);
   const branchA = Number((await one(h, `SELECT id FROM branches WHERE code = 'UPA'`)).id);
   await run(h, `INSERT INTO openings (branch_id, created_by) VALUES (${branchA}, ${gmId})`);
   expect(await refused(h, `INSERT INTO openings (branch_id, created_by) VALUES (${branchA}, ${gmId})`)).toBe(true); // one per branch

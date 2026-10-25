@@ -299,7 +299,9 @@ export const jewelryItems = pgTable(
     /** CAT-1 (D-dec1-2): optional; a piece is a type + a free-text description + karat + weights. */
     productId: integer('product_id').references(() => products.id),
     /** CAT-1: the piece's type (item type). Backfilled from the product (0027), required from 0028. */
-    categoryId: integer('category_id').references(() => categories.id),
+    categoryId: integer('category_id')
+      .notNull()
+      .references(() => categories.id),
     /** CAT-1: free text (an old shop number may be written here), at most 120 characters. */
     description: text('description'),
     karat: smallint('karat').notNull(),

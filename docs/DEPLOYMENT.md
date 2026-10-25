@@ -410,6 +410,8 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   opening tables and the permission `opening.manage` (General Manager only). Nothing stops the upgrade.
 - **0027** fills the type of every piece from its product and the Arabic and type names of every sale line (a
   transform, not a refusal: its guard can only fire if a row were left unfilled, which 0026's data cannot produce).
+- **0028** makes the type of a piece required and allows an unknown cost on opening pieces only (it stops, with the
+  count, only if a row broke either rule, which 0027 rules out).
 - **The opening balance** (`/api/openings…`, General Manager only):
   - the CSV import sends the file as the raw body (`Content-Type: text/csv`), read by a parser on that route only,
     limited to **1 MB** and **5,000 rows** (a typical row is about 110 bytes; a sheet of long Arabic descriptions is

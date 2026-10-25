@@ -238,6 +238,8 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   { name: 'ck_opening_lines_weights', table: 'opening_lines', expr: 'net_weight_mg > 0 AND net_weight_mg <= gross_weight_mg' },
   { name: 'ck_opening_lines_description', table: 'opening_lines', expr: 'description IS NULL OR length(btrim(description)) BETWEEN 1 AND 120' },
   { name: 'ck_opening_lines_import', table: 'opening_lines', expr: "(source = 'IMPORT') = (import_id IS NOT NULL)" },
+  // ── OPN-1 (migration 0028): only an opening piece may have an unknown cost (D-dec1-3: NULL, never 0).
+  { name: 'ck_jewelry_items_cost_known', table: 'jewelry_items', expr: "acquisition_cost IS NOT NULL OR origin = 'OPENING'" },
   { name: 'ck_opening_imports_row_count', table: 'opening_imports', expr: 'row_count > 0' },
   { name: 'ck_opening_imports_sha256', table: 'opening_imports', expr: "sha256 ~ '^[0-9a-f]{64}$'" },
 ];
