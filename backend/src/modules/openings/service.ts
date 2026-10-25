@@ -28,6 +28,7 @@ import { freshFactors, reauthRequired } from '../../auth/reauth';
 import { reauthenticate } from '../auth/service';
 import { cleanDescription } from '../catalog/service';
 import { currentSellingRates, lockPricingShared, rateKey } from '../pricing/service';
+import { openingCorrectionsOf } from './corrections';
 
 /** At most this many rows in one file (plan §5: about 550 kB for a typical sheet; the route limits the body to 1 MB). */
 export const OPENING_IMPORT_MAX_ROWS = 5_000;
@@ -165,6 +166,36 @@ async function summaryOf(exec: Executor, openingId: number) {
   return { total, byKarat, byKaratCondition, byType };
 }
 
+/**
+ * OPN-FIX: the sealed opening's pieces as they are NOW (D-opnfix-1): every piece the seal made except the voided ones,
+ * with its corrected values (karat, condition = the rate kind, weights), sold ones included. The summary above stays as
+ * sealed (the lines never change).
+ */
+async function nowOf(exec: Executor, openingId: number) {
+  const pieces = sql`${t.jewelryItems.id} IN (SELECT item_id FROM opening_lines WHERE opening_id = ${openingId})`;
+  const byKaratCondition = await exec
+    .select({
+      karat: t.jewelryItems.karat,
+      condition: t.jewelryItems.rateKind,
+      count: sql<number>`count(*)`.mapWith(Number),
+      grossWeightMg: sql<number>`coalesce(sum(${t.jewelryItems.grossWeightMg}), 0)`.mapWith(Number),
+      netWeightMg: sql<number>`coalesce(sum(${t.jewelryItems.netWeightMg}), 0)`.mapWith(Number),
+    })
+    .from(t.jewelryItems)
+    .where(and(pieces, sql`${t.jewelryItems.status} <> 'VOIDED'`))
+    .groupBy(t.jewelryItems.karat, t.jewelryItems.rateKind)
+    .orderBy(asc(t.jewelryItems.karat), asc(t.jewelryItems.rateKind));
+  const [counts] = await exec
+    .select({
+      voided: sql<number>`count(*) FILTER (WHERE ${t.jewelryItems.status} = 'VOIDED')`.mapWith(Number),
+      sold: sql<number>`count(*) FILTER (WHERE ${t.jewelryItems.status} = 'SOLD')`.mapWith(Number),
+    })
+    .from(t.jewelryItems)
+    .where(pieces);
+  const total = byKaratCondition.reduce((s, k) => ({ count: s.count + k.count, grossWeightMg: s.grossWeightMg + k.grossWeightMg, netWeightMg: s.netWeightMg + k.netWeightMg }), { count: 0, grossWeightMg: 0, netWeightMg: 0 });
+  return { total, byKaratCondition, voided: counts.voided, sold: counts.sold };
+}
+
 /** `GET /openings`: every active branch with its opening (none, DRAFT or SEALED). */
 export async function listOpenings(ctx: Ctx, actor: Actor) {
   requirePerm(actor, 'opening.manage');
@@ -239,6 +270,8 @@ export async function getOpening(ctx: Ctx, actor: Actor, id: number, q: PageRequ
         itemId: t.openingLines.itemId,
         code: t.jewelryItems.code,
         barcode: t.jewelryItems.barcode,
+        // OPN-FIX: the piece's status now (a voided or sold piece shows so).
+        itemStatus: t.jewelryItems.status,
       })
       .from(t.openingLines)
       .innerJoin(t.categories, eq(t.categories.id, t.openingLines.categoryId))
@@ -273,6 +306,9 @@ export async function getOpening(ctx: Ctx, actor: Actor, id: number, q: PageRequ
     createdAt: opening.createdAt,
     sealedAt: opening.sealedAt,
     summary: await summaryOf(ctx.db, id),
+    // OPN-FIX: once sealed, the pieces as they are now and the corrections after the seal.
+    now: opening.status === 'SEALED' ? await nowOf(ctx.db, id) : null,
+    corrections: opening.status === 'SEALED' ? await openingCorrectionsOf(ctx.db, { openingId: id }) : [],
     imports: await ctx.db
       .select({ id: t.openingImports.id, fileName: t.openingImports.fileName, rowCount: t.openingImports.rowCount, createdAt: t.openingImports.createdAt })
       .from(t.openingImports)
@@ -500,16 +536,48 @@ export async function exportOpeningCsv(ctx: Ctx, actor: Actor, id: number) {
   const [o] = await ctx.db.select({ status: t.openings.status, branchCode: t.branches.code }).from(t.openings).innerJoin(t.branches, eq(t.branches.id, t.openings.branchId)).where(eq(t.openings.id, id));
   if (!o) throw notFound('Opening');
   const rowsAll = await ctx.db
-    .select({ code: t.jewelryItems.code, barcode: t.jewelryItems.barcode, typeAr: t.categories.nameAr, description: t.openingLines.description, karat: t.openingLines.karat, condition: t.openingLines.condition, rateKind: t.jewelryItems.rateKind, gross: t.openingLines.grossWeightMg, net: t.openingLines.netWeightMg })
+    .select({
+      code: t.jewelryItems.code,
+      barcode: t.jewelryItems.barcode,
+      typeAr: t.categories.nameAr,
+      description: t.openingLines.description,
+      karat: t.openingLines.karat,
+      condition: t.openingLines.condition,
+      rateKind: t.jewelryItems.rateKind,
+      gross: t.openingLines.grossWeightMg,
+      net: t.openingLines.netWeightMg,
+      // OPN-FIX: the piece as it is now.
+      statusNow: t.jewelryItems.status,
+      karatNow: t.jewelryItems.karat,
+      grossNow: t.jewelryItems.grossWeightMg,
+      netNow: t.jewelryItems.netWeightMg,
+    })
     .from(t.openingLines)
     .innerJoin(t.categories, eq(t.categories.id, t.openingLines.categoryId))
     .leftJoin(t.jewelryItems, eq(t.jewelryItems.id, t.openingLines.itemId))
     .where(eq(t.openingLines.openingId, id))
     .orderBy(asc(t.jewelryItems.id), asc(t.openingLines.lineNo));
   const sealed = o.status === 'SEALED';
-  const head = [...(sealed ? [headerCell({ ar: 'الرمز', en: 'Code' }), headerCell({ ar: 'الباركود', en: 'Barcode' })] : []), ...OPENING_COLUMNS.map(headerCell)];
+  // OPN-FIX: a sealed opening's export keeps its columns as sealed and adds the piece as it is now (after corrections).
+  const nowColumns = [
+    { ar: 'الحالة الآن', en: 'Status now' },
+    { ar: 'الجديد/المستعمل الآن', en: 'Condition now' },
+    { ar: 'العيار الآن', en: 'Karat now' },
+    { ar: 'الوزن الصافي الآن (جم)', en: 'Net weight now (g)' },
+    { ar: 'الوزن القائم الآن (جم)', en: 'Gross weight now (g)' },
+  ];
+  const head = [...(sealed ? [headerCell({ ar: 'الرمز', en: 'Code' }), headerCell({ ar: 'الباركود', en: 'Barcode' })] : []), ...OPENING_COLUMNS.map(headerCell), ...(sealed ? nowColumns.map(headerCell) : [])];
   // OPN-2: the condition (a line sealed before OPN-2 has none: its piece's rate kind, NEW, is shown).
-  const body = rowsAll.map((r) => [...(sealed ? [r.code, r.barcode] : []), r.typeAr, r.description, r.karat, conditionWord(r.condition ?? r.rateKind), grams(r.gross), grams(r.net)]);
+  const body = rowsAll.map((r) => [
+    ...(sealed ? [r.code, r.barcode] : []),
+    r.typeAr,
+    r.description,
+    r.karat,
+    conditionWord(r.condition ?? r.rateKind),
+    grams(r.gross),
+    grams(r.net),
+    ...(sealed ? [r.statusNow, conditionWord(r.rateKind), r.karatNow, grams(r.netNow!), grams(r.grossNow!)] : []),
+  ]);
   return { fileName: `opening-${o.branchCode}-${sealed ? 'sealed' : 'draft'}.csv`, text: writeCsv([head, ...body], { bom: true }) };
 }
 

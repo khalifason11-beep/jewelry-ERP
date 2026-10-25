@@ -517,6 +517,40 @@ export const openingLines = pgTable(
   (t) => [uniqueIndex('opening_lines_no_uq').on(t.openingId, t.lineNo), index('opening_lines_karat_idx').on(t.openingId, t.karat)],
 );
 
+/**
+ * OPN-FIX (D-opnfix-1…): a correction or a void of a piece of a SEALED opening, after the seal. Append-only (triggers,
+ * `jerp_lock_append_only`): a wrong correction is corrected by a newer one. The opening's lines never change; the piece
+ * row carries the effective value (the latest correction's `after`, else the sealed value). The trigger
+ * `jerp_opening_piece_correction_check` checks the piece is a line of that opening.
+ */
+export const openingPieceCorrections = pgTable(
+  'opening_piece_corrections',
+  {
+    id: serial('id').primaryKey(),
+    itemId: integer('item_id').notNull().references(() => jewelryItems.id),
+    openingId: integer('opening_id').notNull().references(() => openings.id),
+    /** The branch the piece was in at the time of the correction (owner, 2026-10-25: it may have moved since the seal). */
+    branchId: integer('branch_id').notNull().references(() => branches.id),
+    /** CORRECT | VOID */
+    kind: text('kind').notNull(),
+    /** The piece's values before and after (for a void, after = before). The condition is the piece's rate kind. */
+    conditionBefore: text('condition_before').notNull(),
+    conditionAfter: text('condition_after').notNull(),
+    karatBefore: smallint('karat_before').notNull(),
+    karatAfter: smallint('karat_after').notNull(),
+    grossWeightMgBefore: integer('gross_weight_mg_before').notNull(),
+    grossWeightMgAfter: integer('gross_weight_mg_after').notNull(),
+    netWeightMgBefore: integer('net_weight_mg_before').notNull(),
+    netWeightMgAfter: integer('net_weight_mg_after').notNull(),
+    /** Why (3–200 characters after trimming). */
+    reason: text('reason').notNull(),
+    correctedBy: integer('corrected_by').notNull().references(() => users.id),
+    sessionId: text('session_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('opening_piece_corrections_item_idx').on(t.itemId, t.id), index('opening_piece_corrections_opening_idx').on(t.openingId, t.id)],
+);
+
 // ───────────────────────────── Sales ─────────────────────────────
 
 export const sales = pgTable(

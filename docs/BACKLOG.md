@@ -203,7 +203,13 @@ refused with 409 `OPENING_RATES_MISSING` naming the karats; 0030 stops on a draf
 sealed before OPN-2 keep their pieces NEW (D-opn2-3). Inventory: a "Used" badge, a new/used filter, the piece page names
 its rate. Not built: correcting the condition after the seal (OPN-FIX).
 
-### OPN-FIX — Correct a piece of a sealed opening · TODO · S · P1 (before real operation) · OPN-1
+### OPN-FIX — Correct a piece of a sealed opening · DONE · S · P1 (before real operation) · OPN-1
+**Done (FIX-5 part 2, plan `docs/plans/OPN-FIX.md`, decisions D-opnfix-1…6, migration 0032,
+`docs/acceptance/OPN-FIX.md`):** the General Manager (`opening.correct`) corrects the condition, karat or weights of an
+AVAILABLE piece of a sealed opening (in any branch), or voids it, with a reason, the password and a fresh passkey; a
+server preview shows the price now, after, and the valuation change before the confirmation; every correction is an
+append-only row with the branch the piece was in; the piece row carries the effective values, so every price, list,
+total, valuation and report follows; the sealed opening keeps its totals as sealed and shows "now" and its corrections.
 **Owner, 2026-10-24 (D-opn1-3):** a sealed opening is final. A General-Manager correction of an opening piece while it
 is AVAILABLE: void it (VOIDED, as MIS-1 does for a scrap piece) or correct its weight or karat, with a reason and the
 password, audited, never by editing history (status history, ADJUSTMENT movements). Not built by OPN-1, which adds a
@@ -464,7 +470,7 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
 - Several screens pass **data** through the UI dictionary (`t(r.branchName)`, `t(b.city)` in the sales, purchases, scrap, users, sessions, audit and branch lists), so a branch or city name shows its English form in the Arabic UI unless the dictionary happens to contain it. Show the stored Arabic name (`nameAr`) instead (found in CLN-2, not changed).
 - The English fallback of audit descriptions writes money as `… SDG` (`shared/src/audit.ts`), not the company's currency label; the UI renders audit entries from key + params with the configured label, so only the stored English fallback text is affected (found in CLN-2).
 - `scripts/i18n-check.mjs` still has a scan for English text in `/seed/` files; no such folder exists since REM-3 (harmless; remove when the script is next touched).
-- The test fixture world (copied from the old demo seed) is built relative to *today* in Khartoum time, so its content changes with the weekday and the hour. REM-3 step 7 fixed the three date-dependent failures it found: a fixed supplier-settlement weight exceeding the debt on one weekday in seven; an audit lookup that assumed today's purchase exists in the first minutes after midnight; and sale-line counts that included a voided sale of the same piece. It was then checked on 14 consecutive dates at three hours of the day. A fixed clock for the world would remove the class of problem (open).
+- The test fixture world (copied from the old demo seed) is built relative to *today* in Khartoum time, so its content changes with the weekday and the hour. REM-3 step 7 fixed the three date-dependent failures it found: a fixed supplier-settlement weight exceeding the debt on one weekday in seven; an audit lookup that assumed today's purchase exists in the first minutes after midnight; and sale-line counts that included a voided sale of the same piece. It was then checked on 14 consecutive dates at three hours of the day. A fixed clock for the world would remove the class of problem (open). **FIX-5** found two more causes of one PostgreSQL failure (4 in 100 runs of `funding.test.ts`): the test repaid a fixture branch's whole debt from its drawer (short on some weekdays and hours), and the world's piece query had no `ORDER BY` (PostgreSQL's heap order built different worlds for the same instant). Fixed in the test and the fixture; the testing rules in CLAUDE.md now forbid both.
 - The silent-printing `.cmd` template is untested on Windows; CSS page size on a given thermal driver is a request, not a guarantee.
 - ~~Hasad double-notification risk (D-2a-8)~~: **resolved by scope change** (REM-2 removed the Hasad integration).
 - Single-role database deployments still work but log a security warning.
@@ -494,6 +500,12 @@ POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fie
 - BE-7 limits that the screens show: the POS grid and the transfer picker hold the largest page (200 pieces) and offer
   the search for the rest (the picker says so); a page changed under a filter by a void can still move a row (the
   snapshot only stops new rows). The next index if sales grow far beyond 60,000: `sales(created_at, id)` (D-be7-6).
+- **PERF-1 (known debt, FIX-5):** the perf script's sales CSV walk (`/reports/sales`, 60,137 rows in 301 pages) takes
+  about 35 s against its 30 s budget on the development container, on main as on the OPN-2 branch: median 35,132 ms
+  on main (`22d18b4`, 4 runs: 33,643 / 35,547 / 38,486 / 34,716 ms) against 35,220 ms on the branch (4 runs, alternated
+  with main: 35,113 / 35,843 / 35,326 / 35,067 ms), every other perf row within budget. Not an OPN-2 regression (the sales report code is unchanged). The
+  budget is **not** changed. Re-measure on the production server (Hostinger VPS) at the first deployment; only if it
+  still fails there, open an investigation (profile the paged `/reports/sales` query). Owner, 2026-10-25.
 - ~~The API access log never logged a request~~ (`req.path` was read after Express rewrote it under `/api`): **fixed in
   SAFE-1**, with a request id in the `X-Request-Id` header and every log line.
 

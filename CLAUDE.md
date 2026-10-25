@@ -15,8 +15,22 @@ Multi-branch jewelry retail ERP, pre-production. Read `README.md`, `docs/BACKLOG
    (`shared/src/route-matrix.ts`).
 5. **After editing:** run the narrowest tests first, then the full gates (`npm run verify`, with `--full` before a
    report).
-6. **Surprises:** if something unexpected shows up (a flaky test, surprising behaviour, a doc that disagrees with the
+6. **REH-1 moves with the change:** any change that adds or changes a route, a menu item, a page, a permission, a
+   setting, a field in a response or a user-visible flow updates the REH-1 rehearsal **in the same commit**. REH-1 and
+   the browser scripts that touch the change are run before every push; no pushed commit may leave them red, even
+   between commits of the same item (UX-1, PRC-1 and OPN-1 each broke REH-1 for a commit). The final report states the
+   REH-1 check count and the previous count.
+7. **Surprises:** if something unexpected shows up (a flaky test, surprising behaviour, a doc that disagrees with the
    code), stop and report it. Do not paper over it. "Flaky" is not a root cause.
+
+## Testing rules
+
+- A test never depends on the wall-clock time, the weekday, the locale or the order of an unordered query result. A
+  test that needs a date or an hour fixes it; the fixture world is built for a given instant.
+- Every fixture or test query that picks rows (to sell, transfer, sample or compare) has an `ORDER BY`. PostgreSQL
+  returns unordered rows in heap order, which changes between runs (FIX-5: the same instant built different worlds).
+- A test that needs cash funds its own drawer (its own branch, or a recorded advance it makes itself); it never relies
+  on what the fixture world left in a drawer.
 
 ## Hard rules
 

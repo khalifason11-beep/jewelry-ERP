@@ -108,6 +108,8 @@ export const EN: Record<string, string> = {
   OPENING_LINE_ADDED: 'Opening balance piece added',
   OPENING_LINE_REMOVED: 'Opening balance piece removed',
   OPENING_SEALED: 'Opening balance sealed',
+  OPENING_PIECE_CORRECTED: 'Opening piece corrected',
+  OPENING_PIECE_VOIDED: 'Opening piece voided',
   ITEM_TYPE_RENAMED: 'Item type renamed',
   SEALED: 'Sealed',
   KEYBOARD: 'Typed',

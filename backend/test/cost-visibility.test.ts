@@ -128,6 +128,8 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /openings/template.csv': [],
       'GET /openings/:id': [],
       'GET /openings/:id/export': [],
+      // OPN-FIX: the world has no sealed opening (opnfix-corrections covers the preview's fields, all SAFE).
+      'GET /openings/:id/pieces/:itemId/correction-preview': [],
       'GET /gold-rates': ['/gold-rates'],
       'GET /products': ['/products'],
       'GET /suppliers': ['/suppliers'],

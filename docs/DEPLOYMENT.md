@@ -436,6 +436,18 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
 - error code: `OPENING_RATES_MISSING` (409): sealing needs the current selling rate of every karat and condition in
   the draft (the new-piece and the used-piece rate); the answer names the karats.
 
+### OPN-FIX: correcting a piece of a sealed opening (migration 0032)
+
+- **0032** adds the append-only table `opening_piece_corrections` and the permission `opening.correct` (General Manager
+  only). Additive: nothing stops the upgrade.
+- Routes (General Manager): `GET /api/openings/:id/pieces/:itemId/correction-preview` (read-only: the current and the
+  new price and the valuation change; no Idempotency-Key) and `POST /api/openings/:id/pieces/:itemId/correction`
+  (reason, the password in the request and a fresh passkey confirmation, as the seal; Idempotency-Key).
+- error codes: `NOT_AN_OPENING_PIECE` (409), `OPENING_PIECE_NOT_AVAILABLE` (409: sold, in transit, damaged, returned or
+  voided), `OPENING_CORRECTION_UNCHANGED` (422); and the existing `OPENING_RATES_MISSING`,
+  `OPENING_NEEDS_COMPUTED_PRICES` (a condition or karat correction on FIXED_TAG), `CORRECTION_REASON_REQUIRED`,
+  `CONFIRM_PASSWORD_REQUIRED`, `PASSKEY_REQUIRED`, `REAUTH_REQUIRED`.
+
 ### Stop and recreate is a pre-production rule only
 
 Four migrations so far stop on trial data instead of transforming it, and ask for the database to be recreated:

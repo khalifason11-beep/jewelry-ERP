@@ -2,7 +2,7 @@
 // schema. Both projects; the real-PostgreSQL run is the one that matters (it is what a server upgrade does).
 //
 // For each starting version (0015 = before REM-5's drops, 0019 = before CSH-2 and MKC-1, 0023 = before PRC-1, 0024 = before
-// MIS-1, 0025 = before OPN-1, 0028 = before OPN-2): migrate to it, seed rows in
+// MIS-1, 0025 = before OPN-1, 0028 = before OPN-2, 0031 = before OPN-FIX): migrate to it, seed rows in
 // the tables later migrations touch, snapshot counts and money/weight totals, apply ALL remaining migrations, then:
 // row counts unchanged, totals and ledger balances identical, the append-only triggers present and still refusing
 // UPDATE/DELETE, no constraint left NOT VALID, and the app answers /api/health on the upgraded database. A second
@@ -63,7 +63,7 @@ async function seed(h: DatabaseHandle) {
     const cost = 800_000 + i * 10_000;
     const id = await insert(h, 'jewelry_items', {
       code: `J-9${i}`, barcode: `62810000999${i}`, product_id: prod, category_id: cat, karat: 21, gross_weight_mg: 4_100 + i, net_weight_mg: 4_000 + i,
-      purchase_cost: cost, making_cost: 0, other_cost: 0, total_cost: cost, acquisition_cost: cost, origin: 'OPENING', cost_is_estimated: false,
+      purchase_cost: cost, making_cost: 0, other_cost: 0, total_cost: cost, acquisition_cost: cost, origin: 'OPENING', rate_kind: 'NEW', cost_is_estimated: false,
       selling_price: 1_200_000 + i * 10_000, branch_id: krt, status: i < 2 ? 'SOLD' : 'AVAILABLE',
     });
     items.push(id);
@@ -126,7 +126,7 @@ async function migrateAll(h: DatabaseHandle) {
   await migrate(h.db as never, { migrationsFolder: MIGRATIONS_DIR });
 }
 
-describe.each([15, 19, 23, 24, 25, 28])('upgrade from migration %i with data', (from) => {
+describe.each([15, 19, 23, 24, 25, 28, 31])('upgrade from migration %i with data', (from) => {
   it('keeps every row and every total, keeps the protections, boots, and a second migrate is a no-op', async () => {
     const h = await openAt(from);
     try {
@@ -228,6 +228,11 @@ async function runUpgrade(h: DatabaseHandle, from: number) {
   // OPN-2 (migrations 0029, 0030): every piece has the rate that prices it, as before the upgrade: these pieces (all
   // OPENING origin, as the oldest data was) the NEW-piece rate; no price input moved (facts above).
   expect(rowsOf<{ k: string }>(await h.db.execute(sql.raw(`SELECT DISTINCT rate_kind AS k FROM jewelry_items WHERE code NOT LIKE 'UPG-%'`))).map((r) => r.k)).toEqual(['NEW']);
+  // OPN-FIX (migration 0032): the permission goes to the General Manager only; the corrections table starts empty.
+  if (from < 32) {
+    expect(rowsOf<{ p: string }>(await h.db.execute(sql.raw(`SELECT r.code || ':' || rp.permission_code AS p FROM role_permissions rp JOIN roles r ON r.id = rp.role_id WHERE rp.permission_code = 'opening.correct' ORDER BY 1`))).map((r) => r.p)).toEqual(['GENERAL_MANAGER:opening.correct']);
+  }
+  expect(Number((await one(h, `SELECT count(*) AS n FROM opening_piece_corrections`)).n)).toBe(0);
   // The checks above added one history row; the second migrate below must change nothing from here.
   const settled = await facts(h);
 

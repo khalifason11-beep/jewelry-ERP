@@ -7,7 +7,7 @@
 // application itself would have produced. Only history that no service can backdate
 // (sessions) is written directly.
 
-import { and, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import {
   DEFAULT_SETTINGS,
@@ -224,14 +224,17 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
   // ───────── helpers for the daily simulation ─────────
   const protectedIds = async () =>
     specialCodes.size
-      ? (await db.select({ id: t.jewelryItems.id }).from(t.jewelryItems).where(inArray(t.jewelryItems.code, [...specialCodes]))).map((r) => r.id)
+      ? (await db.select({ id: t.jewelryItems.id }).from(t.jewelryItems).where(inArray(t.jewelryItems.code, [...specialCodes])).orderBy(asc(t.jewelryItems.id))).map((r) => r.id)
       : [];
   const protectedList = await protectedIds();
   const available = async (code: string) =>
     db
       .select({ id: t.jewelryItems.id, netWeightMg: t.jewelryItems.netWeightMg, karat: t.jewelryItems.karat, sellingPrice: t.jewelryItems.sellingPrice, code: t.jewelryItems.code })
       .from(t.jewelryItems)
-      .where(and(eq(t.jewelryItems.branchId, branch[code].id), eq(t.jewelryItems.status, 'AVAILABLE'), notInArray(t.jewelryItems.id, protectedList.length ? protectedList : [-1])));
+      .where(and(eq(t.jewelryItems.branchId, branch[code].id), eq(t.jewelryItems.status, 'AVAILABLE'), notInArray(t.jewelryItems.id, protectedList.length ? protectedList : [-1])))
+      // FIX-5: the sales pick a piece by a seeded random index into this list, so its order must be fixed. Without it
+      // PostgreSQL returns heap order, which moves with updated rows: the same instant built different worlds.
+      .orderBy(asc(t.jewelryItems.id));
 
   // The counter takes cash, bank transfer and Hasad (D-4-6).
   const payment = (): PaymentMethod => {

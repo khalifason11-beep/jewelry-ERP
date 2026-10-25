@@ -170,6 +170,10 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/openings/:id/lines/:lineId/remove', 'global', { all: ['opening.manage'], idempotent: true, idempotencyInTx: true }),
   r('POST', '/openings/:id/import', 'global', { all: ['opening.manage'], idempotent: true, idempotencyInTx: true }),
   r('POST', '/openings/:id/seal', 'global', { all: ['opening.manage'], reauth: true, idempotent: true, idempotencyInTx: true }),
+  // OPN-FIX (D-opnfix-1…5): correct or void a piece of a sealed opening (reason, password and a fresh passkey); the
+  // preview is read-only (no write, no Idempotency-Key).
+  r('GET', '/openings/:id/pieces/:itemId/correction-preview', 'global', { all: ['opening.correct'] }),
+  r('POST', '/openings/:id/pieces/:itemId/correction', 'global', { all: ['opening.correct'], reauth: true, idempotent: true, idempotencyInTx: true }),
   r('GET', '/scrap-pool', 'branch', { any: ['inventory.view', 'scrap.buy'] }),
   // MIS-1 (PUR-FIX): a correction of one piece's making cost or of the order's transfer reference (General Manager only).
   r('POST', '/purchases/:id/corrections', 'branch', { all: ['purchases.correct'], reauth: true, idempotent: true, idempotencyInTx: true }),

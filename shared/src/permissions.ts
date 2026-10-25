@@ -63,6 +63,8 @@ export const PERMISSIONS = {
   'purchases.correct': "Correct a supplier order's piece making cost or transfer reference (reason and password)",
   // OPN-1: the opening balance of a branch (once per branch, sealed with the password and a passkey). General Manager only.
   'opening.manage': 'Enter, import, review and seal the opening balance of a branch (once per branch)',
+  // OPN-FIX: correct or void a piece of a sealed opening (reason, password and passkey). General Manager only.
+  'opening.correct': 'Correct or void a piece of a sealed opening balance (reason, password and passkey)',
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -122,7 +124,7 @@ const GENERAL_MANAGER: Permission[] = [
  * supplier orders, voiding a scrap purchase and correcting a supplier order. No screen or API edits role grants; tests prove the defaults, the seed and the migrations never give
  * them to another role.
  */
-export const GM_ONLY_PERMISSIONS = ['funding.view', 'funding.manage', 'purchases.create', 'scrap.void', 'purchases.correct', 'opening.manage'] as const satisfies readonly Permission[];
+export const GM_ONLY_PERMISSIONS = ['funding.view', 'funding.manage', 'purchases.create', 'scrap.void', 'purchases.correct', 'opening.manage', 'opening.correct'] as const satisfies readonly Permission[];
 
 export const DEFAULT_ROLE_PERMISSIONS: Record<SystemRoleCode, Permission[]> = {
   CASHIER,

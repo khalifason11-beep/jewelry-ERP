@@ -10,6 +10,7 @@ import { AppError, badRequest, notFound } from '../../core/errors';
 import { changeStatus, itemQuery, lockItems, recordMovement } from './ledger';
 import { maxIdOf, runPaged, sumOf, type PageRequest, type SortSpec } from '../../core/paging';
 import { livePriceSql, pricingOf, type Pricing } from '../pricing/service';
+import { openingCorrectionsOf } from '../openings/corrections';
 
 const COST_FIELDS = ['purchaseCost', 'makingCost', 'otherCost', 'totalCost', 'acquisitionCost', 'makingCharge', 'costIsEstimated'] as const;
 
@@ -232,7 +233,10 @@ export async function getItemDetail(ctx: Ctx, actor: Actor, id: number) {
     .leftJoin(t.users, eq(t.users.id, t.inventoryMovements.userId))
     .where(eq(t.inventoryMovements.itemId, id))
     .orderBy(asc(t.inventoryMovements.at), asc(t.inventoryMovements.id));
-  return { item: redactCosts(actor, item), history, movements };
+  // OPN-FIX: a piece of a sealed opening names its opening and lists its corrections (every value SAFE).
+  const [line] = item.origin === 'OPENING' ? await ctx.db.select({ openingId: t.openingLines.openingId }).from(t.openingLines).where(eq(t.openingLines.itemId, id)) : [];
+  const openingCorrections = line ? await openingCorrectionsOf(ctx.db, { itemId: id }) : [];
+  return { item: redactCosts(actor, item), history, movements, openingId: line?.openingId ?? null, openingCorrections };
 }
 
 export async function changePrice(ctx: Ctx, actor: Actor, id: number, newPrice: number, reason: string) {

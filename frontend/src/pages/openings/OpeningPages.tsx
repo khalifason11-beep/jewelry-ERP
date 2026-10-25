@@ -19,9 +19,10 @@ import { useToast } from '../../lib/toast';
 import { useActionKeys } from '../../lib/idempotency';
 import { useDebounced } from '../../lib/hooks';
 import { dateTime, grams, karatLabel, num } from '../../lib/format';
-import { Alert, Badge, Button, Card, CardHeader, DataTable, DetailPending, Dialog, Field, Input, Mono, PageHeader, Select, WeightInput } from '../../components/ui';
+import { Alert, Badge, Button, Card, CardHeader, DataTable, DetailPending, Dialog, Field, Input, Mono, PageHeader, Select, StatusBadge, WeightInput } from '../../components/ui';
 import { PieceKindFields, descriptionTooLong, emptyKind, type PieceKindValue } from '../../components/PieceKind';
 import { confirmWithPasskey } from '../../components/ReauthDialog';
+import { OpeningCorrectionsCard, type OpeningCorrectionRow } from '../inventory/OpeningCorrection';
 
 type Condition = 'NEW' | 'USED';
 interface OpeningRow {
@@ -53,6 +54,8 @@ interface Line {
   source: 'KEYBOARD' | 'IMPORT';
   code: string | null;
   barcode: string | null;
+  /** OPN-FIX: the piece's status now (sealed openings). */
+  itemStatus?: string | null;
 }
 interface Opening {
   id: number;
@@ -66,6 +69,9 @@ interface Opening {
   summary: Summary;
   imports: { id: number; fileName: string; rowCount: number; createdAt: string }[];
   lines: Page<Line>;
+  /** OPN-FIX: once sealed, the pieces as they are now (voided out, corrected values in) and the corrections. */
+  now: { total: { count: number; grossWeightMg: number; netWeightMg: number }; byKaratCondition: Summary['byKaratCondition']; voided: number; sold: number } | null;
+  corrections: (OpeningCorrectionRow & { code: string })[];
 }
 interface ImportProblem {
   line: number;
@@ -175,6 +181,12 @@ export function OpeningPage() {
         }
       />
       <SummaryCards summary={o.summary} />
+      {o.now && o.corrections.length > 0 && (
+        <div className="mb-4 grid gap-4 lg:grid-cols-2">
+          <NowCard now={o.now} />
+          <OpeningCorrectionsCard rows={o.corrections} showCode />
+        </div>
+      )}
       {draft && (
         <div className="mb-4 grid gap-4 xl:grid-cols-2">
           <KeyboardEntry openingId={o.id} />
@@ -205,7 +217,21 @@ export function OpeningPage() {
           searchPlaceholder={t('Search type, description or code')}
           columns={[
             { key: 'lineNo', header: '#', render: (r) => <Mono>{r.lineNo}</Mono> },
-            ...(draft ? [] : [{ key: 'code', header: t('Code'), render: (r: Line) => <Mono>{r.code ?? '—'}</Mono> }]),
+            ...(draft
+              ? []
+              : [
+                  {
+                    key: 'code',
+                    header: t('Code'),
+                    // OPN-FIX: a piece that is no longer in stock says so (voided after a correction, sold…).
+                    render: (r: Line) => (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Mono>{r.code ?? '—'}</Mono>
+                        {r.itemStatus && r.itemStatus !== 'AVAILABLE' && <StatusBadge status={r.itemStatus} />}
+                      </span>
+                    ),
+                  },
+                ]),
             { key: 'type', header: t('Type'), value: (r) => L(r.categoryName, r.categoryNameAr), render: (r) => L(r.categoryName, r.categoryNameAr) },
             { key: 'description', header: t('Description'), value: (r) => r.description ?? '', render: (r) => r.description ?? '—' },
             { key: 'karat', header: t('Karat'), value: (r) => r.karat, render: (r) => karatLabel(r.karat) },
@@ -219,6 +245,27 @@ export function OpeningPage() {
       </Card>
       </div>
     </div>
+  );
+}
+
+/** OPN-FIX: the sealed opening's pieces now, after the corrections (the totals above stay as sealed). */
+function NowCard({ now }: { now: NonNullable<Opening['now']> }) {
+  const { t } = useI18n();
+  return (
+    <Card>
+      <CardHeader title={t('Now, after the corrections')} subtitle={t('{n} piece(s), {weight} net; {voided} voided, {sold} sold', { n: num(now.total.count), weight: grams(now.total.netWeightMg), voided: num(now.voided), sold: num(now.sold) })} />
+      <table className="w-full text-[13px]" data-testid="opening-now">
+        <tbody>
+          {now.byKaratCondition.map((k) => (
+            <tr key={`${k.karat}-${k.condition}`} className="border-t border-line">
+              <td className="py-1">{karatCondition(k, t)}</td>
+              <td className="py-1 text-end num">{num(k.count)}</td>
+              <td className="py-1 text-end num">{grams(k.netWeightMg)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
   );
 }
 

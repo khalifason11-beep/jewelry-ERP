@@ -31,6 +31,7 @@ import {
   SCRAP_WEIGHT_EVENT_TYPES,
   PURCHASE_CORRECTION_FIELDS,
   OPENING_LINE_SOURCES,
+  OPENING_CORRECTION_KINDS,
   OPENING_STATUSES,
   PURCHASE_STATUSES,
   SALE_STATUSES,
@@ -106,6 +107,10 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   // OPN-2: the rate kind of a piece and the condition of an opening line.
   e('jewelry_items', 'rate_kind', GOLD_RATE_KINDS, true),
   e('opening_lines', 'condition', GOLD_RATE_KINDS, true),
+  // OPN-FIX (migration 0032).
+  e('opening_piece_corrections', 'kind', OPENING_CORRECTION_KINDS),
+  e('opening_piece_corrections', 'condition_before', GOLD_RATE_KINDS),
+  e('opening_piece_corrections', 'condition_after', GOLD_RATE_KINDS),
 ];
 
 const nonNeg = (table: string, ...columns: string[]): ExprCheck[] =>
@@ -245,6 +250,21 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   { name: 'ck_jewelry_items_cost_known', table: 'jewelry_items', expr: "acquisition_cost IS NOT NULL OR origin = 'OPENING'" },
   { name: 'ck_opening_imports_row_count', table: 'opening_imports', expr: 'row_count > 0' },
   { name: 'ck_opening_imports_sha256', table: 'opening_imports', expr: "sha256 ~ '^[0-9a-f]{64}$'" },
+  // ── OPN-FIX (migration 0032): a correction of a sealed opening's piece.
+  karat('opening_piece_corrections', 'karat_before'),
+  karat('opening_piece_corrections', 'karat_after'),
+  { name: 'ck_opening_piece_corrections_reason', table: 'opening_piece_corrections', expr: 'length(btrim(reason)) BETWEEN 3 AND 200' },
+  {
+    name: 'ck_opening_piece_corrections_weights',
+    table: 'opening_piece_corrections',
+    expr: 'net_weight_mg_before > 0 AND net_weight_mg_before <= gross_weight_mg_before AND net_weight_mg_after > 0 AND net_weight_mg_after <= gross_weight_mg_after',
+  },
+  {
+    name: 'ck_opening_piece_corrections_change',
+    table: 'opening_piece_corrections',
+    // A void changes nothing but the status; a correction changes at least one value.
+    expr: "(kind = 'VOID' AND condition_after = condition_before AND karat_after = karat_before AND gross_weight_mg_after = gross_weight_mg_before AND net_weight_mg_after = net_weight_mg_before) OR (kind = 'CORRECT' AND (condition_after <> condition_before OR karat_after <> karat_before OR gross_weight_mg_after <> gross_weight_mg_before OR net_weight_mg_after <> net_weight_mg_before))",
+  },
   // ── OPN-2 (migration 0031): only an opening piece may be priced either way; scrap is USED, a supplier piece NEW.
   { name: 'ck_jewelry_items_rate_kind_origin', table: 'jewelry_items', expr: "(origin <> 'SCRAP' OR rate_kind = 'USED') AND (origin <> 'SUPPLIER_NEW' OR rate_kind = 'NEW')" },
 ];

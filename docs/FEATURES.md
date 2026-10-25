@@ -195,7 +195,13 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   - Sealing needs computed prices, the password and a passkey. Each line becomes a piece with the next code in the
     sheet's order, origin OPENING, cost unknown (never 0), price from the new-piece or the used-piece rate by its
     condition (sealing is refused while a needed rate is missing); no cash moves. Then nothing
-    can change (correcting a sealed piece is OPN-FIX); the export lists the codes.
+    can change in the opening; the export lists the codes.
+  - **Correcting a piece of a sealed opening** (OPN-FIX, `opening.correct`, General Manager only): on the page of an
+    AVAILABLE opening piece (in any branch), correct its condition (new/used), karat or weights, or void it. The dialog
+    shows the server's preview first (price now, price after, the change in the stock valuation), then asks a reason
+    (3–200 characters), the password and a passkey. Condition and karat need computed prices and a rate for the new
+    karat and condition. The opening keeps its totals as sealed and shows its pieces now and every correction; the
+    export adds the values now. The cost stays unknown.
 - **Mistake correction** (MIS-1, General Manager only, reason and password asked again, idempotent):
   - **Void a scrap purchase** (`scrap.void`): the money is reversed, the sellable piece becomes VOIDED (only while
     still AVAILABLE in its branch) or the broken-scrap weight leaves the pool (only if the pool still holds it).

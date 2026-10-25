@@ -745,6 +745,9 @@ async function main() {
     await captureBaseline(page, '02-branch-manager-home');
     const bmSelf = await apiGet(page, '/api/auth/me');
     check(bmSelf.body.user.branch?.id === branchId, 'the branch manager is bound to the new branch');
+    // General-Manager-only permissions never reach the branch manager (OPN-FIX adds opening.correct).
+    const gmOnly = ['funding.manage', 'purchases.create', 'scrap.void', 'purchases.correct', 'opening.manage', 'opening.correct'];
+    check(gmOnly.every((p) => !bmSelf.body.user.permissions.includes(p)), 'the branch manager holds none of the General-Manager-only permissions (opening.correct included)');
     await signOut(page);
 
     await signIn(page, origin, CASHIER.username, temps[CASHIER.username]);
@@ -1379,6 +1382,8 @@ async function main() {
       await page.getByTestId('second-step').waitFor();
       await page.click('[data-testid=use-passkey]');
       await pathIs(page, ['/overview']);
+      const gmPerms = (await apiGet(page, '/api/auth/me')).body.user.permissions;
+      check(gmPerms.includes('opening.manage') && gmPerms.includes('opening.correct'), 'the General Manager holds opening.manage and opening.correct (migration 0032 on a production database)');
       // Types created by the General Manager; the sheet names them (the importer never creates types).
       const ring = (await apiSend(page, 'POST', '/api/categories', { nameAr: 'خواتم الافتتاح' })).body;
       const bangle = (await apiSend(page, 'POST', '/api/categories', { nameAr: 'أساور الافتتاح' })).body;
@@ -1440,6 +1445,55 @@ async function main() {
       }
       const profit = (await apiGet(page, `/api/reports/profit?branchId=${branchId}`)).body;
       check(profit.totals.unknownCostLines >= 1 && profit.columns.some((c) => c.key === 'unknownCostLines'), `the profit report counts the excluded line (${profit.totals.unknownCostLines} line(s) of unknown cost)`);
+
+      // OPN-FIX (routes): a used piece entered by mistake is corrected to new after the seal. The preview gives both
+      // prices and writes nothing; the correction (reason, password, the passkey confirmed for the seal) moves the
+      // piece to the new-piece rate, and the valuation by exactly the preview's amount.
+      const wrong = usedPieces[1];
+      const corrUrl = `/api/openings/${openingId}/pieces/${wrong.id}/correction`;
+      const pv = await apiGet(page, `${corrUrl}-preview?action=CORRECT&condition=NEW`);
+      check(
+        pv.status === 200 && pv.body.before.sellingPrice === wrong.sellingPrice && pv.body.after.condition === 'NEW' && pv.body.valuationChange === pv.body.after.sellingPrice - wrong.sellingPrice,
+        `the correction preview: ${wrong.sellingPrice} now, ${pv.body?.after?.sellingPrice} as a new piece (valuation ${pv.body?.valuationChange >= 0 ? '+' : ''}${pv.body?.valuationChange}); nothing written`,
+      );
+      const valuation0 = (await apiGet(page, `/api/reports/inventory?branchId=${branchId}&status=AVAILABLE`)).body.totals.sellingPrice;
+      const fixed = await apiSend(page, 'POST', corrUrl, { action: 'CORRECT', condition: 'NEW', reason: 'سُجّلت مستعملة خطأً', confirmPassword: GM.password });
+      check(fixed.status === 200 && fixed.body.kind === 'CORRECT' && fixed.body.branchId === branchId, `opening piece ${wrong.code} corrected from used to new (${fixed.status} ${fixed.body?.error?.code ?? ''})`);
+      const after = (await apiGet(page, `/api/inventory/items/${wrong.id}`)).body;
+      const valuation1 = (await apiGet(page, `/api/reports/inventory?branchId=${branchId}&status=AVAILABLE`)).body.totals.sellingPrice;
+      check(after.item.rateKind === 'NEW' && after.item.sellingPrice === pv.body.after.sellingPrice && after.item.totalCost === null && after.openingCorrections.length === 1, `the piece is priced at the new-piece rate (${after.item.sellingPrice}), its cost still unknown, its history lists the correction`);
+      check(valuation1 - valuation0 === pv.body.valuationChange, `the stock valuation moved by exactly the preview's amount (${valuation1 - valuation0})`);
+      // The sealed opening keeps its totals as sealed and shows the pieces now and the correction (OPN-FIX c4).
+      const sealedView = (await apiGet(page, `/api/openings/${openingId}`)).body;
+      const nowNew = sealedView.now.byKaratCondition.find((x) => x.condition === 'NEW')?.count;
+      check(
+        sealedView.summary.total.count === 4 && sealedView.summary.total.netWeightMg === sheetNetMg && sealedView.now.total.count === 4 && sealedView.now.sold === 2 && nowNew === 3 && sealedView.corrections.length === 1 && sealedView.corrections[0].reason === 'سُجّلت مستعملة خطأً',
+        `the sealed opening: 4 pieces as sealed; now 4 (2 sold, 3 new after the correction); the correction listed with its reason`,
+      );
+      // OPN-FIX (screen): the last new piece was counted twice; the General Manager voids it from its page (the dialog's
+      // preview says it leaves the stock; reason, password and passkey), and corrects the other piece's weights.
+      const extra = newPieces[1];
+      await page.goto(`${origin}/inventory/${extra.id}`);
+      await page.click('[data-testid=opening-correct]', { timeout: 15_000 });
+      await page.selectOption('[data-testid=opening-correct-action]', 'VOID');
+      await waitFor(async () => (await page.getByTestId('opening-correct-preview').innerText()).includes('خارج المخزون'), 'the void preview', 15_000);
+      await page.fill('[data-testid=opening-correct-reason]', 'عُدّت مرتين');
+      await page.fill('[data-testid=opening-correct-password]', GM.password);
+      await page.click('[data-testid=opening-correct-passkey]');
+      await waitFor(async () => !(await page.getByTestId('opening-correct-confirm').isDisabled()), 'the passkey confirmation', 15_000);
+      const stock0 = (await apiGet(page, `/api/reports/stock-weight?branchId=${branchId}`)).body.totals.itemsWeightMg;
+      await page.click('[data-testid=opening-correct-confirm]');
+      await confirmIfAsked(page, GM.password);
+      await waitFor(async () => (await apiGet(page, `/api/inventory/items/${extra.id}`)).body.item.status === 'VOIDED', 'the void', 15_000);
+      const stock1 = (await apiGet(page, `/api/reports/stock-weight?branchId=${branchId}`)).body.totals.itemsWeightMg;
+      check(stock0 - stock1 === extra.netWeightMg, `opening piece ${extra.code} voided from its page: the stock weight fell by its net weight (${stock0 - stock1} mg)`);
+      const reweigh = await apiSend(page, 'POST', corrUrl, { action: 'CORRECT', netWeightMg: wrong.netWeightMg - 100, grossWeightMg: wrong.netWeightMg + 400, reason: 'أُعيد وزنها', confirmPassword: GM.password });
+      const stock2 = (await apiGet(page, `/api/reports/stock-weight?branchId=${branchId}`)).body.totals.itemsWeightMg;
+      check(reweigh.status === 200 && stock1 - stock2 === 100, `the other piece re-weighed: the stock weight moved by the difference (${stock1 - stock2} mg)`);
+      const finalView = (await apiGet(page, `/api/openings/${openingId}`)).body;
+      check(finalView.summary.total.count === 4 && finalView.now.total.count === 3 && finalView.now.voided === 1 && finalView.corrections.length === 3, 'the sealed opening: still 4 as sealed; now 3 (one voided); three corrections listed');
+      const refusedSold = await apiSend(page, 'POST', `/api/openings/${openingId}/pieces/${newPieces[0].id}/correction`, { action: 'VOID', reason: 'already sold', confirmPassword: GM.password });
+      check(refusedSold.status === 409 && refusedSold.body.error.code === 'OPENING_PIECE_NOT_AVAILABLE', 'a sold opening piece cannot be corrected (409 OPENING_PIECE_NOT_AVAILABLE)');
       await signOut(page);
     }
 
