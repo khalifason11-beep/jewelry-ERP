@@ -129,6 +129,8 @@ export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
   // OPN-1: how many sale lines / pieces a cost or profit total leaves out because their cost is unknown.
   'unknownCostLines',
   'unknownCostPieces',
+  // ... and the revenue of the lines of known cost (the margin's base).
+  'knownCostRevenue',
   // MIS-1: a supplier-order correction's values (a piece's making cost or the order's transfer reference).
   'valueBefore',
   'valueAfter',

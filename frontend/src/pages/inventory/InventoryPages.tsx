@@ -255,7 +255,7 @@ export function ItemDetailPage() {
                 <div className="flex justify-between text-emerald-700">
                   <dt>{t('Expected gross profit')}</dt>
                   <dd className="num">
-                    {i.sellingPrice == null ? '—' : money(i.sellingPrice - (i.totalCost ?? 0))} <span className="text-xs">({pct(margin)})</span>
+                    {i.sellingPrice == null || i.totalCost == null ? '—' : money(i.sellingPrice - i.totalCost)} <span className="text-xs">({pct(margin)})</span>
                   </dd>
                 </div>
               </dl>

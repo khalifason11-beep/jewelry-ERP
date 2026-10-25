@@ -283,6 +283,11 @@ export const AR: Record<string, string> = {
   "Items cost": "تكلفة القطع",
   "Cost of sales": "تكلفة المبيعات",
   "Gross profit": "إجمالي الربح",
+  // OPN-1: pieces of unknown cost (opening balance), left out of cost and profit and counted.
+  "Lines of unknown cost": "أسطر بتكلفة غير معروفة",
+  "Pieces of unknown cost": "قطع بتكلفة غير معروفة",
+  "Pieces of unknown cost (opening balance) are left out of cost, gross profit and margin; their lines are counted.": "القطع ذات التكلفة غير المعروفة (الرصيد الافتتاحي) مستبعدة من التكلفة وإجمالي الربح والهامش، ويُذكر عدد أسطرها.",
+  "Gross profit and inventory value leave out the pieces of unknown cost (opening balance); they are counted.": "إجمالي الربح وقيمة المخزون يستبعدان القطع ذات التكلفة غير المعروفة (الرصيد الافتتاحي)، ويُذكر عددها.",
   "Profit": "الربح",
   "Purchase": "الشراء",
   "Making": "المصنعية",

@@ -166,7 +166,9 @@ export function SaleDetailPage() {
   if (!q.data) return <DetailPending query={q} backTo={can('sales.view') ? '/sales' : '/me'} backLabel={can('sales.view') ? t('Back to sales') : t('Back to my activity')} notFoundTitle={t('This sale does not exist')} />;
   const s = q.data!;
   const profit = can('profit.view');
-  const margin = s.grossProfit != null && s.total ? (s.grossProfit / s.total) * 100 : null;
+  // OPN-1: the margin of the lines of known cost (a line of unknown cost has no profit: "—").
+  const knownRevenue = s.items.reduce((sum, i) => sum + (i.profit != null ? i.finalPrice : 0), 0);
+  const margin = s.grossProfit != null && knownRevenue ? (s.grossProfit / knownRevenue) * 100 : null;
 
   return (
     <div className="p-5 lg:p-6">

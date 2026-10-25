@@ -40,7 +40,8 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
   const trendRange = dayRange(trendFrom, period.toKey, tz);
   const [trendR, hourlyR, staffR, sellersR, presenceR, cashNow, countR, owedR] = await Promise.all([
     ctx.db.execute(sql`
-      SELECT to_char(created_at AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS day, count(*) AS n, coalesce(sum(total),0) AS revenue, coalesce(sum(total - cost_total),0) AS profit
+      SELECT to_char(created_at AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS day, count(*) AS n, coalesce(sum(total),0) AS revenue,
+             sum(case when unknown_cost_lines = 0 then total - cost_total else (select sum(si.profit) from sale_items si where si.sale_id = sales.id) end) AS profit
       FROM sales WHERE status='COMPLETED' AND branch_id = ${branchId} AND created_at >= ${iso(trendRange.start)} AND created_at < ${iso(trendRange.end)}
       GROUP BY 1`),
     ctx.db.execute(sql`
@@ -107,16 +108,21 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
       availableItems: m.availableItems,
       availableWeightMg: m.availableWeightMg,
       inventoryCost: showProfit ? m.inventoryCost : null,
+      // OPN-1: what the profit and the stock value leave out (pieces of unknown cost).
+      unknownCostLines: showProfit ? m.unknownCostLines : null,
+      unknownCostPieces: showProfit ? m.unknownCostPieces : null,
     },
     mtd: {
       revenue: mtd.revenue,
       grossProfit: showProfit ? mtd.grossProfit : null,
+      unknownCostLines: showProfit ? mtd.unknownCostLines : null,
       salesCount: mtd.salesCount,
     },
     movement,
     trend: eachDay(trendFrom, period.toKey).map((d) => {
       const r = trendMap.get(d);
-      return { day: d, sales: num(r?.n), revenue: num(r?.revenue), profit: showProfit ? num(r?.profit) : null };
+      // OPN-1: a day whose sales are all of unknown cost has no profit to show (NULL, "—"); a day without sales has 0.
+      return { day: d, sales: num(r?.n), revenue: num(r?.revenue), profit: showProfit ? (r && r.profit == null ? null : num(r?.profit)) : null };
     }),
     hourly: rows<Record<string, unknown>>(hourlyR).map((r) => ({ hour: num(r.h), sales: num(r.n), revenue: num(r.revenue) })),
     cashiers: team(rows<Record<string, unknown>>(staffR), rows<Record<string, unknown>>(sellersR), rows<Record<string, unknown>>(presenceR)),
@@ -198,7 +204,10 @@ export async function companyDashboard(ctx: Ctx, actor: Actor, q: { from?: strin
       revenue: totals.revenue,
       costOfSales: totals.costOfSales,
       grossProfit: totals.grossProfit,
+      knownCostRevenue: totals.knownCostRevenue,
+      unknownCostLines: totals.unknownCostLines,
       inventoryCost: totals.inventoryCost,
+      unknownCostPieces: totals.unknownCostPieces,
       inventoryRetail: totals.inventoryRetail,
       availableItems: totals.availableItems,
       availableWeightMg: totals.availableWeightMg,

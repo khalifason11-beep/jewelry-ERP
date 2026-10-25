@@ -143,7 +143,7 @@ describe('a piece\'s making cost', () => {
       ['ADJUSTMENT', 1, 735_000],
     ]);
     const after = await stock();
-    expect(after).toEqual({ items: before.items, weightMg: before.weightMg, cost: before.cost - 765_000 + 735_000 });
+    expect(after).toEqual({ items: before.items, weightMg: before.weightMg, cost: before.cost - 765_000 + 735_000, unknownCostPieces: before.unknownCostPieces });
     const [avail] = await ctx.db
       .select({ n: sql<number>`count(*)`.mapWith(Number), c: sql<number>`coalesce(sum(acquisition_cost), 0)`.mapWith(Number) })
       .from(t.jewelryItems)
@@ -203,7 +203,7 @@ describe('a piece\'s making cost', () => {
     const moves0 = await ctx.db.select().from(t.inventoryMovements).where(eq(t.inventoryMovements.itemId, a.itemId));
     expect(moves0.map((m) => m.type)).toEqual(['PURCHASE', 'DAMAGE']);
     await adjustItem(ctx, gm, a.itemId, 'RESTOCK', 'repaired');
-    expect(await stock()).toEqual({ items: before.items + 1, weightMg: before.weightMg + 4_000, cost: before.cost + 725_000 });
+    expect(await stock()).toEqual({ items: before.items + 1, weightMg: before.weightMg + 4_000, cost: before.cost + 725_000, unknownCostPieces: before.unknownCostPieces });
   });
 
   it('nothing changes → 422; the total to 0 with a reference → 422 (Q5); one piece at 0 with the total above 0 passes', async () => {

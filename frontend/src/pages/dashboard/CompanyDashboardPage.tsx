@@ -30,7 +30,7 @@ interface BranchRow {
   nameAr: string;
   revenue: number;
   salesCount: number;
-  grossProfit: number;
+  grossProfit: number | null;
   availableItems: number;
   availableWeightMg: number;
   totalWeightMg: number;
@@ -38,7 +38,7 @@ interface BranchRow {
 
 interface CompanyDash {
   period: { from: string; to: string };
-  totals: { revenue: number; grossProfit: number; inventoryCost: number; availableItems: number; availableWeightMg: number; salesCount: number };
+  totals: { revenue: number; grossProfit: number | null; knownCostRevenue?: number; inventoryCost: number; availableItems: number; availableWeightMg: number; salesCount: number };
   branches: BranchRow[];
   stockWeight: StockWeight;
   inTransit: { items: number; weightMg: number };
@@ -173,7 +173,8 @@ function Figures({ d, isToday }: { d: CompanyDash; isToday: boolean }) {
   const { t } = useI18n();
   const T = d.totals;
   const sw = d.stockWeight;
-  const margin = T.revenue ? (T.grossProfit / T.revenue) * 100 : 0;
+  // OPN-1: profit and margin cover the lines of known cost; NULL profit (none known) shows "—".
+  const margin = T.grossProfit == null ? null : T.knownCostRevenue ? (T.grossProfit / T.knownCostRevenue) * 100 : 0;
   const period = d.period.from === d.period.to ? formatDate(d.period.from) : `${formatDate(d.period.from)} – ${formatDate(d.period.to)}`;
   return (
     <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]" aria-label={t('Key figures')}>

@@ -169,7 +169,7 @@ describe('a sellable piece', () => {
       ['ADJUSTMENT', -1, p.amount, 3_100],
     ]);
     const stock1 = await ledgerStock(ctx.db, krt, new Date(Date.now() + 60_000));
-    expect(stock1).toEqual({ items: stock0.items - 1, weightMg: stock0.weightMg - 3_100, cost: stock0.cost - p.amount });
+    expect(stock1).toEqual({ items: stock0.items - 1, weightMg: stock0.weightMg - 3_100, cost: stock0.cost - p.amount, unknownCostPieces: stock0.unknownCostPieces });
     // The ledger's stock equals the AVAILABLE pieces (A15): count, weight and value at cost.
     const [avail] = await ctx.db
       .select({ n: sql<number>`count(*)`.mapWith(Number), w: sql<number>`coalesce(sum(net_weight_mg), 0)`.mapWith(Number), c: sql<number>`coalesce(sum(acquisition_cost), 0)`.mapWith(Number) })

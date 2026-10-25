@@ -16,13 +16,16 @@ export interface Ref {
   refNumber: string;
 }
 
+const nullableNumber = (v: unknown) => (v == null ? null : Number(v));
+
 /** Selected columns for item listings (item + product + category + branch). */
 /** Cost breakdown of a piece (GM only; redacted for other roles). Needs `purchase_items` LEFT JOINed on the item. */
 export const costBreakdown = {
-  purchaseCost: sql<number>`coalesce(${t.purchaseItems.purchaseCost}, ${t.jewelryItems.acquisitionCost})`.mapWith(Number),
+  // OPN-1: a piece of unknown cost (an opening piece) has no components either: NULL ("—"), never 0.
+  purchaseCost: sql<number | null>`coalesce(${t.purchaseItems.purchaseCost}, ${t.jewelryItems.acquisitionCost})`.mapWith(nullableNumber),
   // MIS-1: a supplier piece's live making charge (kept equal to its line's effective making cost by a correction).
-  makingCost: sql<number>`CASE WHEN ${t.purchaseItems.id} IS NULL THEN 0 ELSE ${t.jewelryItems.makingCharge} END`.mapWith(Number),
-  otherCost: sql<number>`coalesce(${t.purchaseItems.otherCost}, 0)`.mapWith(Number),
+  makingCost: sql<number | null>`CASE WHEN ${t.jewelryItems.acquisitionCost} IS NULL THEN NULL WHEN ${t.purchaseItems.id} IS NULL THEN 0 ELSE ${t.jewelryItems.makingCharge} END`.mapWith(nullableNumber),
+  otherCost: sql<number | null>`CASE WHEN ${t.jewelryItems.acquisitionCost} IS NULL THEN NULL ELSE coalesce(${t.purchaseItems.otherCost}, 0) END`.mapWith(nullableNumber),
   totalCost: t.jewelryItems.acquisitionCost,
 };
 
@@ -174,7 +177,9 @@ export async function ledgerStock(exec: Executor, branchId: number | null, at: D
     .select({
       items: sql<number>`coalesce(sum(${t.inventoryMovements.direction}), 0)`,
       weightMg: sql<number>`coalesce(sum(${t.inventoryMovements.direction} * ${t.inventoryMovements.netWeightMg}), 0)`,
+      // OPN-1: the cost of the pieces of known cost; `unknownCostPieces` counts the others on hand.
       cost: sql<number>`coalesce(sum(${t.inventoryMovements.direction} * ${t.inventoryMovements.costValue}), 0)`,
+      unknownCostPieces: sql<number>`coalesce(sum(${t.inventoryMovements.direction}) filter (where ${t.inventoryMovements.costValue} is null), 0)`,
     })
     .from(t.inventoryMovements)
     .where(
@@ -183,5 +188,5 @@ export async function ledgerStock(exec: Executor, branchId: number | null, at: D
         sql`${t.inventoryMovements.at} < ${at.toISOString()}`,
       ),
     );
-  return { items: Number(res[0].items), weightMg: Number(res[0].weightMg), cost: Number(res[0].cost) };
+  return { items: Number(res[0].items), weightMg: Number(res[0].weightMg), cost: Number(res[0].cost), unknownCostPieces: Number(res[0].unknownCostPieces) };
 }

@@ -155,13 +155,10 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
 
     const subtotal = sumInt(lines.map((l) => l.listPrice));
     const discountTotal = lines.reduce((s, l) => s + l.discount, 0);
-    // OPN-1 c1: no piece has an unknown cost yet (openings come in c4); c3 replaces this refusal with the unknown-cost
-    // sale line. Refused loudly rather than counted as 0.
-    const knownCost = (item: (typeof lines)[number]['item']) => {
-      if (item.acquisitionCost == null) throw new Error(`piece ${item.code} has an unknown cost: not supported before OPN-1 c3`);
-      return item.acquisitionCost;
-    };
-    const costTotal = lines.reduce((s, l) => s + knownCost(l.item), 0);
+    // OPN-1 (§6): a piece of unknown cost (an opening piece) sells with NULL cost and profit; the sale's cost total
+    // sums the known lines only and counts the others. Never 0.
+    const costTotal = lines.reduce((s, l) => s + (l.item.acquisitionCost ?? 0), 0);
+    const unknownCostLines = lines.filter((l) => l.item.acquisitionCost == null).length;
     const number = await nextNumber(tx, branch.code, 'INV');
 
     const [sale] = await tx
@@ -178,6 +175,7 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
         discountTotal,
         total: subtotal - discountTotal,
         costTotal,
+        unknownCostLines,
         paymentMethod: input.paymentMethod,
         paymentRefInvoice: refInvoice,
         paymentRefTransaction: refTransaction,
@@ -197,10 +195,10 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
         listPrice: l.listPrice,
         discount: l.discount,
         finalPrice: l.finalPrice,
-        unitCost: knownCost(l.item),
-        // Snapshots: later cost changes never rewrite the profit of a past sale (GM-only fields).
-        acquisitionCost: knownCost(l.item),
-        profit: l.finalPrice - knownCost(l.item),
+        unitCost: l.item.acquisitionCost,
+        // Snapshots: later cost changes never rewrite the profit of a past sale (GM-only fields). Unknown cost: NULL.
+        acquisitionCost: l.item.acquisitionCost,
+        profit: l.item.acquisitionCost == null ? null : l.finalPrice - l.item.acquisitionCost,
         // PRC-1: a computed line keeps the rate used and the gold value; the making charge stays NULL (Q-1 open).
         pricingMode: pricing.mode === 'RATE_COMPUTED' ? 'COMPUTED' : 'FIXED_TAG',
         priceRatePerGram: pricing.mode === 'RATE_COMPUTED' ? l.ratePerGram : null,
@@ -279,6 +277,15 @@ async function salesWhere(ctx: Ctx, actor: Actor, q: SaleQuery): Promise<SQL[]> 
   return where;
 }
 
+/**
+ * OPN-1 (§6): a sale's gross profit is the profit of its lines of KNOWN cost: total − cost when every cost is known,
+ * else the sum of the lines' profit (NULL when no line has a known cost: shown "—", never 0). The correlated
+ * sub-query only runs for a sale with unknown lines. Table names are explicit (Drizzle renders a one-table select
+ * unqualified).
+ */
+const saleProfitSql = sql.raw(
+  `(case when "sales"."unknown_cost_lines" = 0 then "sales"."total" - "sales"."cost_total" else (select sum(si.profit) from sale_items si where si.sale_id = "sales"."id") end)`,
+);
 const saleListBase = {
   id: t.sales.id,
   number: t.sales.number,
@@ -293,6 +300,8 @@ const saleListBase = {
   discountTotal: t.sales.discountTotal,
   total: t.sales.total,
   costTotal: t.sales.costTotal,
+  unknownCostLines: t.sales.unknownCostLines,
+  grossProfit: sql<number | null>`${saleProfitSql}`.mapWith((v) => (v == null ? null : Number(v))),
   paymentMethod: t.sales.paymentMethod,
   // FIX-2: the bank-transfer reference (Hasad: its transaction reference), shown in the list.
   paymentRefTransaction: t.sales.paymentRefTransaction,
@@ -318,10 +327,10 @@ type SaleListRow = Awaited<ReturnType<typeof saleListFrom>>[number];
 function saleListRow(actor: Actor, r: SaleListRow) {
   const base = { ...r, itemCount: Number(r.itemCount), weightMg: Number(r.weightMg), pricePerGram: r.pricePerGram == null ? null : Number(r.pricePerGram) };
   if (!can(actor, 'profit.view')) {
-    const { costTotal: _c, ...rest } = base;
+    const { costTotal: _c, unknownCostLines: _u, grossProfit: _g, ...rest } = base;
     return rest;
   }
-  return { ...base, grossProfit: r.status === 'COMPLETED' ? r.total - r.costTotal : 0 };
+  return { ...base, grossProfit: r.status === 'COMPLETED' ? r.grossProfit : 0 };
 }
 
 
@@ -359,16 +368,33 @@ export async function salesReportAggregates(ctx: Ctx, actor: Actor, q: SaleQuery
     .where(done)
     .groupBy(t.sales.paymentMethod);
   const [lines] = await ctx.db
-    .select({ itemCount: sql<number>`count(*)`.mapWith(Number), weightMg: sumOf(t.saleItems.netWeightMg) })
+    .select(saleLineTotals)
     .from(t.saleItems)
     .innerJoin(t.sales, eq(t.sales.id, t.saleItems.saleId))
     .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
     .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
     .where(done);
   const sum = (k: 'total' | 'discountTotal' | 'costTotal') => channels.reduce((s, c) => s + c[k], 0);
-  const totals: Record<string, number> = { itemCount: lines.itemCount, weightMg: lines.weightMg, discountTotal: sum('discountTotal'), total: sum('total') };
-  if (can(actor, 'profit.view')) Object.assign(totals, { costTotal: sum('costTotal'), grossProfit: sum('total') - sum('costTotal') });
+  const totals: Record<string, number | null> = { itemCount: lines.itemCount, weightMg: lines.weightMg, discountTotal: sum('discountTotal'), total: sum('total') };
+  if (can(actor, 'profit.view')) Object.assign(totals, profitTotals(sum('total'), sum('costTotal'), lines));
   return { rowCount: n, totals, byChannel: new Map(channels.map((c) => [c.method, c.total])) };
+}
+
+/** The lines of the completed sales behind a footer: counts, weight, and the revenue of the lines of unknown cost. */
+const saleLineTotals = {
+  itemCount: sql<number>`count(*)`.mapWith(Number),
+  weightMg: sumOf(t.saleItems.netWeightMg),
+  unknownCostLines: sql<number>`count(*) filter (where ${t.saleItems.unitCost} is null)`.mapWith(Number),
+  unknownRevenue: sumOf(sql`case when ${t.saleItems.unitCost} is null then ${t.saleItems.finalPrice} else 0 end`),
+};
+
+/**
+ * OPN-1 (§6): cost and gross profit over the lines of KNOWN cost, with the count of lines left out. Gross profit is
+ * NULL when no line has a known cost (an empty result keeps 0).
+ */
+function profitTotals(total: number, costTotal: number, lines: { itemCount: number; unknownCostLines: number; unknownRevenue: number }) {
+  const noneKnown = lines.itemCount > 0 && lines.unknownCostLines === lines.itemCount;
+  return { costTotal, grossProfit: noneKnown ? null : total - lines.unknownRevenue - costTotal, unknownCostLines: lines.unknownCostLines };
 }
 
 export const SALE_SORT_KEYS = ['date', 'number', 'branch', 'cashier', 'total', 'grossProfit'] as const;
@@ -380,7 +406,7 @@ const saleSorts: Record<SaleSortKey, SortSpec> = {
   cashier: { by: t.users.fullName, field: 'cashierName', dir: 'asc' },
   total: { by: t.sales.total, field: 'total', dir: 'desc' },
   // GM only: ordering by profit would reveal it (BE-7).
-  grossProfit: { by: sql`(case when ${t.sales.status} = 'COMPLETED' then ${t.sales.total} - ${t.sales.costTotal} else 0 end)`, field: 'grossProfit', dir: 'desc' },
+  grossProfit: { by: sql`(case when ${t.sales.status} = 'COMPLETED' then coalesce(${saleProfitSql}, 0) else 0 end)`, field: 'grossProfit', dir: 'desc' },
 };
 
 /** BE-7: the sales list, one page at a time (`GET /sales`). */
@@ -427,14 +453,14 @@ export async function pageSales(ctx: Ctx, actor: Actor, q: SaleQuery & PageReque
         .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
         .where(done);
       const [lines] = await ctx.db
-        .select({ itemCount: sql<number>`count(*)`.mapWith(Number), weightMg: sumOf(t.saleItems.netWeightMg) })
+        .select(saleLineTotals)
         .from(t.saleItems)
         .innerJoin(t.sales, eq(t.sales.id, t.saleItems.saleId))
         .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
         .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
         .where(done);
-      const out: Record<string, number> = { sales: s.count, itemCount: lines.itemCount, weightMg: lines.weightMg, total: s.total };
-      return can(actor, 'profit.view') ? { ...out, costTotal: s.costTotal, grossProfit: s.total - s.costTotal } : out;
+      const out: Record<string, number | null> = { sales: s.count, itemCount: lines.itemCount, weightMg: lines.weightMg, total: s.total };
+      return can(actor, 'profit.view') ? { ...out, ...profitTotals(s.total, s.costTotal, lines) } : out;
     },
   });
 }
@@ -502,10 +528,13 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
     voidedByName = u?.n ?? null;
   }
 
-  const { costTotal, ...saleFields } = sale.sale;
+  const { costTotal, unknownCostLines, ...saleFields } = sale.sale;
+  // OPN-1 (§6): the profit of the lines of known cost; NULL ("—") when no line has one.
+  const known = items.filter((i) => i.profit != null);
+  const grossProfit = unknownCostLines === 0 ? sale.sale.total - costTotal : known.length ? known.reduce((s, i) => s + i.profit!, 0) : null;
   return {
     ...saleFields,
-    ...(showProfit ? { costTotal, grossProfit: sale.sale.total - costTotal } : {}),
+    ...(showProfit ? { costTotal, grossProfit, unknownCostLines } : {}),
     branchName: sale.branchName,
     branchNameAr: sale.branchNameAr,
     branchCode: sale.branchCode,

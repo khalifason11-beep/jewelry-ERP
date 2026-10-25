@@ -15,7 +15,7 @@ import { itemsReportAggregates, pageItems, searchItems } from '../inventory/serv
 import { itemNameSql } from '../inventory/ledger';
 import { listPurchases, pagePurchases, purchasesReportAggregates } from '../purchases/service';
 import { listSales, pageSales, salesReportAggregates } from '../sales/service';
-import { branchMetrics, movementSummary } from './metrics';
+import { branchMetrics, marginOf, movementSummary } from './metrics';
 import { stockWeight, stockWeightRows, type StockWeight } from '../stock/weight';
 
 export type ColumnType = 'text' | 'money' | 'weight' | 'number' | 'percent' | 'date' | 'datetime' | 'status' | 'code' | 'audit';
@@ -34,7 +34,7 @@ export interface Report {
   description: string;
   columns: Column[];
   rows: Record<string, unknown>[];
-  totals?: Record<string, number>;
+  totals?: Record<string, number | null>;
   notes?: string[];
   /** Headline figures shown above the table (Phase 4: stock weight incl. the broken-scrap pool). */
   summary?: { label: string; type: ColumnType; value: number }[];
@@ -100,6 +100,12 @@ function totalsOf(rowsAll: Record<string, unknown>[], keys: string[]) {
   const out: Record<string, number> = {};
   for (const k of keys) out[k] = rowsAll.reduce((s, r) => s + num(r[k]), 0);
   return out;
+}
+
+/** OPN-1: a gross-profit total is NULL ("—") when every row's is (no line of known cost), never 0. */
+function profitNullable(rowsAll: Record<string, unknown>[], totals: Record<string, number | null>) {
+  if (rowsAll.length && rowsAll.every((r) => r.grossProfit == null)) totals.grossProfit = null;
+  return totals;
 }
 
 /** Test-only: lower caps prove that the totals do not depend on them. */
@@ -315,29 +321,38 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           discounts: m.discounts,
           costOfSales: m.costOfSales,
           grossProfit: m.grossProfit,
-          margin: m.revenue ? (m.grossProfit / m.revenue) * 100 : 0,
+          margin: marginOf(m.grossProfit, m.knownCostRevenue),
+          unknownCostLines: m.unknownCostLines,
+          knownCostRevenue: m.knownCostRevenue,
         }));
       } else {
         const dim =
           group === 'category' ? sql`coalesce(nullif(btrim(si.category_name), ''), si.category_name_ar)` : group === 'karat' ? sql`(si.karat || 'K')` : group === 'cashier' ? sql`u.full_name` : sql`to_char(s.created_at AT TIME ZONE ${company.timezone},'YYYY-MM-DD')`;
         const r = await ctx.db.execute(sql`
           SELECT ${dim} AS label, ${group === 'category' ? sql`si.category_name_ar` : sql`NULL`} AS label_ar, count(DISTINCT s.id) AS sales_count, coalesce(sum(si.final_price),0) AS revenue,
-                 coalesce(sum(si.discount),0) AS discounts, coalesce(sum(si.unit_cost),0) AS cost
+                 coalesce(sum(si.discount),0) AS discounts, coalesce(sum(si.unit_cost),0) AS cost,
+                 sum(si.profit) AS profit, count(*) FILTER (WHERE si.unit_cost IS NULL) AS unknown_lines,
+                 coalesce(sum(si.final_price) FILTER (WHERE si.unit_cost IS NOT NULL),0) AS known_revenue
           FROM sale_items si JOIN sales s ON s.id = si.sale_id
           JOIN users u ON u.id = s.cashier_id
           WHERE s.status = 'COMPLETED' AND s.created_at >= ${iso(period.start)} AND s.created_at < ${iso(period.end)}
           ${scope != null ? sql`AND s.branch_id = ${scope}` : sql``}
           GROUP BY ${group === 'category' ? sql`si.category_name, si.category_name_ar` : sql`1`} ORDER BY 1`);
         rowsAll = rows<Record<string, unknown>>(r).map((x) => {
-          const revenue = num(x.revenue);
-          const cost = num(x.cost);
+          // OPN-1 (§6): profit and margin over the lines of known cost; NULL ("—") when a group has none.
+          const grossProfit = x.profit == null ? null : num(x.profit);
+          const knownCostRevenue = num(x.known_revenue);
           // CAT-1: types group by the names snapshotted on the sale line (a rename never moves a past sale); labelAr is
           // the Arabic companion.
-          return { label: String(x.label), ...(group === 'category' ? { labelAr: String(x.label_ar) } : {}), salesCount: num(x.sales_count), revenue, discounts: num(x.discounts), costOfSales: cost, grossProfit: revenue - cost, margin: revenue ? ((revenue - cost) / revenue) * 100 : 0 };
+          return { label: String(x.label), ...(group === 'category' ? { labelAr: String(x.label_ar) } : {}), salesCount: num(x.sales_count), revenue: num(x.revenue), discounts: num(x.discounts), costOfSales: num(x.cost), grossProfit, margin: marginOf(grossProfit, knownCostRevenue), unknownCostLines: num(x.unknown_lines), knownCostRevenue };
         });
       }
-      const totals = totalsOf(rowsAll, ['salesCount', 'revenue', 'discounts', 'costOfSales', 'grossProfit']);
-      totals.margin = totals.revenue ? (totals.grossProfit / totals.revenue) * 100 : 0;
+      const totals: Record<string, number | null> = totalsOf(rowsAll, ['salesCount', 'revenue', 'discounts', 'costOfSales', 'grossProfit', 'unknownCostLines', 'knownCostRevenue']);
+      profitNullable(rowsAll, totals);
+      totals.margin = marginOf(totals.grossProfit, totals.knownCostRevenue!);
+      // The margin's base stays internal: the screen shows the count of lines left out.
+      delete totals.knownCostRevenue;
+      for (const r of rowsAll) delete r.knownCostRevenue;
       return {
         key: 'profit',
         title: 'Profit Report',
@@ -350,11 +365,13 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('costOfSales', 'Cost of sales', 'money'),
           c('grossProfit', 'Gross profit', 'money'),
           c('margin', 'Margin', 'percent'),
+          c('unknownCostLines', 'Lines of unknown cost', 'number'),
         ],
         rows: rowsAll,
         totals,
         notes: [
           'Item cost = purchase cost + making cost + other cost (components kept separately; definition configurable with the client).',
+          'Pieces of unknown cost (opening balance) are left out of cost, gross profit and margin; their lines are counted.',
         ],
         filters: { dateRange: true, branch: true, user: false },
       };
@@ -364,7 +381,7 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
       const branches = await ctx.db.select().from(t.branches);
       const bn = new Map(branches.map((b) => [b.id, b.name]));
       const profit = can(actor, 'profit.view');
-      const rowsAll = [...metrics.values()].map((m) => ({ ...m, branchName: bn.get(m.branchId) }));
+      const rowsAll = [...metrics.values()].map(({ knownCostRevenue: _k, ...m }) => ({ ...m, branchName: bn.get(m.branchId) }));
       return {
         key: 'branch-performance',
         title: 'Branch Performance',
@@ -374,11 +391,14 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('salesCount', 'Sales #', 'number'),
           c('revenue', 'Sales', 'money'),
           c('purchasesCost', 'Purchases', 'money'),
-          ...(profit ? [c('grossProfit', 'Gross profit', 'money'), c('inventoryCost', 'Inventory value', 'money')] : []),
+          ...(profit
+            ? [c('grossProfit', 'Gross profit', 'money'), c('unknownCostLines', 'Lines of unknown cost', 'number'), c('inventoryCost', 'Inventory value', 'money'), c('unknownCostPieces', 'Pieces of unknown cost', 'number')]
+            : []),
           c('availableItems', 'Available items', 'number'),
         ],
         rows: rowsAll,
-        totals: totalsOf(rowsAll, ['salesCount', 'revenue', 'purchasesCost', 'grossProfit', 'inventoryCost', 'availableItems']),
+        totals: profitNullable(rowsAll, totalsOf(rowsAll, ['salesCount', 'revenue', 'purchasesCost', 'grossProfit', 'unknownCostLines', 'inventoryCost', 'unknownCostPieces', 'availableItems'])),
+        ...(profit ? { notes: ['Gross profit and inventory value leave out the pieces of unknown cost (opening balance); they are counted.'] } : {}),
         filters: { dateRange: true, branch: true, user: false },
       };
     }

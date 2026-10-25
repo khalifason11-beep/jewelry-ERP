@@ -109,7 +109,7 @@ describe('a piece\'s making cost correction (option B), for random orders and co
             model[i] = c.value;
             expect(itemAfter.acquisitionCost).toBe(600_000 + c.value + 10_000);
             // (d) the stock value moves by new − old for a piece in stock; count and weight stay.
-            expect(stockAfter).toEqual({ items: stockBefore.items, weightMg: stockBefore.weightMg, cost: stockBefore.cost - itemBefore.acquisitionCost! + itemAfter.acquisitionCost! });
+            expect(stockAfter).toEqual({ items: stockBefore.items, weightMg: stockBefore.weightMg, cost: stockBefore.cost - itemBefore.acquisitionCost! + itemAfter.acquisitionCost!, unknownCostPieces: stockBefore.unknownCostPieces });
           } else {
             expect(itemAfter).toEqual(itemBefore);
             expect(stockAfter).toEqual(stockBefore);

@@ -121,6 +121,8 @@ export async function itemsReportAggregates(ctx: Ctx, actor: Actor, s: Omit<Item
       netWeightMg: sumOf(t.jewelryItems.netWeightMg),
       purchaseCost: sumOf(sql`coalesce(${t.purchaseItems.purchaseCost}, ${t.jewelryItems.acquisitionCost})`),
       totalCost: sumOf(t.jewelryItems.acquisitionCost),
+      // OPN-1: the cost sums cover the pieces of known cost; this counts the others.
+      unknownCostPieces: sql<number>`count(*) filter (where ${t.jewelryItems.acquisitionCost} is null)`.mapWith(Number),
       // PRC-1: the live price (a piece without a rate adds nothing; it shows "no rate" on its row).
       sellingPrice: sumOf(livePriceSql(p)),
     })
@@ -131,7 +133,7 @@ export async function itemsReportAggregates(ctx: Ctx, actor: Actor, s: Omit<Item
     .leftJoin(t.purchaseItems, eq(t.purchaseItems.itemId, t.jewelryItems.id))
     .where(where.length ? and(...where) : undefined);
   const totals: Record<string, number> = can(actor, 'profit.view')
-    ? { netWeightMg: r.netWeightMg, purchaseCost: r.purchaseCost, totalCost: r.totalCost, sellingPrice: r.sellingPrice }
+    ? { netWeightMg: r.netWeightMg, purchaseCost: r.purchaseCost, totalCost: r.totalCost, unknownCostPieces: r.unknownCostPieces, sellingPrice: r.sellingPrice }
     : { netWeightMg: r.netWeightMg, sellingPrice: r.sellingPrice };
   return { rowCount: r.n, totals };
 }
@@ -167,7 +169,13 @@ export async function pageItems(ctx: Ctx, actor: Actor, s: Omit<ItemSearch, 'sor
       (await itemQuery(ctx.db, p).where(w).orderBy(...orderBy).limit(limit).offset(offset)).map((r) => redactCosts(actor, r)),
     totals: opts.withTotals === false ? undefined : async (w) => {
       const [s] = await ctx.db
-        .select({ netWeightMg: sumOf(t.jewelryItems.netWeightMg), sellingPrice: sumOf(livePriceSql(p)), totalCost: sumOf(t.jewelryItems.acquisitionCost) })
+        .select({
+          netWeightMg: sumOf(t.jewelryItems.netWeightMg),
+          sellingPrice: sumOf(livePriceSql(p)),
+          totalCost: sumOf(t.jewelryItems.acquisitionCost),
+          // OPN-1: pieces of unknown cost, left out of the cost total.
+          unknownCostPieces: sql<number>`count(*) filter (where ${t.jewelryItems.acquisitionCost} is null)`.mapWith(Number),
+        })
         .from(t.jewelryItems)
         .leftJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
         .innerJoin(t.categories, eq(t.categories.id, t.jewelryItems.categoryId))
