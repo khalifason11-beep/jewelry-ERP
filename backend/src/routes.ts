@@ -497,6 +497,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           categoryId: zOptId,
           status: zStatusList,
           origin: z.enum(ITEM_ORIGINS).optional(),
+          // OPN-2: the rate that prices the piece (new or used), e.g. the used opening pieces.
+          rateKind: z.enum(GOLD_RATE_KINDS).optional(),
           minWeightMg: z.coerce.number().int().min(0).max(MAX_WEIGHT_MG).optional(),
           maxWeightMg: z.coerce.number().int().min(0).max(MAX_WEIGHT_MG).optional(),
           targetWeightMg: z.coerce.number().int().min(0).max(MAX_WEIGHT_MG).optional(),

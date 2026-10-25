@@ -161,6 +161,21 @@ async function seal(page, gm, cashierApi, world, id) {
   const rates = await gm.must('GET', '/gold-rates');
   const used = items.filter((i) => i.rateKind === 'USED');
   check(used.length === 1 && used[0].netWeightMg === 5_500 && used[0].pricePerGram === rates.used['21'].pricePerGram && items.filter((i) => i.rateKind === 'NEW').every((i) => i.pricePerGram === rates.current['21'].pricePerGram), 'the used piece is priced at the used-piece rate, the new ones at the new-piece rate');
+  // OPN-2 in the inventory: the used opening piece carries a "Used" badge, the new/used filter finds it, and its page
+  // names the rate that prices it.
+  await page.goto(`${BASE}/inventory`);
+  const invRows = () => page.locator('table tbody tr');
+  await page.selectOption('select[aria-label="المصدر"]', 'OPENING');
+  await page.selectOption('[data-testid=filter-rate-kind]', 'USED');
+  check(await eventually(async () => (await page.getByTestId(`used-badge-${used[0].id}`).count()) === 1 && (await invRows().count()) === 1), 'the new/used filter shows the used opening piece, with its "Used" badge');
+  await page.selectOption('[data-testid=filter-rate-kind]', 'NEW');
+  check(await eventually(async () => (await page.getByTestId(`used-badge-${used[0].id}`).count()) === 0 && (await invRows().count()) === 2), 'the "new" filter shows the 2 new opening pieces and leaves it out');
+  await shot(page, 'inventory-used-filter');
+  await page.goto(`${BASE}/inventory/${used[0].id}`);
+  check(await eventually(async () => (await page.getByTestId('item-rate-kind').innerText().catch(() => '')).includes('المستعمل')), 'the used piece’s page says it is priced at the used-piece rate');
+  const newOne = items.find((i) => i.rateKind === 'NEW');
+  await page.goto(`${BASE}/inventory/${newOne.id}`);
+  check(await eventually(async () => (await page.getByTestId('item-rate-kind').innerText().catch(() => '')).includes('الجديد')), 'a new piece’s page says it is priced at the new-piece rate');
   await page.goto(`${BASE}/inventory/${items[0].id}`);
   check(await eventually(async () => (await page.getByTestId('item-cost-unknown').count()) === 1), 'the piece says "Cost: unknown (opening balance)"');
 

@@ -38,6 +38,8 @@ export interface ItemRow {
   pricePerGram?: number | null;
   /** OPENING, SUPPLIER_NEW (new from a supplier) or SCRAP (sellable piece bought from a customer). */
   origin: 'OPENING' | 'SUPPLIER_NEW' | 'SCRAP';
+  /** OPN-2: the rate that prices it: scrap USED, a supplier piece NEW, an opening piece its line's condition. */
+  rateKind: 'NEW' | 'USED';
   branchId: number;
   branchCode: string;
   branchName: string;

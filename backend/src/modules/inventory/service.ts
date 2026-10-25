@@ -1,7 +1,7 @@
 import { ap } from '@jerp/shared';
 import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import type { ItemOrigin, ItemStatus } from '@jerp/shared';
+import type { GoldRateKind, ItemOrigin, ItemStatus } from '@jerp/shared';
 import { assertSellableKarat } from '../../core/karats';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requireAny, requirePerm } from '../../authz';
@@ -32,6 +32,8 @@ export interface ItemSearch {
   maxWeightMg?: number;
   /** New (supplier) or sellable scrap; omitted = both (Phase 4). */
   origin?: ItemOrigin;
+  /** OPN-2: new or used (the rate that prices the piece); omitted = both. */
+  rateKind?: GoldRateKind;
   sort?: 'code' | 'weight' | 'price' | 'recent' | 'closest';
   targetWeightMg?: number;
   limit?: number;
@@ -55,6 +57,7 @@ function itemsWhere(actor: Actor, s: Omit<ItemSearch, 'sort' | 'limit' | 'offset
   if (s.minWeightMg) where.push(sql`${t.jewelryItems.netWeightMg} >= ${s.minWeightMg}`);
   if (s.maxWeightMg) where.push(sql`${t.jewelryItems.netWeightMg} <= ${s.maxWeightMg}`);
   if (s.origin) where.push(eq(t.jewelryItems.origin, s.origin));
+  if (s.rateKind) where.push(eq(t.jewelryItems.rateKind, s.rateKind));
   if (s.q?.trim()) {
     const q = `%${s.q.trim()}%`;
     where.push(

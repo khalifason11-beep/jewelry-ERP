@@ -264,6 +264,18 @@ describe('sealing needs the rate of every karat and condition; the pieces are pr
     expect(resorted.find((r) => r.id === usedPiece.id)?.sellingPrice).toBe(await expected('USED'));
   });
 
+  it('the inventory list filters new or used (the rate kind), alone or with the origin; another value → 400', async () => {
+    const ids = (await pieces()).map((p) => p.item);
+    const list = async (query: object) => ((await gmHttp.get('/api/inventory/items').query({ branchId: bhr, pageSize: 200, ...query })).body.rows as Row[]);
+    const usedOpening = await list({ origin: 'OPENING', rateKind: 'USED' });
+    expect(usedOpening.map((r) => r.id).sort()).toEqual(ids.filter((p) => p.rateKind === 'USED').map((p) => p.id).sort());
+    expect((await list({ origin: 'OPENING', rateKind: 'NEW' })).every((r) => r.origin === 'OPENING' && r.rateKind === 'NEW')).toBe(true);
+    const used = await list({ rateKind: 'USED' });
+    expect(usedOpening.every((u) => used.some((r) => r.id === u.id))).toBe(true); // with any sellable scrap of the branch
+    expect(used.every((r) => r.rateKind === 'USED' && (r.origin === 'SCRAP' || r.origin === 'OPENING'))).toBe(true);
+    expect((await gmHttp.get('/api/inventory/items').query({ rateKind: 'OLD' })).status).toBe(400);
+  });
+
   it('a used opening piece sells at the used rate, with an unknown cost and profit', async () => {
     const usedPiece = (await pieces())[1].item;
     const usedRate = (await rate(k, 'USED'))!;

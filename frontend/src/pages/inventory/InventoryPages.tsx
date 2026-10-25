@@ -12,7 +12,7 @@ import { noteText } from '../../lib/audit';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import type { ItemRow } from '../../lib/types';
-import { Button, Card, CardHeader, DetailPending, Dialog, Field, Input, ItemThumb, KeyValue, MoneyInput, Mono, PageHeader, Select, StatusBadge, Textarea } from '../../components/ui';
+import { Badge, Button, Card, CardHeader, DetailPending, Dialog, Field, Input, ItemThumb, KeyValue, MoneyInput, Mono, PageHeader, Select, StatusBadge, Textarea } from '../../components/ui';
 import { useServerList } from '../../lib/paging';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect } from '../../components/Filters';
@@ -29,6 +29,7 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
   const [karat, setKarat] = useState<number | ''>('');
   const [category, setCategory] = useState('');
   const [origin, setOrigin] = useState('');
+  const [rateKind, setRateKind] = useState('');
   const [q, setQ] = useState('');
   const dq = useDebounced(q);
   const categories = useCategories();
@@ -36,18 +37,19 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
   const { query, rows, totals, server } = useServerList<ItemRow>(
     'inventory',
     '/inventory/items',
-    { branchId, status, karat, categoryId: category || undefined, origin: origin || undefined, q: dq || undefined },
+    { branchId, status, karat, categoryId: category || undefined, origin: origin || undefined, rateKind: rateKind || undefined, q: dq || undefined },
     { sortKeys: ITEM_SORT_KEYS },
   );
   const sum = (k: string) => totals?.[k] ?? 0;
   const cost = can('profit.view');
   // UI-A2: an error is shown as an error (never as "no items"), and "nothing in stock" differs from "filters hide it".
-  const filtered = !!(karat || category || origin || dq || status !== initialStatus);
+  const filtered = !!(karat || category || origin || rateKind || dq || status !== initialStatus);
   const clearFilters = () => {
     setStatus(initialStatus);
     setKarat('');
     setCategory('');
     setOrigin('');
+    setRateKind('');
     setQ('');
   };
   return (
@@ -91,6 +93,12 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
             <option value="SCRAP">{t('Scrap')}</option>
             <option value="OPENING">{t('Opening balance')}</option>
           </Select>
+          {/* OPN-2: new or used, i.e. the rate that prices the piece (with Origin = opening: the opening pieces by condition). */}
+          <Select value={rateKind} onChange={(e) => setRateKind(e.target.value)} className="h-8 w-36 text-[13px]" aria-label={t('New or used')} data-testid="filter-rate-kind">
+            <option value="">{t('New and used')}</option>
+            <option value="NEW">{t('New pieces')}</option>
+            <option value="USED">{t('Used pieces')}</option>
+          </Select>
         </>
       }
       columns={[
@@ -99,7 +107,20 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
         { key: 'productName', header: t('Product'), value: (r) => r.productName, render: (r) => L(r.productName, r.productNameAr) },
         { key: 'categoryName', header: t('Category'), render: (r) => L(r.categoryName, r.categoryNameAr) },
         { key: 'karat', header: t('Karat'), align: 'end', render: (r) => karatLabel(r.karat) },
-        { key: 'origin', header: t('Origin'), value: (r) => t(r.origin), render: (r) => t(r.origin) },
+        {
+          key: 'origin',
+          header: t('Origin'),
+          value: (r) => t(r.origin),
+          // OPN-2: a used opening piece says so (sellable scrap already reads "Scrap"); it sells at the used-piece rate.
+          render: (r) =>
+            r.origin === 'OPENING' && r.rateKind === 'USED' ? (
+              <span className="inline-flex items-center gap-1.5">
+                {t(r.origin)} <span data-testid={`used-badge-${r.id}`}><Badge tone="warn">{t('Used')}</Badge></span>
+              </span>
+            ) : (
+              t(r.origin)
+            ),
+        },
         { key: 'netWeightMg', header: t('Net weight'), align: 'end', render: (r) => <span className="num">{grams(r.netWeightMg)}</span>, footer: grams(sum('netWeightMg')) },
         ...(cost
           ? [
@@ -238,6 +259,10 @@ export function ItemDetailPage() {
                 { label: t('Net weight'), value: grams(i.netWeightMg) },
                 { label: t('Selling price'), value: i.sellingPrice == null ? <NoRate /> : money(i.sellingPrice) },
                 ...(i.pricePerGram != null ? [{ label: t('Price per gram'), value: money(i.pricePerGram) }] : []),
+                // OPN-2: which selling rate prices the piece (computed prices).
+                ...(me?.pricingMode === 'RATE_COMPUTED'
+                  ? [{ label: t('Priced at'), value: <span data-testid="item-rate-kind">{i.rateKind === 'USED' ? t('the used-piece rate') : t('the new-piece rate')}</span> }]
+                  : []),
                 { label: t('Received'), value: dateTime(i.createdAt, lang) },
               ]}
             />
