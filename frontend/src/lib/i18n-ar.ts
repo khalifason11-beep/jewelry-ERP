@@ -1160,6 +1160,15 @@ export const AR: Record<string, string> = {
   "Paid from": "مدفوع من",
   "Record count": "تسجيل الجرد",
   "Sales by payment method": "المبيعات حسب طريقة الدفع",
+  // PAY-1: Hasad is a sales channel only; its money is paid to the General Manager's account.
+  "Hasad versus direct sales": "مبيعات حصاد مقابل المبيعات المباشرة",
+  "Direct sales (cash and bank)": "المبيعات المباشرة (نقداً وبنكياً)",
+  "Hasad (paid to the General Manager's account)": "حصاد (يُدفع إلى حساب المدير العام)",
+  "Cancelled Hasad sales": "مبيعات حصاد الملغاة",
+  "All sales of the day": "كل مبيعات اليوم",
+  "Hasad money is not in this branch: it never counts in the expected cash or the bank.": "أموال حصاد ليست في هذا الفرع: لا تُحسب أبداً في النقد المتوقع ولا في البنك.",
+  "Payment lines": "تفاصيل الدفع",
+  "Sales paid by two methods": "مبيعات مدفوعة بطريقتين",
   "CASH_COUNTED": "جرد النقدية",
   "cash_count": "جرد نقدية",
 

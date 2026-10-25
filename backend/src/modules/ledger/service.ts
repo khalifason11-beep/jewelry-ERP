@@ -357,14 +357,33 @@ export async function reconciliation(ctx: Ctx, actor: Actor, q: { branchId?: num
     })
     .sort((a, z) => (a.at?.getTime() ?? 0) - (z.at?.getTime() ?? 0));
   const countedBy = count ? (await ctx.db.select({ name: t.users.fullName }).from(t.users).where(eq(t.users.id, count.countedBy)))[0]?.name ?? null : null;
+  // PAY-1 (D-dec1-5): Hasad money is paid to the General Manager's account, never the branch's. The day's Hasad figures
+  // come from the sales' HASAD payment lines (sales made that day; sales voided that day), never from a branch account,
+  // so the expected cash, the bank and the branch's sales total never include them.
+  const hasadLines = async (on: 'created' | 'voided') => {
+    const at = on === 'created' ? t.sales.createdAt : t.sales.voidedAt;
+    const [r] = await ctx.db
+      .select({ amount: sql<string | number>`coalesce(sum(${t.salePayments.amount}), 0)::bigint` })
+      .from(t.salePayments)
+      .innerJoin(t.sales, eq(t.sales.id, t.salePayments.saleId))
+      .where(and(eq(t.sales.branchId, branchId), eq(t.salePayments.method, 'HASAD'), gte(at, start), lt(at, end), ...(on === 'voided' ? [eq(t.sales.status, 'VOIDED')] : [])));
+    return Number(r.amount);
+  };
+  const hasadSales = await hasadLines('created');
+  const hasadVoids = -(await hasadLines('voided'));
+  const branchMoney = (e: (typeof entries)[number]) => e.kind === 'CASH' || e.kind === 'BANK';
   return {
     branchId,
     day,
     openingCash,
-    salesByMethod: methods.map((m) => ({ paymentMethod: m, amount: sum((e) => e.type === 'SALE' && e.paymentMethod === m) })),
-    salesTotal: sum((e) => e.type === 'SALE'),
-    voidsByMethod: methods.map((m) => ({ paymentMethod: m, amount: sum((e) => e.type === 'SALE_VOID' && e.paymentMethod === m) })),
-    voidsTotal: sum((e) => e.type === 'SALE_VOID'),
+    // The branch's money per method from its own accounts; the HASAD row from the payment lines (informational).
+    salesByMethod: methods.map((m) => ({ paymentMethod: m, amount: m === 'HASAD' ? hasadSales : sum((e) => e.type === 'SALE' && e.paymentMethod === m && branchMoney(e)) })),
+    // PAY-1: the branch's sales and refunds only (cash and bank); Hasad is reported beside them.
+    salesTotal: sum((e) => e.type === 'SALE' && branchMoney(e)),
+    voidsByMethod: methods.map((m) => ({ paymentMethod: m, amount: m === 'HASAD' ? hasadVoids : sum((e) => e.type === 'SALE_VOID' && e.paymentMethod === m && branchMoney(e)) })),
+    voidsTotal: sum((e) => e.type === 'SALE_VOID' && branchMoney(e)),
+    hasadSales,
+    hasadVoids,
     // Hasad's bank transfers received this day (receivable → bank; never the drawer).
     hasadReceivableToBank: sum((e) => e.type === 'HASAD_RECEIVABLE_SETTLEMENT' && e.kind === 'BANK'),
     // Phase 4: scrap bought from customers, paid out at once (MKC-1: supplier making charges no longer touch branch money).

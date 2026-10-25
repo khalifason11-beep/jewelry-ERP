@@ -35,9 +35,13 @@ interface Reconciliation {
   day: string;
   openingCash: number;
   salesByMethod: ByMethod[];
+  /** PAY-1: the branch's money only (cash and bank); Hasad is reported beside it. */
   salesTotal: number;
   voidsByMethod: ByMethod[];
   voidsTotal: number;
+  /** PAY-1: the day's Hasad payment lines (money paid to the General Manager's account, never the branch's). */
+  hasadSales: number;
+  hasadVoids: number;
   hasadReceivableToBank: number;
   scrapPurchasesCash: number;
   scrapPurchasesBank: number;
@@ -174,10 +178,23 @@ function ReconciliationView({ r, canCount }: { r: Reconciliation; canCount: bool
           <h3 className="mb-2 text-[13px] font-semibold text-ink-700">{t('Sales by payment method')}</h3>
           <KeyValue
             items={[
-              ...r.salesByMethod.map((m) => ({ label: humanize(m.paymentMethod), value: <span className="num">{money(m.amount, false)}</span> })),
+              // PAY-1: the branch's money only; the Hasad part of a sale is paid to the General Manager's account.
+              ...r.salesByMethod.filter((m) => m.paymentMethod !== 'HASAD').map((m) => ({ label: humanize(m.paymentMethod), value: <span className="num">{money(m.amount, false)}</span> })),
               { label: t('Cancelled sales (refunds)'), value: <span className="num">{signed(r.voidsTotal)}</span> },
             ]}
           />
+          <h3 className="mb-2 mt-5 text-[13px] font-semibold text-ink-700">{t('Hasad versus direct sales')}</h3>
+          <div data-testid="hasad-vs-direct">
+            <KeyValue
+              items={[
+                { label: t('Direct sales (cash and bank)'), value: <span className="num" data-testid="direct-sales">{money(r.salesTotal, false)}</span> },
+                { label: t('Hasad (paid to the General Manager\'s account)'), value: <span className="num" data-testid="hasad-sales">{money(r.hasadSales, false)}</span> },
+                ...(r.hasadVoids ? [{ label: t('Cancelled Hasad sales'), value: <span className="num">{signed(r.hasadVoids)}</span> }] : []),
+                { label: <strong>{t('All sales of the day')}</strong>, value: <strong className="num">{money(r.salesTotal + r.hasadSales, false)}</strong> },
+              ]}
+            />
+            <p className="mt-2 text-[12px] text-ink-500">{t('Hasad money is not in this branch: it never counts in the expected cash or the bank.')}</p>
+          </div>
         </div>
         <div className="grid gap-5">
           <LinesView title={t('Drawer (cash) movements')} lines={r.cashLines} total={r.cashMovement} testId="cash-lines" />

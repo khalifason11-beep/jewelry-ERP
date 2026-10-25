@@ -465,6 +465,10 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   answers with `payments`; `paymentMethod` may now read `SPLIT`.
 - error code: `PAYMENT_TOTAL_MISMATCH` (422): the payment lines do not add up to the sale's total; the answer names
   the sum and the total.
+- `GET /api/cash/reconciliation`: `salesTotal` / `voidsTotal` now count the branch's money only (cash and bank);
+  new `hasadSales` / `hasadVoids` (the day's Hasad payment lines, paid to the General Manager's account). The sales
+  report's summary is computed from the payment lines and adds "Direct sales (cash and bank)", "Hasad (paid to the
+  General Manager's account)" and "Sales paid by two methods"; its rows and CSV gain "Payment lines".
 
 ### Stop and recreate is a pre-production rule only
 

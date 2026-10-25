@@ -5,10 +5,14 @@
       "shared/src/enums.ts",
       "shared/src/settings.ts",
       "frontend/src/pages/pos/PosPage.tsx",
-      "backend/src/modules/ledger/service.ts"
+      "backend/src/modules/ledger/service.ts",
+      "backend/src/modules/reports/service.ts",
+      "shared/src/field-classification.ts",
+      "frontend/src/pages/cash/CashPage.tsx",
+      "frontend/src/lib/i18n-ar.ts"
     ],
-    "match": "'HASAD'|\\bHASAD: |HASAD = the customer paid through the Hasad app|The counter takes cash, bank transfer and Hasad",
-    "reason": "HASAD is a payment method: the enum, its account mapping, the counter's default methods and the POS icon."
+    "match": "'HASAD'|\\bHASAD: |HASAD = the customer paid through the Hasad app|The counter takes cash, bank transfer and Hasad|hasadLines|hasadSales|hasadVoids|Hasad versus direct|Hasad \\(paid to the General Manager|Cancelled Hasad sales|Hasad money is not in this branch|Hasad is a sales channel only|Hasad money is paid to the General Manager|the day's Hasad|Hasad figures|HASAD payment lines|HASAD row|Hasad is reported beside|Hasad part of a sale|const hasad = byChannel|m !== 'HASAD'|paymentMethod !== 'HASAD'|hasad-vs-direct",
+    "reason": "HASAD is a payment method: the enum, its account mapping, the counter's default methods and the POS icon. PAY-1: Hasad as a sales channel in the reports and the reconciliation (Hasad versus direct sales, money paid to the General Manager's account)."
   },
   {
     "category": "PAYMENT_METHOD",

@@ -242,7 +242,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     inTransit goldOwed salesLine lastCount orders fullNameAr
     page pages sort dir asOfId
     rowCount rowCap truncated
-    payments refInvoice refTransaction
+    payments refInvoice refTransaction hasadSales hasadVoids
   `),
 );
 

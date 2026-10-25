@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { sql } from 'drizzle-orm';
 import type { DatabaseHandle } from '@jerp/database';
-import { fetchAllPages, type Page } from '@jerp/shared';
+import { fetchAllPages, PAYMENT_METHODS, type Page } from '@jerp/shared';
 import { createApp } from '../src/app';
 import { createContext } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
@@ -117,7 +117,8 @@ describe('more rows than the cap: true count, true totals, every row in the CSV'
       if (who === 'GM') expect(r.totals).toMatchObject({ costTotal: Number(expected.cost), grossProfit: Number(expected.total) - Number(expected.cost) });
       else expect(Object.keys(r.totals!).filter((k) => /cost|profit/i.test(k))).toEqual([]);
       // Sales by channel add up to the total, from every sale.
-      expect(r.summary!.reduce((s, x) => s + x.value, 0)).toBe(Number(expected.total));
+      // PAY-1: the payment-method tiles add up to the total (the Hasad / direct tiles and the split count are extra).
+      expect(r.summary!.filter((x) => PAYMENT_METHODS.includes(x.label as never)).reduce((s, x) => s + x.value, 0)).toBe(Number(expected.total));
       const csv = await csvRows(who, 'sales');
       expect(csv.length).toBe(r.rowCount);
       expect(new Set(csv.map((x) => x.saleId)).size).toBe(csv.length);

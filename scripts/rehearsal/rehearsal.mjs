@@ -1188,6 +1188,40 @@ async function main() {
         'the reconciliation counts the cash part in the drawer and the transfer part on the bank, each once',
       );
     }
+
+    section('PAY-1: Hasad is a sales channel only: the branch never expects Hasad money');
+    {
+      const digits = (x) => Number(String(x).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[^0-9]/g, ''));
+      const [p] = (await apiGet(page, '/api/inventory/items?status=AVAILABLE&pageSize=1')).body.rows;
+      const total = p.sellingPrice;
+      const cashPart = Math.floor(total / 4);
+      const before = (await apiGet(page, '/api/cash/reconciliation')).body;
+      const sale = await apiSend(page, 'POST', '/api/sales', { items: [{ itemId: p.id, listPrice: total }], payments: [{ method: 'HASAD', amount: total - cashPart, refInvoice: 'HSD-REH-1' }, { method: 'CASH', amount: cashPart }] });
+      check(sale.status === 200 && sale.body.paymentMethod === 'SPLIT' && sale.body.payments[0].refInvoice === 'HSD-REH-1', `Hasad ${total - cashPart} + cash ${cashPart}: sale ${sale.body?.number} recorded with the Hasad invoice number on its Hasad line`);
+      const after = (await apiGet(page, '/api/cash/reconciliation')).body;
+      check(
+        after.expectedCash - before.expectedCash === cashPart && after.salesTotal - before.salesTotal === cashPart && after.bankMovement === before.bankMovement && after.hasadSales - before.hasadSales === total - cashPart,
+        'the expected cash and the branch sales move by the cash part only; the bank does not move; the Hasad part is reported beside them',
+      );
+      await page.goto(`${origin}/cash`);
+      await page.getByTestId('hasad-vs-direct').waitFor({ timeout: 15_000 });
+      check(
+        digits(await page.getByTestId('hasad-sales').innerText()) === after.hasadSales && digits(await page.getByTestId('direct-sales').innerText()) === after.salesTotal,
+        `Cash: "Hasad versus direct sales" shows the day's Hasad sales (${after.hasadSales}) beside the direct sales (${after.salesTotal})`,
+      );
+      const today = after.day;
+      const rep = (await apiGet(page, `/api/reports/sales?from=${today}&to=${today}`)).body;
+      const tile = (label) => rep.summary.find((x) => x.label === label)?.value ?? 0;
+      check(
+        ['CASH', 'BANK_TRANSFER', 'HASAD'].reduce((a, m) => a + tile(m), 0) === rep.totals.total && tile('Direct sales (cash and bank)') + tile("Hasad (paid to the General Manager's account)") === rep.totals.total && tile('Sales paid by two methods') >= 2,
+        'the sales report: the channels (from the payment lines) add up to the total, and so do Hasad + direct; the split sales are counted',
+      );
+      await page.goto(`${origin}/reports/sales`);
+      await page.getByTestId('report-summary').waitFor({ timeout: 15_000 });
+      const summaryText = await page.getByTestId('report-summary').innerText();
+      check(summaryText.includes('حصاد (يُدفع إلى حساب المدير العام)') && summaryText.includes('المبيعات المباشرة (نقداً وبنكياً)'), 'Reports › Sales shows "Hasad (paid to the General Manager\'s account)" and "Direct sales" tiles, in Arabic');
+      check((await page.getByTestId('report-payments').allInnerTexts()).some((x) => x.includes('HSD-REH-1') && x.includes('+')), 'each row shows its payment lines; the split sale lists both methods with the Hasad invoice number');
+    }
     await signOut(page);
     await signIn(page, origin, GM.username, GM.password);
     await page.getByTestId('second-step').waitFor();

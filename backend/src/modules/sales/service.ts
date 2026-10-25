@@ -428,13 +428,27 @@ export async function salesReportAggregates(ctx: Ctx, actor: Actor, q: SaleQuery
     .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
     .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
     .where(w);
-  const channels = await ctx.db
-    .select({ method: t.sales.paymentMethod, total: sumOf(t.sales.total), discountTotal: sumOf(t.sales.discountTotal), costTotal: sumOf(t.sales.costTotal) })
+  const [money] = await ctx.db
+    .select({
+      total: sumOf(t.sales.total),
+      discountTotal: sumOf(t.sales.discountTotal),
+      costTotal: sumOf(t.sales.costTotal),
+      splitCount: sql<number>`count(*) filter (where ${t.sales.paymentMethod} = 'SPLIT')`.mapWith(Number),
+    })
     .from(t.sales)
     .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
     .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+    .where(done);
+  // PAY-1: sales by channel from the payment LINES (a split sale counts each part under its own method), so the
+  // channels add up to the total exactly and no sale counts twice in the sale count above.
+  const channels = await ctx.db
+    .select({ method: t.salePayments.method, total: sumOf(t.salePayments.amount) })
+    .from(t.salePayments)
+    .innerJoin(t.sales, eq(t.sales.id, t.salePayments.saleId))
+    .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+    .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
     .where(done)
-    .groupBy(t.sales.paymentMethod);
+    .groupBy(t.salePayments.method);
   const [lines] = await ctx.db
     .select(saleLineTotals)
     .from(t.saleItems)
@@ -442,10 +456,9 @@ export async function salesReportAggregates(ctx: Ctx, actor: Actor, q: SaleQuery
     .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
     .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
     .where(done);
-  const sum = (k: 'total' | 'discountTotal' | 'costTotal') => channels.reduce((s, c) => s + c[k], 0);
-  const totals: Record<string, number | null> = { itemCount: lines.itemCount, weightMg: lines.weightMg, discountTotal: sum('discountTotal'), total: sum('total') };
-  if (can(actor, 'profit.view')) Object.assign(totals, profitTotals(sum('total'), sum('costTotal'), lines));
-  return { rowCount: n, totals, byChannel: new Map(channels.map((c) => [c.method, c.total])) };
+  const totals: Record<string, number | null> = { itemCount: lines.itemCount, weightMg: lines.weightMg, discountTotal: money.discountTotal, total: money.total };
+  if (can(actor, 'profit.view')) Object.assign(totals, profitTotals(money.total, money.costTotal, lines));
+  return { rowCount: n, totals, byChannel: new Map(channels.map((c) => [c.method, c.total])), splitCount: money.splitCount };
 }
 
 /** The lines of the completed sales behind a footer: counts, weight, and the revenue of the lines of unknown cost. */

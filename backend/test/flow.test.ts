@@ -169,7 +169,10 @@ describe('vertical slice: sale → dashboards → audit', () => {
     expect(Object.keys(channels)).toEqual(expect.arrayContaining(['CASH', 'BANK_TRANSFER', 'HASAD']));
     expect(channels.HASAD).toBeGreaterThanOrEqual(sale.body.total);
     const completed = report.rows.filter((r: { status: string }) => r.status === 'COMPLETED');
-    expect(Object.values(channels).reduce((a: number, b) => a + (b as number), 0)).toBe(completed.reduce((a: number, r: { total: number }) => a + r.total, 0));
+    // PAY-1: the method tiles (from the payment lines) add up to the completed sales; so do Hasad + direct.
+    const total = completed.reduce((a: number, r: { total: number }) => a + r.total, 0);
+    expect(['CASH', 'BANK_TRANSFER', 'CARD', 'MOBILE_WALLET', 'HASAD'].reduce((a, m) => a + (channels[m] ?? 0), 0)).toBe(total);
+    expect(channels['Direct sales (cash and bank)'] + channels["Hasad (paid to the General Manager's account)"]).toBe(total);
     // The withdrawal workspace, simulator and Hasad report are gone.
     for (const path of ['/api/hasad/withdrawals', '/api/hasad/withdrawals/1', '/api/hasad/simulator/customers', '/api/hasad/integration-log']) {
       expect((await gm.get(path)).status, path).toBe(404);
