@@ -111,6 +111,7 @@ export async function branchDashboard(ctx: Ctx, actor: Actor, q: { branchId?: nu
       // OPN-1: what the profit and the stock value leave out (pieces of unknown cost).
       unknownCostLines: showProfit ? m.unknownCostLines : null,
       unknownCostPieces: showProfit ? m.unknownCostPieces : null,
+      knownCostRevenue: showProfit ? m.knownCostRevenue : null,
     },
     mtd: {
       revenue: mtd.revenue,

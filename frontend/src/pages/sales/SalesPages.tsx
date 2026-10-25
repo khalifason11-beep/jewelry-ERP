@@ -33,7 +33,9 @@ export interface SaleRow {
   discountTotal: number;
   total: number;
   costTotal?: number;
-  grossProfit?: number;
+  /** OPN-1: lines of unknown cost (opening pieces) left out of cost and profit. */
+  unknownCostLines?: number;
+  grossProfit?: number | null;
   paymentMethod: string;
   /** FIX-2: the bank-transfer reference (Hasad: its transaction reference). */
   paymentRefTransaction?: string | null;
@@ -78,7 +80,24 @@ export function SalesTable({ branchId, from, to, mine, toolbar }: { branchId?: n
         ...(profit
           ? [
               { key: 'costTotal', header: t('Cost'), align: 'end' as const, render: (r: SaleRow) => <span className="num text-ink-600">{money(r.costTotal, false)}</span>, footer: money(sum('costTotal'), false) },
-              { key: 'grossProfit', header: t('Gross Profit'), align: 'end' as const, render: (r: SaleRow) => <span className="num text-emerald-700">{money(r.grossProfit, false)}</span>, footer: money(sum('grossProfit'), false) },
+              {
+                key: 'grossProfit',
+                header: t('Gross Profit'),
+                align: 'end' as const,
+                render: (r: SaleRow) => (
+                  <span className="num text-emerald-700" title={r.unknownCostLines ? t('{n} line(s) of unknown cost not counted', { n: r.unknownCostLines }) : undefined}>
+                    {money(r.grossProfit, false)}
+                    {!!r.unknownCostLines && <span className="ms-1 text-ink-3">*</span>}
+                  </span>
+                ),
+                // OPN-1: the profit of the lines of known cost; how many lines it leaves out (opening pieces).
+                footer: (
+                  <span data-testid="sales-footer-profit">
+                    {money(totals ? (totals.grossProfit ?? null) : 0, false)}
+                    {!!totals?.unknownCostLines && <span className="block text-[11.5px] font-normal text-ink-3">{t('{n} line(s) of unknown cost not counted', { n: totals.unknownCostLines })}</span>}
+                  </span>
+                ),
+              },
             ]
           : []),
         {
@@ -288,6 +307,9 @@ export function SaleDetailPage() {
                   ? [
                       { label: t('Cost of sale'), value: money(s.costTotal) },
                       { label: t('Gross Profit'), value: <span className="text-emerald-700">{money(s.grossProfit)} <span className="text-xs text-ink-500">({pct(margin)})</span></span> },
+                      ...(s.unknownCostLines
+                        ? [{ label: t('Lines of unknown cost'), value: <span data-testid="sale-unknown-cost">{t('{n} line(s) of unknown cost not counted', { n: s.unknownCostLines })}</span> }]
+                        : []),
                     ]
                   : []),
               ]}

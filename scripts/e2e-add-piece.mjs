@@ -74,7 +74,7 @@ async function supplierOrder(page, world, gm) {
   await shot(page, 'supplier-order-empty');
   await page.selectOption('[data-testid=purchase-branch]', String(world.branchId));
   await page.selectOption('[data-testid=purchase-supplier]', String(world.supplierId));
-  check((await page.getByTestId('purchase-missing').innerText()).includes('القطعة 1: اختر المنتج'), 'then it names the first piece and what it lacks');
+  check((await page.getByTestId('purchase-missing').innerText()).includes('القطعة 1: اختر النوع (أو منتجاً)'), 'then it names the first piece and what it lacks');
 
   // Inline create, keyboard only: type a new name, Enter on "Create …", fill the panel, confirm.
   await page.click('[data-testid=line-product-0]');

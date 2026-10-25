@@ -34,6 +34,10 @@ export interface BranchDash {
     availableItems: number;
     availableWeightMg: number;
     inventoryCost: number | null;
+    /** OPN-1 (General Manager only, else null): what the profit and the stock value leave out, and the margin's base. */
+    unknownCostLines: number | null;
+    unknownCostPieces: number | null;
+    knownCostRevenue: number | null;
   };
   stockWeight: StockWeight;
   mtd: { revenue: number; grossProfit: number | null; salesCount: number };
@@ -155,8 +159,20 @@ function Figures({ d, isToday }: { d: BranchDash; isToday: boolean }) {
     },
   ];
   // The General Manager's view of the branch adds profit and stock value (never sent to a branch manager).
-  if (k.grossProfit != null) figures.splice(1, 0, { testId: 'home-profit', label: t('Gross profit'), value: money(k.grossProfit, false), sub: t('Margin {pct}', { pct: pct(k.salesTotal ? (k.grossProfit / k.salesTotal) * 100 : 0) }) });
-  if (k.inventoryCost != null) figures.push({ testId: 'home-stock-value', label: t('Stock at cost'), value: money(k.inventoryCost, false), sub: t('{n} pcs', { n: num(k.availableItems) }) });
+  // OPN-1: profit and stock value cover the pieces of known cost; the counts left out are said beside them. A profit of
+  // NULL with the counts present means no sold line had a known cost ("—"), not a hidden figure.
+  if (k.unknownCostLines != null) {
+    const margin = k.grossProfit != null && k.knownCostRevenue ? (k.grossProfit / k.knownCostRevenue) * 100 : k.grossProfit != null ? 0 : null;
+    const sub = t('Margin {pct}', { pct: pct(margin) }) + (k.unknownCostLines ? ` · ${t('{n} line(s) of unknown cost not counted', { n: k.unknownCostLines })}` : '');
+    figures.splice(1, 0, { testId: 'home-profit', label: t('Gross profit'), value: money(k.grossProfit, false), sub });
+  }
+  if (k.inventoryCost != null)
+    figures.push({
+      testId: 'home-stock-value',
+      label: t('Stock at cost'),
+      value: money(k.inventoryCost, false),
+      sub: t('{n} pcs', { n: num(k.availableItems) }) + (k.unknownCostPieces ? ` · ${t('{n} piece(s) of unknown cost not counted', { n: k.unknownCostPieces })}` : ''),
+    });
   return (
     <section className={clsx('grid gap-4', figures.length > 3 ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,3fr)] 2xl:grid-cols-[minmax(0,1fr)_minmax(0,5fr)]' : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]')} aria-label={t('Key figures')}>
       <SalesCard

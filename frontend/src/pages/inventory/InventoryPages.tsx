@@ -86,9 +86,10 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
             {categories.data?.map((c) => <option key={c.id} value={c.id}>{L(c.name, c.nameAr)}</option>)}
           </Select>
           <Select value={origin} onChange={(e) => setOrigin(e.target.value)} className="h-8 w-32 text-[13px]" aria-label={t('Origin')}>
-            <option value="">{t('New and scrap')}</option>
+            <option value="">{t('All origins')}</option>
             <option value="SUPPLIER_NEW">{t('New')}</option>
             <option value="SCRAP">{t('Scrap')}</option>
+            <option value="OPENING">{t('Opening balance')}</option>
           </Select>
         </>
       }
@@ -103,7 +104,14 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
         ...(cost
           ? [
               { key: 'purchaseCost', header: t('Purchase cost'), align: 'end' as const, render: (r: ItemRow) => <span className="num text-ink-600">{money(r.purchaseCost, false)}</span> },
-              { key: 'totalCost', header: t('Total cost'), align: 'end' as const, render: (r: ItemRow) => <span className="num">{money(r.totalCost, false)}</span>, footer: money(sum('totalCost'), false) },
+              { key: 'totalCost', header: t('Total cost'), align: 'end' as const, render: (r: ItemRow) => <span className="num">{money(r.totalCost, false)}</span>,
+                footer: (
+                  <span data-testid="inventory-footer-cost">
+                    {money(sum('totalCost'), false)}
+                    {/* OPN-1: the cost total covers the pieces of known cost; the others are counted. */}
+                    {!!totals?.unknownCostPieces && <span className="block text-[11.5px] font-normal text-ink-3">{t('{n} piece(s) of unknown cost not counted', { n: totals.unknownCostPieces })}</span>}
+                  </span>
+                ) },
             ]
           : []),
         // PRC-1: the live price; a piece without a rate shows "No rate" (it cannot be sold), never 0.
@@ -234,6 +242,15 @@ export function ItemDetailPage() {
               ]}
             />
           </Card>
+          {/* OPN-1: an opening piece's cost is unknown (never 0): no cost and no expected profit, said in words. */}
+          {i.totalCost == null && can('profit.view') && i.origin === 'OPENING' && (
+            <div data-testid="item-cost-unknown">
+              <Card>
+                <div className="mb-1 text-[13px] font-semibold">{t('Cost & margin')}</div>
+                <p className="text-[13px] text-ink-600">{t('Cost: unknown (opening balance). Its sales count in revenue but not in profit.')}</p>
+              </Card>
+            </div>
+          )}
           {i.totalCost != null && (
             <Card>
               <div className="mb-3 text-[13px] font-semibold">{t('Cost & margin')}</div>

@@ -38,7 +38,7 @@ interface BranchRow {
 
 interface CompanyDash {
   period: { from: string; to: string };
-  totals: { revenue: number; grossProfit: number | null; knownCostRevenue?: number; inventoryCost: number; availableItems: number; availableWeightMg: number; salesCount: number };
+  totals: { revenue: number; grossProfit: number | null; knownCostRevenue?: number; unknownCostLines?: number; unknownCostPieces?: number; inventoryCost: number; availableItems: number; availableWeightMg: number; salesCount: number };
   branches: BranchRow[];
   stockWeight: StockWeight;
   inTransit: { items: number; weightMg: number };
@@ -185,7 +185,12 @@ function Figures({ d, isToday }: { d: CompanyDash; isToday: boolean }) {
       />
       <FigureSurface
         figures={[
-          { testId: 'home-profit', label: t('Gross profit'), value: money(T.grossProfit, false), sub: t('Margin {pct}', { pct: pct(margin) }) },
+          {
+            testId: 'home-profit',
+            label: t('Gross profit'),
+            value: money(T.grossProfit, false),
+            sub: t('Margin {pct}', { pct: pct(margin) }) + (T.unknownCostLines ? ` · ${t('{n} line(s) of unknown cost not counted', { n: T.unknownCostLines })}` : ''),
+          },
           {
             testId: 'home-gold',
             label: t('Gold held'),

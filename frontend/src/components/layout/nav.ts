@@ -27,6 +27,7 @@ export type NavIcon =
   | 'sessions'
   | 'audit'
   | 'prices'
+  | 'opening'
   | 'settings';
 
 export interface NavLinkDef {
@@ -79,6 +80,8 @@ export function navFor(can: Can): NavGroupDef[] {
         // PRC-1 (D-prc1-9): the three rates per gram, General Manager only.
         ...(can('settings.manage') ? [{ to: '/prices', label: tk('Prices'), icon: 'prices' as const }] : []),
         ...(can('catalog.create') ? [{ to: '/catalog', label: tk('Types & products'), icon: 'catalog' as const }] : []),
+        // OPN-1: the opening balance of each branch, General Manager only.
+        ...(can('opening.manage') ? [{ to: '/openings', label: tk('Opening balance'), icon: 'opening' as const }] : []),
       ],
     },
     { title: tk('Suppliers'), items: can('purchases.view') ? [{ to: '/purchases', label: tk('Supplier purchases'), icon: 'purchases' }] : [] },

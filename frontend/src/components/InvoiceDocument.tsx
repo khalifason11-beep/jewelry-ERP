@@ -24,7 +24,9 @@ export interface SaleDetail {
   discountTotal: number;
   total: number;
   costTotal?: number;
-  grossProfit?: number;
+  /** OPN-1: the profit of the lines of known cost; NULL when none is known. */
+  grossProfit?: number | null;
+  unknownCostLines?: number;
   paymentMethod: string;
   status: string;
   /** Printing (D-print-5). */
