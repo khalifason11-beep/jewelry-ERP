@@ -1168,19 +1168,36 @@ async function main() {
         const v = await apiSend(page, 'POST', `/api/sales/${s.id}/void`, { reason: 'إعادة القطعة للاختبار (PAY-1)' });
         check(v.status === 200 && v.body.hasadAmount === 0, `bank-transfer sale ${s.number} cancelled: its piece is back in stock, nothing of it was Hasad`);
       }
+      const digitsOf = (x) => Number(String(x).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[^0-9]/g, ''));
       const [p] = (await apiGet(page, '/api/inventory/items?status=AVAILABLE&pageSize=1')).body.rows;
-      const total = p.sellingPrice;
-      const cashPart = Math.floor(total / 3);
+      const bad = await apiSend(page, 'POST', '/api/sales', { items: [{ itemId: p.id, listPrice: p.sellingPrice }], payments: [{ method: 'CASH', amount: 1000 }, { method: 'BANK_TRANSFER', amount: p.sellingPrice - 1001, refTransaction: 'SPL-REH-1' }] });
+      check(bad.status === 422 && bad.body?.error?.code === 'PAYMENT_TOTAL_MISMATCH', 'API: parts 1 short of the total: refused (422), nothing recorded');
+      const both = await apiSend(page, 'POST', '/api/sales', { items: [{ itemId: p.id, listPrice: p.sellingPrice }], payments: [{ method: 'CASH', amount: p.sellingPrice }], paymentMethod: 'CASH' });
+      check(both.status === 400, 'API: the payment lines and a single method at once: refused (400)');
+      // The POS (branch manager): one method or split; the second part is always the rest.
       const before = (await apiGet(page, '/api/cash/reconciliation')).body;
-      const bad = await apiSend(page, 'POST', '/api/sales', { items: [{ itemId: p.id, listPrice: total }], payments: [{ method: 'CASH', amount: cashPart }, { method: 'BANK_TRANSFER', amount: total - cashPart - 1, refTransaction: 'SPL-REH-1' }] });
-      check(bad.status === 422 && bad.body?.error?.code === 'PAYMENT_TOTAL_MISMATCH', 'parts 1 short of the total: refused (422), nothing recorded');
-      const both = await apiSend(page, 'POST', '/api/sales', { items: [{ itemId: p.id, listPrice: total }], payments: [{ method: 'CASH', amount: total }], paymentMethod: 'CASH' });
-      check(both.status === 400, 'the payment lines and a single method at once: refused (400)');
-      const split = await apiSend(page, 'POST', '/api/sales', { items: [{ itemId: p.id, listPrice: total }], payments: [{ method: 'CASH', amount: cashPart }, { method: 'BANK_TRANSFER', amount: total - cashPart, refTransaction: 'spl-reh-1' }] });
+      await page.goto(`${origin}/pos`);
+      await page.getByTestId('pos-product').first().click();
+      await page.click('[data-testid=pos-split-on]');
+      await page.fill('[data-testid=split-first-amount]', '999999999');
+      check((await page.getByTestId('pos-complete').isDisabled()) && (await page.getByTestId('split-error').isVisible()), 'POS split: a first part that is not below the total shows the error and "Complete sale" stays disabled');
+      const cashPart = 1000;
+      await page.fill('[data-testid=split-first-amount]', String(cashPart));
+      await page.selectOption('[data-testid=split-second-method]', 'BANK_TRANSFER');
+      await page.fill('[data-testid=bank-reference]', 'spl-reh-1');
+      const shownRest = digitsOf(await page.getByTestId('split-second-amount').innerText());
+      const r1 = page.waitForResponse((r) => r.url().endsWith('/api/sales') && r.request().method() === 'POST');
+      await page.click('[data-testid=pos-complete]');
+      const split = { status: (await r1).status(), body: await (await r1).json() };
+      const total = split.body.total;
       check(
-        split.status === 200 && split.body.paymentMethod === 'SPLIT' && split.body.payments.length === 2 && split.body.payments[1].refTransaction === 'SPL-REH-1' && split.body.payments.reduce((a, x) => a + x.amount, 0) === total,
-        `cash ${cashPart} + bank transfer ${total - cashPart}: sale ${split.body?.number} is SPLIT, with two lines adding up to its total`,
+        split.status === 200 && split.body.paymentMethod === 'SPLIT' && JSON.stringify(split.body.payments) === JSON.stringify([{ method: 'CASH', amount: cashPart, refInvoice: null, refTransaction: null }, { method: 'BANK_TRANSFER', amount: total - cashPart, refInvoice: null, refTransaction: 'SPL-REH-1' }]) && shownRest === total - cashPart,
+        `POS split: cash ${cashPart} + bank transfer ${total - cashPart} (the rest, shown before confirming): sale ${split.body?.number} is SPLIT with two lines`,
       );
+      await page.locator('[role=dialog]').waitFor({ state: 'visible', timeout: 15_000 });
+      check((await page.locator('[role=dialog] [data-testid=invoice-payment-lines] [data-testid=payment-line]').count()) === 2, 'the receipt on screen lists one line per method');
+      await page.keyboard.press('Escape');
+      await page.locator('[role=dialog]').waitFor({ state: 'detached', timeout: 15_000 });
       const after = (await apiGet(page, '/api/cash/reconciliation')).body;
       const line = (r, m) => r.salesByMethod.find((x) => x.paymentMethod === m).amount;
       check(
@@ -1227,6 +1244,12 @@ async function main() {
       await page.goto(`${origin}/cash`);
       await page.getByTestId('hasad-vs-direct').waitFor({ timeout: 15_000 });
       check(!('hasadReceivable' in drawerRow) && !(await page.locator('body').innerText()).includes('مستحقات حصاد') && (await page.locator('[data-testid^=settle-hasad]').count()) === 0, 'Cash: no Hasad receivable column, no "Settle Hasad receivable" button');
+      // The void dialog states the Hasad amount and that the General Manager refunds it through Hasad, outside the system.
+      await page.goto(`${origin}/sales/${sale.body.id}`);
+      await page.click('[data-testid=sale-void]');
+      const note = await page.getByTestId('void-hasad-note').innerText({ timeout: 15_000 });
+      check(digits(note) === total - cashPart && note.includes('المدير العام') && digits(await page.getByTestId('void-refund-parts').innerText()) === cashPart, `the void dialog says ${total - cashPart} was paid through Hasad and is refunded by the General Manager outside the system; the branch refunds the cash part`);
+      await page.keyboard.press('Escape');
       // A void of the Hasad + cash sale refunds the cash part from the drawer only; the Hasad part is reported, not refunded.
       check((await apiSend(page, 'POST', '/api/auth/reauth', { password: BM.password })).status === 200, 'branch manager: password confirmed again for the cancellation');
       const beforeVoid = (await apiGet(page, '/api/cash/reconciliation')).body;

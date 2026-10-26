@@ -12,6 +12,10 @@
 
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { DatabaseHandle } from '@jerp/database';
+import { PERMISSIONS } from '@jerp/shared';
+import { createContext } from '../src/bootstrap';
+import type { Actor } from '../src/core/context';
+import { printSale } from '../src/modules/print/service';
 import { PG_MODE } from './helpers';
 import { one, openAt, run, upTo } from './migration-harness';
 
@@ -154,6 +158,27 @@ describe('PAY-1 migrations 0033–0036 on a database at 0032', () => {
       expect(await refused(h, `DELETE FROM ledger_accounts WHERE kind = 'FUNDS_IN_TRANSIT'`)).toBe(true);
       expect((await one(h, `SELECT tgenabled AS e FROM pg_trigger WHERE tgname = 'ledger_accounts_no_delete'`))?.e).toBe('O');
       if (PG_MODE) expect((await one(h, `SELECT has_table_privilege(current_user, 'ledger_entries', 'UPDATE') AS u`))?.u).toBe(false);
+    } finally {
+      await h.close();
+    }
+  }, 120_000);
+
+  it('owner addition 2: a sale recorded before PAY-1 reprints with its one backfilled payment line', async () => {
+    const h = await openAt(32);
+    try {
+      await run(h, BASE);
+      await run(h, sale('S-OLDBANK', 'BANK_TRANSFER', 250_000, { txn: 'TRF 1234' }));
+      await run(h, entry('S-OLDBANK', 'BANK', 'BANK_TRANSFER', 250_000));
+      await run(h, sale('S-OLDCASH', 'CASH', 90_000));
+      await h.migrate();
+      const ctx = createContext(h);
+      const u = await one(h, `SELECT id FROM users WHERE username = 'trial.person'`);
+      const gm: Actor = { userId: Number(u.id), username: 'trial.person', fullName: 'Trial', roleCode: 'GENERAL_MANAGER', roleName: 'General Manager', roleRank: 100, branchId: null, branchCode: null, branchName: null, permissions: new Set(Object.keys(PERMISSIONS) as never), sessionId: null };
+      const id = async (n: string) => Number((await one(h, `SELECT id FROM sales WHERE number = '${n}'`)).id);
+      const bank = await printSale(ctx, gm, await id('S-OLDBANK'));
+      expect(bank.document).toMatchObject({ number: 'S-OLDBANK', paymentMethod: 'BANK_TRANSFER', total: 250_000, payments: [{ method: 'BANK_TRANSFER', amount: 250_000, invoiceRef: null, transactionRef: 'TRF 1234' }], copy: { n: 1 } });
+      const cash = await printSale(ctx, gm, await id('S-OLDCASH'));
+      expect(cash.document.payments).toEqual([{ method: 'CASH', amount: 90_000, invoiceRef: null, transactionRef: null }]);
     } finally {
       await h.close();
     }

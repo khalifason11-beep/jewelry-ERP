@@ -14,6 +14,7 @@ import { BranchSelect, DateRange, useRangeParams } from '../../components/Filter
 import type { SaleDetail } from '../../components/InvoiceDocument';
 import { printSaleInvoice } from '../../print/actions';
 import { useActionKeys } from '../../lib/idempotency';
+import { PaymentLines, paymentLinesText, type PaymentLine } from '../../components/PaymentLines';
 
 export interface SaleRow {
   id: number;
@@ -39,6 +40,8 @@ export interface SaleRow {
   paymentMethod: string;
   /** FIX-2: the bank-transfer reference (Hasad: its transaction reference). */
   paymentRefTransaction?: string | null;
+  /** PAY-1: one line per method. */
+  payments?: PaymentLine[];
   status: string;
 }
 
@@ -103,12 +106,16 @@ export function SalesTable({ branchId, from, to, mine, toolbar }: { branchId?: n
         {
           key: 'paymentMethod',
           header: t('Payment'),
-          // FIX-2: the CSV carries the bank reference too (matching against the bank statement).
-          value: (r) => (r.paymentMethod === 'BANK_TRANSFER' ? `${t(r.paymentMethod)} ${r.paymentRefTransaction ?? ''}`.trim() : t(r.paymentMethod)),
+          // FIX-2 / PAY-1: each payment line with its amount and reference (the CSV too, for the bank statement).
+          value: (r) => paymentLinesText(r.payments, t) || t(r.paymentMethod),
           render: (r) => (
-            <span className="text-[12px] text-ink-600">
-              {t(r.paymentMethod)}
-              {r.paymentMethod === 'BANK_TRANSFER' && <span className="block font-mono text-[11px] text-ink-500">{r.paymentRefTransaction ?? '—'}</span>}
+            <span className="block text-[12px] text-ink-600" data-testid="sales-payment">
+              {r.payments && r.payments.length > 1 ? <PaymentLines lines={r.payments} testId="sales-payment-lines" /> : (
+                <>
+                  {t(r.paymentMethod)}
+                  {r.paymentMethod === 'BANK_TRANSFER' && <span className="block font-mono text-[11px] text-ink-500">{r.paymentRefTransaction ?? '—'}</span>}
+                </>
+              )}
             </span>
           ),
         },
@@ -298,11 +305,8 @@ export function SaleDetailPage() {
                 { label: t('Subtotal'), value: money(s.subtotal) },
                 { label: t('Discount'), value: money(s.discountTotal) },
                 { label: t('Total'), value: <span className="text-lg">{money(s.total)}</span> },
-                { label: t('Payment'), value: t(s.paymentMethod) },
-                // FIX-2: the bank-transfer reference (a sale recorded before FIX-2 shows "—").
-                ...(s.paymentMethod === 'BANK_TRANSFER'
-                  ? [{ label: t('Bank transfer reference'), value: <span className="font-mono" data-testid="sale-bank-reference">{s.paymentRefTransaction ?? '—'}</span> }]
-                  : []),
+                // PAY-1: one row per payment line (method, amount, reference); FIX-2's bank reference is on its line.
+                { label: t('Payment'), value: <PaymentLines lines={s.payments} testId="sale-payment-lines" /> },
                 ...(profit
                   ? [
                       { label: t('Cost of sale'), value: money(s.costTotal) },
@@ -344,6 +348,27 @@ export function SaleDetailPage() {
         <Field label={t('Reason (recorded in the audit log)')}>
           <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('e.g. Customer returned the item the same day')} data-testid="void-reason" />
         </Field>
+        {/* PAY-1 (owner Q4): the Hasad part was paid to the General Manager's account; the void returns none of it. */}
+        {(() => {
+          const toGm = (s.payments ?? []).filter((p) => p.method === 'HASAD').reduce((a, p) => a + p.amount, 0);
+          const back = (s.payments ?? []).filter((p) => p.method !== 'HASAD');
+          return (
+            <>
+              {back.length > 0 && toGm > 0 && (
+                <p className="mt-2 text-meta text-ink-600" data-testid="void-refund-parts">
+                  {t('Refunded by the branch: {parts}', { parts: back.map((p) => `${t(p.method)} ${money(p.amount, false)}`).join(' + ') })}
+                </p>
+              )}
+              {toGm > 0 && (
+                <Alert tone="warning" className="mt-2">
+                  <span data-testid="void-hasad-note">
+                    {t('{amount} of this sale was paid through Hasad to the General Manager\'s account. Cancelling does not return it: the General Manager refunds the customer through Hasad, outside the system.', { amount: money(toGm) })}
+                  </span>
+                </Alert>
+              )}
+            </>
+          );
+        })()}
         {/* SEC-2 (D-sec2-1): the server asks; this only says so in advance. */}
         {me && (me.voidReauthAboveAmount === 0 || s.total > me.voidReauthAboveAmount) && (
           <p className="mt-2 text-meta text-ink-500" data-testid="void-reauth-hint">{t('You will be asked for your password to confirm.')}</p>

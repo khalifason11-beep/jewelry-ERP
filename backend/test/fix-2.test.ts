@@ -141,10 +141,10 @@ describe('where the reference is shown', () => {
     const bank = await cashier.post('/api/sales').send({ items: [{ itemId: bankItem }], paymentMethod: 'BANK_TRANSFER', paymentRefTransaction: 'PRT-1234' });
     const pr = await cashier.post(`/api/sales/${bank.body.id}/print`).send({});
     expect(pr.status).toBe(200);
-    expect(pr.body.document.bankTransfer).toEqual({ reference: 'PRT-1234' });
+    expect(pr.body.document.payments).toEqual([{ method: 'BANK_TRANSFER', amount: bank.body.total, invoiceRef: null, transactionRef: 'PRT-1234' }]);
     const cashItem = (await piece(cashier)).id;
     const cash = await cashier.post('/api/sales').send({ items: [{ itemId: cashItem }], paymentMethod: 'CASH' });
-    expect((await cashier.post(`/api/sales/${cash.body.id}/print`).send({})).body.document.bankTransfer).toBeNull();
+    expect((await cashier.post(`/api/sales/${cash.body.id}/print`).send({})).body.document.payments).toEqual([{ method: 'CASH', amount: cash.body.total, invoiceRef: null, transactionRef: null }]);
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
     const list = (await bm.get('/api/sales')).body.rows as { id: number; paymentRefTransaction: string | null }[];
     expect(list.find((s) => s.id === bank.body.id)?.paymentRefTransaction).toBe('PRT-1234');

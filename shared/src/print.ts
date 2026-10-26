@@ -54,10 +54,8 @@ export interface PrintableSale extends NoCost {
   discountTotal: number;
   total: number;
   paymentMethod: string;
-  hasadInvoiceRef: string | null;
-  hasadTransactionRef: string | null;
-  /** FIX-2: the bank-transfer reference (the customer's own payment, so it is printed). */
-  bankTransferRef?: string | null;
+  /** PAY-1: the sale's payment lines, one per method (the customer's own payment, so the references are printed). */
+  payments: { method: string; amount: number; refInvoice: string | null; refTransaction: string | null }[];
   lines: PrintableSaleLine[];
 }
 
@@ -75,11 +73,14 @@ export interface InvoicePrintData {
   subtotal: number;
   discountTotal: number;
   total: number;
+  /** The label: the one method, or SPLIT. */
   paymentMethod: string;
-  /** Only when the payment method is HASAD. */
-  hasad: { invoiceRef: string | null; transactionRef: string | null } | null;
-  /** FIX-2: only when the payment method is BANK_TRANSFER (null reference = a sale recorded before FIX-2). */
-  bankTransfer: { reference: string | null } | null;
+  /**
+   * PAY-1: one printed line per method, with its amount. `invoiceRef`: the Hasad invoice number; `transactionRef`: the
+   * bank-transfer reference (FIX-2) or Hasad's optional transaction reference. A sale recorded before PAY-1 has its one
+   * backfilled line, so it reprints the same way.
+   */
+  payments: { method: string; amount: number; invoiceRef: string | null; transactionRef: string | null }[];
   /** null = the original; otherwise the reprint number and when it was printed. */
   copy: { n: number; printedAt: string } | null;
 }
@@ -138,8 +139,7 @@ export function buildInvoicePrintData(sale: PrintableSale, copy: { n: number; pr
     discountTotal: sale.discountTotal,
     total: sale.total,
     paymentMethod: sale.paymentMethod,
-    hasad: sale.paymentMethod === 'HASAD' ? { invoiceRef: sale.hasadInvoiceRef, transactionRef: sale.hasadTransactionRef } : null,
-    bankTransfer: sale.paymentMethod === 'BANK_TRANSFER' ? { reference: sale.bankTransferRef ?? null } : null,
+    payments: sale.payments.map((p) => ({ method: p.method, amount: p.amount, invoiceRef: p.refInvoice, transactionRef: p.refTransaction })),
     copy: copy ? { n: copy.n, printedAt: iso(copy.printedAt) } : null,
   };
   assertPrintable(data, 'print output');

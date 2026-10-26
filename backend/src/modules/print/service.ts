@@ -15,7 +15,7 @@ import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requireAny } from '../../authz';
 import { writeAudit } from '../../core/audit';
 import { AppError, forbidden, notFound } from '../../core/errors';
-import { legacyRefs, salePaymentsOf } from '../sales/service';
+import { salePaymentsOf } from '../sales/service';
 
 export interface PrintResponse {
   document: InvoicePrintData;
@@ -113,8 +113,8 @@ export async function printSale(ctx: Ctx, actor: Actor, id: number): Promise<Pri
     return { n: r.n, printedAt };
   });
 
-  // PAY-1: the references come from the payment lines.
-  const refs = legacyRefs((await salePaymentsOf(ctx.db, [row.id])).get(row.id) ?? []);
+  // PAY-1: one printed line per payment line (a sale recorded before PAY-1 has its one backfilled line).
+  const payments = ((await salePaymentsOf(ctx.db, [row.id])).get(row.id) ?? []).map((p) => ({ method: p.method, amount: p.amount, refInvoice: p.refInvoice ?? null, refTransaction: p.refTransaction ?? null }));
   const document = buildInvoicePrintData(
     {
       number: row.number,
@@ -128,9 +128,7 @@ export async function printSale(ctx: Ctx, actor: Actor, id: number): Promise<Pri
       discountTotal: row.discountTotal,
       total: row.total,
       paymentMethod: row.paymentMethod,
-      hasadInvoiceRef: refs.paymentRefInvoice,
-      hasadTransactionRef: refs.paymentRefTransaction,
-      bankTransferRef: refs.paymentRefTransaction,
+      payments,
       lines,
     },
     copy,

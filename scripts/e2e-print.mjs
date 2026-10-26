@@ -308,6 +308,23 @@ async function main() {
     await cashier.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
     const bankA4 = await printRootText(cashier);
     check(bankA4.includes('مرجع التحويل البنكي') && bankA4.includes('TRF 7788-E2E'), 'FIX-2: the A4 invoice of a bank-transfer sale shows "Bank transfer reference: TRF 7788-E2E"');
+    check((await cashier.locator('[data-testid=print-payment-line]').count()) === 1, 'PAY-1: a one-method sale prints one payment line');
+
+    // PAY-1 (D-pay1-1): a sale paid by two methods prints one line per method, each with its amount and reference.
+    check(stock.length >= 7, `fixture: a seventh piece for the split sale (${stock.length} available)`);
+    const firstPart = 100_000;
+    const splitSale = await api(cashier, 'POST', '/sales', {
+      items: [{ itemId: stock[6].id, listPrice: stock[6].sellingPrice }],
+      payments: [{ method: 'HASAD', amount: firstPart, refInvoice: 'HSD-E2E-1' }, { method: 'CASH', amount: stock[6].sellingPrice - firstPart }],
+    });
+    check(splitSale.status === 200 && splitSale.body.paymentMethod === 'SPLIT', `split sale ${splitSale.body.number}: first part ${firstPart} + cash ${stock[6].sellingPrice - firstPart}`);
+    await cashier.goto(`${BASE}/sales/${splitSale.body.id}`);
+    await cashier.getByTestId('sale-print').click();
+    await cashier.waitForFunction(() => window.__prints === 1, null, { timeout: 10_000 });
+    const splitA4 = await printRootText(cashier);
+    const splitLines = await cashier.locator('[data-testid=print-payment-line]').allTextContents();
+    check(splitLines.length === 2 && splitLines[0].includes('حصاد') && splitLines[0].includes('HSD-E2E-1') && splitLines[1].includes('نقد'), 'PAY-1: the A4 invoice prints two payment lines: Hasad (with its invoice number) and cash');
+    check(splitA4.includes('100,000') || splitA4.includes('١٠٠٬٠٠٠'), 'PAY-1: each payment line shows its own amount');
 
     // ── GM: switch to a 72 mm receipt, reprint the same sale → COPY 1 ──
     const gm = await newPage(browser);
@@ -361,6 +378,8 @@ async function main() {
       const res = await route.fetch();
       const body = await res.json();
       body.document.paymentMethod = 'BANK_TRANSFER';
+      // PAY-1: the invoice prints its payment lines, so the fixture rewrites them too.
+      body.document.payments = body.document.payments.map((p) => ({ ...p, method: 'BANK_TRANSFER', transactionRef: p.transactionRef ?? 'TRF-LAYOUT' }));
       await route.fulfill({ response: res, json: body });
       await gm.unroute('**/api/sales/*/print');
     });

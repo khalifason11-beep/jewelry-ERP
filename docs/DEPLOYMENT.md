@@ -476,6 +476,12 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   `GET` and `POST /api/cash/hasad-settlements`. Responses: `drawer().hasadReceivable` and the reconciliation's
   `hasadReceivableToBank` are gone; `POST /api/sales/:id/void` answers `hasadAmount` (the part paid through Hasad,
   which the void does not refund: the General Manager refunds the customer through Hasad, outside the system).
+- Screens and print (PAY-1 c5): the POS offers **One method** or **Split payment** (the second part is always the
+  total minus the first; "Complete sale" stays disabled until both parts are valid); the sale, the sales list and its
+  CSV, the on-screen receipt and the printed invoice show **one line per method** with its amount and reference; the
+  void dialog states the Hasad amount and that the General Manager refunds it through Hasad. The print payload's
+  `hasad` and `bankTransfer` fields are replaced by `payments` (method, amount, `invoiceRef`, `transactionRef`); a sale
+  recorded before PAY-1 reprints from its one backfilled line.
 - `GET /api/cash/reconciliation`: `salesTotal` / `voidsTotal` now count the branch's money only (cash and bank);
   new `hasadSales` / `hasadVoids` (the day's Hasad payment lines, paid to the General Manager's account). The sales
   report's summary is computed from the payment lines and adds "Direct sales (cash and bank)", "Hasad (paid to the

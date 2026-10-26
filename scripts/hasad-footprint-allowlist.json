@@ -47,9 +47,11 @@
       "frontend/src/lib/i18n-ar.ts",
       "shared/src/field-classification.ts",
       "frontend/src/pages/sales/SalesPages.tsx",
-      "shared/src/payments.ts"
+      "shared/src/payments.ts",
+      "frontend/src/components/PaymentLines.tsx",
+      "scripts/e2e-print.mjs"
     ],
-    "match": "hasadInvoice|hasadTxn|hasadInvoiceRef|hasadTransactionRef|Hasad invoice number|Hasad transaction reference|recorded for Hasad payments|recorded only for bank transfer and Hasad payments|لمدفوعات التحويل البنكي وحصاد فقط|Hasad: optional transaction reference|Hasad: its transaction reference|(paymentMethod|p\\.method) !== .HASAD. && \\(refInvoice|Hasad \\(D-4-6\\): the Hasad invoice number|HASAD payments: the app's invoice|ck_sales_hasad_reference|doc\\.hasad|\\bhasad: (sale\\.paymentMethod|\\{ invoiceRef)|transactionRef hasad cashier|grossWeightMg hasad$|the payment method is HASAD|supplier gold debt, Hasad payments$|method = 'HASAD' AND ref_invoice|A HASAD line is the only record|HASAD: the optional transaction reference|const hasad = payments\\.find|hasad\\?\\.ref(Invoice|Transaction)|HASAD: the Hasad invoice number",
+    "match": "hasadInvoice|hasadTxn|hasadInvoiceRef|hasadTransactionRef|Hasad invoice number|Hasad transaction reference|recorded for Hasad payments|recorded only for bank transfer and Hasad payments|لمدفوعات التحويل البنكي وحصاد فقط|Hasad: optional transaction reference|Hasad: its transaction reference|(paymentMethod|p\\.method) !== .HASAD. && \\(refInvoice|Hasad \\(D-4-6\\): the Hasad invoice number|HASAD payments: the app's invoice|ck_sales_hasad_reference|doc\\.hasad|\\bhasad: (sale\\.paymentMethod|\\{ invoiceRef)|transactionRef hasad cashier|grossWeightMg hasad$|the payment method is HASAD|supplier gold debt, Hasad payments$|method = 'HASAD' AND ref_invoice|A HASAD line is the only record|HASAD: the optional transaction reference|const hasad = payments\\.find|hasad\\?\\.ref(Invoice|Transaction)|HASAD: the Hasad invoice number|the Hasad invoice number$|\"Hasad 1,000,000 \\(HSD-1|p\\.method === 'HASAD' && p\\.refInvoice|!hasadOk|the Hasad part was paid to the General Manager|p\\.method (===|!==) 'HASAD'|void-hasad-note|of this sale was paid through Hasad|HSD-E2E-1|Hasad's optional transaction reference",
     "reason": "The Hasad invoice number (required) and transaction reference (optional) typed at the POS, validated, stored, printed on the invoice and classified SAFE."
   },
   {

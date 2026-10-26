@@ -208,15 +208,19 @@ export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: P
         {doc.discountTotal > 0 && <Row label={t('Discount')} value={<Amount value={doc.discountTotal} negative />} />}
         <div className="pd-rule-solid" />
         <Row label={t('Total')} value={<Amount value={doc.total} />} strong />
-        <Row label={t('Payment method')} value={<span>{t(doc.paymentMethod)}</span>} />
-        {doc.hasad && (
-          <>
-            <Row label={t('Hasad invoice number')} value={<span className="pd-mono">{doc.hasad.invoiceRef ?? '—'}</span>} />
-            {doc.hasad.transactionRef && <Row label={t('Hasad transaction reference')} value={<span className="pd-mono">{doc.hasad.transactionRef}</span>} />}
-          </>
-        )}
-        {/* FIX-2: the customer's bank-transfer reference (a sale recorded before FIX-2 shows "—"). */}
-        {doc.bankTransfer && <Row label={t('Bank transfer reference')} value={<span className="pd-mono" data-testid="print-bank-reference">{doc.bankTransfer.reference ?? '—'}</span>} />}
+        {/* PAY-1: one line per method with its amount, and its reference (FIX-2: the bank-transfer reference). */}
+        {doc.payments.map((p) => (
+          <div key={p.method} data-testid="print-payment-line">
+            <Row label={t(p.method)} value={<Amount value={p.amount} />} />
+            {p.method === 'HASAD' && (
+              <>
+                <Row label={t('Hasad invoice number')} value={<span className="pd-mono">{p.invoiceRef ?? '—'}</span>} />
+                {p.transactionRef && <Row label={t('Hasad transaction reference')} value={<span className="pd-mono">{p.transactionRef}</span>} />}
+              </>
+            )}
+            {p.method === 'BANK_TRANSFER' && <Row label={t('Bank transfer reference')} value={<span className="pd-mono" data-testid="print-bank-reference">{p.transactionRef ?? '—'}</span>} />}
+          </div>
+        ))}
       </div>
       <Barcode value={doc.number} />
       <PrintFooter />
