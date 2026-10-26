@@ -419,43 +419,47 @@ export async function salesReportAggregates(ctx: Ctx, actor: Actor, q: SaleQuery
   const where = await salesWhere(ctx, actor, q);
   const w = where.length ? and(...where) : undefined;
   const done = and(w, eq(t.sales.status, 'COMPLETED'));
-  const [{ n }] = await ctx.db
-    .select({ n: sql<number>`count(*)`.mapWith(Number) })
-    .from(t.sales)
-    .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
-    .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
-    .where(w);
-  const [money] = await ctx.db
-    .select({
-      total: sumOf(t.sales.total),
-      discountTotal: sumOf(t.sales.discountTotal),
-      costTotal: sumOf(t.sales.costTotal),
-      splitCount: sql<number>`count(*) filter (where ${t.sales.paymentMethod} = 'SPLIT')`.mapWith(Number),
-    })
-    .from(t.sales)
-    .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
-    .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
-    .where(done);
-  // PAY-1: sales by channel from the payment LINES (a split sale counts each part under its own method), so the
-  // channels add up to the total exactly and no sale counts twice in the sale count above.
-  const channels = await ctx.db
-    .select({ method: t.salePayments.method, total: sumOf(t.salePayments.amount) })
-    .from(t.salePayments)
-    .innerJoin(t.sales, eq(t.sales.id, t.salePayments.saleId))
-    .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
-    .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
-    .where(done)
-    .groupBy(t.salePayments.method);
-  const [lines] = await ctx.db
-    .select(saleLineTotals)
-    .from(t.saleItems)
-    .innerJoin(t.sales, eq(t.sales.id, t.saleItems.saleId))
-    .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
-    .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
-    .where(done);
-  const totals: Record<string, number | null> = { itemCount: lines.itemCount, weightMg: lines.weightMg, discountTotal: money.discountTotal, total: money.total };
-  if (can(actor, 'profit.view')) Object.assign(totals, profitTotals(money.total, money.costTotal, lines));
-  return { rowCount: n, totals, byChannel: new Map(channels.map((c) => [c.method, c.total])), splitCount: money.splitCount };
+  // PAY-1: one snapshot for the count, the totals and the channels, so a sale voided meanwhile is in all or in none
+  // (READ COMMITTED would give each query its own snapshot; tested on real PostgreSQL in pg/split-sale-race).
+  return ctx.db.transaction(async (db) => {
+    const [{ n }] = await db
+      .select({ n: sql<number>`count(*)`.mapWith(Number) })
+      .from(t.sales)
+      .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+      .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+      .where(w);
+    const [money] = await db
+      .select({
+        total: sumOf(t.sales.total),
+        discountTotal: sumOf(t.sales.discountTotal),
+        costTotal: sumOf(t.sales.costTotal),
+        splitCount: sql<number>`count(*) filter (where ${t.sales.paymentMethod} = 'SPLIT')`.mapWith(Number),
+      })
+      .from(t.sales)
+      .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+      .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+      .where(done);
+    // PAY-1: sales by channel from the payment LINES (a split sale counts each part under its own method), so the
+    // channels add up to the total exactly and no sale counts twice in the sale count above.
+    const channels = await db
+      .select({ method: t.salePayments.method, total: sumOf(t.salePayments.amount) })
+      .from(t.salePayments)
+      .innerJoin(t.sales, eq(t.sales.id, t.salePayments.saleId))
+      .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+      .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+      .where(done)
+      .groupBy(t.salePayments.method);
+    const [lines] = await db
+      .select(saleLineTotals)
+      .from(t.saleItems)
+      .innerJoin(t.sales, eq(t.sales.id, t.saleItems.saleId))
+      .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+      .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+      .where(done);
+    const totals: Record<string, number | null> = { itemCount: lines.itemCount, weightMg: lines.weightMg, discountTotal: money.discountTotal, total: money.total };
+    if (can(actor, 'profit.view')) Object.assign(totals, profitTotals(money.total, money.costTotal, lines));
+    return { rowCount: n, totals, byChannel: new Map(channels.map((c) => [c.method, c.total])), splitCount: money.splitCount };
+  }, { isolationLevel: 'repeatable read', accessMode: 'read only' });
 }
 
 /** The lines of the completed sales behind a footer: counts, weight, and the revenue of the lines of unknown cost. */
