@@ -271,3 +271,33 @@ describe('a split sale', () => {
     ).toMatch(/payment line/);
   });
 });
+
+describe('property: the branch accounts follow the payment lines', () => {
+  it('after any sequence of sales (one or two methods, any split) and voids, CASH and BANK moved by exactly the CASH and BANK lines of the sales still completed; Hasad moves nothing; voiding the rest restores every balance', async () => {
+    const methods: PaymentMethod[] = ['CASH', 'BANK_TRANSFER', 'HASAD'];
+    const refs = (m: PaymentMethod, n: string) => (m === 'BANK_TRANSFER' ? { refTransaction: `PROP-${n}` } : m === 'HASAD' ? { refInvoice: `HSD-PROP-${n}` } : {});
+    const op = fc.record({ m1: fc.constantFrom(...methods), m2: fc.option(fc.constantFrom(...methods), { nil: undefined }), first: fc.integer({ min: 1, max: PRICE - 1 }), void: fc.boolean() });
+    let run = 0;
+    await fc.assert(
+      fc.asyncProperty(fc.array(op, { minLength: 1, maxLength: 3 }), async (ops) => {
+        run++;
+        const before = await bal();
+        const kept: { id: number; lines: { method: PaymentMethod; amount: number }[] }[] = [];
+        for (const [i, o] of ops.entries()) {
+          const two = o.m2 && o.m2 !== o.m1;
+          const payments = two
+            ? [{ method: o.m1, amount: o.first, ...refs(o.m1, `${run}-${i}-a`) }, { method: o.m2!, amount: PRICE - o.first, ...refs(o.m2!, `${run}-${i}-b`) }]
+            : [{ method: o.m1, amount: PRICE, ...refs(o.m1, `${run}-${i}`) }];
+          const sale = await createSale(ctx, cashier, { items: [{ itemId: await piece() }], payments });
+          if (o.void) await voidSale(ctx, gm, sale.id, 'property void');
+          else kept.push({ id: sale.id, lines: payments });
+        }
+        const moved = delta(before, await bal());
+        expect(moved).toEqual(expectedMoves(kept.flatMap((k) => k.lines)));
+        for (const k of kept) await voidSale(ctx, gm, k.id, 'property void of the rest');
+        expect(await bal()).toEqual(before);
+      }),
+      { numRuns: 12, seed: 20261026 },
+    );
+  });
+});

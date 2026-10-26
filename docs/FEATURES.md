@@ -213,8 +213,10 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
     and what to do. This covers the scrap cash part, a cash refund on a void, a repayment from the drawer, and the
     correction of a drawer advance.
   - **The bank only warns.** It may go below zero, and attention A17 is raised.
-- Expenses were removed (REM-1). A cash-out for the operating amount is **open** (CSH-3, Q-6). So are split payments
-  at the point of sale (SPL-1, Q-7) and money transfers between branches (MNY-1, Q-8).
+- Expenses were removed (REM-1). A cash-out for the operating amount is **open** (CSH-3, Q-6). So are money transfers
+  between branches (MNY-1, Q-8).
+- **Split payment** (PAY-1): a sale is paid by one or two methods (cash, bank transfer, Hasad), the amounts summing
+  exactly to the total; each line moves its own account (Hasad none); a void reverses each line.
 
 ## 8. Reports (`reports.view`)
 
@@ -302,7 +304,6 @@ A review of the reports after the removals is still to do (RPT-1).
 - Barcode labels (LBL-1).
 - Tax invoice (TAX-1).
 - Cash-out for the operating amount (CSH-3).
-- Split payment at the point of sale (SPL-1).
 - Money transfers between branches (MNY-1).
 - Customer identification on scrap (SCR-1).
 - Voiding a scrap purchase, and correcting a purchase (SCR-VOID, PUR-FIX).
