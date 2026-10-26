@@ -253,6 +253,13 @@
       "when": 1792967230338,
       "tag": "0035_pay1_tighten_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1792972577627,
+      "tag": "0036_pay1_hasad_channel_only",
+      "breakpoints": true
     }
   ]
 }

@@ -186,8 +186,6 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
     table: 'purchases',
     expr: '(coalesce(making_charge_paid, 0) = 0 AND making_charge_reference IS NULL AND making_charge_transfer_date IS NULL) OR (making_charge_paid > 0 AND making_charge_reference IS NOT NULL AND length(btrim(making_charge_reference)) BETWEEN 4 AND 40 AND making_charge_transfer_date IS NOT NULL)',
   },
-  // ── Phase 4 follow-up: Hasad receivable settled by bank transfer
-  { name: 'ck_hasad_receivable_settlements_amount_positive', table: 'hasad_receivable_settlements', expr: 'amount > 0' },
   // ── Phase 2fa: passkeys
   { name: 'ck_webauthn_challenges_binding', table: 'webauthn_challenges', expr: '(session_id IS NOT NULL) <> (pending_id IS NOT NULL)' },
   { name: 'ck_webauthn_credentials_nickname', table: 'webauthn_credentials', expr: 'length(btrim(nickname)) BETWEEN 1 AND 60' },

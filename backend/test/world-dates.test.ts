@@ -59,10 +59,11 @@ describe('the fixture world on every weekday and at two hours', () => {
       expect([n(pieces.sold_wrong), n(pieces.available_sold)]).toEqual([0, 0]);
       expect(n(pieces.voided)).toBe(2);
 
-      // The money ledger agrees with the sales: a completed sale posted its total, a voided one nets to zero.
+      // The money ledger agrees with the sales: a completed sale posted its CASH and BANK payment lines (PAY-1: a HASAD
+      // line moves no branch account), a voided one nets to zero.
       const [money] = await q<Record<string, unknown>>(sql`SELECT count(*) AS wrong FROM sales s
           WHERE coalesce((SELECT sum(amount) FROM ledger_entries e WHERE e.ref_type = 'sale' AND e.ref_id = s.id AND e.event_type IN ('SALE', 'SALE_VOID')), 0)
-             <> CASE WHEN s.status = 'COMPLETED' THEN s.total ELSE 0 END`);
+             <> CASE WHEN s.status = 'COMPLETED' THEN (SELECT coalesce(sum(p.amount), 0) FROM sale_payments p WHERE p.sale_id = s.id AND p.method <> 'HASAD') ELSE 0 END`);
       expect(n(money.wrong)).toBe(0);
 
       // Inventory reconciles per branch: Σ movements = the pieces actually in stock.

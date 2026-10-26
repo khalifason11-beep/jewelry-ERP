@@ -148,7 +148,6 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /purchases': ['/purchases'],
       'GET /purchases/:id': [`/purchases/${purchase.id}`, `/purchases/${settled.purchaseId}`],
       'GET /scrap-rates': ['/scrap-rates'],
-      'GET /cash/hasad-settlements': ['/cash/hasad-settlements', `/cash/hasad-settlements?branchId=${krt.id}`],
       'GET /funding': ['/funding', `/funding?branchId=${krt.id}`],
       'GET /scrap-purchases': ['/scrap-purchases', '/scrap-purchases?kind=SELLABLE', '/scrap-purchases?status=VOIDED'],
       'GET /scrap-purchases/:id': scrapIds.map((id) => `/scrap-purchases/${id}`),

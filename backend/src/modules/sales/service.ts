@@ -1,7 +1,7 @@
 import { ap, goldValue, MAX_SALE_PAYMENTS, paymentsSum, roundMoney, salePaymentLabel, sumInt, validBankReference } from '@jerp/shared';
 import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import type { PaymentMethod, SalePaymentLine } from '@jerp/shared';
+import type { LedgerAccountKind, PaymentMethod, SalePaymentLine } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requireAny, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
@@ -10,7 +10,7 @@ import { nextNumber } from '../../core/numbering';
 import { dayRange } from '../../core/time';
 import { rows } from '../../core/sql';
 import { changeStatus, costBreakdown, lockItems, recordMovement } from '../inventory/ledger';
-import { accountKindFor, lockDrawerFor, post, reverseRef } from '../ledger/service';
+import { accountKindFor, lockDrawerFor, post, reverseRef, type LedgerLine } from '../ledger/service';
 import type { TxIdempotency } from '../../core/idempotency';
 import { allowedKarats } from '../../core/karats';
 import { maxIdOf, runPaged, sumOf, type PageRequest, type SortSpec } from '../../core/paging';
@@ -289,13 +289,10 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
         },
       });
     }
-    // The money, one entry per payment line (PAY-1): into the drawer (CASH), the bank (CARD, MOBILE_WALLET,
-    // BANK_TRANSFER) — Q5 — or the branch's Hasad receivable (HASAD, D-4-6), until Hasad's bank transfer is recorded.
-    await post(
-      tx,
-      paid.map((p) => ({ branchId, kind: accountKindFor(p.method), amount: p.amount, eventType: 'SALE' as const, paymentMethod: p.method, ref, at })),
-      { actor, idempotencyKey: opts.idem?.key },
-    );
+    // The money, one entry per CASH or BANK payment line (PAY-1): into the drawer (CASH) or the bank (CARD,
+    // MOBILE_WALLET, BANK_TRANSFER) — Q5. A HASAD line posts nothing: the money is paid to the General Manager's own
+    // account, never the branch's (D-pay1-8); the payment line written above is its record.
+    await post(tx, branchLines(paid, (p, kind) => ({ branchId, kind, amount: p.amount, eventType: 'SALE' as const, paymentMethod: p.method, ref, at })), { actor, idempotencyKey: opts.idem?.key });
     // PAY-1: the sale as written, with its payment lines and the single-method reference fields read from them.
     const created = { ...sale, ...legacyRefs(paid), payments: paid.map((p) => ({ method: p.method, amount: p.amount, refInvoice: p.refInvoice ?? null, refTransaction: p.refTransaction ?? null })) };
     await opts.idem?.complete(tx, created);
@@ -724,11 +721,13 @@ export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: strin
       // A sale recorded before the ledger existed: the refund still leaves the account, line by line.
       await post(
         tx,
-        payments.map((p) => ({ branchId: sale.branchId, kind: accountKindFor(p.method), amount: -p.amount, eventType: 'SALE_VOID' as const, paymentMethod: p.method, ref: saleRef, note: `${reason} (sale recorded before the ledger)`, at })),
+        branchLines(payments, (p, kind) => ({ branchId: sale.branchId, kind, amount: -p.amount, eventType: 'SALE_VOID' as const, paymentMethod: p.method, ref: saleRef, note: `${reason} (sale recorded before the ledger)`, at })),
         by,
       );
     }
-    const result = { ok: true };
+    // PAY-1 (owner Q4): the Hasad part of the sale was paid to the General Manager's account; the void returns none of
+    // it (the General Manager refunds the customer through Hasad, outside the system). The answer says how much.
+    const result = { ok: true, hasadAmount: payments.filter((p) => p.method === 'HASAD').reduce((s, p) => s + p.amount, 0) };
     await opts.idem?.complete(tx, result);
     return result;
   });
@@ -776,4 +775,12 @@ export const bankReferenceOf = (payments: readonly SalePaymentLine[]) => payment
 export function legacyRefs(payments: readonly SalePaymentLine[]) {
   const hasad = payments.find((p) => p.method === 'HASAD');
   return { paymentRefInvoice: hasad?.refInvoice ?? null, paymentRefTransaction: bankReferenceOf(payments) ?? hasad?.refTransaction ?? null };
+}
+
+/** The ledger lines of the payment lines that move a branch account (a HASAD line moves none, D-pay1-8). */
+function branchLines(payments: readonly SalePaymentLine[], line: (p: SalePaymentLine, kind: LedgerAccountKind) => LedgerLine): LedgerLine[] {
+  return payments.flatMap((p) => {
+    const kind = accountKindFor(p.method);
+    return kind ? [line(p, kind)] : [];
+  });
 }

@@ -85,7 +85,6 @@ const CASES: Case[] = [
   { method: 'post', path: () => '/api/funding/advances', base: funding, field: 'amount', kind: 'positiveMoney' },
   { method: 'post', path: () => '/api/funding/repayments', base: funding, field: 'amount', kind: 'positiveMoney' },
   { method: 'post', path: () => '/api/cash/counts', base: () => ({ branchId: ids.branch, day: '2026-10-11', countedAmount: 0 }), field: 'countedAmount', kind: 'money' },
-  { method: 'post', path: () => '/api/cash/hasad-settlements', base: () => ({ branchId: ids.branch, amount: 1_000 }), field: 'amount', kind: 'positiveMoney' },
   { method: 'post', path: () => '/api/sales', base: () => ({ branchId: ids.branch, items: [{ itemId: ids.item, discount: 0 }], paymentMethod: 'CASH' }), field: 'items.0.discount', kind: 'money' },
   // Settings: the field is the setting key (the registry validates each value).
   { method: 'put', path: () => '/api/settings', base: () => ({ changes: { 'sales.voidReauthAboveAmount': 0 } }), field: 'changes.sales.voidReauthAboveAmount', kind: 'money' },

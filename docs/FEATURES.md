@@ -168,7 +168,7 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
 - Customer identification on scrap purchases is **open** (SCR-1, Q-12). Voiding a scrap purchase is not built
   (SCR-VOID).
 
-## 7. Cash and money (`cash.view`, `cash.count`, `cash.settle_hasad`)
+## 7. Cash and money (`cash.view`, `cash.count`)
 
 - **Cash page:**
   - It shows the expected cash in each drawer now.
@@ -177,8 +177,9 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   - Every line adds up to the ledger.
 - **Cash count** (`cash.count`): the counted cash is recorded against the expected cash; a difference beyond
   `cash.countDifferenceTolerance` (0) raises attention A4.
-- **Hasad settlement** (`cash.settle_hasad`): when Hasad's bank transfer arrives, the amount moves from
-  `HASAD_RECEIVABLE` to `BANK`.
+- **Hasad versus direct sales** (PAY-1): Hasad money is paid to the General Manager's own account, never the branch's.
+  The reconciliation's sales, expected cash and bank exclude it; the day's Hasad sales are shown beside the direct
+  sales (cash and bank). There is no Hasad receivable and no settlement any more.
 - **General Manager's funding** (`funding.view`, `funding.manage`; re-confirmation, idempotent):
   - **Advances** go into a branch's drawer or bank, with a reason. A bank advance needs a bank reference.
   - **Repayments** take money back the same way.

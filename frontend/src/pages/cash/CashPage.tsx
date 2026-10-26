@@ -6,21 +6,21 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { ArrowRightLeft, Banknote, Calculator, ChevronDown, ChevronUp, Landmark } from 'lucide-react';
+import { Banknote, Calculator, ChevronDown, ChevronUp, Landmark } from 'lucide-react';
 import { get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { dateTime, humanize, money, time, todayKey } from '../../lib/format';
+import { humanize, money, time, todayKey } from '../../lib/format';
 import { tk, useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { useBranches } from '../../lib/hooks';
 import { useActionKeys } from '../../lib/idempotency';
-import { Button, Card, CardHeader, DateInput, Dialog, Empty, ErrorState, Field, Input, KeyValue, MoneyInput, Kpi, Mono, PageHeader, QueryState, Select, SkeletonRows } from '../../components/ui';
+import { Button, Card, CardHeader, DateInput, Empty, Field, Input, KeyValue, MoneyInput, Kpi, PageHeader, QueryState, Select, SkeletonRows } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { FundingPanel } from './FundingPanel';
 
 interface Drawer {
   asOf: string;
-  branches: { branchId: number; branchCode: string; branchName: string; branchNameAr: string; expectedCash: number; bank: number; fundsInTransit: number; hasadReceivable: number }[];
+  branches: { branchId: number; branchCode: string; branchName: string; branchNameAr: string; expectedCash: number; bank: number; fundsInTransit: number }[];
 }
 interface ByMethod {
   paymentMethod: string;
@@ -42,7 +42,6 @@ interface Reconciliation {
   /** PAY-1: the day's Hasad payment lines (money paid to the General Manager's account, never the branch's). */
   hasadSales: number;
   hasadVoids: number;
-  hasadReceivableToBank: number;
   scrapPurchasesCash: number;
   scrapPurchasesBank: number;
   cashLines: ReconciliationLine[];
@@ -65,7 +64,6 @@ const LINE_LABEL: Record<string, string> = {
   SALES: tk('Sales'),
   VOIDS: tk('Cancelled sales (refunds)'),
   SCRAP_PURCHASES: tk('Scrap bought from customers'),
-  HASAD_RECEIVABLE_SETTLEMENTS: tk('Hasad transfers received'),
   // CSH-2: the General Manager's advances into, and repayments out of, the drawer or the bank (D-csh-3).
   GM_ADVANCES: tk('Advances from the General Manager'),
   GM_REPAYMENTS: tk('Repayments to the General Manager'),
@@ -78,7 +76,6 @@ export function CashPage() {
   const branches = useBranches();
   const [branchId, setBranchId] = useState<number | undefined>(me?.user.branch?.id ?? undefined);
   const [day, setDay] = useState(todayKey());
-  const [settling, setSettling] = useState<Drawer['branches'][number] | null>(null);
   const drawer = useQuery({ queryKey: ['cash-drawer'], queryFn: () => get<Drawer>('/cash/drawer'), refetchInterval: 30_000 });
   const selected = branchId ?? (isGlobal ? undefined : me?.user.branch?.id);
   const rec = useQuery({
@@ -92,7 +89,7 @@ export function CashPage() {
       <PageHeader title={t('Cash')} subtitle={t('Expected cash in each drawer, from the branch money ledger, and the daily cash reconciliation.')} />
 
       <Card padded={false} className="mb-5">
-        <CardHeader title={t('Expected cash now')} subtitle={t('Every sale, cancellation, scrap purchase, Hasad bank transfer and advance from the General Manager moves these balances. Nothing is typed in by hand.')} />
+        <CardHeader title={t('Expected cash now')} subtitle={t('Every sale, cancellation, scrap purchase and advance from the General Manager moves these balances. Nothing is typed in by hand.')} />
         <DataTable
           query={drawer}
           rows={drawer.data?.branches ?? []}
@@ -103,31 +100,12 @@ export function CashPage() {
             { key: 'branchName', header: t('Branch'), render: (r) => L(r.branchName, r.branchNameAr) },
             { key: 'expectedCash', header: t('Cash drawer'), align: 'end', render: (r) => <span className="font-semibold num">{money(r.expectedCash, false)}</span>, footer: money((drawer.data?.branches ?? []).reduce((s, r) => s + r.expectedCash, 0), false) },
             { key: 'bank', header: t('Bank'), align: 'end', render: (r) => <span className="num">{money(r.bank, false)}</span>, footer: money((drawer.data?.branches ?? []).reduce((s, r) => s + r.bank, 0), false) },
-            // Sales paid through Hasad are held here until Hasad's bank transfer is recorded (D-4-14).
-            { key: 'hasadReceivable', header: t('Hasad receivable'), align: 'end', render: (r) => <span className="num">{money(r.hasadReceivable, false)}</span>, footer: money((drawer.data?.branches ?? []).reduce((s, r) => s + r.hasadReceivable, 0), false) },
-            ...(can('cash.settle_hasad')
-              ? [
-                  {
-                    key: 'settle',
-                    header: '',
-                    align: 'end' as const,
-                    render: (r: Drawer['branches'][number]) =>
-                      r.hasadReceivable > 0 ? (
-                        <Button size="sm" icon={<ArrowRightLeft className="size-4" />} onClick={() => setSettling(r)} data-testid={`settle-hasad-${r.branchCode}`}>
-                          {t('Settle Hasad receivable')}
-                        </Button>
-                      ) : null,
-                  },
-                ]
-              : []),
           ]}
         />
       </Card>
 
-      {settling && <HasadSettleDialog row={settling} onClose={() => setSettling(null)} />}
       {/* CSH-2 (Q10): the General Manager's funding of the branches; nothing of it is shown to a branch manager. */}
       {can('funding.view') && <FundingPanel branchId={selected} />}
-      {selected != null && <HasadTransfers branchId={selected} />}
 
       <Card padded={false}>
         <CardHeader
@@ -347,106 +325,3 @@ function CountForm({ r }: { r: Reconciliation }) {
   );
 }
 
-/**
- * Hasad pays the branch by bank transfer: record the amount received; it moves from the Hasad
- * receivable to the bank in one transaction. Partial amounts are fine, never above the receivable.
- */
-function HasadSettleDialog({ row, onClose }: { row: Drawer['branches'][number]; onClose: () => void }) {
-  const { t, L } = useI18n();
-  const toast = useToast();
-  const qc = useQueryClient();
-  const actionKeys = useActionKeys();
-  const [amount, setAmount] = useState('');
-  const [bankRef, setBankRef] = useState('');
-  const [note, setNote] = useState('');
-  const scope = `hasad-settle:${row.branchId}`;
-  const value = Number(amount);
-  const valid = amount !== '' && Number.isInteger(value) && value > 0 && value <= row.hasadReceivable;
-  const m = useMutation({
-    mutationFn: () =>
-      postOnce<{ number: string; hasadReceivableBalance: number }>(
-        '/cash/hasad-settlements',
-        { branchId: row.branchId, amount: value, bankReference: bankRef.trim() || undefined, note: note.trim() || undefined },
-        actionKeys.for(scope),
-      ),
-    onSuccess: (r) => {
-      actionKeys.rotate(scope);
-      toast.success(t('Hasad transfer {number} recorded', { number: r.number }), t('Hasad receivable left: {amount}', { amount: money(r.hasadReceivableBalance) }));
-      qc.invalidateQueries({ queryKey: ['cash-drawer'] });
-      qc.invalidateQueries({ queryKey: ['cash-reconciliation'] });
-      qc.invalidateQueries({ queryKey: ['hasad-transfers'] });
-      onClose();
-    },
-    onError: (e) => toast.fromError(e),
-  });
-  return (
-    <Dialog
-      open
-      onClose={onClose}
-      title={t('Settle Hasad receivable · {branch}', { branch: L(row.branchName, row.branchNameAr) })}
-      subtitle={t('Hasad paid by bank transfer: the amount received moves from the Hasad receivable to the bank.')}
-      footer={
-        <>
-          <Button onClick={onClose}>{t('Cancel')}</Button>
-          <Button variant="primary" disabled={!valid} loading={m.isPending} onClick={() => m.mutate()} data-testid="hasad-settle-submit">{t('Record transfer')}</Button>
-        </>
-      }
-    >
-      <KeyValue items={[{ label: t('Hasad receivable now'), value: <span className="font-semibold num">{money(row.hasadReceivable)}</span> }]} />
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <Field label={t('Amount received by bank transfer')} hint={amount !== '' && value > row.hasadReceivable ? t('More than the Hasad receivable') : undefined}>
-          <MoneyInput value={amount} onValueChange={setAmount} min={1} data-testid="hasad-settle-amount" />
-        </Field>
-        <Field label={t('Bank reference (optional)')}>
-          <Input value={bankRef} onChange={(e) => setBankRef(e.target.value)} maxLength={80} />
-        </Field>
-        <Field label={t('Note (optional)')} className="sm:col-span-2">
-          <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
-        </Field>
-      </div>
-    </Dialog>
-  );
-}
-
-interface HasadTransfer {
-  id: number;
-  number: string;
-  amount: number;
-  bankReference: string | null;
-  note: string | null;
-  at: string;
-  createdByName: string;
-}
-
-function HasadTransfers({ branchId }: { branchId: number }) {
-  const { t, lang } = useI18n();
-  const q = useQuery({ queryKey: ['hasad-transfers', branchId], queryFn: () => get<HasadTransfer[]>('/cash/hasad-settlements', { branchId }) });
-  // Shown only when there is something to list; a failed load says so instead of hiding the block.
-  if (q.data === undefined && q.isError)
-    return (
-      <Card padded={false} className="mb-5">
-        <CardHeader title={t('Hasad bank transfers received')} />
-        <ErrorState error={q.error} onRetry={() => q.refetch()} />
-      </Card>
-    );
-  if (!q.data?.length) return null;
-  return (
-    <Card padded={false} className="mb-5">
-      <CardHeader title={t('Hasad bank transfers received')} />
-      <DataTable
-        rows={q.data}
-        rowKey={(r) => r.id}
-        exportName="hasad-transfers"
-        emptyTitle={t('No transfers yet')}
-        columns={[
-          { key: 'number', header: t('Number'), render: (r) => <Mono className="font-semibold">{r.number}</Mono> },
-          { key: 'at', header: t('Date'), render: (r) => dateTime(r.at, lang) },
-          { key: 'amount', header: t('Amount'), align: 'end', render: (r) => <span className="num">{money(r.amount, false)}</span> },
-          { key: 'bankReference', header: t('Bank reference'), render: (r) => r.bankReference ?? '—' },
-          { key: 'createdByName', header: t('Recorded by') },
-          { key: 'note', header: t('Note'), render: (r) => r.note ?? '—' },
-        ]}
-      />
-    </Card>
-  );
-}

@@ -308,16 +308,17 @@ async function scale(ctx: Ctx) {
   await x(sql`
     INSERT INTO inventory_movements (item_id, branch_id, type, direction, net_weight_mg, cost_value, user_id, ref_type, ref_id, at)
     SELECT item_id, branch_id, 'RETURN', 1, net, cost, ${uid}::int, 'sale', sale_id, sale_at + interval '1 hour' FROM pf WHERE status = 'SOLD' AND g % 50 = 1`);
+  // PAY-1: a cash sale posts to the drawer; a Hasad sale posts nothing (its money is paid to the General Manager).
   await x(sql`
     INSERT INTO ledger_entries (account_id, branch_id, amount, event_type, payment_method, ref_type, ref_id, ref_number, actor_id, at)
-    SELECT a.id, pf.branch_id, pf.cost + pf.cost / 3, 'SALE', CASE WHEN pf.g % 10 = 0 THEN 'HASAD' ELSE 'CASH' END, 'sale', pf.sale_id, 'PF-INV-' || pf.g, ${uid}::int, pf.sale_at
-    FROM pf JOIN ledger_accounts a ON a.branch_id = pf.branch_id AND a.kind = CASE WHEN pf.g % 10 = 0 THEN 'HASAD_RECEIVABLE' ELSE 'CASH' END
-    WHERE pf.status = 'SOLD'`);
+    SELECT a.id, pf.branch_id, pf.cost + pf.cost / 3, 'SALE', 'CASH', 'sale', pf.sale_id, 'PF-INV-' || pf.g, ${uid}::int, pf.sale_at
+    FROM pf JOIN ledger_accounts a ON a.branch_id = pf.branch_id AND a.kind = 'CASH'
+    WHERE pf.status = 'SOLD' AND pf.g % 10 <> 0`);
   await x(sql`
     INSERT INTO ledger_entries (account_id, branch_id, amount, event_type, payment_method, ref_type, ref_id, ref_number, actor_id, at)
-    SELECT a.id, pf.branch_id, -(pf.cost + pf.cost / 3), 'SALE_VOID', CASE WHEN pf.g % 10 = 0 THEN 'HASAD' ELSE 'CASH' END, 'sale', pf.sale_id, 'PF-INV-' || pf.g, ${uid}::int, pf.sale_at + interval '1 hour'
-    FROM pf JOIN ledger_accounts a ON a.branch_id = pf.branch_id AND a.kind = CASE WHEN pf.g % 10 = 0 THEN 'HASAD_RECEIVABLE' ELSE 'CASH' END
-    WHERE pf.status = 'SOLD' AND pf.g % 50 = 1`);
+    SELECT a.id, pf.branch_id, -(pf.cost + pf.cost / 3), 'SALE_VOID', 'CASH', 'sale', pf.sale_id, 'PF-INV-' || pf.g, ${uid}::int, pf.sale_at + interval '1 hour'
+    FROM pf JOIN ledger_accounts a ON a.branch_id = pf.branch_id AND a.kind = 'CASH'
+    WHERE pf.status = 'SOLD' AND pf.g % 50 = 1 AND pf.g % 10 <> 0`);
   // Open supplier gold debts and a cash count per branch per day for 60 days.
   await x(sql`
     INSERT INTO purchases (number, branch_id, supplier_id, item_count, total_net_weight_mg, total_cost, created_by, created_at, gold_debt_mg_pure24, gold_owed_mg_pure24)

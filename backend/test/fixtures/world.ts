@@ -22,7 +22,6 @@ import { hashPassword } from '../../src/auth/password';
 import { createSession, hashToken, loadActor } from '../../src/modules/sessions/service';
 import { createPurchase, type PurchaseLine } from '../../src/modules/purchases/service';
 import { createSale, voidSale } from '../../src/modules/sales/service';
-import { settleHasadReceivable, balances as ledgerBalances } from '../../src/modules/ledger/service';
 import { createTransfer, receiveTransfer } from '../../src/modules/transfers/service';
 import { adjustItem } from '../../src/modules/inventory/service';
 import { buyScrap, scrapRates } from '../../src/modules/scrap/service';
@@ -444,15 +443,6 @@ export async function seedWorld(ctx: Ctx, now = new Date(), opts: { twoFactor?: 
     }
   }
   await ratesUpTo(0);
-
-  // Hasad paid most branches part of what it owes them, by bank transfer (receivable → bank).
-  for (const code of ['KRT', 'OMD']) {
-    const due = (await ledgerBalances(db, branch[code].id)).find((a) => a.kind === 'HASAD_RECEIVABLE')?.balance ?? 0;
-    const amount = Math.floor((due * 0.6) / 1000) * 1000;
-    if (amount > 0) {
-      await settleHasadReceivable(ctx, bm[code], { branchId: branch[code].id, amount, bankReference: `BOK-${int(1000000, 9999999)}`, note: 'دفعة من حصاد' }, { at: at(-1, 11, 30) });
-    }
-  }
 
   // ───────── session history & live presence ─────────
   const subnet: Record<string, string> = { KRT: '10.20.1', OMD: '10.20.2', BHR: '10.20.3', PZU: '10.20.4' };

@@ -184,9 +184,6 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('GET', '/backups/status', 'global', { all: ['backups.view'] }),
   r('GET', '/cash/reconciliation', 'branch', { all: ['cash.view'] }),
   r('POST', '/cash/counts', 'branch', { all: ['cash.count'], idempotent: true }),
-  // Hasad receivable settled by a bank transfer from Hasad (Phase 4 follow-up).
-  r('GET', '/cash/hasad-settlements', 'branch', { all: ['cash.view'] }),
-  r('POST', '/cash/hasad-settlements', 'branch', { all: ['cash.settle_hasad'], idempotent: true, idempotencyInTx: true }),
   // ── CSH-2: the General Manager's advances to a branch and its repayments (GM only, password, key in the transaction)
   r('GET', '/funding', 'branch', { all: ['funding.view'] }),
   r('POST', '/funding/advances', 'branch', { all: ['funding.manage'], reauth: true, idempotent: true, idempotencyInTx: true }),

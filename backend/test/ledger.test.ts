@@ -121,21 +121,25 @@ describe('cost model', () => {
 });
 
 describe('ledger basics', () => {
-  it('every branch has CASH, BANK, FUNDS_IN_TRANSIT, HASAD_RECEIVABLE and OWED_TO_GM (CSH-2) accounts, also a branch created later', async () => {
+  it('every branch has CASH, BANK, FUNDS_IN_TRANSIT and OWED_TO_GM (CSH-2) accounts, also a branch created later (PAY-1: no Hasad receivable)', async () => {
     const accounts = await ctx.db.select().from(t.ledgerAccounts);
     const branches = await ctx.db.select().from(t.branches);
-    expect(accounts).toHaveLength(branches.length * 5);
+    expect(accounts).toHaveLength(branches.length * 4);
     const [b] = await ctx.db.insert(t.branches).values({ code: 'LDGT', name: 'Ledger Test', nameAr: 'اختبار', city: 'Test' }).returning();
     const kinds = (await ctx.db.select().from(t.ledgerAccounts).where(eq(t.ledgerAccounts.branchId, b.id))).map((a) => a.kind).sort();
-    expect(kinds).toEqual(['BANK', 'CASH', 'FUNDS_IN_TRANSIT', 'HASAD_RECEIVABLE', 'OWED_TO_GM']);
+    expect(kinds).toEqual(['BANK', 'CASH', 'FUNDS_IN_TRANSIT', 'OWED_TO_GM']);
   });
 
   it('the demo seed posted entries consistent with its history', async () => {
-    const sales = await ctx.db.select().from(t.sales);
+    // PAY-1: the ledger holds the CASH and BANK payment lines; a HASAD line moves no branch account (D-pay1-8).
+    const lines = await ctx.db.select({ amount: t.salePayments.amount, method: t.salePayments.method, status: t.sales.status }).from(t.salePayments).innerJoin(t.sales, eq(t.sales.id, t.salePayments.saleId));
+    const branchLines = lines.filter((l) => l.method !== 'HASAD');
+    expect(lines.some((l) => l.method === 'HASAD')).toBe(true);
     const saleEntries = await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'SALE'));
-    expect(saleEntries.reduce((s, e) => s + e.amount, 0)).toBe(sales.reduce((s, x) => s + x.total, 0));
+    expect(saleEntries.reduce((s, e) => s + e.amount, 0)).toBe(branchLines.reduce((s, x) => s + x.amount, 0));
+    expect(saleEntries.some((e) => e.paymentMethod === 'HASAD')).toBe(false);
     const voids = await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.eventType, 'SALE_VOID'));
-    expect(voids.reduce((s, e) => s + e.amount, 0)).toBe(-sales.filter((x) => x.status === 'VOIDED').reduce((s, x) => s + x.total, 0));
+    expect(voids.reduce((s, e) => s + e.amount, 0)).toBe(-branchLines.filter((x) => x.status === 'VOIDED').reduce((s, x) => s + x.amount, 0));
   });
 
   it('a balance is exactly the sum of its entries (no cached balance anywhere)', async () => {
@@ -239,23 +243,24 @@ describe('money events post in the same transaction as the business change', () 
     expect(JSON.stringify((await bm.get('/api/dashboard/branch')).body)).not.toMatch(/expense|contribution/i);
   });
 
-  it('expenses and the Hasad workspace are gone (REM-1, REM-2, dropped by REM-5): no tables, and the ledger refuses their event types', async () => {
+  it('expenses, the Hasad workspace and the Hasad receivable are gone (REM-1, REM-2, REM-5, PAY-1): no tables, and the ledger refuses their event types', async () => {
     const krt = await branchId('KRT');
-    for (const stmt of ['SELECT 1 FROM expenses', 'SELECT 1 FROM hasad_withdrawals', 'SELECT 1 FROM hasad_redemptions', 'SELECT 1 FROM hasad_redemption_items', 'SELECT 1 FROM settlements', 'SELECT 1 FROM hasad_mock.customers']) {
+    for (const stmt of ['SELECT 1 FROM expenses', 'SELECT 1 FROM hasad_withdrawals', 'SELECT 1 FROM hasad_redemptions', 'SELECT 1 FROM hasad_redemption_items', 'SELECT 1 FROM settlements', 'SELECT 1 FROM hasad_mock.customers', 'SELECT 1 FROM hasad_receivable_settlements']) {
       expect(await failure(stmt), stmt).toMatch(/does not exist/);
     }
     const before = await entryCount();
-    for (const eventType of ['EXPENSE', 'HASAD_SETTLEMENT']) {
+    for (const eventType of ['EXPENSE', 'HASAD_SETTLEMENT', 'HASAD_RECEIVABLE_SETTLEMENT']) {
       await expect(
         ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'CASH', amount: -1000, eventType: eventType as never, ref: { refType: 'test', refId: 1 } }], { actor: null })),
         eventType,
       ).rejects.toThrow();
     }
     expect(await entryCount()).toBe(before);
-    // Every kept event type still posts.
-    await ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'BANK', amount: 1, eventType: 'HASAD_RECEIVABLE_SETTLEMENT', ref: { refType: 'test', refId: 1 } }], { actor: null }));
+    // A kept event type still posts.
+    await ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'BANK', amount: 1, eventType: 'SUPPLIER_MAKING_CHARGE', ref: { refType: 'test', refId: 1 } }], { actor: null }));
     expect(await entryCount()).toBe(before + 1);
-    expect(await ctx.db.select().from(t.permissions).where(sql`code LIKE 'hasad.%' OR code LIKE 'expenses.%'`)).toHaveLength(0);
+    expect(await ctx.db.select().from(t.permissions).where(sql`code LIKE 'hasad.%' OR code LIKE 'expenses.%' OR code = 'cash.settle_hasad'`)).toHaveLength(0);
+    expect(await ctx.db.select().from(t.ledgerAccounts).where(sql`kind = 'HASAD_RECEIVABLE'`)).toHaveLength(0);
   });
 });
 
@@ -417,7 +422,7 @@ describe('expected cash and daily reconciliation', () => {
       { kind: 'CASH', eventType: 'SALE', amount: 50_000 },
       { kind: 'CASH', eventType: 'EXPENSE', amount: -7_000 },
       { kind: 'CASH', eventType: 'HASAD_SETTLEMENT', amount: -100 }, // a Hasad weight-difference settlement (removed by REM-2)
-      { kind: 'CASH', eventType: 'HASAD_RECEIVABLE_SETTLEMENT', amount: -1 }, // never a drawer event: not a CASH line
+      { kind: 'CASH', eventType: 'SUPPLIER_MAKING_CHARGE', amount: -1 }, // historical (MKC-1): no line of its own
       { kind: 'CASH', eventType: 'SOMETHING_NEW', amount: 3 },
       { kind: 'BANK', eventType: 'SALE', amount: 999 }, // another account: ignored
     ]);
@@ -426,7 +431,7 @@ describe('expected cash and daily reconciliation', () => {
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
     const krt = await branchId('KRT');
     const before = (await bm.get('/api/cash/reconciliation')).body;
-    await ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'CASH', amount: -1_234, eventType: 'HASAD_RECEIVABLE_SETTLEMENT', ref: { refType: 'test', refId: 2 } }], { actor: null }));
+    await ctx.db.transaction((tx) => post(tx, [{ branchId: krt, kind: 'CASH', amount: -1_234, eventType: 'SUPPLIER_MAKING_CHARGE', ref: { refType: 'test', refId: 2 } }], { actor: null }));
     const after = (await bm.get('/api/cash/reconciliation')).body;
     const other = (r: { cashLines: { line: string; amount: number }[] }) => r.cashLines.find((l) => l.line === 'OTHER')!.amount;
     expect(other(after) - other(before)).toBe(-1_234);

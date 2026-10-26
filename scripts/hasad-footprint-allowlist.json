@@ -9,9 +9,10 @@
       "backend/src/modules/reports/service.ts",
       "shared/src/field-classification.ts",
       "frontend/src/pages/cash/CashPage.tsx",
-      "frontend/src/lib/i18n-ar.ts"
+      "frontend/src/lib/i18n-ar.ts",
+      "backend/src/modules/sales/service.ts"
     ],
-    "match": "'HASAD'|\\bHASAD: |HASAD = the customer paid through the Hasad app|The counter takes cash, bank transfer and Hasad|hasadLines|hasadSales|hasadVoids|Hasad versus direct|Hasad \\(paid to the General Manager|Cancelled Hasad sales|Hasad money is not in this branch|Hasad is a sales channel only|Hasad money is paid to the General Manager|the day's Hasad|Hasad figures|HASAD payment lines|HASAD row|Hasad is reported beside|Hasad part of a sale|const hasad = byChannel|m !== 'HASAD'|paymentMethod !== 'HASAD'|hasad-vs-direct",
+    "match": "'HASAD'|\\bHASAD: |HASAD = the customer paid through the Hasad app|The counter takes cash, bank transfer and Hasad|hasadLines|hasadSales|hasadVoids|Hasad versus direct|Hasad \\(paid to the General Manager|Cancelled Hasad sales|Hasad money is not in this branch|Hasad is a sales channel only|Hasad money is paid to the General Manager|the day's Hasad|Hasad figures|HASAD payment lines|HASAD row|Hasad is reported beside|Hasad part of a sale|const hasad = byChannel|m !== 'HASAD'|paymentMethod !== 'HASAD'|hasad-vs-direct|null for HASAD|HASAD line posts nothing|HASAD line moves none|HASAD moves none|HASAD payment line moves no branch account|Hasad part of the sale|refunds the customer through Hasad|hasadAmount",
     "reason": "HASAD is a payment method: the enum, its account mapping, the counter's default methods and the POS icon. PAY-1: Hasad as a sales channel in the reports and the reconciliation (Hasad versus direct sales, money paid to the General Manager's account)."
   },
   {
@@ -50,26 +51,6 @@
     ],
     "match": "hasadInvoice|hasadTxn|hasadInvoiceRef|hasadTransactionRef|Hasad invoice number|Hasad transaction reference|recorded for Hasad payments|recorded only for bank transfer and Hasad payments|لمدفوعات التحويل البنكي وحصاد فقط|Hasad: optional transaction reference|Hasad: its transaction reference|(paymentMethod|p\\.method) !== .HASAD. && \\(refInvoice|Hasad \\(D-4-6\\): the Hasad invoice number|HASAD payments: the app's invoice|ck_sales_hasad_reference|doc\\.hasad|\\bhasad: (sale\\.paymentMethod|\\{ invoiceRef)|transactionRef hasad cashier|grossWeightMg hasad$|the payment method is HASAD|supplier gold debt, Hasad payments$|method = 'HASAD' AND ref_invoice|A HASAD line is the only record|HASAD: the optional transaction reference|const hasad = payments\\.find|hasad\\?\\.ref(Invoice|Transaction)|HASAD: the Hasad invoice number",
     "reason": "The Hasad invoice number (required) and transaction reference (optional) typed at the POS, validated, stored, printed on the invoice and classified SAFE."
-  },
-  {
-    "category": "RECEIVABLE",
-    "files": [
-      "shared/src/enums.ts",
-      "shared/src/permissions.ts",
-      "shared/src/route-matrix.ts",
-      "shared/src/db-checks.ts",
-      "shared/src/field-classification.ts",
-      "database/src/schema.ts",
-      "backend/src/core/startup.ts",
-      "backend/src/routes.ts",
-      "backend/src/modules/ledger/service.ts",
-      "backend/src/modules/sales/service.ts",
-      "frontend/src/pages/cash/CashPage.tsx",
-      "frontend/src/lib/i18n-ar.ts",
-      "frontend/src/lib/i18n-en.ts"
-    ],
-    "match": "HASAD_RECEIVABLE|hasadReceivable|hasad_receivable|settleHasadReceivable|settle_hasad|hasad-settle|HasadSettle|HasadTransfer|hasad-transfers|hasad-settlements|listHasadSettlements|Hasad receivable|Hasad bank transfer|Hasad transfer|Hasad paid|Hasad pays|Hasad's bank transfer|Hasad receivable settled|مستحقات حصاد|تحويل(ات)? حصاد|دفعت حصاد|دفعة من حصاد|HASAD_RECEIVABLE_SETTLE|settle-hasad-",
-    "reason": "The per-branch Hasad receivable and its settlement by Hasad's bank transfer (D-4-14), kept by REM-2 pending Q-7."
   },
   {
     "category": "REMOVAL_COMMENT",

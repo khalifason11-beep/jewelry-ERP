@@ -201,7 +201,7 @@ describe('money rounding and ledger arithmetic (Phase 2b, Q1)', () => {
       fc.property(
         fc.array(fc.record({ amount: fc.integer({ min: 1, max: 100_000_000 }), method: fc.constantFrom(...PAYMENT_METHODS), voided: fc.boolean() }), { maxLength: 60 }),
         (events) => {
-          const entries: { kind: string; amount: number }[] = [];
+          const entries: { kind: string | null; amount: number }[] = []; // PAY-1: HASAD moves no branch account (null)
           for (const e of events) {
             entries.push({ kind: PAYMENT_ACCOUNT[e.method], amount: e.amount });
             if (e.voided) entries.push({ kind: PAYMENT_ACCOUNT[e.method], amount: -e.amount });

@@ -230,7 +230,8 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO jerp_app;
 SELECT jerp_lock_append_only(t::regclass)
 FROM unnest(ARRAY['audit_logs','inventory_movements','item_status_history','gold_rates','settings_history',
                    'ledger_entries','cash_counts','scrap_rates','scrap_purchases','scrap_weight_entries',
-                   'supplier_settlements','hasad_receivable_settlements','backup_runs','gm_funding_events']) AS t;
+                   'supplier_settlements','backup_runs','gm_funding_events','scrap_purchase_voids','purchase_corrections',
+                   'opening_imports','opening_piece_corrections','sale_payments']) AS t;
 ```
 
 Check with the preflight (`node scripts/server/preflight.mjs`: the `runtime role` line must say PASS), then start the
@@ -465,6 +466,16 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   answers with `payments`; `paymentMethod` may now read `SPLIT`.
 - error code: `PAYMENT_TOTAL_MISMATCH` (422): the payment lines do not add up to the sale's total; the answer names
   the sum and the total.
+- **0036 (HSD-2)** makes Hasad a sales channel only: Hasad money is paid to the General Manager's own account, so a
+  HASAD payment line posts nothing to a branch account. It **stops, changing nothing**, on any Hasad receivable history
+  (an entry on a `HASAD_RECEIVABLE` account, even a voided sale's two entries; a settlement record or entry; a
+  settlement in the audit log): history is never deleted, so such a database is **recreated** (owner Q5; there is no
+  production database). Otherwise it deletes the empty receivable accounts (the accounts' no-delete trigger and the
+  ledger's lock are lifted for that one statement and put back), drops the empty table `hasad_receivable_settlements`,
+  narrows the account-kind and event-type checks and removes the permission `cash.settle_hasad`. Routes removed:
+  `GET` and `POST /api/cash/hasad-settlements`. Responses: `drawer().hasadReceivable` and the reconciliation's
+  `hasadReceivableToBank` are gone; `POST /api/sales/:id/void` answers `hasadAmount` (the part paid through Hasad,
+  which the void does not refund: the General Manager refunds the customer through Hasad, outside the system).
 - `GET /api/cash/reconciliation`: `salesTotal` / `voidsTotal` now count the branch's money only (cash and bank);
   new `hasadSales` / `hasadVoids` (the day's Hasad payment lines, paid to the General Manager's account). The sales
   report's summary is computed from the payment lines and adds "Direct sales (cash and bank)", "Hasad (paid to the
@@ -486,7 +497,7 @@ future migration that cannot transform a row is redesigned, not shipped with a g
 
 ### Purchases, scrap and supplier settlement (Phase 4)
 
-- Migration 0007 adds a **HASAD_RECEIVABLE** account to every branch (and to every future branch). Sales paid with
+- (Superseded by PAY-1, migration 0036: the receivable and its settlement are removed.) Migration 0007 adds a **HASAD_RECEIVABLE** account to every branch (and to every future branch). Sales paid with
   Hasad are held there. Migration 0008 adds the settlement of that receivable: when Hasad's bank transfer reaches
   the branch's bank account, a branch manager or the GM records it on the Cash screen and the amount moves from
   the receivable to BANK (new append-only table `hasad_receivable_settlements`, new permission `cash.settle_hasad`).

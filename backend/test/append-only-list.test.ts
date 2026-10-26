@@ -24,7 +24,9 @@ export function listDrift(list: readonly string[], expected: readonly string[]):
 const MIGRATIONS = path.resolve(__dirname, '../../database/migrations');
 const lockedByMigrations = () => {
   const text = fs.readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).map((f) => fs.readFileSync(path.join(MIGRATIONS, f), 'utf8')).join('\n');
-  return [...new Set([...text.matchAll(/jerp_lock_append_only\('([a-z_]+)'\)/g)].map((m) => m[1]))].sort();
+  // A table a later migration drops (PAY-1 0036: hasad_receivable_settlements) is no longer locked by the migrations.
+  const dropped = new Set([...text.matchAll(/DROP TABLE "?([a-z_]+)"?/g)].map((m) => m[1]));
+  return [...new Set([...text.matchAll(/jerp_lock_append_only\('([a-z_]+)'\)/g)].map((m) => m[1]))].filter((x) => !dropped.has(x)).sort();
 };
 
 let handle: DatabaseHandle;

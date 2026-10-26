@@ -870,29 +870,6 @@ export const supplierSettlements = pgTable(
 );
 
 /**
- * Hasad pays the shop by an ordinary bank transfer into the branch's bank account. Each transfer
- * received is recorded here (append-only) and moves the amount from HASAD_RECEIVABLE to BANK in the
- * same transaction (two ledger entries that net to zero).
- */
-export const hasadReceivableSettlements = pgTable(
-  'hasad_receivable_settlements',
-  {
-    id: serial('id').primaryKey(),
-    number: text('number').notNull().unique(),
-    branchId: integer('branch_id').notNull().references(() => branches.id),
-    amount: money('amount').notNull(),
-    /** The bank's reference of the incoming transfer (optional). */
-    bankReference: text('bank_reference'),
-    note: text('note'),
-    actorId: integer('actor_id').notNull().references(() => users.id),
-    sessionId: text('session_id'),
-    idempotencyKey: text('idempotency_key'),
-    at: ts('at').notNull().defaultNow(),
-  },
-  (t) => [index('hasad_receivable_settlements_branch_idx').on(t.branchId, t.at)],
-);
-
-/**
  * CSH-2 (D-csh-1, D-csh-2): money the General Manager advances to a branch (into its drawer or bank) and the
  * branch's repayments, append-only. Each event posts two ledger entries in one transaction: the CASH or BANK side
  * and the branch's OWED_TO_GM account, whose balance is what the branch owes him (derived, never edited). A wrong

@@ -1166,7 +1166,7 @@ async function main() {
       check((await apiSend(page, 'POST', '/api/auth/reauth', { password: BM.password })).status === 200, 'branch manager: password confirmed again for the cancellations');
       for (const s of [bankSale2, bankSale1]) {
         const v = await apiSend(page, 'POST', `/api/sales/${s.id}/void`, { reason: 'إعادة القطعة للاختبار (PAY-1)' });
-        check(v.status === 200, `bank-transfer sale ${s.number} cancelled: its piece is back in stock`);
+        check(v.status === 200 && v.body.hasadAmount === 0, `bank-transfer sale ${s.number} cancelled: its piece is back in stock, nothing of it was Hasad`);
       }
       const [p] = (await apiGet(page, '/api/inventory/items?status=AVAILABLE&pageSize=1')).body.rows;
       const total = p.sellingPrice;
@@ -1221,6 +1221,21 @@ async function main() {
       const summaryText = await page.getByTestId('report-summary').innerText();
       check(summaryText.includes('حصاد (يُدفع إلى حساب المدير العام)') && summaryText.includes('المبيعات المباشرة (نقداً وبنكياً)'), 'Reports › Sales shows "Hasad (paid to the General Manager\'s account)" and "Direct sales" tiles, in Arabic');
       check((await page.getByTestId('report-payments').allInnerTexts()).some((x) => x.includes('HSD-REH-1') && x.includes('+')), 'each row shows its payment lines; the split sale lists both methods with the Hasad invoice number');
+      // HSD-2: no Hasad receivable and no settle-by-bank action any more.
+      check((await apiSend(page, 'POST', '/api/cash/hasad-settlements', { amount: 1000 })).status === 404 && (await apiGet(page, '/api/cash/hasad-settlements')).status === 404, 'the Hasad bank-transfer settlement routes are gone (404)');
+      const drawerRow = (await apiGet(page, '/api/cash/drawer')).body.branches[0];
+      await page.goto(`${origin}/cash`);
+      await page.getByTestId('hasad-vs-direct').waitFor({ timeout: 15_000 });
+      check(!('hasadReceivable' in drawerRow) && !(await page.locator('body').innerText()).includes('مستحقات حصاد') && (await page.locator('[data-testid^=settle-hasad]').count()) === 0, 'Cash: no Hasad receivable column, no "Settle Hasad receivable" button');
+      // A void of the Hasad + cash sale refunds the cash part from the drawer only; the Hasad part is reported, not refunded.
+      check((await apiSend(page, 'POST', '/api/auth/reauth', { password: BM.password })).status === 200, 'branch manager: password confirmed again for the cancellation');
+      const beforeVoid = (await apiGet(page, '/api/cash/reconciliation')).body;
+      const v = await apiSend(page, 'POST', `/api/sales/${sale.body.id}/void`, { reason: 'العميل أعاد القطعة (PAY-1)' });
+      const afterVoid = (await apiGet(page, '/api/cash/reconciliation')).body;
+      check(
+        v.status === 200 && v.body.hasadAmount === total - cashPart && afterVoid.expectedCash - beforeVoid.expectedCash === -cashPart && afterVoid.bankMovement === beforeVoid.bankMovement && afterVoid.hasadVoids - beforeVoid.hasadVoids === -(total - cashPart),
+        `the void of ${sale.body.number}: the drawer gives back the cash part (${cashPart}) only; the answer says ${total - cashPart} was paid through Hasad; it shows as a cancelled Hasad sale`,
+      );
     }
     await signOut(page);
     await signIn(page, origin, GM.username, GM.password);
@@ -1577,7 +1592,10 @@ async function main() {
              (table_name = 'jewelry_items' AND column_name IN ('purchase_cost', 'making_cost', 'other_cost', 'total_cost', 'reservation_ref', 'reserved_at', 'reserved_by'))
              OR (table_name = 'sessions' AND column_name = 'is_simulated') OR (table_name = 'branches' AND column_name = 'hasad_branch_code')))::int AS columns,
           (SELECT count(*) FROM pg_proc WHERE proname = 'jerp_refuse_deprecated_insert')::int AS fn,
-          (SELECT count(*) FROM settings WHERE key = 'hasad.enabledPerBranch')::int AS setting`);
+          (SELECT count(*) FROM settings WHERE key = 'hasad.enabledPerBranch')::int AS setting,
+          (SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'hasad_receivable_settlements')::int AS hasad_settlements,
+          (SELECT count(*) FROM ledger_accounts WHERE kind = 'HASAD_RECEIVABLE')::int AS hasad_accounts,
+          (SELECT count(*) FROM permissions WHERE code = 'cash.settle_hasad')::int AS settle_permission`);
       check(Object.values(gone[0]).every((n) => n === 0), `the production database has none of the removed tables, schema, columns, function or settings row (${JSON.stringify(gone[0])})`);
       const [m] = await one('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations');
       const [u] = await one(`SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'purchase_items_item_id_unique'`);

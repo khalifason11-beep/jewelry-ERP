@@ -125,22 +125,19 @@ edited in the app.
   | `CASH` | The drawer |
   | `BANK` | The branch's bank account |
   | `FUNDS_IN_TRANSIT` | Money on its way |
-  | `HASAD_RECEIVABLE` | Hasad sales that Hasad has not paid yet |
   | `OWED_TO_GM` | What the branch owes the General Manager. A liability, never counted as money. |
 
 - Ledger entries are append-only and signed; a balance is the sum of its entries. An entry is written in the same
   transaction as the business change it records, and a correction is a reversing entry. The event types are:
   - `SALE`, `SALE_VOID` and `REVERSAL`;
   - `SCRAP_PURCHASE`;
-  - `HASAD_RECEIVABLE_SETTLEMENT`;
   - `GM_ADVANCE` and `GM_REPAYMENT`;
   - `SUPPLIER_MAKING_CHARGE`, which is historical and no longer written.
-- **Sales** post to the account of their payment method:
+- **Sales** are paid by one or two payment lines (PAY-1), each posting to the account of its method:
   - cash goes to `CASH`;
   - bank transfer goes to `BANK`, with the transfer reference;
-  - Hasad goes to `HASAD_RECEIVABLE`, with the Hasad invoice and transaction references.
-
-  When Hasad's bank transfer arrives, a manager records it and the amount moves from `HASAD_RECEIVABLE` to `BANK`.
+  - Hasad posts nothing: the money is paid to the General Manager's own account; the payment line keeps the Hasad
+    invoice and transaction references.
 - **The General Manager's funding:**
   - An advance into a branch's drawer or bank increases that account and `OWED_TO_GM`.
   - A repayment does the reverse.

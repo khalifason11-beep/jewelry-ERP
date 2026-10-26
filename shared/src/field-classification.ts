@@ -104,8 +104,6 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   },
   // Phase 2c: backup / restore-drill runs (no secrets are ever stored: file name, size, checksum, summary).
   backup_runs: { safe: words('id kind status file_name size_bytes sha256 encrypted uploaded detail host started_at finished_at') },
-  // Hasad bank transfers received (Phase 4 follow-up): a money movement between two branch accounts, like the ledger.
-  hasad_receivable_settlements: { safe: words('id number branch_id amount bank_reference note actor_id session_id idempotency_key at') },
   // CSH-2 (D-csh-5): the General Manager's funding of a branch. Money movements, not cost or profit: SAFE. Who sees
   // them is decided by permission (`funding.view`, General Manager only), not by this registry.
   gm_funding_events: {
@@ -220,7 +218,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     voidsByMethod voidsTotal cashMovement counted difference
     countedAmount expectedAmount countedBy countedByName businessDay
     makingChargePaidFrom paymentRefInvoice paymentRefTransaction scrapRatePerGram agreedRatePerGram deviationBp overrideApproved
-    customerIdRef hasadReceivable posPaymentMethods brokenScrap pureMg24 brokenScrapPureMg24 itemsPureMg24 totalPureMg24 weightByKarat
+    customerIdRef posPaymentMethods brokenScrap pureMg24 brokenScrapPureMg24 itemsPureMg24 totalPureMg24 weightByKarat
     settlementCount purchaseNumber supplierName origin scrapRates byKarat balanceMg createdByName toleranceBp
     summary value itemsWeightMg brokenScrapWeightMg totalWeightMg stockWeight items settlements
     secondFactor required enrollmentRequired passkeys recoveryCodesRemaining recoveryCodesAcknowledged userVerification
@@ -228,7 +226,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     uvAtRegistration backedUp deviceType methods expiresAt codes generatedAt validForMinutes revoked changed securityLocked recoveryCodesInvalidated
     print document layout format invoiceFormat receiptWidthMm autoPrintAfterSale originalPrintedAt reprintCount issuedAt lines copy printedAt invoiceRef transactionRef hasad cashier customer
     backup backupAgeHours verifyAgeHours maxAgeHours maxVerifyAgeDays reasons
-    goldOwedMgPure24 owedAfterMgPure24 goldDebtMgPure24 settledKarat settledWeightMg settledPureMg24 bankReference hasadReceivableToBank hasadReceivableBalance
+    goldOwedMgPure24 owedAfterMgPure24 goldDebtMgPure24 settledKarat settledWeightMg settledPureMg24 bankReference
     cashLines bankLines bankMovement line
     isActive categoryAr supplierNameAr productNameAr existing
     setupSteps steps done complete
@@ -242,7 +240,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     inTransit goldOwed salesLine lastCount orders fullNameAr
     page pages sort dir asOfId
     rowCount rowCap truncated
-    payments refInvoice refTransaction hasadSales hasadVoids
+    payments refInvoice refTransaction hasadSales hasadVoids hasadAmount
   `),
 );
 

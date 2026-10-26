@@ -6,9 +6,13 @@
 //         make a valid line. A sale recorded before the ledger (no entry) is converted from its own method.
 //   0035: at commit, every sale has 1–2 lines summing to its total and its label follows them (constraint trigger);
 //         the sale's own reference checks are replaced by the lines' check.
+//   0036: HSD-2. It stops, changing nothing, on any Hasad receivable history (an entry on the account, a settlement
+//         record or entry, a settlement in the audit log: owner Q5); otherwise the empty receivable accounts, the
+//         settlement table, the event type and the permission are removed.
 
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { DatabaseHandle } from '@jerp/database';
+import { PG_MODE } from './helpers';
 import { one, openAt, run, upTo } from './migration-harness';
 
 const BASE = `
@@ -37,7 +41,7 @@ const stopsWith = async (h: DatabaseHandle, text: string) => {
   expect(Number((await one(h, `SELECT count(*) AS n FROM information_schema.tables WHERE table_name = 'sale_payments'`)).n)).toBe(0);
 };
 
-describe('PAY-1 migrations 0033–0035 on a database at 0032', () => {
+describe('PAY-1 migrations 0033–0036 on a database at 0032', () => {
   beforeAll(() => {
     upTo(32);
   });
@@ -100,14 +104,56 @@ describe('PAY-1 migrations 0033–0035 on a database at 0032', () => {
     }
   }, 120_000);
 
-  it('a HASAD sale keeps its invoice number and transaction reference on its line', async () => {
+  it('0036: a database with Hasad receivable history stops, changing nothing (owner Q5: recreated, never converted)', async () => {
+    const cases: [string, string[]][] = [
+      ['a Hasad sale (its entry on the receivable)', [sale('S-HSD', 'HASAD', 300_000, { inv: 'HSD-77', txn: 'tx 5' }), entry('S-HSD', 'HASAD_RECEIVABLE', 'HASAD', 300_000)]],
+      [
+        'a voided Hasad sale (two entries netting to zero)',
+        [sale('S-HSV', 'HASAD', 300_000, { inv: 'HSD-78' }, 'VOIDED'), entry('S-HSV', 'HASAD_RECEIVABLE', 'HASAD', 300_000), entry('S-HSV', 'HASAD_RECEIVABLE', 'HASAD', -300_000, 'SALE_VOID')],
+      ],
+      ['a settlement record', [`INSERT INTO hasad_receivable_settlements (number, branch_id, amount, actor_id) SELECT 'HRS-1', b.id, 500, u.id FROM branches b, users u WHERE b.code = 'TRL' AND u.username = 'trial.person'`]],
+      ['a settlement in the audit log', [`INSERT INTO audit_logs (action, entity_type, entity_id, description) VALUES ('HASAD_RECEIVABLE_SETTLED', 'hasad_receivable_settlement', 'HRS-9', 'x')`]],
+    ];
+    for (const [what, setup] of cases) {
+      const h = await openAt(32);
+      try {
+        await run(h, BASE);
+        for (const q of setup) await run(h, q);
+        const accounts = await run(h, `SELECT branch_id, kind FROM ledger_accounts ORDER BY id`);
+        await stopsWith(h, 'Migration 0036 (PAY-1) stopped');
+        expect(await run(h, `SELECT branch_id, kind FROM ledger_accounts ORDER BY id`), what).toEqual(accounts);
+      } finally {
+        await h.close();
+      }
+    }
+  }, 240_000);
+
+  it('0036 on a database without Hasad receivable history: the receivable, its table and its permission are gone', async () => {
     const h = await openAt(32);
     try {
       await run(h, BASE);
+      await run(h, `INSERT INTO roles (code, name, name_ar) VALUES ('BRANCH_MANAGER', 'Branch Manager', 'مدير فرع') ON CONFLICT DO NOTHING`);
+      await run(h, `INSERT INTO role_permissions (role_id, permission_code) SELECT id, 'cash.settle_hasad' FROM roles WHERE code IN ('GENERAL_MANAGER', 'BRANCH_MANAGER') ON CONFLICT DO NOTHING`);
+      // A Hasad sale recorded without a receivable entry (as a sale before the ledger) converts to its payment line.
       await run(h, sale('S-HSD', 'HASAD', 300_000, { inv: 'HSD-77', txn: 'tx 5' }));
-      await run(h, entry('S-HSD', 'HASAD_RECEIVABLE', 'HASAD', 300_000));
+      await run(h, sale('S-CASH', 'CASH', 100_000));
+      await run(h, entry('S-CASH', 'CASH', 'CASH', 100_000));
       await h.migrate();
-      expect(await one(h, `SELECT p.method, p.amount::int AS amount, p.ref_invoice AS inv, p.ref_transaction AS txn FROM sale_payments p`)).toEqual({ method: 'HASAD', amount: 300_000, inv: 'HSD-77', txn: 'tx 5' });
+      expect(await one(h, `SELECT p.method, p.amount::int AS amount, p.ref_invoice AS inv, p.ref_transaction AS txn FROM sale_payments p JOIN sales s ON s.id = p.sale_id WHERE s.number = 'S-HSD'`)).toEqual({ method: 'HASAD', amount: 300_000, inv: 'HSD-77', txn: 'tx 5' });
+      expect((await run(h, `SELECT kind FROM ledger_accounts a JOIN branches b ON b.id = a.branch_id WHERE b.code = 'TRL' ORDER BY kind`)).map((r) => r.kind)).toEqual(['BANK', 'CASH', 'FUNDS_IN_TRANSIT', 'OWED_TO_GM']);
+      expect(Number((await one(h, `SELECT count(*) AS n FROM information_schema.tables WHERE table_name = 'hasad_receivable_settlements'`)).n)).toBe(0);
+      expect(Number((await one(h, `SELECT count(*) AS n FROM permissions WHERE code = 'cash.settle_hasad'`)).n)).toBe(0);
+      expect(Number((await one(h, `SELECT count(*) AS n FROM role_permissions WHERE permission_code = 'cash.settle_hasad'`)).n)).toBe(0);
+      // The checks refuse the removed kind and event type; a new branch gets the four accounts.
+      expect(await refused(h, `INSERT INTO ledger_accounts (branch_id, kind) SELECT id, 'HASAD_RECEIVABLE' FROM branches WHERE code = 'TRL'`)).toBe(true);
+      expect(await refused(h, entry('S-CASH', 'CASH', 'CASH', 1, 'HASAD_RECEIVABLE_SETTLEMENT'))).toBe(true);
+      await run(h, `INSERT INTO branches (code, name, name_ar, city) VALUES ('NEW', 'New', 'جديد', 'City')`);
+      expect((await run(h, `SELECT kind FROM ledger_accounts a JOIN branches b ON b.id = a.branch_id WHERE b.code = 'NEW' ORDER BY kind`)).map((r) => r.kind)).toEqual(['BANK', 'CASH', 'FUNDS_IN_TRANSIT', 'OWED_TO_GM']);
+      expect(Number((await one(h, `SELECT count(*) AS n FROM ledger_entries`)).n)).toBe(1);
+      // The no-delete protection of the accounts is back: a DELETE is refused.
+      expect(await refused(h, `DELETE FROM ledger_accounts WHERE kind = 'FUNDS_IN_TRANSIT'`)).toBe(true);
+      expect((await one(h, `SELECT tgenabled AS e FROM pg_trigger WHERE tgname = 'ledger_accounts_no_delete'`))?.e).toBe('O');
+      if (PG_MODE) expect((await one(h, `SELECT has_table_privilege(current_user, 'ledger_entries', 'UPDATE') AS u`))?.u).toBe(false);
     } finally {
       await h.close();
     }

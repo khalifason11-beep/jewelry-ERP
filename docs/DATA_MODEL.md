@@ -113,10 +113,9 @@
 
 | Table | Purpose |
 |---|---|
-| `ledger_accounts` | One account per branch and kind: `CASH`, `BANK`, `FUNDS_IN_TRANSIT`, `HASAD_RECEIVABLE`, `OWED_TO_GM` (created for every branch, including new ones) |
+| `ledger_accounts` | One account per branch and kind: `CASH`, `BANK`, `FUNDS_IN_TRANSIT`, `OWED_TO_GM` (created for every branch, including new ones; PAY-1 migration 0036 removed `HASAD_RECEIVABLE`) |
 | `ledger_entries` | Append-only signed entries. `event_type` and `payment_method`, a reference (`ref_type`, `ref_id`, `ref_number`), `reverses_entry_id`, the actor, the session, the idempotency key. A balance is the sum of its entries |
 | `gm_funding_events` | Append-only (CSH-2, migration 0020), see below |
-| `hasad_receivable_settlements` | Append-only: a Hasad bank transfer recorded, moving money from `HASAD_RECEIVABLE` to `BANK` |
 | `cash_counts` | Append-only: a counted drawer amount against the expected amount, per business day |
 
 **`gm_funding_events`** columns:
@@ -132,10 +131,9 @@
 
 | Event type | Accounts |
 |---|---|
-| `SALE` | The payment method's account: CASH → `CASH`; BANK_TRANSFER, CARD, MOBILE_WALLET → `BANK`; HASAD → `HASAD_RECEIVABLE` |
+| `SALE` | One entry per payment line, on its method's account: CASH → `CASH`; BANK_TRANSFER, CARD, MOBILE_WALLET → `BANK`; a HASAD line posts nothing (the money is paid to the General Manager's account; the line in `sale_payments` is the record) |
 | `SALE_VOID` | The reverse of the sale, on the same account |
 | `SCRAP_PURCHASE` | `CASH` for the cash part, `BANK` for the bank part |
-| `HASAD_RECEIVABLE_SETTLEMENT` | `HASAD_RECEIVABLE` −, `BANK` + |
 | `GM_ADVANCE` | `CASH` or `BANK` +, `OWED_TO_GM` + |
 | `GM_REPAYMENT` | `CASH` or `BANK` −, `OWED_TO_GM` − |
 | `REVERSAL` | The mirror of the entries it reverses (a funding correction) |
@@ -160,7 +158,7 @@
 These tables are protected by triggers (`jerp_forbid_modification`, against UPDATE, DELETE and TRUNCATE). On
 PostgreSQL, the runtime role's privileges are also removed (`jerp_lock_append_only`):
 
-`audit_logs`, `backup_runs`, `cash_counts`, `gm_funding_events`, `gold_rates`, `hasad_receivable_settlements`,
+`audit_logs`, `backup_runs`, `cash_counts`, `gm_funding_events`, `gold_rates`,
 `inventory_movements`, `item_status_history`, `ledger_entries`, `opening_imports`, `opening_piece_corrections`, `purchase_corrections`, `sale_payments`, `scrap_purchase_voids`,
 `scrap_purchases`, `scrap_rates`, `scrap_weight_entries`, `settings_history`, `supplier_settlements`.
 
@@ -190,7 +188,7 @@ a conditional update on the current status.
 - **Gold owed to a supplier** → `purchases.gold_owed_mg_pure24` → `supplier_settlements`.
 - **Cash and bank** → `ledger_entries` per account → `ref_type` / `ref_id` → the business row and its audit entry.
 - **Owed to the General Manager** → `OWED_TO_GM` entries → `gm_funding_events`.
-- **Hasad** → sales with `payment_method = HASAD` → `HASAD_RECEIVABLE` → `hasad_receivable_settlements`.
+- **Hasad** → the HASAD lines of `sale_payments` (the Hasad invoice number) → their sale; no branch account (PAY-1).
 
 ## Migrations
 
@@ -229,6 +227,7 @@ a conditional update on the current status.
 | `0033_pay1_sale_payments` | PAY-1: the append-only table `sale_payments` (CHECKs on method, line number 1–2, amount > 0 and each method's references; UNIQUE per sale on line number and on method) and the `SPLIT` label added to `ck_sales_payment_method`. Additive only |
 | `0034_pay1_backfill_payments` | PAY-1: one payment line per existing sale (its method, its whole total, its references). Two guards stop the upgrade, changing nothing: a sale that disagrees with its SALE ledger entries, and a sale that cannot make a valid line |
 | `0035_pay1_tighten_payments` | PAY-1: at commit, every sale has 1 or 2 payment lines summing to its total and its label follows them (deferred constraint trigger `jerp_sale_payments_check`); `ck_sales_hasad_reference` and `ck_sales_bank_transfer_reference` are replaced by the lines' references check |
+| `0036_pay1_hasad_channel_only` | PAY-1 / HSD-2: stops, changing nothing, on any Hasad receivable history (an entry on a `HASAD_RECEIVABLE` account, a settlement record or entry, a settlement in the audit log; owner Q5: such a database is recreated); otherwise deletes the empty `HASAD_RECEIVABLE` accounts, drops `hasad_receivable_settlements`, removes `HASAD_RECEIVABLE_SETTLEMENT` from the event-type check and the kind from the account-kind check, and removes the permission `cash.settle_hasad` |
 | `0031_opn2_tighten` | OPN-2: `rate_kind` becomes required (no default); CHECK `ck_jewelry_items_rate_kind_origin`: sellable scrap is USED, a supplier piece NEW (only an opening piece may be either). A row breaking either rule stops the upgrade with its count (none can exist after 0030) |
 | `0026_opn1_catalog_optional` | OPN-1 / CAT-1: `jewelry_items.category_id` and `description`; the product and the cost become optional (DROP NOT NULL; 0028 tightens again); sale-line name snapshots; `sales.unknown_cost_lines`; the tables `openings`, `opening_lines`, `opening_imports`; permission `opening.manage` (General Manager). Additive only |
 | `0024_prc1_computed_prices` | PRC-1: `gold_rates.kind` (NEW/USED, validated check, index), permission `scrap.buy_sellable` (every role), and `pricing.mode = FIXED_TAG` written only when pieces already exist (an upgraded installation keeps its tag prices). Additive only |

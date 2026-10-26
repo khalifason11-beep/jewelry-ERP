@@ -799,16 +799,6 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     res.json(await ledger.recordCount(ctx, actorOf(req), body));
   });
 
-  route('GET', '/cash/hasad-settlements', async (req, res) => {
-    const q = parse(z.object({ branchId: zOptId }).strict(), req.query);
-    res.json(await ledger.listHasadSettlements(ctx, actorOf(req), q));
-  });
-  // Hasad paid the branch by bank transfer: receivable → bank (amount only; never the drawer).
-  route('POST', '/cash/hasad-settlements', async (req, res) => {
-    const body = parse(z.object({ branchId: zIdBody.optional(), amount: zPositiveMoney, bankReference: zText(80).optional(), note: zText(500).optional() }).strict(), req.body);
-    res.json(await runIdempotent(ctx, req, res, (idem) => ledger.settleHasadReceivable(ctx, actorOf(req), body, { idem })));
-  });
-
   // ─────────── CSH-2: GM funding (advances, repayments, corrections) ───────────
   const zFunding = z
     .object({

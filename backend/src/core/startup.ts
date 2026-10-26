@@ -104,7 +104,7 @@ export async function unvalidatedConstraints(exec: Executor): Promise<{ table: s
  * Tables whose rows may never be changed or removed (triggers + privileges, D-2a-4). Must equal the tables the migrations
  * lock (jerp_forbid_modification trigger, jerp_lock_append_only): backend/test/append-only-list.test.ts checks it.
  */
-export const APPEND_ONLY_TABLES = ['audit_logs', 'inventory_movements', 'item_status_history', 'gold_rates', 'settings_history', 'ledger_entries', 'cash_counts', 'scrap_rates', 'scrap_purchases', 'scrap_weight_entries', 'supplier_settlements', 'hasad_receivable_settlements', 'backup_runs', 'gm_funding_events', 'scrap_purchase_voids', 'purchase_corrections', 'opening_imports', 'opening_piece_corrections', 'sale_payments'] as const;
+export const APPEND_ONLY_TABLES = ['audit_logs', 'inventory_movements', 'item_status_history', 'gold_rates', 'settings_history', 'ledger_entries', 'cash_counts', 'scrap_rates', 'scrap_purchases', 'scrap_weight_entries', 'supplier_settlements', 'backup_runs', 'gm_funding_events', 'scrap_purchase_voids', 'purchase_corrections', 'opening_imports', 'opening_piece_corrections', 'sale_payments'] as const;
 
 export interface RoleProblem {
   table: string;
