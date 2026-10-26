@@ -230,7 +230,8 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO jerp_app;
 SELECT jerp_lock_append_only(t::regclass)
 FROM unnest(ARRAY['audit_logs','inventory_movements','item_status_history','gold_rates','settings_history',
                    'ledger_entries','cash_counts','scrap_rates','scrap_purchases','scrap_weight_entries',
-                   'supplier_settlements','hasad_receivable_settlements','backup_runs','gm_funding_events']) AS t;
+                   'supplier_settlements','backup_runs','gm_funding_events','scrap_purchase_voids','purchase_corrections',
+                   'opening_imports','opening_piece_corrections','sale_payments']) AS t;
 ```
 
 Check with the preflight (`node scripts/server/preflight.mjs`: the `runtime role` line must say PASS), then start the
@@ -448,14 +449,53 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   `OPENING_NEEDS_COMPUTED_PRICES` (a condition or karat correction on FIXED_TAG), `CORRECTION_REASON_REQUIRED`,
   `CONFIRM_PASSWORD_REQUIRED`, `PASSKEY_REQUIRED`, `REAUTH_REQUIRED`.
 
+### PAY-1: split payments and Hasad as a sales channel only (migrations 0033–0036)
+
+- **0033** adds the append-only table `sale_payments` (one or two payment lines per sale) and the `SPLIT` label of
+  `sales.payment_method`. Additive: nothing stops the upgrade.
+- **0034** writes one payment line per existing sale (its method, its whole total, its references). It **stops,
+  changing nothing**, if a sale disagrees with its SALE ledger entries (their sum or their payment method), or if a
+  sale cannot make a valid line (no Hasad invoice number, no valid bank reference, a total of 0).
+- **0035** checks, when each transaction commits, that every sale has 1 or 2 payment lines (numbered from 1) summing to
+  its total, and that its label is the line's method or `SPLIT` (constraint trigger `jerp_sale_payments_check`). The
+  sale's own reference checks (`ck_sales_hasad_reference`, `ck_sales_bank_transfer_reference`) are replaced by the
+  lines' check. Nothing stops the upgrade (0034 gave every sale its line).
+- `POST /api/sales` takes `payments: [{ method, amount, refInvoice?, refTransaction? }]` (1 or 2 lines, one per
+  method, each accepted by `sales.posPaymentMethods`), or the single-method fields as before (one line of the whole
+  total; REM-6 removes them before go-live); both at once are refused (400). The sale (create, detail, list rows)
+  answers with `payments`; `paymentMethod` may now read `SPLIT`.
+- error code: `PAYMENT_TOTAL_MISMATCH` (422): the payment lines do not add up to the sale's total; the answer names
+  the sum and the total.
+- **0036 (HSD-2)** makes Hasad a sales channel only: Hasad money is paid to the General Manager's own account, so a
+  HASAD payment line posts nothing to a branch account. It **stops, changing nothing**, on any Hasad receivable history
+  (an entry on a `HASAD_RECEIVABLE` account, even a voided sale's two entries; a settlement record or entry; a
+  settlement in the audit log): history is never deleted, so such a database is **recreated** (owner Q5; there is no
+  production database). Otherwise it deletes the empty receivable accounts (the accounts' no-delete trigger and the
+  ledger's lock are lifted for that one statement and put back), drops the empty table `hasad_receivable_settlements`,
+  narrows the account-kind and event-type checks and removes the permission `cash.settle_hasad`. Routes removed:
+  `GET` and `POST /api/cash/hasad-settlements`. Responses: `drawer().hasadReceivable` and the reconciliation's
+  `hasadReceivableToBank` are gone; `POST /api/sales/:id/void` answers `hasadAmount` (the part paid through Hasad,
+  which the void does not refund: the General Manager refunds the customer through Hasad, outside the system).
+- Screens and print (PAY-1 c5): the POS offers **One method** or **Split payment** (the second part is always the
+  total minus the first; "Complete sale" stays disabled until both parts are valid); the sale, the sales list and its
+  CSV, the on-screen receipt and the printed invoice show **one line per method** with its amount and reference; the
+  void dialog states the Hasad amount and that the General Manager refunds it through Hasad. The print payload's
+  `hasad` and `bankTransfer` fields are replaced by `payments` (method, amount, `invoiceRef`, `transactionRef`); a sale
+  recorded before PAY-1 reprints from its one backfilled line.
+- `GET /api/cash/reconciliation`: `salesTotal` / `voidsTotal` now count the branch's money only (cash and bank);
+  new `hasadSales` / `hasadVoids` (the day's Hasad payment lines, paid to the General Manager's account). The sales
+  report's summary is computed from the payment lines and adds "Direct sales (cash and bank)", "Hasad (paid to the
+  General Manager's account)" and "Sales paid by two methods"; its rows and CSV gain "Payment lines".
+
 ### Stop and recreate is a pre-production rule only
 
-Four migrations so far stop on trial data instead of transforming it, and ask for the database to be recreated:
+Five migrations so far stop on trial data instead of transforming it, and ask for the database to be recreated:
 
 - **0016 (REM-5)**: old demo data from removed features;
 - **0018 (FIX-2)**: a bank-transfer sale without its bank reference;
 - **0021 (CSH-2)**: a scrap purchase that disagrees with its ledger entries, or one paid by bank transfer (no reference);
-- **0022 (MKC-1)**: a supplier order whose making charge was paid from branch money.
+- **0022 (MKC-1)**: a supplier order whose making charge was paid from branch money;
+- **0034 (PAY-1)**: a sale that disagrees with its ledger entries or cannot make a valid payment line.
 
 **This is allowed only before the first real client data exists** (decision D-mkc-5). From the day real data is
 entered, a migration must **transform** existing data (with a tested, reviewed backfill), **never reject it**. A
@@ -463,7 +503,7 @@ future migration that cannot transform a row is redesigned, not shipped with a g
 
 ### Purchases, scrap and supplier settlement (Phase 4)
 
-- Migration 0007 adds a **HASAD_RECEIVABLE** account to every branch (and to every future branch). Sales paid with
+- (Superseded by PAY-1, migration 0036: the receivable and its settlement are removed.) Migration 0007 adds a **HASAD_RECEIVABLE** account to every branch (and to every future branch). Sales paid with
   Hasad are held there. Migration 0008 adds the settlement of that receivable: when Hasad's bank transfer reaches
   the branch's bank account, a branch manager or the GM records it on the Cash screen and the amount moves from
   the receivable to BANK (new append-only table `hasad_receivable_settlements`, new permission `cash.settle_hasad`).

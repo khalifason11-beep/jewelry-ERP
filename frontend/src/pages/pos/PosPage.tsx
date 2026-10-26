@@ -21,7 +21,7 @@ import {
   Wheat,
   X,
 } from 'lucide-react';
-import { validBankReference, type PaymentMethod } from '@jerp/shared';
+import { splitRemainder, validBankReference, type PaymentMethod } from '@jerp/shared';
 import { ApiError, get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { grams, karatLabel, money, relative } from '../../lib/format';
@@ -92,7 +92,13 @@ export function PosPage() {
   const [priceReason, setPriceReason] = useState('');
   // FIX-2 (D-fix-2): the bank-transfer reference, required for a bank transfer; normalized as the server does.
   const [bankRef, setBankRef] = useState('');
-  const bankRefOk = payment !== 'BANK_TRANSFER' || !!validBankReference(bankRef);
+  // PAY-1 (D-pay1-1): "one method" or "split" in two lines of different methods; the second part is always the rest.
+  const [split, setSplit] = useState(false);
+  const [second, setSecond] = useState<PaymentMethod>('BANK_TRANSFER');
+  const [firstAmount, setFirstAmount] = useState('');
+  const methodsUsed: PaymentMethod[] = split ? [payment, second] : [payment];
+  const bankRefOk = !methodsUsed.includes('BANK_TRANSFER') || !!validBankReference(bankRef);
+  const hasadOk = !methodsUsed.includes('HASAD') || !!hasadInvoice.trim();
   const [duplicateOf, setDuplicateOf] = useState<string | null>(null);
   // PRC-1 (D-prc1-4): the server repriced the cart (a rate changed since the pieces were shown); the cashier confirms again.
   const [pricesUpdated, setPricesUpdated] = useState(false);
@@ -144,6 +150,9 @@ export function PosPage() {
   // SEC-2: a price change is any final line price that differs from the list price.
   const priceChanged = cart.some((l) => l.discount !== 0);
   const priceReasonOk = !priceChanged || priceReason.trim().length >= 3;
+  // PAY-1: the two parts always add up to the total exactly (the second is total − first); each must be above 0.
+  const remainder = split ? splitRemainder(totals.total, Number(firstAmount === '' ? NaN : firstAmount)) : null;
+  const splitOk = !split || (remainder != null && second !== payment);
 
   const add = (item: ItemRow) => {
     if (item.status !== 'AVAILABLE') return toast.info(t('{code} is not available for sale', { code: item.code }), t('It cannot be sold until it is available again.'));
@@ -162,6 +171,9 @@ export function PosPage() {
     setCustomerName('');
     setCustomerPhone('');
     setPayment('CASH');
+    setSplit(false);
+    setSecond('BANK_TRANSFER');
+    setFirstAmount('');
     setHasadInvoice('');
     setHasadTxn('');
     setPriceReason('');
@@ -195,18 +207,20 @@ export function PosPage() {
   }, []);
 
   const actionKeys = useActionKeys();
+  const refsOf = (m: PaymentMethod) =>
+    m === 'HASAD' ? { refInvoice: hasadInvoice.trim(), ...(hasadTxn.trim() ? { refTransaction: hasadTxn.trim() } : {}) } : m === 'BANK_TRANSFER' ? { refTransaction: validBankReference(bankRef) ?? bankRef } : {};
   const complete = useMutation({
     mutationFn: (opts: { confirmDuplicate?: boolean } = {}) =>
       postOnce<SaleDetail>('/sales', {
         branchId,
         // PRC-1: the price shown for each piece; the server refuses (409) a price the cashier has not seen.
         items: cart.map((l) => ({ itemId: l.item.id, discount: l.discount, ...(l.item.sellingPrice != null ? { listPrice: l.item.sellingPrice } : {}) })),
-        paymentMethod: payment,
-        ...(payment === 'HASAD' ? { paymentRefInvoice: hasadInvoice.trim(), paymentRefTransaction: hasadTxn.trim() || undefined } : {}),
+        // PAY-1: one line of the whole total, or two lines (the first part and the rest), each with its references.
+        payments: (split ? [{ method: payment, amount: Number(firstAmount) }, { method: second, amount: remainder ?? 0 }] : [{ method: payment, amount: totals.total }]).map((p) => ({ ...p, ...refsOf(p.method) })),
         customerName: customerName || undefined,
         customerPhone: customerPhone || undefined,
         ...(priceChanged ? { priceChangeReason: priceReason.trim() } : {}),
-        ...(payment === 'BANK_TRANSFER' ? { paymentRefTransaction: validBankReference(bankRef) ?? bankRef, ...(opts.confirmDuplicate ? { confirmDuplicateReference: true } : {}) } : {}),
+        ...(methodsUsed.includes('BANK_TRANSFER') && opts.confirmDuplicate ? { confirmDuplicateReference: true } : {}),
       }, actionKeys.for('sale')),
     onSuccess: (sale) => {
       actionKeys.rotate('sale');
@@ -426,7 +440,10 @@ export function PosPage() {
                   key={m}
                   role="radio"
                   aria-checked={payment === m}
-                  onClick={() => setPayment(m)}
+                  onClick={() => {
+                    setPayment(m);
+                    if (split && second === m) setSecond(payMethods.find((x) => x !== m) ?? 'CASH');
+                  }}
                   className={clsx(
                     'flex flex-col items-center gap-0.5 rounded-md border py-1.5 text-[11px] font-medium',
                     payment === m ? 'border-ink-900 bg-ink-900 text-white' : 'border-line-strong bg-white text-ink-600 hover:border-ink-400',
@@ -438,13 +455,52 @@ export function PosPage() {
               );
             })}
           </div>
-          {payment === 'HASAD' && (
+          <div className="mt-2 flex gap-1.5" role="radiogroup" aria-label={t('How the sale is paid')} data-testid="pos-split-toggle">
+            {[false, true].map((v) => (
+              <button
+                key={String(v)}
+                role="radio"
+                aria-checked={split === v}
+                onClick={() => {
+                  setSplit(v);
+                  if (v && second === payment) setSecond(payMethods.find((m) => m !== payment) ?? 'CASH');
+                }}
+                className={clsx('flex-1 rounded-md border py-1 text-[11.5px] font-medium', split === v ? 'border-ink-900 bg-ink-900 text-white' : 'border-line-strong bg-white text-ink-600 hover:border-ink-400')}
+                data-testid={v ? 'pos-split-on' : 'pos-split-off'}
+              >
+                {v ? t('Split payment') : t('One method')}
+              </button>
+            ))}
+          </div>
+          {split && (
+            <div className="mt-2 rounded-md border border-line bg-white p-2" data-testid="pos-split">
+              <div className="grid grid-cols-2 gap-2">
+                <Field label={t('{method}: first part', { method: t(payment) })}>
+                  <MoneyInput value={firstAmount} onValueChange={setFirstAmount} min={1} data-testid="split-first-amount" />
+                </Field>
+                <Field label={t('Second method (the rest)')}>
+                  <Select value={second} onChange={(e) => setSecond(e.target.value as PaymentMethod)} data-testid="split-second-method">
+                    {payMethods.filter((m) => m !== payment).map((m) => (
+                      <option key={m} value={m}>{t(m)}</option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+              <p className="mt-1.5 flex justify-between text-[12.5px]">
+                <span className="text-ink-600">{t('{method}: the rest', { method: t(second) })}</span>
+                <span className="font-semibold num" data-testid="split-second-amount">{remainder != null ? money(remainder) : '—'}</span>
+              </p>
+              {firstAmount !== '' && remainder == null && <p className="mt-1 text-[11.5px] text-crit" data-testid="split-error">{t('Each part must be more than 0 and less than the total')}</p>}
+              {second === payment && <p className="mt-1 text-[11.5px] text-crit">{t('Each payment line must use a different method')}</p>}
+            </div>
+          )}
+          {methodsUsed.includes('HASAD') && (
             <div className="mt-2 grid grid-cols-2 gap-2">
               <Input value={hasadInvoice} onChange={(e) => setHasadInvoice(e.target.value)} maxLength={80} placeholder={t('Hasad invoice number')} aria-label={t('Hasad invoice number')} className="h-8 text-[13px]" />
               <Input value={hasadTxn} onChange={(e) => setHasadTxn(e.target.value)} maxLength={80} placeholder={t('Transaction reference (optional)')} aria-label={t('Transaction reference (optional)')} className="h-8 text-[13px]" />
             </div>
           )}
-          {payment === 'BANK_TRANSFER' && (
+          {methodsUsed.includes('BANK_TRANSFER') && (
             <div className="mt-2">
               <ReferenceInput
                 compact
@@ -497,7 +553,7 @@ export function PosPage() {
               <dd className="text-2xl font-semibold tracking-tight num">{money(totals.total)}</dd>
             </div>
           </dl>
-          <Button variant="primary" size="lg" className="mt-3 w-full text-[15px]" disabled={!cart.length || !branchId || (payment === 'HASAD' && !hasadInvoice.trim()) || !priceReasonOk || !bankRefOk} loading={complete.isPending} onClick={() => complete.mutate({})} data-testid="pos-complete">
+          <Button variant="primary" size="lg" className="mt-3 w-full text-[15px]" disabled={!cart.length || !branchId || !hasadOk || !priceReasonOk || !bankRefOk || !splitOk} loading={complete.isPending} onClick={() => complete.mutate({})} data-testid="pos-complete">
             {t('Complete Sale')} <ArrowRight className="size-4 rtl:rotate-180" />
           </Button>
           {canTransfer && (

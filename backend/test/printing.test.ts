@@ -66,19 +66,19 @@ const SAMPLE: PrintableSale = {
   discountTotal: 50_000,
   total: 950_000,
   paymentMethod: 'HASAD',
-  hasadInvoiceRef: 'HSD-INV-1',
-  hasadTransactionRef: 'HTX-1',
+  payments: [{ method: 'HASAD', amount: 950_000, refInvoice: 'HSD-INV-1', refTransaction: 'HTX-1' }],
   lines: [{ code: 'R21-0001', name: 'Ring with a very long name that must wrap on a 72 mm receipt', nameAr: 'خاتم', karat: 21, netWeightMg: 5_250, listPrice: 1_000_000, discount: 50_000, finalPrice: 950_000 }],
 };
 
 describe('print data builder', () => {
-  it('builds the invoice from a whitelist; Hasad references only for Hasad payments; copy mark only for reprints', () => {
+  it('builds the invoice from a whitelist; one payment line per method with its references (PAY-1); copy mark only for reprints', () => {
     const d = buildInvoicePrintData(SAMPLE);
-    expect(d).toMatchObject({ kind: 'INVOICE', number: 'KRT-S-000123', netWeightMg: 5_250, total: 950_000, hasad: { invoiceRef: 'HSD-INV-1', transactionRef: 'HTX-1' }, copy: null });
+    expect(d).toMatchObject({ kind: 'INVOICE', number: 'KRT-S-000123', netWeightMg: 5_250, total: 950_000, payments: [{ method: 'HASAD', amount: 950_000, invoiceRef: 'HSD-INV-1', transactionRef: 'HTX-1' }], copy: null });
     // PRC-1: a tag-priced line prints no rate per gram (null); a computed line prints the rate it was charged at.
     expect(d.lines[0]).toEqual({ code: 'R21-0001', name: SAMPLE.lines[0].name, nameAr: 'خاتم', karat: 21, netWeightMg: 5_250, listPrice: 1_000_000, discount: 50_000, finalPrice: 950_000, pricePerGram: null });
     expect(buildInvoicePrintData({ ...SAMPLE, lines: [{ ...SAMPLE.lines[0], pricePerGram: 190_000 }] }).lines[0].pricePerGram).toBe(190_000);
-    expect(buildInvoicePrintData({ ...SAMPLE, paymentMethod: 'CASH' }).hasad).toBeNull();
+    const split = buildInvoicePrintData({ ...SAMPLE, paymentMethod: 'SPLIT', payments: [{ method: 'CASH', amount: 450_000, refInvoice: null, refTransaction: null }, { method: 'BANK_TRANSFER', amount: 500_000, refInvoice: null, refTransaction: 'TRF-1' }] });
+    expect(split.payments).toEqual([{ method: 'CASH', amount: 450_000, invoiceRef: null, transactionRef: null }, { method: 'BANK_TRANSFER', amount: 500_000, invoiceRef: null, transactionRef: 'TRF-1' }]);
     expect(buildInvoicePrintData(SAMPLE, { n: 2, printedAt: '2026-10-05T10:00:00Z' }).copy).toEqual({ n: 2, printedAt: '2026-10-05T10:00:00.000Z' });
     expect(scanResponse(d).filter((f) => f.kind !== 'UNCLASSIFIED')).toEqual([]);
   });
@@ -112,7 +112,7 @@ describe('POST /sales/:id/print', () => {
     const sale = await sell(cashier, { paymentMethod: 'HASAD', paymentRefInvoice: 'HSD-INV-777', paymentRefTransaction: 'HTX-777' });
     const p = await cashier.post(`/api/sales/${sale.id}/print`).send({});
     expect(p.status, JSON.stringify(p.body)).toBe(200);
-    expect(p.body.document).toMatchObject({ number: sale.number, copy: null, hasad: { invoiceRef: 'HSD-INV-777', transactionRef: 'HTX-777' } });
+    expect(p.body.document).toMatchObject({ number: sale.number, copy: null, payments: [{ method: 'HASAD', amount: p.body.document.total, invoiceRef: 'HSD-INV-777', transactionRef: 'HTX-777' }] });
     expect(p.body.layout).toEqual({ format: 'A4', receiptWidthMm: 72 });
     expect(JSON.stringify(p.body)).not.toMatch(/cost|profit|owed|debt/i);
     expect((await saleRow(sale.id)).originalPrintedAt).toBeInstanceOf(Date);

@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { sql } from 'drizzle-orm';
 import type { DatabaseHandle } from '@jerp/database';
-import { fetchAllPages, type Page } from '@jerp/shared';
+import { fetchAllPages, PAYMENT_METHODS, type Page } from '@jerp/shared';
 import { createApp } from '../src/app';
 import { createContext } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
@@ -36,11 +36,11 @@ const run = (q: string) => handle.db.execute(sql.raw(q));
 const one = async <T,>(q: string) => rows<T>(await run(q))[0];
 
 /** Copy `n` rows of `table`, cycling over the template rows, with some columns replaced by SQL expressions of `g`. */
-async function cloneMany(table: string, n: number, templateWhere: string, set: Record<string, string>) {
-  const cols = rows<{ c: string }>(await run(`SELECT column_name AS c FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${table}' AND column_name <> 'id' ORDER BY ordinal_position`)).map((r) => r.c);
+async function cloneMany(table: string, n: number, templateWhere: string, set: Record<string, string>, exec: (q: string) => Promise<unknown> = run) {
+  const cols = rows<{ c: string }>(await exec(`SELECT column_name AS c FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${table}' AND column_name <> 'id' ORDER BY ordinal_position`)).map((r) => r.c);
   const list = cols.map((c) => `"${c}"`).join(', ');
   const select = cols.map((c) => (c in set ? set[c] : `s."${c}"`)).join(', ');
-  await run(`
+  await exec(`
     WITH tpl AS (SELECT id, row_number() OVER (ORDER BY id) - 1 AS k, count(*) OVER () AS cnt FROM "${table}" WHERE ${templateWhere})
     INSERT INTO "${table}" (${list})
     SELECT ${select} FROM generate_series(1, ${n}) g
@@ -61,7 +61,15 @@ beforeAll(async () => {
   }
   krt = (await agents.BM.get('/api/auth/me')).body.user.branch.id;
   // Sales with their lines: the copy's number carries its template, so the lines can follow.
-  await cloneMany('sales', EXTRA, `status = 'COMPLETED'`, { number: `'RPT2-' || g || '-' || s.id` });
+  // PAY-1: a sale and its payment lines are written in one transaction (the lines are checked when it commits).
+  await handle.db.transaction(async (tx) => {
+    const exec = (q: string) => tx.execute(sql.raw(q));
+    await cloneMany('sales', EXTRA, `status = 'COMPLETED'`, { number: `'RPT2-' || g || '-' || s.id` }, exec);
+    await exec(`
+      INSERT INTO sale_payments (sale_id, line_no, method, amount, ref_invoice, ref_transaction, created_at)
+      SELECT n.id, p.line_no, p.method, p.amount, p.ref_invoice, p.ref_transaction, p.created_at
+      FROM sales n JOIN sale_payments p ON p.sale_id = split_part(n.number, '-', 3)::int WHERE n.number LIKE 'RPT2-%' ORDER BY n.id, p.line_no`);
+  });
   await run(`
     INSERT INTO sale_items (${(await saleItemCols()).join(', ')})
     SELECT ${(await saleItemCols()).map((c) => (c === '"sale_id"' ? 'n.id' : `si.${c}`)).join(', ')}
@@ -109,7 +117,8 @@ describe('more rows than the cap: true count, true totals, every row in the CSV'
       if (who === 'GM') expect(r.totals).toMatchObject({ costTotal: Number(expected.cost), grossProfit: Number(expected.total) - Number(expected.cost) });
       else expect(Object.keys(r.totals!).filter((k) => /cost|profit/i.test(k))).toEqual([]);
       // Sales by channel add up to the total, from every sale.
-      expect(r.summary!.reduce((s, x) => s + x.value, 0)).toBe(Number(expected.total));
+      // PAY-1: the payment-method tiles add up to the total (the Hasad / direct tiles and the split count are extra).
+      expect(r.summary!.filter((x) => PAYMENT_METHODS.includes(x.label as never)).reduce((s, x) => s + x.value, 0)).toBe(Number(expected.total));
       const csv = await csvRows(who, 'sales');
       expect(csv.length).toBe(r.rowCount);
       expect(new Set(csv.map((x) => x.saleId)).size).toBe(csv.length);

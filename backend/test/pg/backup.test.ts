@@ -206,13 +206,13 @@ describe('backup → off-site copy → restore drill', () => {
       await c.query('UPDATE ledger_entries SET amount = amount + 1 WHERE id = (SELECT min(id) FROM ledger_entries WHERE amount > 0 AND reverses_entry_id IS NULL)');
       await c.query('DROP TRIGGER scrap_weight_entries_append_only ON scrap_weight_entries');
       await c.query('DELETE FROM scrap_weight_entries WHERE id = (SELECT max(id) FROM scrap_weight_entries WHERE weight_mg > 0)');
-      await c.query('ALTER TABLE sales DROP CONSTRAINT ck_sales_hasad_reference');
+      await c.query('ALTER TABLE sales DROP CONSTRAINT ck_sales_total_sum');
       const res = await checkRestored(c, manifest.stats);
       await c.end();
       const failed = res.filter((x) => !x.ok).map((x) => x.name);
       expect(failed).toEqual(['row counts', 'ledger balances', 'scrap pool balances', 'append-only triggers', 'check constraints']);
       expect(res.find((x) => x.name === 'append-only triggers')!.detail).toMatch(/ledger_entries: row trigger missing/);
-      expect(res.find((x) => x.name === 'check constraints')!.detail).toMatch(/ck_sales_hasad_reference/);
+      expect(res.find((x) => x.name === 'check constraints')!.detail).toMatch(/ck_sales_total_sum/);
     } finally {
       await dropTestDatabase(admin, dbName);
       await admin.end();

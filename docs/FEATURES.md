@@ -168,7 +168,7 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
 - Customer identification on scrap purchases is **open** (SCR-1, Q-12). Voiding a scrap purchase is not built
   (SCR-VOID).
 
-## 7. Cash and money (`cash.view`, `cash.count`, `cash.settle_hasad`)
+## 7. Cash and money (`cash.view`, `cash.count`)
 
 - **Cash page:**
   - It shows the expected cash in each drawer now.
@@ -177,8 +177,9 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   - Every line adds up to the ledger.
 - **Cash count** (`cash.count`): the counted cash is recorded against the expected cash; a difference beyond
   `cash.countDifferenceTolerance` (0) raises attention A4.
-- **Hasad settlement** (`cash.settle_hasad`): when Hasad's bank transfer arrives, the amount moves from
-  `HASAD_RECEIVABLE` to `BANK`.
+- **Hasad versus direct sales** (PAY-1): Hasad money is paid to the General Manager's own account, never the branch's.
+  The reconciliation's sales, expected cash and bank exclude it; the day's Hasad sales are shown beside the direct
+  sales (cash and bank). There is no Hasad receivable and no settlement any more.
 - **General Manager's funding** (`funding.view`, `funding.manage`; re-confirmation, idempotent):
   - **Advances** go into a branch's drawer or bank, with a reason. A bank advance needs a bank reference.
   - **Repayments** take money back the same way.
@@ -212,8 +213,10 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
     and what to do. This covers the scrap cash part, a cash refund on a void, a repayment from the drawer, and the
     correction of a drawer advance.
   - **The bank only warns.** It may go below zero, and attention A17 is raised.
-- Expenses were removed (REM-1). A cash-out for the operating amount is **open** (CSH-3, Q-6). So are split payments
-  at the point of sale (SPL-1, Q-7) and money transfers between branches (MNY-1, Q-8).
+- Expenses were removed (REM-1). A cash-out for the operating amount is **open** (CSH-3, Q-6). So are money transfers
+  between branches (MNY-1, Q-8).
+- **Split payment** (PAY-1): a sale is paid by one or two methods (cash, bank transfer, Hasad), the amounts summing
+  exactly to the total; each line moves its own account (Hasad none); a void reverses each line.
 
 ## 8. Reports (`reports.view`)
 
@@ -301,7 +304,6 @@ A review of the reports after the removals is still to do (RPT-1).
 - Barcode labels (LBL-1).
 - Tax invoice (TAX-1).
 - Cash-out for the operating amount (CSH-3).
-- Split payment at the point of sale (SPL-1).
 - Money transfers between branches (MNY-1).
 - Customer identification on scrap (SCR-1).
 - Voiding a scrap purchase, and correcting a purchase (SCR-VOID, PUR-FIX).

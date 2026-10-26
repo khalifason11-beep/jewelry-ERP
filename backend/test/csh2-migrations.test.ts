@@ -36,7 +36,8 @@ describe('migration 0020 (CSH-2 piece B)', () => {
       const entriesBefore = Number((await one(h, 'SELECT count(*) AS n FROM ledger_entries')).n);
       await h.migrate();
       const kinds = (await run(h, `SELECT a.kind FROM ledger_accounts a JOIN branches b ON b.id = a.branch_id WHERE b.code = 'TRL' ORDER BY a.kind`)).map((r) => r.kind);
-      expect(kinds).toEqual(['BANK', 'CASH', 'FUNDS_IN_TRANSIT', 'HASAD_RECEIVABLE', 'OWED_TO_GM']);
+      // PAY-1 (0036) later removes the empty HASAD_RECEIVABLE account (this upgrade runs to the latest migration).
+      expect(kinds).toEqual(['BANK', 'CASH', 'FUNDS_IN_TRANSIT', 'OWED_TO_GM']);
       expect(Number((await one(h, 'SELECT count(*) AS n FROM ledger_entries')).n)).toBe(entriesBefore);
       // A new branch gets the account from the trigger.
       await run(h, `INSERT INTO branches (code, name, name_ar, city) VALUES ('NEW', 'New', 'جديد', 'City')`);

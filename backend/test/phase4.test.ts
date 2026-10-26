@@ -19,11 +19,11 @@ import { rows } from '../src/core/sql';
 import { resetThrottleMemory } from '../src/auth/lockout';
 import { loadActor } from '../src/modules/sessions/service';
 import { createPurchase } from '../src/modules/purchases/service';
-import { createSale } from '../src/modules/sales/service';
+import { createSale, voidSale } from '../src/modules/sales/service';
 import { changePrice } from '../src/modules/inventory/service';
 import { buyScrap, poolBalances, setScrapRates } from '../src/modules/scrap/service';
 import { settleWithScrap } from '../src/modules/supplier-settlements/service';
-import { balances, settleHasadReceivable } from '../src/modules/ledger/service';
+import { balances } from '../src/modules/ledger/service';
 import { stockWeight } from '../src/modules/stock/weight';
 import { seedWorld } from './fixtures/world';
 import { DEMO_PASSWORDS } from './fixtures/world-data';
@@ -442,7 +442,6 @@ describe('cost visibility of the new fields and routes', () => {
     expect(COLUMN_CLASSES.supplier_settlements.cost ?? []).toEqual([]);
     expect(COLUMN_CLASSES.supplier_settlements.safe).toEqual(expect.arrayContaining(['settled_karat', 'settled_weight_mg', 'settled_pure_mg24']));
     expect(COLUMN_CLASSES.scrap_weight_entries.cost ?? []).toEqual([]);
-    expect(COLUMN_CLASSES.hasad_receivable_settlements.cost ?? []).toEqual([]);
     expect(COLUMN_CLASSES.sales.safe).toEqual(expect.arrayContaining(['payment_ref_invoice', 'payment_ref_transaction']));
   });
 
@@ -510,75 +509,48 @@ describe('scrap buying accepts any karat 1–24; selling stays limited to allowe
   });
 });
 
-// ───────────────────────── Hasad receivable settled by bank transfer ─────────────────────────
-describe('Hasad receivable settled by bank transfer', () => {
+// ───────────────────────── PAY-1 / HSD-2: Hasad is a sales channel only ─────────────────────────
+describe('Hasad is a sales channel only (PAY-1, HSD-2): no receivable, no settlement', () => {
   const bal = async (branch: number) => Object.fromEntries((await balances(ctx.db, branch)).map((a) => [a.kind, a.balance]));
-  async function receivable(code: string, n: number) {
+
+  it('a Hasad sale moves no branch account and posts no ledger entry; its payment line is the record', async () => {
+    const krt = await branchId('KRT');
     const cashier = await actorOf('cashier.kh.01');
-    let total = 0;
-    for (const item of await freshItems(code, n)) {
-      const s = await createSale(ctx, cashier, { items: [{ itemId: item.id }], paymentMethod: 'HASAD', paymentRefInvoice: `HSD-T-${item.id}` });
-      total += s.total;
-    }
-    return total;
-  }
-
-  it('moves the amount from HASAD_RECEIVABLE to BANK in one transaction (two entries netting to zero); partial is fine', async () => {
-    const krt = await branchId('KRT');
-    await receivable('KRT', 2);
+    const [item] = await freshItems('KRT', 1);
     const before = await bal(krt);
+    const sale = await createSale(ctx, cashier, { items: [{ itemId: item.id }], paymentMethod: 'HASAD', paymentRefInvoice: 'HSD-CH-1' });
+    expect(await bal(krt)).toEqual(before);
+    expect(Object.keys(before)).not.toContain('HASAD_RECEIVABLE');
+    expect(await ctx.db.select().from(t.ledgerEntries).where(and(eq(t.ledgerEntries.refType, 'sale'), eq(t.ledgerEntries.refId, sale.id)))).toHaveLength(0);
+    expect(await ctx.db.select().from(t.salePayments).where(eq(t.salePayments.saleId, sale.id))).toMatchObject([{ method: 'HASAD', amount: sale.total, refInvoice: 'HSD-CH-1' }]);
+  });
+
+  it('the void of a Hasad sale returns no branch money and says how much was paid through Hasad', async () => {
+    const krt = await branchId('KRT');
+    const cashier = await actorOf('cashier.kh.01');
     const bm = await actorOf('branch.manager.kh');
-    const part = Math.floor(before.HASAD_RECEIVABLE / 3);
-    const r = await settleHasadReceivable(ctx, bm, { amount: part, bankReference: 'BOK-123' });
-    const after = await bal(krt);
-    expect(after.HASAD_RECEIVABLE).toBe(before.HASAD_RECEIVABLE - part);
-    expect(after.BANK).toBe(before.BANK + part);
-    expect(after.CASH).toBe(before.CASH);
-    expect(r.hasadReceivableBalance).toBe(after.HASAD_RECEIVABLE);
-    const entries = await ctx.db.select().from(t.ledgerEntries).where(and(eq(t.ledgerEntries.refType, 'hasad_receivable_settlement'), eq(t.ledgerEntries.refId, r.id)));
-    expect(entries).toHaveLength(2);
-    expect(sumInt(entries.map((e) => e.amount))).toBe(0);
-    expect(entries.every((e) => e.eventType === 'HASAD_RECEIVABLE_SETTLEMENT')).toBe(true);
-    const [audit] = await ctx.db.select().from(t.auditLogs).where(and(eq(t.auditLogs.action, 'HASAD_RECEIVABLE_SETTLED'), eq(t.auditLogs.entityId, r.number)));
-    expect(audit).toBeTruthy();
-    // The daily reconciliation shows it on the bank side, never in the drawer.
-    const gm = await login('general.manager', 'GENERAL_MANAGER');
-    const rec = (await gm.get('/api/cash/reconciliation').query({ branchId: krt })).body;
-    expect(rec.hasadReceivableToBank).toBeGreaterThanOrEqual(part);
-  });
-
-  it('more than the current receivable is refused and changes nothing; the record is append-only', async () => {
-    const omd = await branchId('OMD');
-    const bm = await actorOf('branch.manager.omd');
-    const before = await bal(omd);
-    const n = (await ctx.db.select({ n: count() }).from(t.hasadReceivableSettlements))[0].n;
-    const e = await errorOf(settleHasadReceivable(ctx, bm, { amount: before.HASAD_RECEIVABLE + 1 }));
-    expect(e).toMatchObject({ status: 400, key: 'This is more than the Hasad receivable of this branch ({balance})' });
-    expect(await bal(omd)).toEqual(before);
-    expect((await ctx.db.select({ n: count() }).from(t.hasadReceivableSettlements))[0].n).toBe(n);
-    expect(await failure('UPDATE hasad_receivable_settlements SET amount = amount + 1')).toMatch(/append-only|permission denied/);
-    expect(await failure('DELETE FROM hasad_receivable_settlements')).toMatch(/append-only|permission denied/);
-  });
-
-  it('over HTTP: idempotent (same key settles once), strict, own branch only, cashier refused', async () => {
-    const krt = await branchId('KRT');
-    await receivable('KRT', 1);
-    const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
+    const [item] = await freshItems('KRT', 1);
+    const sale = await createSale(ctx, cashier, { items: [{ itemId: item.id }], paymentMethod: 'HASAD', paymentRefInvoice: 'HSD-CH-2' });
     const before = await bal(krt);
-    const key = randomUUID();
-    const body = { amount: 1_000 };
-    const r1 = await bm.post('/api/cash/hasad-settlements').set('Idempotency-Key', key).send(body);
-    const r2 = await bm.post('/api/cash/hasad-settlements').set('Idempotency-Key', key).send(body);
-    expect([r1.status, r2.status]).toEqual([200, 200]);
-    expect(r2.headers['idempotent-replayed']).toBe('true');
-    expect((await bal(krt)).BANK).toBe(before.BANK + 1_000);
-    expect((await bm.post('/api/cash/hasad-settlements').send({ amount: 1_000, paymentMethod: 'CASH' })).status).toBe(400);
-    expect((await bm.post('/api/cash/hasad-settlements').send({ amount: 0 })).status).toBe(400);
-    expect((await bm.post('/api/cash/hasad-settlements').send({ branchId: await branchId('OMD'), amount: 1_000 })).status).toBe(403);
-    const cashier = await login('cashier.kh.01', 'CASHIER');
-    expect((await cashier.post('/api/cash/hasad-settlements').send(body)).status).toBe(403);
-    const list = (await bm.get('/api/cash/hasad-settlements')).body;
-    expect(list.every((x: { branchId: number }) => x.branchId === krt)).toBe(true);
+    const r = await voidSale(ctx, bm, sale.id, 'test void of a Hasad sale');
+    expect(r).toEqual({ ok: true, hasadAmount: sale.total });
+    expect(await bal(krt)).toEqual(before);
+    expect((await ctx.db.select().from(t.jewelryItems).where(eq(t.jewelryItems.id, item.id)))[0].status).toBe('AVAILABLE');
+  });
+
+  it('the settle-by-bank action is gone: no route, no permission, no table', async () => {
+    const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
+    const gm = await login('general.manager', 'GENERAL_MANAGER');
+    for (const a of [bm, gm]) {
+      expect((await a.get('/api/cash/hasad-settlements')).status).toBe(404);
+      expect((await a.post('/api/cash/hasad-settlements').send({ amount: 1_000 })).status).toBe(404);
+    }
+    const perms = (await bm.get('/api/auth/me')).body.user.permissions as string[];
+    expect(perms).toContain('cash.view');
+    expect(perms).not.toContain('cash.settle_hasad');
+    expect(await failure('SELECT 1 FROM hasad_receivable_settlements')).toMatch(/does not exist/);
+    const drawer = (await gm.get('/api/cash/drawer')).body.branches[0];
+    expect(drawer).not.toHaveProperty('hasadReceivable');
   });
 });
 
@@ -598,7 +570,7 @@ describe('POS payment methods', () => {
     }
   });
 
-  it('a Hasad sale needs the Hasad invoice number, stores the references and posts to the branch Hasad receivable', async () => {
+  it('a Hasad sale needs the Hasad invoice number, stores the references and moves no branch account (PAY-1)', async () => {
     const cashier = await actorOf('cashier.kh.01');
     const krt = await branchId('KRT');
     const [a, b] = await freshItems('KRT', 2);
@@ -608,14 +580,10 @@ describe('POS payment methods', () => {
     const before = await bal();
     const sale = await createSale(ctx, cashier, { items: [{ itemId: b.id }], paymentMethod: 'HASAD', paymentRefInvoice: 'HSD-INV-123456', paymentRefTransaction: 'HTX00112233' });
     expect(sale).toMatchObject({ paymentMethod: 'HASAD', paymentRefInvoice: 'HSD-INV-123456', paymentRefTransaction: 'HTX00112233' });
-    const after = await bal();
-    expect(after.HASAD_RECEIVABLE).toBe(before.HASAD_RECEIVABLE + sale.total);
-    expect(after.CASH).toBe(before.CASH);
-    expect(after.BANK).toBe(before.BANK);
-    const gm = await login('general.manager', 'GENERAL_MANAGER');
-    const drawer = (await gm.get('/api/cash/drawer')).body.branches.find((x: { branchId: number }) => x.branchId === krt);
-    expect(drawer.hasadReceivable).toBe(after.HASAD_RECEIVABLE);
-    expect(await failure(`UPDATE sales SET payment_ref_invoice = NULL WHERE id = ${sale.id}`)).toMatch(/ck_sales_hasad_reference|violates/);
+    expect(await bal()).toEqual(before);
+    // PAY-1 (D-pay1-3): the references live on the append-only payment line, which requires the Hasad invoice number.
+    expect(await failure(`UPDATE sale_payments SET ref_invoice = NULL WHERE sale_id = ${sale.id}`)).toMatch(/append-only|permission denied|violates/);
+    expect(await failure(`INSERT INTO sale_payments (sale_id, line_no, method, amount) VALUES (${sale.id}, 2, 'HASAD', 1)`)).toMatch(/ck_sale_payments_references/);
   });
 });
 

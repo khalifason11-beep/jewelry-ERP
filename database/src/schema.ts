@@ -624,6 +624,32 @@ export const saleItems = pgTable(
   (t) => [index('sale_items_sale_idx').on(t.saleId)],
 );
 
+/**
+ * PAY-1 (D-pay1-1): how a sale was paid, one or two lines (one per method), summing exactly to `sales.total`.
+ * Append-only; a void never touches them (the sale's status says it). A HASAD line is the only record of money paid to
+ * the General Manager's account: it posts nothing to a branch account.
+ */
+export const salePayments = pgTable(
+  'sale_payments',
+  {
+    id: serial('id').primaryKey(),
+    saleId: integer('sale_id').notNull().references(() => sales.id),
+    lineNo: smallint('line_no').notNull(),
+    method: text('method').notNull(),
+    amount: money('amount').notNull(),
+    /** HASAD: the Hasad invoice number (required). */
+    refInvoice: text('ref_invoice'),
+    /** BANK_TRANSFER: the bank reference (required, D-fix-2); HASAD: the optional transaction reference. */
+    refTransaction: text('ref_transaction'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('sale_payments_sale_line_uq').on(t.saleId, t.lineNo),
+    uniqueIndex('sale_payments_sale_method_uq').on(t.saleId, t.method),
+    index('sale_payments_method_ref_idx').on(t.method, t.refTransaction),
+  ],
+);
+
 // ───────────────────────────── Transfers ─────────────────────────────
 
 export const transfers = pgTable('transfers', {
@@ -841,29 +867,6 @@ export const supplierSettlements = pgTable(
     at: ts('at').notNull().defaultNow(),
   },
   (t) => [index('supplier_settlements_purchase_idx').on(t.purchaseId)],
-);
-
-/**
- * Hasad pays the shop by an ordinary bank transfer into the branch's bank account. Each transfer
- * received is recorded here (append-only) and moves the amount from HASAD_RECEIVABLE to BANK in the
- * same transaction (two ledger entries that net to zero).
- */
-export const hasadReceivableSettlements = pgTable(
-  'hasad_receivable_settlements',
-  {
-    id: serial('id').primaryKey(),
-    number: text('number').notNull().unique(),
-    branchId: integer('branch_id').notNull().references(() => branches.id),
-    amount: money('amount').notNull(),
-    /** The bank's reference of the incoming transfer (optional). */
-    bankReference: text('bank_reference'),
-    note: text('note'),
-    actorId: integer('actor_id').notNull().references(() => users.id),
-    sessionId: text('session_id'),
-    idempotencyKey: text('idempotency_key'),
-    at: ts('at').notNull().defaultNow(),
-  },
-  (t) => [index('hasad_receivable_settlements_branch_idx').on(t.branchId, t.at)],
 );
 
 /**

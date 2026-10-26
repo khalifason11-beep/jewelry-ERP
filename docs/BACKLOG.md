@@ -93,6 +93,14 @@ Details and reasons are in `docs/decisions.md` and `docs/DEPLOYMENT.md`.
 After FIX-1: remove the inventory multi-select transfer bar and the Transfers page's "New transfer" dialog. **Sub-question for the owner:** keep a GM emergency override (password plus reason, audited) somewhere out of the way, or drop it?
 **Done with FIX-1 (`17300b7`, D-rem4-1).** Owner decision: the General Manager **keeps** "New transfer" on the Transfers screen as the GM's only start point, under the same rules as the POS transfer. Removed: the Inventory "Select & transfer" card view and the branch manager's "Select pieces in Inventory" button. Start points are exactly the BM's POS cart and the GM's "New transfer".
 
+### REM-6 — Remove the single-method shape of `POST /sales` · TODO · S · P1 (before go-live) · PAY-1
+PAY-1 (owner answer Q7, D-pay1-5) keeps the old request shape (`paymentMethod`, `paymentRefInvoice`,
+`paymentRefTransaction`: one payment line of the whole total) next to `payments` so that tests, the fixture world,
+`dev:sample`, the perf script, REH-1 and the e2e scripts keep working. **Before go-live:** move every caller to
+`payments`, then remove the old fields from the route schema and the service (both shapes at once stay refused until
+then). The sales response's single-method fields `paymentRefInvoice` / `paymentRefTransaction` (read from the lines)
+go with it.
+
 ---
 
 ## C. Fix
@@ -312,7 +320,11 @@ in production; `TZ=UTC`; cache headers; `.env.example`; `docs/runbooks/`; the re
 Q-7, Q-8, Q-9, Q-10, Q-12 and RAT-2 recorded in SPEC §20 and here; discounts off (every role's cap defaults to 0, the
 setting stays editable); the gold-rate edit guard (RAT-1); the UX-1 allowed-karats finding closed with a test.
 
-### SPL-1 — Split payments · TODO · M · P1 · planned with HSD-2 as **PAY-1**
+### SPL-1 — Split payments · DONE (PAY-1) · M · P1
+**Done (owner approval 2026-10-26, D-pay1-1, D-pay1-5, D-pay1-6, `docs/acceptance/PAY-1.md`):** one or two payment
+lines of different methods (`sale_payments`, migrations 0033–0035), summing exactly to the total (`422
+PAYMENT_TOTAL_MISMATCH`); one ledger entry per line that moves a branch account; a void reverses each line; the receipt,
+the sale page and the list show one line per method. The old single-method request shape stays until REM-6.
 **Q-7 closed (owner, 2026-10-18, D-dec1-5):** one invoice may be paid by two methods (rare, e.g. cash + bank transfer).
 **Design:** a payment is **one or two lines**; each line has a **method**, an **amount** and a **reference** (required
 for bank transfer and Hasad, as today); the lines **sum exactly to the invoice total** (integer money, refused
@@ -331,7 +343,11 @@ method; the invoice **prints one line per method**. Idempotency-Key and audit as
   nothing is adjusted silently.
 - Idempotency-Key required; every step audited; one transaction with row locks per step.
 
-### HSD-2 — Hasad is a sales channel only: no receivable · TODO · M · P1 · planned with SPL-1 as **PAY-1**
+### HSD-2 — Hasad is a sales channel only: no receivable · DONE (PAY-1) · M · P1
+**Done (owner approval 2026-10-26, D-pay1-4, D-pay1-7, D-pay1-8, `docs/acceptance/PAY-1.md`):** migration 0036 (guard:
+stops and changes nothing on a database that holds a Hasad receivable entry) removes the account, the settlements and
+`cash.settle_hasad`; a Hasad line moves no branch account; the reconciliation on the Cash screen and the sales report show
+Hasad versus direct sales; a void returns no money for the Hasad part.
 **Q-7 closed (owner, 2026-10-18, D-dec1-5):** Hasad money lands in the General Manager's own account, not in the branch.
 - Remove the `HASAD_RECEIVABLE` account and the **settle-by-bank** action (Cash › Hasad transfers).
 - Hasad stays a **payment method with a required reference**, and appears as **its own channel** in the sales reports
@@ -519,7 +535,7 @@ Updated by DEC-1 (owner decisions of 2026-10-18). Done items are no longer liste
 |---|---|---|
 | 1 | **DEC-1** (done) | Record the owner's decisions; discounts off; the gold-rate edit guard (RAT-1) |
 | 2 | **SCR-VOID + PUR-FIX** (done, MIS-1) | Mistake correction before real operation |
-| 3 | **PAY-1** (SPL-1 + HSD-2) | Two-method payments and Hasad as a channel only, one plan |
+| 3 | **PAY-1** (SPL-1 + HSD-2) (done) | Two-method payments and Hasad as a channel only, one plan |
 | 4 | **MNY-1** | Money transfers branch ↔ branch and branch → General Manager |
 | 5 | **CAT-1** | Product becomes optional (Q-3) |
 | 6 | **OPN-1** | Opening balance with unknown cost (Q-4), after CAT-1 |

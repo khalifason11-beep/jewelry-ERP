@@ -56,10 +56,17 @@ export type CategoryCode = (typeof CATEGORY_CODES)[number];
 /**
  * Every payment method the system knows. Which ones the POS offers is a setting
  * (`sales.posPaymentMethods`, D-4-6): CARD and MOBILE_WALLET stay valid but this deployment hides them.
- * HASAD = the customer paid through the Hasad app; the money is held by Hasad (HASAD_RECEIVABLE).
+ * HASAD = the customer paid through the Hasad app; the money is paid to the General Manager's own account, never the
+ * branch's (PAY-1, D-dec1-5): a HASAD payment line moves no branch account.
  */
 export const PAYMENT_METHODS = ['CASH', 'BANK_TRANSFER', 'CARD', 'MOBILE_WALLET', 'HASAD'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+/**
+ * PAY-1 (D-pay1-1): the label stored on a sale, `sales.payment_method`: the method of its one payment line, or SPLIT for
+ * two lines (one per method). The lines (`sale_payments`) are the truth; a check ties the label to them.
+ */
+export const SALE_PAYMENT_LABELS = [...PAYMENT_METHODS, 'SPLIT'] as const;
+export type SalePaymentLabel = (typeof SALE_PAYMENT_LABELS)[number];
 
 export const SALE_STATUSES = ['COMPLETED', 'VOIDED'] as const;
 
@@ -75,23 +82,25 @@ export type GoldRateKind = (typeof GOLD_RATE_KINDS)[number];
 
 // ── Branch money ledger (Phase 2b, decisions Q5–Q8, D-2b-*) ──
 /**
- * HASAD_RECEIVABLE (Phase 4): sales paid through the Hasad app, held by Hasad until Hasad's bank transfer is recorded (D-4-14).
  * OWED_TO_GM (CSH-2, D-csh-1): what the branch owes the General Manager for his advances; a liability, positive = owed.
  * It is never money in the drawer or the bank: every reader of the ledger filters by account kind (guardrail test).
  */
-export const LEDGER_ACCOUNT_KINDS = ['CASH', 'BANK', 'FUNDS_IN_TRANSIT', 'HASAD_RECEIVABLE', 'OWED_TO_GM'] as const;
+export const LEDGER_ACCOUNT_KINDS = ['CASH', 'BANK', 'FUNDS_IN_TRANSIT', 'OWED_TO_GM'] as const;
 export type LedgerAccountKind = (typeof LEDGER_ACCOUNT_KINDS)[number];
 
-export const LEDGER_EVENT_TYPES = ['SALE', 'SALE_VOID', 'REVERSAL', 'SCRAP_PURCHASE', 'SUPPLIER_MAKING_CHARGE', 'HASAD_RECEIVABLE_SETTLEMENT', 'GM_ADVANCE', 'GM_REPAYMENT'] as const;
+export const LEDGER_EVENT_TYPES = ['SALE', 'SALE_VOID', 'REVERSAL', 'SCRAP_PURCHASE', 'SUPPLIER_MAKING_CHARGE', 'GM_ADVANCE', 'GM_REPAYMENT'] as const;
 export type LedgerEventType = (typeof LEDGER_EVENT_TYPES)[number];
 
-/** Q5: which branch account a payment method moves. Every entry keeps its own payment method too. */
-export const PAYMENT_ACCOUNT: Record<PaymentMethod, LedgerAccountKind> = {
+/**
+ * Q5: which branch account a payment method moves (every entry keeps its own payment method too). HASAD moves none
+ * (PAY-1, D-pay1-8): the money is paid to the General Manager's own account; the payment line itself is the record.
+ */
+export const PAYMENT_ACCOUNT: Record<PaymentMethod, LedgerAccountKind | null> = {
   CASH: 'CASH',
   BANK_TRANSFER: 'BANK',
   CARD: 'BANK',
   MOBILE_WALLET: 'BANK',
-  HASAD: 'HASAD_RECEIVABLE',
+  HASAD: null,
 };
 
 // ── Counter scrap purchases and the broken-scrap weight pool (Phase 4, D-4-*) ──
@@ -190,7 +199,6 @@ export const AUDIT_ACTIONS = [
   'SCRAP_PURCHASED',
   'SCRAP_RATE_CHANGED',
   'SUPPLIER_SETTLEMENT_RECORDED',
-  'HASAD_RECEIVABLE_SETTLED',
   // CSH-2: the General Manager's funding of a branch (GM-only in the audit list, D-csh-5)
   'GM_ADVANCE_RECORDED',
   'GM_REPAYMENT_RECORDED',

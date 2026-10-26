@@ -72,7 +72,6 @@ describe('idempotency keys', () => {
         'POST /cash/counts',
         'POST /scrap-purchases',
         'POST /purchases/:id/settlements',
-        'POST /cash/hasad-settlements',
         // CAT-0: a retried "New type / product / supplier" must not create a second row.
         'POST /categories',
         'POST /products',

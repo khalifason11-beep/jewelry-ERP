@@ -73,10 +73,15 @@ describe('sales and profit on the homes, every branch and every day', () => {
           FROM ledger_entries WHERE branch_id = ${b.id} AND at >= ${start} AND at < ${end}`);
         const laterVoided = await q1(sql`
           SELECT coalesce(sum(total), 0) AS t FROM sales WHERE branch_id = ${b.id} AND status = 'VOIDED' AND created_at >= ${start} AND created_at < ${end}`);
-        const voidedThatDay = await q1(sql`
-          SELECT coalesce(sum(total), 0) AS t FROM sales WHERE branch_id = ${b.id} AND status = 'VOIDED' AND voided_at >= ${start} AND voided_at < ${end}`);
-        expect(num(led.sale), `ledger SALE ${b.code} ${day}`).toBe(d.kpis.salesTotal + num(laterVoided.t));
-        expect(num(led.void), `ledger SALE_VOID ${b.code} ${day}`).toBe(0 - num(voidedThatDay.t));
+        // PAY-1: the ledger holds the CASH and BANK payment lines; a HASAD line moves no branch account (D-pay1-8).
+        const branchLinesSold = await q1(sql`
+          SELECT coalesce(sum(p.amount), 0) AS t FROM sale_payments p JOIN sales s ON s.id = p.sale_id
+          WHERE s.branch_id = ${b.id} AND p.method <> 'HASAD' AND s.created_at >= ${start} AND s.created_at < ${end}`);
+        const branchLinesVoided = await q1(sql`
+          SELECT coalesce(sum(p.amount), 0) AS t FROM sale_payments p JOIN sales s ON s.id = p.sale_id
+          WHERE s.branch_id = ${b.id} AND p.method <> 'HASAD' AND s.status = 'VOIDED' AND s.voided_at >= ${start} AND s.voided_at < ${end}`);
+        expect(num(led.sale), `ledger SALE ${b.code} ${day}`).toBe(num(branchLinesSold.t));
+        expect(num(led.void), `ledger SALE_VOID ${b.code} ${day}`).toBe(0 - num(branchLinesVoided.t));
         if (num(laterVoided.t) > 0) voidedDays++;
         // The team adds up to the branch.
         expect(d.cashiers.reduce((s, c) => s + c.salesTotal, 0)).toBe(d.kpis.salesTotal);

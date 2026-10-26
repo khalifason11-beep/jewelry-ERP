@@ -282,14 +282,19 @@ async function scale(ctx: Ctx) {
     INSERT INTO inventory_movements (item_id, branch_id, type, direction, net_weight_mg, cost_value, user_id, at)
     SELECT item_id, branch_id, 'TRANSFER_OUT', -1, net, cost, ${uid}::int, created_at + interval '1 hour' FROM pf WHERE status = 'TRANSFERRED'`);
   // Sales: one piece each, cash or Hasad; 1 in 50 later voided.
+  // PAY-1: each sale with its one payment line, in the same statement (the lines are checked when it commits).
   await x(sql`
-    INSERT INTO sales (number, branch_id, cashier_id, subtotal, discount_total, total, cost_total, payment_method, payment_ref_invoice, status, voided_at, voided_by, void_reason, created_at)
-    SELECT 'PF-INV-' || g, branch_id, ${uid}::int, cost + cost / 3, 0, cost + cost / 3, cost,
-           CASE WHEN g % 10 = 0 THEN 'HASAD' ELSE 'CASH' END, CASE WHEN g % 10 = 0 THEN 'HS-' || g END,
-           CASE WHEN g % 50 = 1 THEN 'VOIDED' ELSE 'COMPLETED' END,
-           CASE WHEN g % 50 = 1 THEN sale_at + interval '1 hour' END, CASE WHEN g % 50 = 1 THEN ${uid}::int END, CASE WHEN g % 50 = 1 THEN 'perf' END,
-           sale_at
-    FROM pf WHERE status = 'SOLD'`);
+    WITH s AS (
+      INSERT INTO sales (number, branch_id, cashier_id, subtotal, discount_total, total, cost_total, payment_method, status, voided_at, voided_by, void_reason, created_at)
+      SELECT 'PF-INV-' || g, branch_id, ${uid}::int, cost + cost / 3, 0, cost + cost / 3, cost,
+             CASE WHEN g % 10 = 0 THEN 'HASAD' ELSE 'CASH' END,
+             CASE WHEN g % 50 = 1 THEN 'VOIDED' ELSE 'COMPLETED' END,
+             CASE WHEN g % 50 = 1 THEN sale_at + interval '1 hour' END, CASE WHEN g % 50 = 1 THEN ${uid}::int END, CASE WHEN g % 50 = 1 THEN 'perf' END,
+             sale_at
+      FROM pf WHERE status = 'SOLD'
+      RETURNING id, number, total, payment_method, created_at)
+    INSERT INTO sale_payments (sale_id, line_no, method, amount, ref_invoice, created_at)
+    SELECT id, 1, payment_method, total, CASE WHEN payment_method = 'HASAD' THEN 'HS-' || substr(number, 8) END, created_at FROM s`);
   await x(sql`ALTER TABLE pf ADD COLUMN sale_id int`);
   await x(sql`UPDATE pf SET sale_id = s.id FROM sales s WHERE s.number = 'PF-INV-' || pf.g`);
   // A voided sale gives its piece back: AVAILABLE again, with the movement.
@@ -303,16 +308,17 @@ async function scale(ctx: Ctx) {
   await x(sql`
     INSERT INTO inventory_movements (item_id, branch_id, type, direction, net_weight_mg, cost_value, user_id, ref_type, ref_id, at)
     SELECT item_id, branch_id, 'RETURN', 1, net, cost, ${uid}::int, 'sale', sale_id, sale_at + interval '1 hour' FROM pf WHERE status = 'SOLD' AND g % 50 = 1`);
+  // PAY-1: a cash sale posts to the drawer; a Hasad sale posts nothing (its money is paid to the General Manager).
   await x(sql`
     INSERT INTO ledger_entries (account_id, branch_id, amount, event_type, payment_method, ref_type, ref_id, ref_number, actor_id, at)
-    SELECT a.id, pf.branch_id, pf.cost + pf.cost / 3, 'SALE', CASE WHEN pf.g % 10 = 0 THEN 'HASAD' ELSE 'CASH' END, 'sale', pf.sale_id, 'PF-INV-' || pf.g, ${uid}::int, pf.sale_at
-    FROM pf JOIN ledger_accounts a ON a.branch_id = pf.branch_id AND a.kind = CASE WHEN pf.g % 10 = 0 THEN 'HASAD_RECEIVABLE' ELSE 'CASH' END
-    WHERE pf.status = 'SOLD'`);
+    SELECT a.id, pf.branch_id, pf.cost + pf.cost / 3, 'SALE', 'CASH', 'sale', pf.sale_id, 'PF-INV-' || pf.g, ${uid}::int, pf.sale_at
+    FROM pf JOIN ledger_accounts a ON a.branch_id = pf.branch_id AND a.kind = 'CASH'
+    WHERE pf.status = 'SOLD' AND pf.g % 10 <> 0`);
   await x(sql`
     INSERT INTO ledger_entries (account_id, branch_id, amount, event_type, payment_method, ref_type, ref_id, ref_number, actor_id, at)
-    SELECT a.id, pf.branch_id, -(pf.cost + pf.cost / 3), 'SALE_VOID', CASE WHEN pf.g % 10 = 0 THEN 'HASAD' ELSE 'CASH' END, 'sale', pf.sale_id, 'PF-INV-' || pf.g, ${uid}::int, pf.sale_at + interval '1 hour'
-    FROM pf JOIN ledger_accounts a ON a.branch_id = pf.branch_id AND a.kind = CASE WHEN pf.g % 10 = 0 THEN 'HASAD_RECEIVABLE' ELSE 'CASH' END
-    WHERE pf.status = 'SOLD' AND pf.g % 50 = 1`);
+    SELECT a.id, pf.branch_id, -(pf.cost + pf.cost / 3), 'SALE_VOID', 'CASH', 'sale', pf.sale_id, 'PF-INV-' || pf.g, ${uid}::int, pf.sale_at + interval '1 hour'
+    FROM pf JOIN ledger_accounts a ON a.branch_id = pf.branch_id AND a.kind = 'CASH'
+    WHERE pf.status = 'SOLD' AND pf.g % 50 = 1 AND pf.g % 10 <> 0`);
   // Open supplier gold debts and a cash count per branch per day for 60 days.
   await x(sql`
     INSERT INTO purchases (number, branch_id, supplier_id, item_count, total_net_weight_mg, total_cost, created_by, created_at, gold_debt_mg_pure24, gold_owed_mg_pure24)

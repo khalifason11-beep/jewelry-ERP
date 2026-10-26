@@ -531,7 +531,14 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
           branchId: zIdBody.optional(),
           // PRC-1 (D-prc1-4): listPrice = the price the cashier saw; computed prices are checked against it (409).
           items: z.array(z.object({ itemId: zIdBody, discount: zMoney.optional(), listPrice: zPositiveMoney.optional() }).strict()).min(1).max(50),
-          paymentMethod: z.enum(PAYMENT_METHODS),
+          // PAY-1 (D-pay1-1): one or two payment lines (one per method) summing exactly to the total…
+          payments: z
+            .array(z.object({ method: z.enum(PAYMENT_METHODS), amount: zPositiveMoney, refInvoice: zText(80).min(1).optional(), refTransaction: zText(80).min(1).optional() }).strict())
+            .min(1)
+            .max(2)
+            .optional(),
+          // …or the single-method shape, one line of the whole total (D-pay1-5); both at once are refused by the service.
+          paymentMethod: z.enum(PAYMENT_METHODS).optional(),
           // Hasad (D-4-6): the Hasad invoice number is required, the transaction reference optional.
           paymentRefInvoice: zText(80).min(1).optional(),
           paymentRefTransaction: zText(80).min(1).optional(),
@@ -790,16 +797,6 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('POST', '/cash/counts', async (req, res) => {
     const body = parse(z.object({ branchId: zIdBody.optional(), day: zDay, countedAmount: zMoney, note: zText(500).optional() }).strict(), req.body);
     res.json(await ledger.recordCount(ctx, actorOf(req), body));
-  });
-
-  route('GET', '/cash/hasad-settlements', async (req, res) => {
-    const q = parse(z.object({ branchId: zOptId }).strict(), req.query);
-    res.json(await ledger.listHasadSettlements(ctx, actorOf(req), q));
-  });
-  // Hasad paid the branch by bank transfer: receivable → bank (amount only; never the drawer).
-  route('POST', '/cash/hasad-settlements', async (req, res) => {
-    const body = parse(z.object({ branchId: zIdBody.optional(), amount: zPositiveMoney, bankReference: zText(80).optional(), note: zText(500).optional() }).strict(), req.body);
-    res.json(await runIdempotent(ctx, req, res, (idem) => ledger.settleHasadReceivable(ctx, actorOf(req), body, { idem })));
   });
 
   // ─────────── CSH-2: GM funding (advances, repayments, corrections) ───────────

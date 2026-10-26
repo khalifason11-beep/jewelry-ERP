@@ -18,7 +18,7 @@ import { listSales, pageSales, salesReportAggregates } from '../sales/service';
 import { branchMetrics, marginOf, movementSummary } from './metrics';
 import { stockWeight, stockWeightRows, type StockWeight } from '../stock/weight';
 
-export type ColumnType = 'text' | 'money' | 'weight' | 'number' | 'percent' | 'date' | 'datetime' | 'status' | 'code' | 'audit';
+export type ColumnType = 'text' | 'money' | 'weight' | 'number' | 'percent' | 'date' | 'datetime' | 'status' | 'code' | 'audit' | 'payments';
 
 export interface Column {
   key: string;
@@ -87,13 +87,19 @@ const c = (key: string, label: string, type: ColumnType = 'text', link?: string)
  * Completed sales grouped by payment channel; labels are the payment-method codes (translated by the UI). RPT-2: the
  * channel totals come from the database over the whole filtered result, never from the rows on screen.
  */
-async function salesByChannel(ctx: Ctx, byChannel: Map<string, number>): Promise<NonNullable<Report['summary']>> {
+async function salesByChannel(ctx: Ctx, byChannel: Map<string, number>, splitCount: number): Promise<NonNullable<Report['summary']>> {
   const { sales } = await ctx.settings.get();
-  return PAYMENT_METHODS.filter((m) => sales.posPaymentMethods.includes(m) || byChannel.has(m)).map((m) => ({
-    label: m,
-    type: 'money' as const,
-    value: byChannel.get(m) ?? 0,
-  }));
+  const methods = PAYMENT_METHODS.filter((m) => sales.posPaymentMethods.includes(m) || byChannel.has(m));
+  // PAY-1 (D-dec1-5): Hasad versus direct sales. The Hasad part of a sale is paid to the General Manager's account; the
+  // direct part (cash, bank) is the branch's money. Both come from the payment lines and add up to the total.
+  const hasad = byChannel.get('HASAD') ?? 0;
+  const direct = [...byChannel].filter(([m]) => m !== 'HASAD').reduce((s, [, v]) => s + v, 0);
+  return [
+    ...methods.map((m) => ({ label: m, type: 'money' as const, value: byChannel.get(m) ?? 0 })),
+    { label: 'Direct sales (cash and bank)', type: 'money' as const, value: direct },
+    { label: "Hasad (paid to the General Manager's account)", type: 'money' as const, value: hasad },
+    { label: 'Sales paid by two methods', type: 'number' as const, value: splitCount },
+  ];
 }
 
 function totalsOf(rowsAll: Record<string, unknown>[], keys: string[]) {
@@ -144,13 +150,15 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
           c('total', 'Total', 'money'),
           ...(profit ? [c('costTotal', 'Cost', 'money'), c('grossProfit', 'Gross profit', 'money')] : []),
           c('paymentMethod', 'Payment', 'status'),
+          // PAY-1: one entry per payment line (method, amount, reference): on screen and in the CSV.
+          c('payments', 'Payment lines', 'payments'),
           c('status', 'Status', 'status'),
         ],
         rows: rowsAll,
         ...capInfo(agg.rowCount, cap('sales'), rowsAll.length),
         totals: agg.totals,
         // Sales by payment channel (SPEC §10, §11): the counter's methods, plus any other method that has sales.
-        summary: await salesByChannel(ctx, agg.byChannel),
+        summary: await salesByChannel(ctx, agg.byChannel, agg.splitCount),
         notes: ['Totals exclude cancelled (voided) sales.'],
         filters: { dateRange: true, branch: true, user: true, status: ['COMPLETED', 'VOIDED'] },
       };

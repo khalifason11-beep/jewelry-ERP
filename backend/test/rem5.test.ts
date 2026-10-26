@@ -170,7 +170,9 @@ describe('REM-5 on a fresh database', () => {
     expect(Object.keys(defs)).toHaveLength(5);
     for (const [name, def] of Object.entries(defs)) expect(def, name).not.toMatch(/EXPENSE|HASAD_SETTLEMENT|HASAD_REDEMPTION|RESERVED|REDEEMED/);
     expect(defs.ck_ledger_entries_event_type).toMatch(/REVERSAL/);
-    expect(defs.ck_ledger_entries_event_type).toMatch(/HASAD_RECEIVABLE_SETTLEMENT/);
+    // PAY-1 (0036) removed HASAD_RECEIVABLE_SETTLEMENT with the Hasad receivable; GM_ADVANCE (CSH-2) is kept.
+    expect(defs.ck_ledger_entries_event_type).not.toMatch(/HASAD_RECEIVABLE_SETTLEMENT/);
+    expect(defs.ck_ledger_entries_event_type).toMatch(/GM_ADVANCE/);
   });
 });
 
@@ -215,7 +217,7 @@ describe('REM-5 upgrade from 0015', () => {
     }
   });
 
-  it('upgrades a clean database and keeps the HASAD sale, its references, the receivable settlement and REVERSAL', async () => {
+  it('upgrades a clean database and keeps the HASAD sale (its references move to its payment line) and REVERSAL', async () => {
     const h = await openAt15();
     try {
       await run(h, BASE);
@@ -223,13 +225,12 @@ describe('REM-5 upgrade from 0015', () => {
         h,
         `INSERT INTO sales (number, branch_id, cashier_id, subtotal, total, cost_total, payment_method, payment_ref_invoice, payment_ref_transaction)
            VALUES ('S-1', ${ids}, ${uid}, 2000, 2000, 1000, 'HASAD', 'HS-INV-1', 'HS-TX-1');
+         INSERT INTO sales (number, branch_id, cashier_id, subtotal, total, cost_total, payment_method)
+           VALUES ('S-2', ${ids}, ${uid}, 3000, 3000, 1000, 'CASH');
          INSERT INTO ledger_entries (account_id, branch_id, amount, event_type, payment_method, ref_type, ref_id, ref_number)
-           SELECT id, branch_id, 2000, 'SALE', 'HASAD', 'sale', (SELECT id FROM sales WHERE number = 'S-1'), 'S-1' FROM ledger_accounts WHERE kind = 'HASAD_RECEIVABLE';
+           SELECT id, branch_id, 3000, 'SALE', 'CASH', 'sale', (SELECT id FROM sales WHERE number = 'S-2'), 'S-2' FROM ledger_accounts WHERE kind = 'CASH';
          INSERT INTO ledger_entries (account_id, branch_id, amount, event_type, ref_type, ref_id, reverses_entry_id)
-           SELECT account_id, branch_id, -2000, 'REVERSAL', 'sale', ref_id, id FROM ledger_entries WHERE ref_number = 'S-1';
-         INSERT INTO hasad_receivable_settlements (number, branch_id, amount, actor_id) VALUES ('HRS-1', ${ids}, 500, ${uid});
-         INSERT INTO ledger_entries (account_id, branch_id, amount, event_type, ref_type, ref_id)
-           SELECT id, branch_id, -500, 'HASAD_RECEIVABLE_SETTLEMENT', 'hasad_receivable_settlement', 1 FROM ledger_accounts WHERE kind = 'HASAD_RECEIVABLE';`,
+           SELECT account_id, branch_id, -3000, 'REVERSAL', 'sale', ref_id, id FROM ledger_entries WHERE ref_number = 'S-2';`,
       );
       expect((await run(h, `SELECT count(*) AS n FROM settings WHERE key = 'hasad.enabledPerBranch'`))[0].n).toBe(PG_MODE ? '1' : 1);
       await h.migrate();
@@ -238,8 +239,10 @@ describe('REM-5 upgrade from 0015', () => {
       const [sale] = await run(h, `SELECT payment_method, payment_ref_invoice, payment_ref_transaction FROM sales WHERE number = 'S-1'`);
       expect(sale).toEqual({ payment_method: 'HASAD', payment_ref_invoice: 'HS-INV-1', payment_ref_transaction: 'HS-TX-1' });
       const events = (await run(h, `SELECT event_type FROM ledger_entries ORDER BY id`)).map((r) => r.event_type);
-      expect(events).toEqual(['SALE', 'REVERSAL', 'HASAD_RECEIVABLE_SETTLEMENT']);
-      expect((await run(h, `SELECT count(*) AS n FROM hasad_receivable_settlements`))[0].n).toBe(PG_MODE ? '1' : 1);
+      expect(events).toEqual(['SALE', 'REVERSAL']);
+      // PAY-1: the Hasad references are on the sale's payment line too (0034); the receivable and its table are gone (0036).
+      expect(await run(h, `SELECT p.ref_invoice, p.ref_transaction FROM sale_payments p JOIN sales s ON s.id = p.sale_id WHERE s.number = 'S-1'`)).toEqual([{ ref_invoice: 'HS-INV-1', ref_transaction: 'HS-TX-1' }]);
+      expect((await run(h, `SELECT count(*) AS n FROM information_schema.tables WHERE table_name = 'hasad_receivable_settlements'`))[0].n).toBe(PG_MODE ? '0' : 0);
       const [piece] = await run(h, `SELECT acquisition_cost, status FROM jewelry_items WHERE code = 'J-1'`);
       expect(piece).toEqual({ acquisition_cost: PG_MODE ? '1000' : 1000, status: 'AVAILABLE' });
       expect(await run(h, `SELECT key FROM settings WHERE key = 'hasad.enabledPerBranch'`)).toEqual([]);

@@ -62,7 +62,9 @@ async function partialSales() {
   return {
     salesWithoutLines: await q(`SELECT count(*) AS n FROM sales s WHERE NOT EXISTS (SELECT 1 FROM sale_items i WHERE i.sale_id = s.id)`),
     completedSalesWithUnsoldPieces: await q(`SELECT count(*) AS n FROM sales s JOIN sale_items i ON i.sale_id = s.id JOIN jewelry_items j ON j.id = i.item_id WHERE s.status = 'COMPLETED' AND j.status <> 'SOLD'`),
-    salesWhoseLedgerDiffers: await q(`SELECT count(*) AS n FROM sales s WHERE s.status = 'COMPLETED' AND coalesce((SELECT sum(e.amount) FROM ledger_entries e WHERE e.ref_type = 'sale' AND e.ref_id = s.id AND e.event_type = 'SALE'), 0) <> s.total`),
+    // PAY-1: the sale's entries add up to its payment lines that move a branch account (a Hasad line moves none).
+    salesWhoseLedgerDiffers: await q(`SELECT count(*) AS n FROM sales s WHERE s.status = 'COMPLETED' AND coalesce((SELECT sum(e.amount) FROM ledger_entries e WHERE e.ref_type = 'sale' AND e.ref_id = s.id AND e.event_type = 'SALE'), 0)
+                                        <> coalesce((SELECT sum(p.amount) FROM sale_payments p WHERE p.sale_id = s.id AND p.method <> 'HASAD'), 0)`),
     soldPiecesWithoutSale: await q(`SELECT count(*) AS n FROM jewelry_items j WHERE j.status = 'SOLD' AND NOT EXISTS (SELECT 1 FROM sale_items i JOIN sales s ON s.id = i.sale_id WHERE i.item_id = j.id AND s.status = 'COMPLETED')`),
     salesWithoutMovement: await q(`SELECT count(*) AS n FROM sales s JOIN sale_items i ON i.sale_id = s.id WHERE s.status = 'COMPLETED' AND NOT EXISTS (SELECT 1 FROM inventory_movements m WHERE m.item_id = i.item_id AND m.type = 'SALE')`),
   };

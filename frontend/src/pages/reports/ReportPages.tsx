@@ -128,14 +128,25 @@ export function ReportPage() {
     }
   };
 
+  // PAY-1: a sale's payment lines, one per method: "Cash 500,000 + Bank transfer 1,000,000 (TRF-1)" (screen and CSV).
+  const paymentsText = (v: unknown) =>
+    Array.isArray(v)
+      ? (v as { method: string; amount: number; refInvoice?: string | null; refTransaction?: string | null }[])
+          .map((p) => {
+            const ref = [p.refInvoice, p.refTransaction].filter(Boolean).join(' / ');
+            return `${t(p.method)} ${money(p.amount, false)}${ref ? ` (${ref})` : ''}`;
+          })
+          .join(' + ')
+      : '';
+
   const columns: Column<Record<string, unknown>>[] = (r?.columns ?? []).map((c) => ({
     key: c.key,
     header: t(c.label),
     csvHeader: t(c.label),
     align: ['money', 'weight', 'number', 'percent'].includes(c.type) ? 'end' : 'start',
-    value: (row) => (c.type === 'audit' ? auditText(row as never) : (row[c.key] as unknown)),
+    value: (row) => (c.type === 'audit' ? auditText(row as never) : c.type === 'payments' ? paymentsText(row[c.key]) : (row[c.key] as unknown)),
     render: (row) =>
-      c.type === 'audit' ? auditText(row as never) : c.link ? (
+      c.type === 'audit' ? auditText(row as never) : c.type === 'payments' ? <span data-testid="report-payments">{paymentsText(row[c.key]) || '—'}</span> : c.link ? (
         <Link to={fillLink(c.link, row)} onClick={(e) => e.stopPropagation()} className="font-medium text-gold-700 hover:underline">
           {fmt(c.type, row[c.key], row[`${c.key}Ar`])}
         </Link>

@@ -126,8 +126,8 @@ describe('a reference already on another sale of the branch', () => {
     expect((await bm.post('/api/auth/reauth').send({ password: DEMO_PASSWORDS.BRANCH_MANAGER })).status).toBe(200);
     const v = await bm.post(`/api/sales/${a.body.id}/void`).send({ reason: 'Wrong piece' });
     expect(v.status, JSON.stringify(v.body)).toBe(200);
-    // The void keeps the reference on the sale and repeats it in its audit row.
-    expect((await ctx.db.select().from(t.sales).where(eq(t.sales.id, a.body.id)))[0].paymentRefTransaction).toBe('ONE-BRANCH-1');
+    // The void keeps the reference on the sale (its payment line, PAY-1) and repeats it in its audit row.
+    expect((await ctx.db.select().from(t.salePayments).where(eq(t.salePayments.saleId, a.body.id)))[0].refTransaction).toBe('ONE-BRANCH-1');
     expect((await lastAudit('SALE_CANCELLED')).metadata).toMatchObject({ bankReference: 'ONE-BRANCH-1' });
     const khItem2 = (await piece(kh)).id;
     expect((await kh.post('/api/sales').send({ items: [{ itemId: khItem2 }], paymentMethod: 'BANK_TRANSFER', paymentRefTransaction: 'ONE-BRANCH-1' })).status).toBe(200);
@@ -141,10 +141,10 @@ describe('where the reference is shown', () => {
     const bank = await cashier.post('/api/sales').send({ items: [{ itemId: bankItem }], paymentMethod: 'BANK_TRANSFER', paymentRefTransaction: 'PRT-1234' });
     const pr = await cashier.post(`/api/sales/${bank.body.id}/print`).send({});
     expect(pr.status).toBe(200);
-    expect(pr.body.document.bankTransfer).toEqual({ reference: 'PRT-1234' });
+    expect(pr.body.document.payments).toEqual([{ method: 'BANK_TRANSFER', amount: bank.body.total, invoiceRef: null, transactionRef: 'PRT-1234' }]);
     const cashItem = (await piece(cashier)).id;
     const cash = await cashier.post('/api/sales').send({ items: [{ itemId: cashItem }], paymentMethod: 'CASH' });
-    expect((await cashier.post(`/api/sales/${cash.body.id}/print`).send({})).body.document.bankTransfer).toBeNull();
+    expect((await cashier.post(`/api/sales/${cash.body.id}/print`).send({})).body.document.payments).toEqual([{ method: 'CASH', amount: cash.body.total, invoiceRef: null, transactionRef: null }]);
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
     const list = (await bm.get('/api/sales')).body.rows as { id: number; paymentRefTransaction: string | null }[];
     expect(list.find((s) => s.id === bank.body.id)?.paymentRefTransaction).toBe('PRT-1234');
@@ -161,11 +161,17 @@ describe('where the reference is shown', () => {
     expect(r.bankTransferSales.find((x: { reference: string; status: string }) => x.reference === 'ONE-BRANCH-1' && x.status === 'VOIDED')).toBeTruthy();
   });
 
-  it('the database itself refuses a bank-transfer sale without a valid reference', async () => {
-    const [s] = await ctx.db.select().from(t.sales).where(and(eq(t.sales.paymentMethod, 'BANK_TRANSFER'))).limit(1);
-    const e = await ctx.db.update(t.sales).set({ paymentRefTransaction: null }).where(eq(t.sales.id, s.id)).then(() => null, (err: unknown) => err);
-    expect(e).not.toBeNull();
-    expect(String((e as Error & { cause?: Error }).cause?.message ?? (e as Error).message)).toMatch(/ck_sales_bank_transfer_reference/);
+  it('the database itself refuses a bank-transfer payment line without a valid reference', async () => {
+    // PAY-1 (D-pay1-3): the reference lives on the sale's payment line (ck_sale_payments_references replaces
+    // ck_sales_bank_transfer_reference); the line is append-only.
+    const [s] = await ctx.db.select().from(t.sales).where(and(eq(t.sales.paymentMethod, 'BANK_TRANSFER'))).orderBy(t.sales.id).limit(1);
+    for (const ref of [null, 'AB1']) {
+      const e = await ctx.db.insert(t.salePayments).values({ saleId: s.id, lineNo: 2, method: 'BANK_TRANSFER', amount: 1, refTransaction: ref }).then(() => null, (err: unknown) => err);
+      expect(e).not.toBeNull();
+      expect(String((e as Error & { cause?: Error }).cause?.message ?? (e as Error).message)).toMatch(/ck_sale_payments_references/);
+    }
+    const e = await ctx.db.update(t.salePayments).set({ refTransaction: null }).where(eq(t.salePayments.saleId, s.id)).then(() => null, (err: unknown) => err);
+    expect(String((e as Error & { cause?: Error }).cause?.message ?? (e as Error).message)).toMatch(/append-only|permission denied/);
   });
 });
 
@@ -256,8 +262,9 @@ describe('migration 0018 (FIX-2)', () => {
       await run(h, sale('S-BANK', 'BANK_TRANSFER', 'TRF-0001'));
       await run(h, sale('S-HSD', 'HASAD', null));
       await h.migrate();
-      expect(await hasCheck(h)).toBe(1);
-      expect((await run(h, `SELECT convalidated AS v FROM pg_constraint WHERE conname = 'ck_sales_bank_transfer_reference'`))[0].v).toBe(true);
+      // PAY-1 (0035, D-pay1-3): the check moved to the payment lines; the reference is on the sale's line.
+      expect(await hasCheck(h)).toBe(0);
+      expect((await run(h, `SELECT p.ref_transaction AS r FROM sale_payments p JOIN sales s ON s.id = p.sale_id WHERE s.number = 'S-BANK'`))[0].r).toBe('TRF-0001');
       expect((await run(h, `SELECT payment_ref_invoice AS i, payment_ref_transaction AS t FROM sales WHERE number = 'S-HSD'`))[0]).toEqual({ i: 'HS-INV-1', t: null });
       await run(h, `UPDATE sales SET reprint_count = reprint_count + 1 WHERE number = 'S-BANK'`);
       await run(h, `UPDATE sales SET status = 'VOIDED', voided_at = now(), void_reason = 'test' WHERE number = 'S-BANK'`);

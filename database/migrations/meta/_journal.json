@@ -232,6 +232,34 @@
       "when": 1792950933412,
       "tag": "0032_opnfix_corrections",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1792966629771,
+      "tag": "0033_pay1_sale_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1792966666232,
+      "tag": "0034_pay1_backfill_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1792967230338,
+      "tag": "0035_pay1_tighten_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1792972577627,
+      "tag": "0036_pay1_hasad_channel_only",
+      "breakpoints": true
     }
   ]
 }

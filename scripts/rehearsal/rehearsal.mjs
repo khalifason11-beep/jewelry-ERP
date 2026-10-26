@@ -1124,6 +1124,10 @@ async function main() {
     await page.click('[data-testid=pos-complete]');
     const bankSale1 = await (await resp).json();
     check(bankSale1.paymentRefTransaction === 'TRF 9012-REH', `sale ${bankSale1.number}: the reference is stored normalized ("TRF 9012-REH", Arabic-Indic digits → ASCII)`);
+    check(
+      JSON.stringify(bankSale1.payments) === JSON.stringify([{ method: 'BANK_TRANSFER', amount: bankSale1.total, refInvoice: null, refTransaction: 'TRF 9012-REH' }]) && bankSale1.paymentMethod === 'BANK_TRANSFER',
+      'PAY-1: the sale answers with its payment lines: one bank-transfer line of the whole total, with its reference',
+    );
     // The receipt dialog opens only after the response is handled: wait for it before Escape, or the key can land
     // before the dialog exists and the dialog then stays open (a race seen once in CLN-3's gate run).
     await page.locator('[role=dialog]').waitFor({ state: 'visible', timeout: 15_000 });
@@ -1154,6 +1158,108 @@ async function main() {
       drill.length === 2 && drill.every((x) => x.includes('TRF 9012-REH')) && recB.bankTransferSales.reduce((a, x) => a + x.amount, 0) === bankLine,
       `Cash: "Bank-transfer sales" lists both sales with their reference; they add up to the bank-transfer sales line (${bankLine})`,
     );
+
+    section('PAY-1: a sale paid by two methods (API); the parts must add up to the total');
+    {
+      // The branch has sold its stock by now: cancel the two FIX-2 bank-transfer sales (refunded through the bank, never
+      // the drawer) so their pieces can be sold again below.
+      check((await apiSend(page, 'POST', '/api/auth/reauth', { password: BM.password })).status === 200, 'branch manager: password confirmed again for the cancellations');
+      for (const s of [bankSale2, bankSale1]) {
+        const v = await apiSend(page, 'POST', `/api/sales/${s.id}/void`, { reason: 'إعادة القطعة للاختبار (PAY-1)' });
+        check(v.status === 200 && v.body.hasadAmount === 0, `bank-transfer sale ${s.number} cancelled: its piece is back in stock, nothing of it was Hasad`);
+      }
+      const digitsOf = (x) => Number(String(x).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[^0-9]/g, ''));
+      const [p] = (await apiGet(page, '/api/inventory/items?status=AVAILABLE&pageSize=1')).body.rows;
+      const bad = await apiSend(page, 'POST', '/api/sales', { items: [{ itemId: p.id, listPrice: p.sellingPrice }], payments: [{ method: 'CASH', amount: 1000 }, { method: 'BANK_TRANSFER', amount: p.sellingPrice - 1001, refTransaction: 'SPL-REH-1' }] });
+      check(bad.status === 422 && bad.body?.error?.code === 'PAYMENT_TOTAL_MISMATCH', 'API: parts 1 short of the total: refused (422), nothing recorded');
+      const both = await apiSend(page, 'POST', '/api/sales', { items: [{ itemId: p.id, listPrice: p.sellingPrice }], payments: [{ method: 'CASH', amount: p.sellingPrice }], paymentMethod: 'CASH' });
+      check(both.status === 400, 'API: the payment lines and a single method at once: refused (400)');
+      // The POS (branch manager): one method or split; the second part is always the rest.
+      const before = (await apiGet(page, '/api/cash/reconciliation')).body;
+      await page.goto(`${origin}/pos`);
+      await page.getByTestId('pos-product').first().click();
+      await page.click('[data-testid=pos-split-on]');
+      await page.fill('[data-testid=split-first-amount]', '999999999');
+      check((await page.getByTestId('pos-complete').isDisabled()) && (await page.getByTestId('split-error').isVisible()), 'POS split: a first part that is not below the total shows the error and "Complete sale" stays disabled');
+      const cashPart = 1000;
+      await page.fill('[data-testid=split-first-amount]', String(cashPart));
+      await page.selectOption('[data-testid=split-second-method]', 'BANK_TRANSFER');
+      await page.fill('[data-testid=bank-reference]', 'spl-reh-1');
+      const shownRest = digitsOf(await page.getByTestId('split-second-amount').innerText());
+      const r1 = page.waitForResponse((r) => r.url().endsWith('/api/sales') && r.request().method() === 'POST');
+      await page.click('[data-testid=pos-complete]');
+      const split = { status: (await r1).status(), body: await (await r1).json() };
+      const total = split.body.total;
+      check(
+        split.status === 200 && split.body.paymentMethod === 'SPLIT' && JSON.stringify(split.body.payments) === JSON.stringify([{ method: 'CASH', amount: cashPart, refInvoice: null, refTransaction: null }, { method: 'BANK_TRANSFER', amount: total - cashPart, refInvoice: null, refTransaction: 'SPL-REH-1' }]) && shownRest === total - cashPart,
+        `POS split: cash ${cashPart} + bank transfer ${total - cashPart} (the rest, shown before confirming): sale ${split.body?.number} is SPLIT with two lines`,
+      );
+      await page.locator('[role=dialog]').waitFor({ state: 'visible', timeout: 15_000 });
+      check((await page.locator('[role=dialog] [data-testid=invoice-payment-lines] [data-testid=payment-line]').count()) === 2, 'the receipt on screen lists one line per method');
+      await page.keyboard.press('Escape');
+      await page.locator('[role=dialog]').waitFor({ state: 'detached', timeout: 15_000 });
+      const after = (await apiGet(page, '/api/cash/reconciliation')).body;
+      const line = (r, m) => r.salesByMethod.find((x) => x.paymentMethod === m).amount;
+      check(
+        line(after, 'CASH') - line(before, 'CASH') === cashPart && line(after, 'BANK_TRANSFER') - line(before, 'BANK_TRANSFER') === total - cashPart && after.expectedCash - before.expectedCash === cashPart,
+        'the reconciliation counts the cash part in the drawer and the transfer part on the bank, each once',
+      );
+    }
+
+    section('PAY-1: Hasad is a sales channel only: the branch never expects Hasad money');
+    {
+      const digits = (x) => Number(String(x).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[^0-9]/g, ''));
+      const [p] = (await apiGet(page, '/api/inventory/items?status=AVAILABLE&pageSize=1')).body.rows;
+      const total = p.sellingPrice;
+      const cashPart = Math.floor(total / 4);
+      const before = (await apiGet(page, '/api/cash/reconciliation')).body;
+      const sale = await apiSend(page, 'POST', '/api/sales', { items: [{ itemId: p.id, listPrice: total }], payments: [{ method: 'HASAD', amount: total - cashPart, refInvoice: 'HSD-REH-1' }, { method: 'CASH', amount: cashPart }] });
+      check(sale.status === 200 && sale.body.paymentMethod === 'SPLIT' && sale.body.payments[0].refInvoice === 'HSD-REH-1', `Hasad ${total - cashPart} + cash ${cashPart}: sale ${sale.body?.number} recorded with the Hasad invoice number on its Hasad line`);
+      const after = (await apiGet(page, '/api/cash/reconciliation')).body;
+      check(
+        after.expectedCash - before.expectedCash === cashPart && after.salesTotal - before.salesTotal === cashPart && after.bankMovement === before.bankMovement && after.hasadSales - before.hasadSales === total - cashPart,
+        'the expected cash and the branch sales move by the cash part only; the bank does not move; the Hasad part is reported beside them',
+      );
+      await page.goto(`${origin}/cash`);
+      await page.getByTestId('hasad-vs-direct').waitFor({ timeout: 15_000 });
+      check(
+        digits(await page.getByTestId('hasad-sales').innerText()) === after.hasadSales && digits(await page.getByTestId('direct-sales').innerText()) === after.salesTotal,
+        `Cash: "Hasad versus direct sales" shows the day's Hasad sales (${after.hasadSales}) beside the direct sales (${after.salesTotal})`,
+      );
+      const today = after.day;
+      const rep = (await apiGet(page, `/api/reports/sales?from=${today}&to=${today}`)).body;
+      const tile = (label) => rep.summary.find((x) => x.label === label)?.value ?? 0;
+      check(
+        ['CASH', 'BANK_TRANSFER', 'HASAD'].reduce((a, m) => a + tile(m), 0) === rep.totals.total && tile('Direct sales (cash and bank)') + tile("Hasad (paid to the General Manager's account)") === rep.totals.total && tile('Sales paid by two methods') >= 2,
+        'the sales report: the channels (from the payment lines) add up to the total, and so do Hasad + direct; the split sales are counted',
+      );
+      await page.goto(`${origin}/reports/sales`);
+      await page.getByTestId('report-summary').waitFor({ timeout: 15_000 });
+      const summaryText = await page.getByTestId('report-summary').innerText();
+      check(summaryText.includes('حصاد (يُدفع إلى حساب المدير العام)') && summaryText.includes('المبيعات المباشرة (نقداً وبنكياً)'), 'Reports › Sales shows "Hasad (paid to the General Manager\'s account)" and "Direct sales" tiles, in Arabic');
+      check((await page.getByTestId('report-payments').allInnerTexts()).some((x) => x.includes('HSD-REH-1') && x.includes('+')), 'each row shows its payment lines; the split sale lists both methods with the Hasad invoice number');
+      // HSD-2: no Hasad receivable and no settle-by-bank action any more.
+      check((await apiSend(page, 'POST', '/api/cash/hasad-settlements', { amount: 1000 })).status === 404 && (await apiGet(page, '/api/cash/hasad-settlements')).status === 404, 'the Hasad bank-transfer settlement routes are gone (404)');
+      const drawerRow = (await apiGet(page, '/api/cash/drawer')).body.branches[0];
+      await page.goto(`${origin}/cash`);
+      await page.getByTestId('hasad-vs-direct').waitFor({ timeout: 15_000 });
+      check(!('hasadReceivable' in drawerRow) && !(await page.locator('body').innerText()).includes('مستحقات حصاد') && (await page.locator('[data-testid^=settle-hasad]').count()) === 0, 'Cash: no Hasad receivable column, no "Settle Hasad receivable" button');
+      // The void dialog states the Hasad amount and that the General Manager refunds it through Hasad, outside the system.
+      await page.goto(`${origin}/sales/${sale.body.id}`);
+      await page.click('[data-testid=sale-void]');
+      const note = await page.getByTestId('void-hasad-note').innerText({ timeout: 15_000 });
+      check(digits(note) === total - cashPart && note.includes('المدير العام') && digits(await page.getByTestId('void-refund-parts').innerText()) === cashPart, `the void dialog says ${total - cashPart} was paid through Hasad and is refunded by the General Manager outside the system; the branch refunds the cash part`);
+      await page.keyboard.press('Escape');
+      // A void of the Hasad + cash sale refunds the cash part from the drawer only; the Hasad part is reported, not refunded.
+      check((await apiSend(page, 'POST', '/api/auth/reauth', { password: BM.password })).status === 200, 'branch manager: password confirmed again for the cancellation');
+      const beforeVoid = (await apiGet(page, '/api/cash/reconciliation')).body;
+      const v = await apiSend(page, 'POST', `/api/sales/${sale.body.id}/void`, { reason: 'العميل أعاد القطعة (PAY-1)' });
+      const afterVoid = (await apiGet(page, '/api/cash/reconciliation')).body;
+      check(
+        v.status === 200 && v.body.hasadAmount === total - cashPart && afterVoid.expectedCash - beforeVoid.expectedCash === -cashPart && afterVoid.bankMovement === beforeVoid.bankMovement && afterVoid.hasadVoids - beforeVoid.hasadVoids === -(total - cashPart),
+        `the void of ${sale.body.number}: the drawer gives back the cash part (${cashPart}) only; the answer says ${total - cashPart} was paid through Hasad; it shows as a cancelled Hasad sale`,
+      );
+    }
     await signOut(page);
     await signIn(page, origin, GM.username, GM.password);
     await page.getByTestId('second-step').waitFor();
@@ -1509,7 +1615,10 @@ async function main() {
              (table_name = 'jewelry_items' AND column_name IN ('purchase_cost', 'making_cost', 'other_cost', 'total_cost', 'reservation_ref', 'reserved_at', 'reserved_by'))
              OR (table_name = 'sessions' AND column_name = 'is_simulated') OR (table_name = 'branches' AND column_name = 'hasad_branch_code')))::int AS columns,
           (SELECT count(*) FROM pg_proc WHERE proname = 'jerp_refuse_deprecated_insert')::int AS fn,
-          (SELECT count(*) FROM settings WHERE key = 'hasad.enabledPerBranch')::int AS setting`);
+          (SELECT count(*) FROM settings WHERE key = 'hasad.enabledPerBranch')::int AS setting,
+          (SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'hasad_receivable_settlements')::int AS hasad_settlements,
+          (SELECT count(*) FROM ledger_accounts WHERE kind = 'HASAD_RECEIVABLE')::int AS hasad_accounts,
+          (SELECT count(*) FROM permissions WHERE code = 'cash.settle_hasad')::int AS settle_permission`);
       check(Object.values(gone[0]).every((n) => n === 0), `the production database has none of the removed tables, schema, columns, function or settings row (${JSON.stringify(gone[0])})`);
       const [m] = await one('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations');
       const [u] = await one(`SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'purchase_items_item_id_unique'`);

@@ -2,6 +2,8 @@ import { Gem } from 'lucide-react';
 import { dateTime, grams, karatLabel, money } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { useBranding } from '../lib/branding';
+import { PaymentLines, type PaymentLine } from './PaymentLines';
+
 
 export interface SaleDetail {
   id: number;
@@ -39,6 +41,8 @@ export interface SaleDetail {
   priceChangeReason?: string | null;
   paymentRefInvoice?: string | null;
   paymentRefTransaction?: string | null;
+  /** PAY-1: one line per method (amount, references). */
+  payments?: PaymentLine[];
   items: {
     id: number;
     itemId: number;
@@ -104,14 +108,11 @@ export function InvoiceDocument({ sale }: { sale: SaleDetail }) {
         <div className="text-end">
           <div className="text-ink-500">{t('Cashier')}</div>
           <div className="font-medium">{L(sale.cashierName, sale.cashierNameAr)}</div>
-          <div className="text-ink-500">
-            {t('Payment')}: {t(sale.paymentMethod)}
+          <div className="text-ink-500">{t('Payment')}</div>
+          {/* PAY-1: one line per method, with its amount and reference. */}
+          <div className="text-start text-ink-600">
+            <PaymentLines lines={sale.payments} testId="invoice-payment-lines" />
           </div>
-          {sale.paymentMethod === 'BANK_TRANSFER' && (
-            <div className="text-ink-500">
-              {t('Bank transfer reference')}: <span className="font-mono">{sale.paymentRefTransaction ?? '—'}</span>
-            </div>
-          )}
         </div>
       </div>
       <table className="w-full border-collapse">

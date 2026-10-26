@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { openTestDatabase, withIdempotencyKeys } from './helpers';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { t, type DatabaseHandle } from '@jerp/database';
 import { createApp } from '../src/app';
 import { createContext } from '../src/bootstrap';
@@ -159,17 +159,19 @@ describe('vertical slice: sale → dashboards → audit', () => {
     expect((await cashier.post('/api/sales').send({ items: [{ itemId: item.id }], paymentMethod: 'HASAD' })).status).toBe(400);
     const sale = await cashier.post('/api/sales').send({ items: [{ itemId: item.id }], paymentMethod: 'HASAD', paymentRefInvoice: 'HSD-INV-77', paymentRefTransaction: 'TX-9' });
     expect(sale.status, JSON.stringify(sale.body)).toBe(200);
-    const [entry] = await ctx.db.select().from(t.ledgerEntries).where(eq(t.ledgerEntries.refId, sale.body.id));
-    const [account] = await ctx.db.select().from(t.ledgerAccounts).where(eq(t.ledgerAccounts.id, entry.accountId));
-    expect(account.kind).toBe('HASAD_RECEIVABLE');
-    expect(entry.amount).toBe(sale.body.total);
+    // PAY-1 (HSD-2): the money is paid to the General Manager's account: no branch ledger entry; the line is the record.
+    expect(await ctx.db.select().from(t.ledgerEntries).where(and(eq(t.ledgerEntries.refType, 'sale'), eq(t.ledgerEntries.refId, sale.body.id)))).toHaveLength(0);
+    expect(sale.body.payments).toEqual([{ method: 'HASAD', amount: sale.body.total, refInvoice: 'HSD-INV-77', refTransaction: 'TX-9' }]);
     // Sales reports group by channel: cash, bank transfer, Hasad.
     const report = (await gm.get('/api/reports/sales')).body;
     const channels = Object.fromEntries(report.summary.map((x: { label: string; value: number }) => [x.label, x.value]));
     expect(Object.keys(channels)).toEqual(expect.arrayContaining(['CASH', 'BANK_TRANSFER', 'HASAD']));
     expect(channels.HASAD).toBeGreaterThanOrEqual(sale.body.total);
     const completed = report.rows.filter((r: { status: string }) => r.status === 'COMPLETED');
-    expect(Object.values(channels).reduce((a: number, b) => a + (b as number), 0)).toBe(completed.reduce((a: number, r: { total: number }) => a + r.total, 0));
+    // PAY-1: the method tiles (from the payment lines) add up to the completed sales; so do Hasad + direct.
+    const total = completed.reduce((a: number, r: { total: number }) => a + r.total, 0);
+    expect(['CASH', 'BANK_TRANSFER', 'CARD', 'MOBILE_WALLET', 'HASAD'].reduce((a, m) => a + (channels[m] ?? 0), 0)).toBe(total);
+    expect(channels['Direct sales (cash and bank)'] + channels["Hasad (paid to the General Manager's account)"]).toBe(total);
     // The withdrawal workspace, simulator and Hasad report are gone.
     for (const path of ['/api/hasad/withdrawals', '/api/hasad/withdrawals/1', '/api/hasad/simulator/customers', '/api/hasad/integration-log']) {
       expect((await gm.get(path)).status, path).toBe(404);

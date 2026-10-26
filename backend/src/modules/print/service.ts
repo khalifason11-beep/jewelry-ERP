@@ -15,6 +15,7 @@ import type { Actor, Ctx } from '../../core/context';
 import { branchScope, can, requireAny } from '../../authz';
 import { writeAudit } from '../../core/audit';
 import { AppError, forbidden, notFound } from '../../core/errors';
+import { salePaymentsOf } from '../sales/service';
 
 export interface PrintResponse {
   document: InvoicePrintData;
@@ -46,8 +47,6 @@ export async function printSale(ctx: Ctx, actor: Actor, id: number): Promise<Pri
       discountTotal: t.sales.discountTotal,
       total: t.sales.total,
       paymentMethod: t.sales.paymentMethod,
-      paymentRefInvoice: t.sales.paymentRefInvoice,
-      paymentRefTransaction: t.sales.paymentRefTransaction,
       originalPrintedAt: t.sales.originalPrintedAt,
       branchName: t.branches.name,
       branchNameAr: t.branches.nameAr,
@@ -114,6 +113,8 @@ export async function printSale(ctx: Ctx, actor: Actor, id: number): Promise<Pri
     return { n: r.n, printedAt };
   });
 
+  // PAY-1: one printed line per payment line (a sale recorded before PAY-1 has its one backfilled line).
+  const payments = ((await salePaymentsOf(ctx.db, [row.id])).get(row.id) ?? []).map((p) => ({ method: p.method, amount: p.amount, refInvoice: p.refInvoice ?? null, refTransaction: p.refTransaction ?? null }));
   const document = buildInvoicePrintData(
     {
       number: row.number,
@@ -127,9 +128,7 @@ export async function printSale(ctx: Ctx, actor: Actor, id: number): Promise<Pri
       discountTotal: row.discountTotal,
       total: row.total,
       paymentMethod: row.paymentMethod,
-      hasadInvoiceRef: row.paymentRefInvoice,
-      hasadTransactionRef: row.paymentRefTransaction,
-      bankTransferRef: row.paymentRefTransaction,
+      payments,
       lines,
     },
     copy,
