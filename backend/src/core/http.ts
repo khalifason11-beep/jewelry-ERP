@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { z, type ZodType } from 'zod';
+import { routeId, type RouteRule } from '@jerp/shared';
 import type { Actor } from './context';
 import { AppError, badRequest, unauthorized } from './errors';
 import { log } from './logger';
@@ -13,6 +14,8 @@ declare module 'express-serve-static-core' {
     enrollmentRequired?: boolean;
     /** SAFE-1: random id of this request, in the X-Request-Id response header, the access log and error bodies. */
     requestId?: string;
+    /** UX-3: the route-matrix rule of the route being served (set by the guard). */
+    routeRule?: RouteRule;
   }
 }
 
@@ -36,6 +39,18 @@ export const zId = z.coerce.number().int().positive();
 export const zOptId = z.preprocess((v) => (v === '' || v === 'all' ? undefined : v), z.coerce.number().int().positive().optional());
 export const zDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
+// UX-3: a route that asks for a re-confirmation must say so in the route matrix (`reauth` or `reauthWhen`), so the
+// protected list the owner reads is complete. An undeclared one is logged and recorded; the tests fail on any.
+const undeclared = new Set<string>();
+export const undeclaredReauthRoutes = () => [...undeclared].sort();
+/** Tests only: forget what a test recorded on purpose. */
+export const forgetUndeclaredReauth = () => undeclared.clear();
+function noteUndeclaredReauth(rule: RouteRule | undefined, requestId: string | undefined) {
+  if (!rule || rule.reauth || rule.reauthWhen) return;
+  undeclared.add(routeId(rule.method, rule.path));
+  log.error('re-authentication asked by a route that does not declare it in the route matrix', { route: routeId(rule.method, rule.path), requestId });
+}
+
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
   // `key` + `params` let the UI translate the message; `message` is the English rendering. An error body never carries
   // a stack trace, in any mode. The request id travels in the X-Request-Id header only (SAFE-1): the sign-in refusals
@@ -43,6 +58,7 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   // would break.
   const requestId = _req.requestId;
   if (err instanceof AppError) {
+    if (err.code === 'REAUTH_REQUIRED') noteUndeclaredReauth(_req.routeRule, requestId);
     res.status(err.status).json({ error: { code: err.code, message: err.message, key: err.key, params: err.params, details: err.details } });
     return;
   }

@@ -46,6 +46,7 @@ export function defineRoutes(router: Router, ctx: Ctx, opts: { demo: boolean }):
       if (rule.destructive && !opts.demo) throw new Error(`Destructive route ${routeId(method, path)} cannot be registered outside demo mode`);
       registered.push(rule);
       const guard = async (req: Request, _res: Response, next: NextFunction) => {
+        req.routeRule = rule;
         try {
           await enforceRule(ctx, rule, req);
           next();
