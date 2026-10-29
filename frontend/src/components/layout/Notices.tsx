@@ -16,7 +16,7 @@ import { ApiError, errorText, post } from '../../lib/api';
 import { markAccountLocked, useAuth } from '../../lib/auth';
 import { dateTime, deviceText } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
-import { Alert, Button, Dialog } from '../ui';
+import { Alert, Button, Dialog, HelpTip } from '../ui';
 
 type Level = 'lock' | 'critical' | 'warning' | 'info';
 export interface Notice {
@@ -49,14 +49,18 @@ export function useNotices(onNotMe: () => void, onItWasMe: () => void): Notice[]
     const names = me.lockedAccounts.map((a) => `${(lang === 'ar' && a.fullNameAr) || a.fullName} (${a.username})`).join('، ');
     const plain =
       me.lockedAccounts.length === 1
-        ? t('Account {names} is security-locked. Nobody can sign in to it until the system operator unlocks it on the server (operator console: unlock-security-lock).', { names })
-        : t('Accounts {names} are security-locked. Nobody can sign in to them until the system operator unlocks them on the server (operator console: unlock-security-lock).', { names });
+        ? t('Account {names} is security-locked. Nobody can sign in to it until the system operator unlocks it on the server.', { names })
+        : t('Accounts {names} are security-locked. Nobody can sign in to them until the system operator unlocks them on the server.', { names });
     out.push({
       id: 'security-locked',
       level: 'lock',
       icon: <Lock className="size-4" />,
       plain,
-      text: <span data-testid="locked-accounts-text">{plain}</span>,
+      text: (
+        <span data-testid="locked-accounts-text">
+          {plain} <HelpTip>{t('For the system operator: the server command is unlock-security-lock.')}</HelpTip>
+        </span>
+      ),
       action: can('users.view') ? (
         <button className="shrink-0 font-medium underline underline-offset-2" onClick={() => navigate('/users')}>
           {t('Users')}

@@ -56,7 +56,6 @@ export function AuditPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={<span className="flex items-center gap-2.5"><ScrollText className="size-6 text-ink-500" /> {t('Audit Log')}</span>}
-        subtitle={t('Append-only record of every important action: who, when, where, and on what.')}
       />
       <Card padded={false}>
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">

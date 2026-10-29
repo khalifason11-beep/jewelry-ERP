@@ -72,7 +72,8 @@ export function FundingPanel({ branchId }: { branchId?: number }) {
       <div data-testid="funding-panel">
         <CardHeader
           title={t('Funding from the General Manager')}
-          subtitle={t('What each branch owes the General Manager. An advance puts money into the drawer or the bank as a loan to the branch; a repayment returns it. Only you see this.')}
+          subtitle={t('What each branch owes the General Manager.')}
+          help={t('An advance puts money into the drawer or the bank as a loan to the branch; a repayment returns it. Only you see this.')}
           actions={
             manage ? (
               <div className="flex flex-wrap gap-2">
@@ -273,7 +274,7 @@ function FundingDialog({ kind, defaultBranch, view, onClose }: { kind: 'ADVANCE'
             <ReferenceInput value={bankRef} onValueChange={setBankRef} data-testid="funding-bank-ref" />
           </Field>
         )}
-        <Field label={t('Reason, and when the money moved')} className="sm:col-span-2" hint={t('For example: float for the drawer, handed over this morning.')}>
+        <Field label={t('Reason, and when the money moved')} className="sm:col-span-2">
           <Textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} rows={2} data-testid="funding-reason" />
         </Field>
         {kind === 'ADVANCE' && (
@@ -283,7 +284,7 @@ function FundingDialog({ kind, defaultBranch, view, onClose }: { kind: 'ADVANCE'
               {t('I paid a seller directly from my own money')}
             </label>
             {direct && (
-              <Field label={t('Purchase number (optional)')} hint={t('The scrap purchase the branch records for it, if you know the number.')}>
+              <Field label={t('Purchase number (optional)')} help={t('The scrap purchase the branch records for it, if you know the number.')}>
                 <Input value={linkedRef} onChange={(e) => setLinkedRef(e.target.value)} maxLength={40} dir="ltr" data-testid="funding-linked-ref" />
               </Field>
             )}

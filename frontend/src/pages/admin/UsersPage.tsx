@@ -7,7 +7,7 @@ import { dateTime, relative, time } from '../../lib/format';
 import { useBranches } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import { Alert, Badge, Button, Card, Dialog, ErrorState, Field, Input, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
+import { Badge, Button, Card, Dialog, ErrorState, Field, Input, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { permissionLabel } from '../../lib/permission-labels';
 
@@ -83,7 +83,7 @@ export function UsersPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={t('Users')}
-        subtitle={t('Accounts, roles and branch assignments. Passwords are managed centrally: they can be reset, never viewed.')}
+        subtitle={t('Passwords can be reset, never viewed.')}
         actions={manage && <Button variant="primary" icon={<UserPlus className="size-4" />} onClick={() => setEditing('new')} data-testid="new-user">{t('New user')}</Button>}
       />
       <Card padded={false}>
@@ -214,16 +214,13 @@ export function UsersPage() {
             <Button variant={confirm?.action === 'disable' ? 'danger-solid' : 'primary'} loading={act.isPending} onClick={() => confirm && act.mutate(confirm)}>{t('Confirm')}</Button>
           </>
         }
-      >
-        <p className="text-[13px] text-ink-600">{t('This action is recorded in the audit log.')}</p>
-      </Dialog>
+      />
 
       <Dialog open={!!secret} onClose={() => setSecret(null)} title={t('Temporary password')} subtitle={t('For {user}. Shown only once. Hand it to the user securely.', { user: secret?.username ?? '' })} footer={<Button variant="primary" onClick={() => setSecret(null)} data-testid="temporary-password-done">{t('Done')}</Button>}>
         <div className="flex items-center gap-2 rounded-md border border-gold-400 bg-gold-50 px-4 py-3">
           <Mono className="flex-1 text-lg tracking-wider" data-testid="temporary-password">{secret?.temporaryPassword}</Mono>
           <Button size="sm" icon={<Copy className="size-4" />} onClick={() => { navigator.clipboard?.writeText(secret?.temporaryPassword ?? ''); toast.info(t('Copied')); }}>{t('Copy')}</Button>
         </div>
-        <Alert tone="info" className="mt-3">{t('The system stores only a salted hash. Nobody, including the General Manager, can see this password again.')}</Alert>
       </Dialog>
     </div>
   );

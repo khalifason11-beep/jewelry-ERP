@@ -266,8 +266,9 @@ const SHELL_NAV = {
   // PRC-1 (D-prc1-8): the cashier buys a sellable piece from a customer.
   cashier: ['pos', 'scrap', 'me'],
 };
-// UX-2: status and event codes, permission codes, hashing, and the audit log explained on screen.
-const TECH_WORDS = /\b(?:AVAILABLE|SOLD|VOIDED|RETURN|TRANSFER_IN|TRANSFERRED|PRICE_CHANGED|SETTINGS_CHANGED|INVENTORY_ADJUSTMENT)\b|Argon2id|\b(?:pos|sales|inventory|scrap|sessions)\.[a-z_]+\b|audit log|سجل التدقيق/;
+// UX-2: status and event codes, permission codes and hashing; for the cashier also the audit log explained on screen.
+const TECH_CODES = /\b(?:AVAILABLE|SOLD|VOIDED|RETURN|TRANSFER_IN|TRANSFERRED|PRICE_CHANGED|SETTINGS_CHANGED|SCRAP_RATE_CHANGED|SESSION_REVOKED|SECURITY_SETTING_CHANGED|INVENTORY_ADJUSTMENT|PURCHASED)\b|Argon2id|\b(?:scope|pos|sales|inventory|catalog|purchases|dashboard|reports|profit|users|sessions|audit|settings|branches|cash|scrap|backups|funding|opening)\.[a-z_]+\b/;
+const TECH_WORDS = new RegExp(`${TECH_CODES.source}|audit log|سجل التدقيق`);
 const COST_WORDS = /cost|profit|margin|تكلفة|التكلفة|ربح|أرباح|الربح|هامش/i;
 /** A money figure: thousands separators or two or more decimals (the IP address and small counts are not). */
 const MONEY_FIGURE = /\d{1,3}(?:[,٬]\d{3})+|\d+[.٫]\d{2,}/;
@@ -990,6 +991,8 @@ async function main() {
     await noExpenseWords(page, origin, ['/overview', '/branches', '/cash', '/reports', '/settings'], 'General Manager');
     await noWords(page, origin, ['/overview', '/branches', '/reports'], 'General Manager', HASAD_WORDS, 'Hasad withdrawal wording');
     await noWords(page, origin, ['/overview'], 'General Manager (menu)', HASAD_WORDS, 'Hasad entry in the menu', 'nav');
+    // UX-2: no internal code on the General Manager's screens either (the audit log is a page of its own, so its name may show).
+    await noWords(page, origin, ['/cash', '/prices', '/settings', '/users', '/sessions', '/inventory', '/purchases', '/transfers'], 'General Manager', TECH_CODES, 'internal code');
     const settings = (await apiGet(page, '/api/settings')).body.settings;
     check(settings.hasad === undefined && settings.mockHasad === undefined, 'no Hasad workspace or mock settings remain');
     const rec = await apiGet(page, `/api/cash/reconciliation?branchId=${branchId}`);

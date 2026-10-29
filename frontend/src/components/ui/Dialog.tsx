@@ -30,7 +30,8 @@ export function Dialog({
   subtitle?: ReactNode;
   /** UX-2: background text behind a "?" beside the title. */
   help?: ReactNode;
-  children: ReactNode;
+  /** UX-2: optional: a confirmation that says all in its title and subtitle has no body. */
+  children?: ReactNode;
   footer?: ReactNode;
   size?: keyof typeof SIZE;
   /** Tailwind max-width class (kept for existing screens); `size` wins when given. */
@@ -102,7 +103,7 @@ export function Dialog({
             <X className="size-4" />
           </button>
         </div>
-        <div className="px-5 py-3">{children}</div>
+        {children != null && children !== false && <div className="px-5 py-3">{children}</div>}
         {footer && <div className="flex flex-wrap items-center justify-end gap-2 rounded-b-panel bg-panel px-5 py-3">{footer}</div>}
       </div>
     </div>

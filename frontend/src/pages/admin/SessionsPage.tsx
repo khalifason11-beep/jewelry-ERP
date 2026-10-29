@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import clsx from 'clsx';
-import { AlertTriangle, Eye, MonitorSmartphone, PowerOff } from 'lucide-react';
+import { AlertTriangle, MonitorSmartphone, PowerOff } from 'lucide-react';
 import { get, post } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, deviceText, humanize, relative, time } from '../../lib/format';
@@ -127,9 +126,7 @@ export function SessionsTable({ branchId, scope, mine }: { branchId?: number; sc
         title={t('End session of {user}?', { user: revoke?.username ?? '' })}
         subtitle={t('{device} · {ip}. The user will be signed out on that device.', { device: deviceText(revoke?.device), ip: revoke?.ipAddress ?? '' })}
         footer={<><Button onClick={() => setRevoke(null)}>{t('Cancel')}</Button><Button variant="danger-solid" loading={m.isPending} onClick={() => revoke && m.mutate(revoke)}>{t('End session')}</Button></>}
-      >
-        <p className="text-[13px] text-ink-600">{t('Recorded as SESSION_REVOKED in the audit log.')}</p>
-      </Dialog>
+      />
     </>
   );
 }
@@ -147,7 +144,7 @@ export function SessionsPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={<span className="flex items-center gap-2.5"><MonitorSmartphone className="size-6 text-ink-500" /> {t('Active Users')}</span>}
-        subtitle={t('Who is signed in right now, from which device, and what they are working on. Always shows the account that actually signed in.')}
+        help={t('Transparent monitoring: every user can see their own session details in the user menu. Only sign-in metadata and the current module are recorded. No screen or keystroke capture.')}
         actions={<BranchSelect value={branchId} onChange={setBranchId} className="w-44" />}
       />
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -165,9 +162,6 @@ export function SessionsPage() {
         <Tabs className="px-3" value={scope} onChange={setScope} tabs={[{ value: 'active', label: t('Active Sessions') }, { value: 'recent', label: t('Last 7 days') }]} />
         <SessionsTable branchId={branchId} scope={scope} />
       </Card>
-      <p className={clsx('mt-3 flex items-center gap-1.5 text-[12px] text-ink-500')}>
-        <Eye className="size-3.5" /> {t('Transparent monitoring: every user can see their own session details in the user menu. Only sign-in metadata and the current module are recorded. No screen or keystroke capture.')}
-      </p>
     </div>
   );
 }
