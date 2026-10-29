@@ -26,7 +26,7 @@ What changed (your request of 2026-10-29, plan `docs/plans/UX-4.md`, decision D-
 
 ## B. From a fresh database
 
-1. **Bootstrap** the General Manager on the server (`npm run bootstrap` as in `docs/DEPLOYMENT.md` §3), sign in with
+1. **Bootstrap** the General Manager on the server (`npm run bootstrap -w @jerp/backend -- …` as in `docs/DEPLOYMENT.md` §3), sign in with
    the one-time password, set your password, register your passkey and save the recovery codes.
 2. **Home**: "First steps", 0 of 6 done, in this order: branch, karats, rates, users, **opening balance**, fund.
 3. **Create the first branch** (link → Branches → New branch; one dialog asks your password and passkey once). Back
