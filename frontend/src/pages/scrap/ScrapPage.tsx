@@ -122,7 +122,7 @@ export function ScrapPage() {
 
       {full && (
       <Card padded={false} className="mb-5">
-        <CardHeader title={t('Broken-scrap pool')} subtitle={t('Weight held per karat (never an inventory item). Counted in the branch’s total stock weight.')} />
+        <CardHeader title={t('Broken-scrap pool')} help={t('Weight held per karat (never an inventory item). Counted in the branch’s total stock weight.')} />
         <div className="p-5">
           <QueryState query={pool} loading={<SkeletonRows rows={3} />}>
             {(p) => <PoolSummary pool={p} />}
@@ -452,7 +452,7 @@ function BuyForm({ branchId }: { branchId: number }) {
           <Field label={t('Today’s scrap rate')} hint={karat !== '' && !rate ? t('No scrap buying rate is set for this karat') : undefined}>
             <Input value={rate ? money(rate, false) : '—'} readOnly className="num bg-canvas" />
           </Field>
-          <Field label={t('Agreed price per gram')} hint={rate ? t('Within {pct}% of the scrap rate the branch manager decides', { pct: tolerance }) : undefined}>
+          <Field label={t('Agreed price per gram')} help={rate ? t('Within {pct}% of the scrap rate the branch manager decides', { pct: tolerance }) : undefined}>
             <MoneyInput value={agreed} placeholder={rate ? String(rate) : ''} onValueChange={setAgreed} data-testid="scrap-agreed" />
           </Field>
           {kind === 'SELLABLE' && (

@@ -183,7 +183,7 @@ export function SaleDetailPage() {
     mutationFn: () => postOnce(`/sales/${id}/void`, { reason }, actionKeys.for(`void:${id}`)),
     onSuccess: () => {
       actionKeys.rotate(`void:${id}`);
-      toast.success(t('Sale cancelled'), t('Items returned to AVAILABLE with a RETURN movement.'));
+      toast.success(t('Sale cancelled'), t('The pieces are back in stock.'));
       setVoidOpen(false);
       qc.invalidateQueries();
     },
@@ -250,7 +250,7 @@ export function SaleDetailPage() {
       )}
       <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
         <Card padded={false}>
-          <CardHeader title={t('Items')} subtitle={profit ? t('Selling price vs item cost (purchase + making + other)') : undefined} />
+          <CardHeader title={t('Items')} />
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead className="bg-[#f7f8fa] text-ink-500">
@@ -337,7 +337,7 @@ export function SaleDetailPage() {
         open={voidOpen}
         onClose={() => setVoidOpen(false)}
         title={t('Cancel sale {number}?', { number: s.number })}
-        subtitle={t('The sale stays on record as VOIDED. Items go back to AVAILABLE via a RETURN movement.')}
+        subtitle={t('The sale stays on record as cancelled; its pieces go back to stock.')}
         footer={
           <>
             <Button onClick={() => setVoidOpen(false)}>{t('Back')}</Button>

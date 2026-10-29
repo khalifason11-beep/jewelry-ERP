@@ -228,7 +228,7 @@ export function OpeningCorrectionsCard({ rows, showCode }: { rows: (OpeningCorre
   };
   return (
     <Card padded={false}>
-      <CardHeader title={t('Corrections after the seal')} subtitle={t('The opening stays as sealed; each correction is recorded with its reason.')} />
+      <CardHeader title={t('Corrections after the seal')} />
       <ul className="divide-y divide-line px-5" data-testid="opening-corrections">
         {rows.map((r) => (
           <li key={r.id} className="py-3 text-[13px]" data-testid={`opening-correction-${r.id}`}>

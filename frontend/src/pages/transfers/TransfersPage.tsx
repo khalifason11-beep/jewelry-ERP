@@ -50,7 +50,7 @@ export function TransfersPage() {
     mutationFn: (id: number) => postOnce(`/transfers/${id}/receive`, {}, actionKeys.for(`receive:${id}`)),
     onSuccess: (_d, id) => {
       actionKeys.rotate(`receive:${id}`);
-      toast.success(t('Transfer received'), t('Pieces are now AVAILABLE in your branch (TRANSFER_IN).'));
+      toast.success(t('Transfer received'), t('Pieces received in your branch.'));
       qc.invalidateQueries();
     },
     onError: (e) => toast.fromError(e),
@@ -59,7 +59,6 @@ export function TransfersPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={t('Transfers')}
-        subtitle={t('Two-step inter-branch transfers: sent pieces are in transit (TRANSFERRED) until the receiving branch confirms.')}
         actions={
           // D-rem4-1: two start points only. The General Manager's "New transfer" here (any branch to any branch); the
           // branch manager's POS cart ("Transfer to branch"). This screen is otherwise the log.

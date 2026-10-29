@@ -112,7 +112,7 @@ export function OpeningsPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={t('Opening balance')}
-        subtitle={t('The pieces each branch already holds on the first day, entered once. Their cost is unknown; they sell at the new-piece or the used-piece rate, by their condition.')}
+        help={t('The pieces each branch already holds on the first day, entered once. Their cost is unknown; they sell at the new-piece or the used-piece rate, by their condition.')}
       />
       <Card padded={false}>
         <DataTable
@@ -372,7 +372,7 @@ function KeyboardEntry({ openingId }: { openingId: number }) {
   };
   return (
     <Card>
-      <CardHeader title={t('Type a piece')} subtitle={t('Enter moves to the next field; on the last one it adds the piece.')} />
+      <CardHeader title={t('Type a piece')} help={t('Enter moves to the next field; on the last one it adds the piece.')} />
       <div ref={box} onKeyDown={onKey} className="space-y-2" data-testid="opening-keyboard">
         <PieceKindFields value={kind} onChange={setKind} testId="opening-kind" />
         <div className="grid grid-cols-3 gap-2">
