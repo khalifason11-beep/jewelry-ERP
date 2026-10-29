@@ -2128,4 +2128,7 @@ export const AR: Record<string, string> = {
   "{change}% from the current rate": "{change}% عن السعر الحالي",
   "needs a reason": "يحتاج إلى سبب",
   "needs a reason and your password": "يحتاج إلى سبب وكلمة المرور",
+
+  // UX-2: less text on screen; background behind a "?"
+  'More information': 'مزيد من المعلومات',
 };

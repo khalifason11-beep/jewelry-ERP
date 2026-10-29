@@ -4,16 +4,20 @@
 import type { ReactNode } from 'react';
 import clsx from 'clsx';
 import { karatLabel } from '../../lib/format';
+import { HelpTip } from './HelpTip';
 
 export function Card({ children, className, padded = true }: { children: ReactNode; className?: string; padded?: boolean }) {
   return <div className={clsx('rounded-card bg-panel', padded && 'p-5', className)}>{children}</div>;
 }
 
-export function CardHeader({ title, subtitle, actions, className }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; className?: string }) {
+export function CardHeader({ title, subtitle, help, actions, className }: { title: ReactNode; subtitle?: ReactNode; help?: ReactNode; actions?: ReactNode; className?: string }) {
   return (
     <div className={clsx('flex items-start justify-between gap-4 border-b border-line px-5 py-3.5', className)}>
       <div className="min-w-0">
-        <h3 className="text-section font-semibold text-ink">{title}</h3>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-section font-semibold text-ink">{title}</h3>
+          {help && <HelpTip>{help}</HelpTip>}
+        </div>
         {subtitle && <p className="mt-0.5 text-meta text-ink-3">{subtitle}</p>}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
@@ -21,13 +25,16 @@ export function CardHeader({ title, subtitle, actions, className }: { title: Rea
   );
 }
 
-export function PageHeader({ title, subtitle, actions, breadcrumbs }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; breadcrumbs?: ReactNode }) {
+export function PageHeader({ title, subtitle, help, actions, breadcrumbs }: { title: ReactNode; subtitle?: ReactNode; help?: ReactNode; actions?: ReactNode; breadcrumbs?: ReactNode }) {
   return (
     <div className="mb-4">
       {breadcrumbs && <div className="mb-2 text-meta text-ink-3">{breadcrumbs}</div>}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-title font-semibold text-ink">{title}</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-title font-semibold text-ink">{title}</h1>
+            {help && <HelpTip>{help}</HelpTip>}
+          </div>
           {subtitle && <p className="mt-0.5 text-meta text-ink-3">{subtitle}</p>}
         </div>
         {actions && <div className="no-print flex flex-wrap items-center gap-2">{actions}</div>}

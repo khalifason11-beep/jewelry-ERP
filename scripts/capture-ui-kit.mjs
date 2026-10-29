@@ -107,6 +107,27 @@ async function numberFieldChecks(page, lang) {
   await page.evaluate(() => document.fonts.ready);
 }
 
+async function helpTipChecks(page) {
+  const button = page.locator('#inputs [data-testid=help-tip]');
+  const text = page.locator('#inputs [data-testid=help-tip-text]');
+  check((await button.getAttribute('aria-expanded')) === 'false' && (await text.count()) === 0 && !!(await button.getAttribute('aria-label')), 'a "?" is a labelled button, closed at first');
+  await button.focus();
+  await page.keyboard.press('Enter');
+  check((await text.isVisible()) && (await button.getAttribute('aria-expanded')) === 'true' && (await button.getAttribute('aria-controls')) === (await text.getAttribute('id')), 'Enter opens the help; the button says it is expanded and points at the text');
+  await page.keyboard.press('Escape');
+  check((await text.count()) === 0 && (await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))) === 'help-tip', 'Escape closes it and the focus stays on the "?"');
+  await page.keyboard.press('Space');
+  const openedBySpace = await text.isVisible();
+  await page.locator('#inputs h2').click();
+  check(openedBySpace && (await text.count()) === 0, 'Space opens it; a click or tap outside closes it');
+  await button.dispatchEvent('click');
+  const tapped = await text.isVisible();
+  await button.dispatchEvent('click');
+  check(tapped && (await text.count()) === 0, 'a tap (a click without hover) toggles it');
+  const name = await page.getByTestId('kit-help-field').evaluate((el) => el.labels?.[0]?.textContent ?? '');
+  check(name.length > 0 && !/information|معلومات/.test(name), `the field's label is unchanged by the "?" ("${name}")`);
+}
+
 const port = await freePort();
 const vite = spawn('npx', ['vite', '--port', String(port), '--strictPort', '--host', '127.0.0.1'], { cwd: path.join(ROOT, 'frontend'), stdio: ['ignore', 'pipe', 'pipe'], detached: true });
 let viteLog = '';
@@ -161,6 +182,9 @@ try {
         // UX-1 number fields: typing, paste, wheel, keypad, limits, empty stays empty (all in the browser).
         await numberFieldChecks(page, lang);
 
+        // UX-2: the "?" help beside a label: keyboard, Escape, outside click; the field's name does not change.
+        await helpTipChecks(page);
+
         // A loading button is busy and cannot be used.
         const loading = page.getByTestId('kit-btn-primary-loading');
         check((await loading.isDisabled()) && (await loading.getAttribute('aria-busy')) === 'true', 'a loading button is disabled and announced as busy');
@@ -191,6 +215,14 @@ try {
         const back = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'));
         check(afterOne === 1 && afterTwo === 0, 'Escape closes only the topmost dialog, then the next one');
         check(back === 'kit-open-dialog', 'focus returns to the button that opened the dialog');
+        // UX-2: Escape on an open "?" in a dialog closes the help only, then the dialog.
+        await page.getByTestId('kit-open-dialog').click();
+        const dialogHelp = page.locator('[role=dialog] [data-testid=help-tip]');
+        await dialogHelp.click();
+        await page.keyboard.press('Escape');
+        const helpThenDialog = [await page.locator('[role=dialog] [data-testid=help-tip-text]').count(), await page.locator('[role=dialog]').count()];
+        await page.keyboard.press('Escape');
+        check(helpThenDialog[0] === 0 && helpThenDialog[1] === 1 && (await page.locator('[role=dialog]').count()) === 0, `Escape on a dialog's "?" closes the help, not the dialog (${helpThenDialog})`);
 
         // Toasts.
         await page.getByTestId('kit-toast-success').click();

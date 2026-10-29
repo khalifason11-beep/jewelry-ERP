@@ -6,6 +6,7 @@ export { Field, Input, Select, Textarea, controlClass } from './Field';
 export { Badge, StatusBadge, statusTone, type Tone } from './Badge';
 export { Alert, Empty, ErrorState, Loading, Skeleton, SkeletonRows, Spinner } from './States';
 export { Dialog } from './Dialog';
+export { HelpTip } from './HelpTip';
 export { Table, TD, TH, THead, TR } from './Table';
 export { Pill, PillGroup } from './Pill';
 export { Panel, PanelHeader } from './Panel';
