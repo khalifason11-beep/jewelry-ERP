@@ -130,7 +130,7 @@ export function SalesPage() {
   const { from, to, branchId, set } = useRangeParams(7);
   return (
     <div className="p-5 lg:p-6">
-      <PageHeader title={t('Sales')} subtitle={t('Normal jewelry sales. Click an invoice for items, cost and profit.')} />
+      <PageHeader title={t('Sales')} />
       <Card padded={false}>
         <SalesTable
           branchId={branchId}

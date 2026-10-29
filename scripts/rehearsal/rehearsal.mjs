@@ -266,6 +266,8 @@ const SHELL_NAV = {
   // PRC-1 (D-prc1-8): the cashier buys a sellable piece from a customer.
   cashier: ['pos', 'scrap', 'me'],
 };
+// UX-2: status and event codes, permission codes, hashing, and the audit log explained on screen.
+const TECH_WORDS = /\b(?:AVAILABLE|SOLD|VOIDED|RETURN|TRANSFER_IN|TRANSFERRED|PRICE_CHANGED|SETTINGS_CHANGED|INVENTORY_ADJUSTMENT)\b|Argon2id|\b(?:pos|sales|inventory|scrap|sessions)\.[a-z_]+\b|audit log|سجل التدقيق/;
 const COST_WORDS = /cost|profit|margin|تكلفة|التكلفة|ربح|أرباح|الربح|هامش/i;
 /** A money figure: thousands separators or two or more decimals (the IP address and small counts are not). */
 const MONEY_FIGURE = /\d{1,3}(?:[,٬]\d{3})+|\d+[.٫]\d{2,}/;
@@ -761,6 +763,8 @@ async function main() {
     await fundingRefused(page, 'cashier', branchId);
     const cashierUsers = await apiGet(page, '/api/users');
     check(cashierUsers.status === 403, 'the cashier cannot open the user list (403)');
+    // UX-2: the cashier's screens carry no internal codes and no explanation of how the system works inside.
+    await noWords(page, origin, ['/pos', '/scrap', '/me', '/security'], 'cashier', TECH_WORDS, 'internal code or audit-log wording');
     await signOut(page);
 
     section('REM-1: no expenses anywhere (both languages)');

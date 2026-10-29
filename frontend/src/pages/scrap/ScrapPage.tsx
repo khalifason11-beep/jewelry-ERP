@@ -110,7 +110,6 @@ export function ScrapPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={full ? t('Scrap gold') : t('Buy a piece from a customer')}
-        subtitle={full ? t('Buy gold from customers at today’s scrap rate. Broken scrap goes into the branch pool, which is how suppliers are paid in gold.') : t('A piece in good condition, bought at today’s scrap rate and put on sale at the used-piece rate.')}
         actions={
           isGlobal && (
             <Select value={branchId ?? ''} onChange={(e) => setBranchId(e.target.value ? Number(e.target.value) : undefined)} className="h-9 w-48" aria-label={t('Branch')}>
@@ -390,7 +389,7 @@ function BuyForm({ branchId }: { branchId: number }) {
       actionKeys.rotate('scrap');
       toast.success(
         t('Scrap {number} bought', { number: r.number }),
-        r.itemCode ? t('Piece {code} is now AVAILABLE for sale. Paid {amount}.', { code: r.itemCode, amount: money(r.amount) }) : t('Added to the broken-scrap pool. Paid {amount}.', { amount: money(r.amount) }),
+        r.itemCode ? t('Piece {code} is on sale. Paid {amount}.', { code: r.itemCode, amount: money(r.amount) }) : t('Added to the broken-scrap pool. Paid {amount}.', { amount: money(r.amount) }),
       );
       reset();
       qc.invalidateQueries();
@@ -403,7 +402,7 @@ function BuyForm({ branchId }: { branchId: number }) {
 
   return (
     <Card padded={false}>
-      <CardHeader title={t('Buy scrap from a customer')} subtitle={t('The customer is paid now: from the drawer, by bank transfer, or part of each.')} />
+      <CardHeader title={t('Buy scrap from a customer')} />
       <div className="space-y-4 p-5">
         {kinds.length > 1 && (
         <div className="flex rounded-md border border-line-strong p-0.5 sm:w-fit" role="radiogroup" aria-label={t('Type')}>
