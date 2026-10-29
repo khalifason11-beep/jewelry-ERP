@@ -224,6 +224,8 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     secondFactor required enrollmentRequired passkeys recoveryCodesRemaining recoveryCodesAcknowledged userVerification
     method requiredRoles signInMethod newDeviceAlert credentialNickname browser ipApprox uv newDevice nickname lastUsedAt
     uvAtRegistration backedUp deviceType methods expiresAt codes generatedAt validForMinutes revoked changed securityLocked recoveryCodesInvalidated
+    hasPasskey passkey windowMinutes passwordUntil passkeyUntil
+    openingDraft state
     print document layout format invoiceFormat receiptWidthMm autoPrintAfterSale originalPrintedAt reprintCount issuedAt lines copy printedAt invoiceRef transactionRef hasad cashier customer
     backup backupAgeHours verifyAgeHours maxAgeHours maxVerifyAgeDays reasons
     goldOwedMgPure24 owedAfterMgPure24 goldDebtMgPure24 settledKarat settledWeightMg settledPureMg24 bankReference

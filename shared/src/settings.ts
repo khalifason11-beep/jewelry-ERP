@@ -194,7 +194,8 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     sessionIdleMinutes: 10,
     idleMinutes: 60,
     sessionAbsoluteHours: 12,
-    reauthWindowMinutes: 5,
+    // UX-3 (D-ux3-1): 15 minutes, so one setup flow asks once (was 5).
+    reauthWindowMinutes: 15,
     minPasswordLength: 10,
     lockoutThreshold: 5,
     lockoutBaseMinutes: 15,

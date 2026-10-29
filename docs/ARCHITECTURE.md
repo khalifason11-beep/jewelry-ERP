@@ -47,9 +47,9 @@ browser ──HTTPS──▶ reverse proxy ──▶ Express
 - **Branch scope:** `scope.all_branches` (the General Manager) sees every branch. Everyone else is pinned to their own
   branch, and a request for another branch's data gets 403.
 - **Re-confirmation** (`auth/reauth.ts`): routes flagged `reauth` need the password, plus the passkey for users who
-  have one, within the last `security.reauthWindowMinutes` (5).
-  - Some handlers ask for it conditionally: a user's role or branch change, and a sale void above
-    `sales.voidReauthAboveAmount`.
+  have one, within the last `security.reauthWindowMinutes` (15 since UX-3).
+  - Routes flagged `reauthWhen` ask for it in one case only: a user's role or branch change, a sale void above
+    `sales.voidReauthAboveAmount`, a new passkey, new recovery codes. Any other route that asks fails the tests.
 - **Idempotency** (`core/idempotency.ts`): routes that create business records require an `Idempotency-Key`.
   - Repeating a request returns the stored response.
   - On money routes (`idempotencyInTx`), the key is claimed inside the same transaction that writes the ledger.

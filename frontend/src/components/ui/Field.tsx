@@ -1,5 +1,6 @@
 // Form controls (UI-A1): 40 px high, radius 10, white on any surface. Focus shows the global ring (index.css);
 // an invalid control (aria-invalid) gets a critical border. `Field` ties its label, hint and error to the control.
+// UX-2: `help` puts background text behind a "?" beside the label (outside the label, so the control's name is unchanged).
 
 import {
   Children,
@@ -14,6 +15,7 @@ import {
   type TextareaHTMLAttributes,
 } from 'react';
 import clsx from 'clsx';
+import { HelpTip } from './HelpTip';
 
 const hasWidth = (c?: string) => !!c && /(^|\s)(w-|min-w-|max-w-|flex-1)/.test(c);
 export const controlClass =
@@ -45,6 +47,7 @@ export function Select({ className, children, invalid, ...rest }: SelectHTMLAttr
 export function Field({
   label,
   hint,
+  help,
   error,
   required,
   children,
@@ -52,6 +55,7 @@ export function Field({
 }: {
   label: ReactNode;
   hint?: ReactNode;
+  help?: ReactNode;
   error?: ReactNode;
   required?: boolean;
   children: ReactNode;
@@ -69,9 +73,9 @@ export function Field({
           ...(error ? { 'aria-invalid': true } : {}),
         })
       : children;
-  return (
-    <label className={clsx('block', className)}>
-      <span className="mb-1.5 block text-meta font-medium text-ink-2">
+  const field = (
+    <label className={clsx('block', !help && className)}>
+      <span className={clsx('mb-1.5 block text-meta font-medium text-ink-2', help && 'pe-6')}>
         {label}
         {required && (
           <span className="text-crit" aria-hidden>
@@ -91,5 +95,12 @@ export function Field({
         </span>
       )}
     </label>
+  );
+  if (!help) return field;
+  return (
+    <div className={clsx('relative', className)}>
+      {field}
+      <HelpTip className="absolute end-0 top-0">{help}</HelpTip>
+    </div>
   );
 }

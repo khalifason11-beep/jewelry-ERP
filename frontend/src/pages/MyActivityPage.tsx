@@ -53,7 +53,7 @@ export function MyActivityPage() {
         <SalesTable mine from={from} to={to} toolbar={<DateRange from={from} to={to} onChange={(r) => set(r)} />} />
       </Card>
       <Card padded={false}>
-        <CardHeader title={t('My sessions (last 7 days)')} subtitle={t('The same information administrators see about your account')} />
+        <CardHeader title={t('My sessions (last 7 days)')} />
         <SessionsTable scope="recent" mine />
       </Card>
     </div>

@@ -152,7 +152,7 @@ export function InventoryPage() {
   // REM-4 (D-rem4-1): the "Select & transfer" card view is gone; a branch manager sends pieces from the POS cart.
   return (
     <div className="p-5 lg:p-6">
-      <PageHeader title={t('Inventory')} subtitle={t('Item-level inventory. Each piece has its own ID, barcode, weights, cost components and lifecycle.')} />
+      <PageHeader title={t('Inventory')} />
       <Card padded={false}>
         <InventoryTable
           branchId={branchId}
@@ -312,7 +312,7 @@ export function ItemDetailPage() {
         <div className="space-y-5">
           <OpeningCorrectionsCard rows={q.data?.openingCorrections ?? []} />
           <Card padded={false}>
-            <CardHeader title={t('Lifecycle')} subtitle={t('Every status change of this piece, with the document that caused it')} />
+            <CardHeader title={t('Lifecycle')} />
             {history.length === 0 ? (
               <div className="px-5 py-6 text-[13px] text-ink-500">{can('inventory.view') ? t('No status change recorded yet.') : t('Lifecycle is visible to managers.')}</div>
             ) : (
@@ -339,7 +339,7 @@ export function ItemDetailPage() {
           </Card>
           {movements.length > 0 && (
             <Card padded={false}>
-              <CardHeader title={t('Inventory ledger')} subtitle={t('Stock movements recorded for this piece')} />
+              <CardHeader title={t('Inventory ledger')} />
               <table className="w-full text-[13px]">
                 <thead className="bg-[#f7f8fa] text-ink-500">
                   <tr>
@@ -373,7 +373,7 @@ export function ItemDetailPage() {
         open={priceOpen}
         onClose={() => setPriceOpen(false)}
         title={t('Change selling price · {code}', { code: i.code })}
-        subtitle={t('Recorded as PRICE_CHANGED in the audit log. Past sales keep their original price.')}
+        subtitle={t('Past sales keep their original price.')}
         footer={<><Button onClick={() => setPriceOpen(false)}>{t('Cancel')}</Button><Button variant="primary" loading={priceM.isPending} disabled={!Number(price) || reason.trim().length < 3} onClick={() => priceM.mutate()} data-testid="price-save">{t('Save')}</Button></>}
       >
         <div className="space-y-3">
@@ -389,7 +389,6 @@ export function ItemDetailPage() {
         open={!!adjust}
         onClose={() => setAdjust(null)}
         title={adjust === 'MARK_DAMAGED' ? t('Mark as damaged') : adjust === 'RESTOCK' ? t('Return to sellable stock') : t('Return to supplier')}
-        subtitle={t('Creates a ledger movement and an INVENTORY_ADJUSTMENT audit event.')}
         footer={<><Button onClick={() => setAdjust(null)}>{t('Cancel')}</Button><Button variant="primary" loading={adjM.isPending} disabled={reason.trim().length < 3} onClick={() => adjM.mutate()}>{t('Confirm')}</Button></>}
       >
         <Field label={t('Reason (required)')}>

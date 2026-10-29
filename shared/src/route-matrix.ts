@@ -29,6 +29,12 @@ export interface RouteRule {
   any?: Permission[];
   /** Password re-confirmation within the re-auth window. */
   reauth?: boolean;
+  /**
+   * UX-3: the route asks for the same re-confirmation only in the case described here (a role change, a void above
+   * the amount, a credential change). Every route that can answer REAUTH_REQUIRED declares `reauth` or this; the
+   * tests fail on any other (test/setup.ts).
+   */
+  reauthWhen?: string;
   /** Destroys business data — never registered outside demo mode (REM-3: no such route exists). */
   destructive?: boolean;
   /**
@@ -69,14 +75,16 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/auth/logout', 'self'),
   r('POST', '/auth/change-password', 'self'),
   r('POST', '/auth/reauth', 'self'),
+  // UX-3: is the window still open, and until when (a flow asks once at its start; no data).
+  r('GET', '/auth/reauth', 'self'),
   // Passkeys and recovery codes (own account). Removing a passkey needs password + passkey step-up.
   r('POST', '/auth/reauth/passkey/options', 'self'),
   r('POST', '/auth/reauth/passkey/verify', 'self'),
   r('GET', '/auth/passkeys', 'self'),
-  r('POST', '/auth/passkeys/register/options', 'self'),
-  r('POST', '/auth/passkeys/register/verify', 'self'),
+  r('POST', '/auth/passkeys/register/options', 'self', { reauthWhen: 'always the password; the passkey too when the user already has one (D-2fa-7)' }),
+  r('POST', '/auth/passkeys/register/verify', 'self', { reauthWhen: 'always the password; the passkey too when the user already has one (D-2fa-7)' }),
   r('DELETE', '/auth/passkeys/:id', 'self', { reauth: true }),
-  r('POST', '/auth/recovery-codes', 'self'),
+  r('POST', '/auth/recovery-codes', 'self', { reauthWhen: 'always the password; the passkey too when a confirmed set is replaced (D-2fa-7)' }),
   r('POST', '/auth/recovery-codes/acknowledge', 'self'),
   r('GET', '/auth/sign-ins', 'self'),
   r('POST', '/auth/sign-ins/:id/dismiss', 'self'),
@@ -126,7 +134,7 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('GET', '/users', 'branch', { all: ['users.view'] }),
   r('POST', '/users', 'branch', { all: ['users.manage'], reauth: true }),
   // Re-auth is required by the handler only when the role or branch changes.
-  r('PATCH', '/users/:id', 'branch', { all: ['users.manage'] }),
+  r('PATCH', '/users/:id', 'branch', { all: ['users.manage'], reauthWhen: 'the role or the branch changes (D-1a-8)' }),
   r('POST', '/users/:id/reset-password', 'branch', { all: ['users.manage'], reauth: true }),
   r('POST', '/users/:id/disable', 'branch', { all: ['users.manage'] }),
   r('POST', '/users/:id/enable', 'branch', { all: ['users.manage'] }),
@@ -144,7 +152,7 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('GET', '/sales/:id', 'branch', { any: ['sales.view', 'sales.view_own'] }),
   // Printing (D-print-5): the service decides original (cashier, same session, once) vs reprint (sales.reprint).
   r('POST', '/sales/:id/print', 'branch', { any: ['sales.view', 'sales.view_own'] }),
-  r('POST', '/sales/:id/void', 'branch', { all: ['sales.void'], idempotent: true, idempotencyInTx: true }),
+  r('POST', '/sales/:id/void', 'branch', { all: ['sales.void'], reauthWhen: 'the total is above sales.voidReauthAboveAmount (default 0: every void, D-sec2-1)', idempotent: true, idempotencyInTx: true }),
 
 
   // ── purchases, transfers

@@ -455,6 +455,28 @@ Done on 2026-10-09 (plan `docs/plans/UI-A2.md`, decisions D-ui-10 … D-ui-16, a
 **Homes done (commits `200aa14` to `98f0848` and the UI-B docs commit; D-ui-17…22, `docs/acceptance/UI-B.md`):** the GM home (Sales dark card, one surface, attention list, branch strips, 14-day sales line instead of the branch bars, gold position; Today by default, remembered; scope pill `/overview?branchId=`; empty versions) and the branch manager's home (expected cash with the last count, stock, gold owed in grams, attention, Team today; no cost); the attention control replaces the bell; the home figures tied to the Sales report, the list and the ledger by entry date; home requests p95 ≤ 86 ms on 60,000 sales without a new index. **Still open, a separate plan (owner answer Q13), next, before UI-C:** **UI-B3** the Branches page and the sales list with filter pills, on **BE-7** server-side pagination: **planned** in `docs/plans/UI-B3.md` (six questions), not built, waiting for the owner's acceptance notes on the finished screens. The cashier's POS layout is UI-C1 (D-ui-22).
 GM home and BM home as in `docs/ux/mockups/gm-home.html` and `bm-home.html`: **Sales as its own dark card**, the other three figures on one light surface (D-ux-1); default period **Today**, remembered per user in the browser; GM level 1 shows grams and value together; attention list from BE-1; branch bars **labelled by branch name** in the palette of `tokens.md`. The branch manager's home has no cost figures. Branches page and sales list with filter pills and server-side pagination (BE-7). Level 1 fits 1366×768 without scrolling (R14).
 
+### UX-2 — Less explanatory text, no technical codes · DONE · M · P1
+**Done (owner request 2026-10-29 after the trial, D-ux2-1, plan `docs/plans/UX-2.md`, `docs/acceptance/UX-2.md`):** every
+long text, subtitle and hint audited; money, irreversible-action and security texts kept; restated or internal text
+removed (status and audit-event codes, hashing); background behind a "?" (`HelpTip`, keyboard and touch); permissions
+named in Arabic on the Users page, the codes only in the General Manager's closed "Technical codes"; the cashier's
+screens carry the least text. Interface only.
+
+### UX-3 — Fewer passkey and re-authentication prompts · DONE · M · P1
+**Done (owner request 2026-10-29, D-ux3-1, D-ux3-2, plan `docs/plans/UX-3.md`, `docs/acceptance/UX-3.md`):** one dialog
+(password, then the passkey by itself) and the action completes by itself; one prompt shared by parallel requests; forms
+that ask the password never ask it twice; flows ask once at their start; window 15 minutes by default (1–30). The five
+routes that asked only in one case are declared (`reauthWhen`); any route that asks without declaring it fails the
+tests. Nothing left the protected list. **Open questions:** Q1 (count the sign-in as the start of the window), Q2
+(branding and piece adjustments leaving the list).
+
+### UX-4 — The opening balance as a first step on the home · DONE · S · P1
+**Done (owner request 2026-10-29, D-ux4-1, plan `docs/plans/UX-4.md`, `docs/acceptance/UX-4.md`):** six first steps in
+the owner's order (branch, karats, rates, users, opening balance, funding), each from server data and linking to its
+screen; the opening step's three states (not started, draft "not in stock yet: seal it so the cashier can sell it",
+sealed), General Manager only; the rates link opens Prices; an empty point of sale of a branch with a draft says so in
+one line. **Open question:** Q1 (whether a supplier order should close the opening step).
+
 ### UI-C — All other screens · TODO · L · P1
 POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fields only when Hasad is selected; owner reviews a screenshot before the build; built with FIX-1 and FIX-2), then scrap (form first) and supplier purchases, a Suppliers page (gold owed per supplier, A6), cash, transfers (no horizontal overflow), inventory (7 default columns + drawer), settings, security, users, reports. Empty states as in `docs/ux/ANALYSIS.md` §8.
 

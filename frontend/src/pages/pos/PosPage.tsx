@@ -1,6 +1,7 @@
 import { PAGE_SIZE_MAX, type Page } from '@jerp/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import clsx from 'clsx';
 import {
   ArrowRight,
@@ -29,7 +30,7 @@ import { useBranchDirectory, useBranches, useCategories, useDebounced } from '..
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import type { ItemRow } from '../../lib/types';
-import { Alert, Button, Dialog, Empty, ErrorState, Field, Input, ItemThumb, MoneyInput, PhoneInput, ReferenceInput, Select, Skeleton, Textarea } from '../../components/ui';
+import { Alert, Button, Dialog, Empty, ErrorState, Field, HelpTip, Input, ItemThumb, MoneyInput, PhoneInput, ReferenceInput, Select, Skeleton, Textarea } from '../../components/ui';
 import { InvoiceDocument, type SaleDetail } from '../../components/InvoiceDocument';
 import { printSaleInvoice } from '../../print/actions';
 import { useActionKeys } from '../../lib/idempotency';
@@ -75,7 +76,7 @@ export function PosPage() {
   const items = useQuery({
     queryKey: ['pos-items', branchId, dq, karat, category, sort],
     // BE-7: the largest page (200); the count shows every match and the search narrows them.
-    queryFn: () => get<Page<ItemRow>>('/inventory/items', { branchId, q: dq, karat, categoryId: category || undefined, sort, status: 'AVAILABLE,RESERVED', pageSize: PAGE_SIZE_MAX }),
+    queryFn: () => get<Page<ItemRow> & { openingDraft?: boolean }>('/inventory/items', { branchId, q: dq, karat, categoryId: category || undefined, sort, status: 'AVAILABLE,RESERVED', pageSize: PAGE_SIZE_MAX }),
     enabled: !!branchId,
     // Typing in the search keeps the shown pieces until the new answer arrives (no skeleton on every key).
     placeholderData: keepPreviousData,
@@ -224,7 +225,7 @@ export function PosPage() {
       }, actionKeys.for('sale')),
     onSuccess: (sale) => {
       actionKeys.rotate('sale');
-      toast.success(`${t('Sale completed')} · ${sale.number}`, t('{total}: {n} item(s) marked SOLD', { total: money(sale.total), n: sale.items.length }));
+      toast.success(`${t('Sale completed')} · ${sale.number}`, t('{total}: {n} item(s) sold', { total: money(sale.total), n: sale.items.length }));
       setInvoice(sale);
       if (me?.print.autoPrintAfterSale) void printInvoice(sale.id);
       reset();
@@ -262,7 +263,7 @@ export function PosPage() {
     if (!cart.length) return;
     saveHeld([...held, { id: crypto.randomUUID?.() ?? String(Date.now()), at: new Date().toISOString(), lines: cart, customerName, customerPhone }]);
     reset();
-    toast.info(t('Sale held'), t('Find it under “Held sales” to resume. Items are not reserved while held.'));
+    toast.info(t('Sale held'), t('Find it under “Held sales”.'));
   };
 
   const branchName = me?.user.branch ? L(me.user.branch.name, me.user.branch.nameAr) : L(branches.data?.find((b) => b.id === branchId)?.name, branches.data?.find((b) => b.id === branchId)?.nameAr);
@@ -274,7 +275,7 @@ export function PosPage() {
         <div className="border-b border-line bg-white px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
             {isGlobal && (
-              <Select value={branchId ?? ''} onChange={(e) => { setBranchId(Number(e.target.value)); setCart([]); }} className="w-44" aria-label={t('Branch')}>
+              <Select value={branchId ?? ''} onChange={(e) => { setBranchId(Number(e.target.value)); setCart([]); }} className="w-44" aria-label={t('Branch')} data-testid="pos-branch">
                 {branches.data?.map((b) => (
                   <option key={b.id} value={b.id}>{L(b.name, b.nameAr)}</option>
                 ))}
@@ -337,6 +338,13 @@ export function PosPage() {
                   title={t('No pieces in this branch yet')}
                   body={can('purchases.create') ? t('Receive a supplier order or buy scrap to add stock.') : can('scrap.buy') ? t('The General Manager records supplier orders; you can buy scrap to add stock.') : t('Ask your branch manager to receive stock.')}
                 />
+                {/* UX-4: a draft opening is not stock yet; say so in one line (the General Manager also gets the way there). */}
+                {items.data.openingDraft && (
+                  <p className="mt-2 text-center text-[13px] text-ink-700" data-testid="pos-opening-draft">
+                    {t('The opening balance of this branch is not sealed yet.')}{' '}
+                    {can('opening.manage') && <Link to="/openings" className="font-medium text-gold-700 hover:underline" data-testid="pos-opening-link">{t('Open the opening balance')}</Link>}
+                  </p>
+                )}
               </div>
             ) : (
               <Empty icon={<Search className="size-5" />} title={t('No matching pieces')} body={q ? t('Nothing in {branch} matches “{q}”.', { branch: branchName, q }) : t('No pieces match these filters.')} />
@@ -520,7 +528,7 @@ export function PosPage() {
             </Alert>
           )}
           {priceChanged && (
-            <div className="mt-2">
+            <div className="mt-2 flex items-center gap-1.5">
               <Input
                 value={priceReason}
                 onChange={(e) => setPriceReason(e.target.value)}
@@ -530,7 +538,7 @@ export function PosPage() {
                 className="h-8 text-[13px]"
                 data-testid="price-change-reason"
               />
-              <p className="mt-1 text-[11.5px] text-ink-500">{t('Kept in the audit log for managers. Never printed on the invoice.')}</p>
+              <HelpTip>{t('Kept in the audit log for managers. Never printed on the invoice.')}</HelpTip>
             </div>
           )}
           <dl className="mt-3 space-y-1 text-[13px]">
@@ -593,7 +601,7 @@ export function PosPage() {
         open={!!duplicateOf}
         onClose={() => setDuplicateOf(null)}
         title={t('This reference is already on sale {number}. Record it anyway?', { number: duplicateOf ?? '' })}
-        subtitle={t('One bank transfer can pay two sales. Recording it again is noted in the audit log.')}
+        help={t('One bank transfer can pay two sales. Recording it again is noted in the audit log.')}
         footer={
           <>
             <Button onClick={() => setDuplicateOf(null)}>{t('Back')}</Button>
@@ -618,7 +626,7 @@ export function PosPage() {
         open={confirmCancel}
         onClose={() => setConfirmCancel(false)}
         title={t('Cancel this sale?')}
-        subtitle={t('The cart will be cleared. Nothing has been recorded yet, so inventory is unaffected.')}
+        subtitle={t('The cart will be cleared.')}
         footer={
           <>
             <Button onClick={() => setConfirmCancel(false)}>{t('Keep sale')}</Button>
@@ -667,7 +675,6 @@ export function PosPage() {
         open={!!invoice}
         onClose={() => setInvoice(null)}
         title={`${t('Sale completed')} · ${invoice?.number ?? ''}`}
-        subtitle={t('Items are now SOLD and removed from available stock.')}
         width="max-w-3xl"
         footer={
           <>
@@ -737,7 +744,7 @@ function PosTransferDialog({ fromBranchId, lines, onClose, onRemove, onSent }: {
       open
       onClose={onClose}
       title={t('Transfer {n} pieces to another branch', { n: lines.length })}
-      subtitle={t('One transfer for the whole cart. Nothing is sold; the pieces are in transit until the receiving branch confirms.')}
+      subtitle={t('Nothing is sold: the pieces are in transit until the receiving branch confirms.')}
       footer={
         <>
           <Button onClick={onClose}>{t('Cancel')}</Button>

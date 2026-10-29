@@ -265,8 +265,9 @@ A review of the reports after the removals is still to do (RPT-1).
     manager optional; never cashiers).
   - Users get 10 recovery codes, a list of their last sign-ins, and new-device alerts with "This wasn't me".
   - The second-factor settings are changed under Settings → Second factor (`PUT /security/second-factor`).
-- **Re-confirmation:** for the actions listed in the README, the password must have been entered within the last 5
-  minutes (`reauthWindowMinutes`), plus the passkey for users who have one.
+- **Re-confirmation:** for the actions listed in the README, the password must have been entered within the last 15
+  minutes (`reauthWindowMinutes`, 1–30), plus the passkey for users who have one; one dialog asks for both, then the
+  action completes by itself.
 - **Operator commands** (shell only): `unlock`, `reset-gm-password`, `reset-second-factor --confirm` and
   `unlock-security-lock --confirm`.
 

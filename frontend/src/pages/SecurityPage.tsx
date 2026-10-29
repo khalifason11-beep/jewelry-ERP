@@ -11,7 +11,7 @@ import { dateTime, deviceText } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { useToast } from '../lib/toast';
 import { createPasskey, hasBuiltInAuthenticator, PasskeyError, passkeyUnavailable, PROBLEM_TEXT, type PublicKeyCredentialCreationOptionsJSON } from '../lib/webauthn';
-import { Alert, Badge, Button, Card, CardHeader, Dialog, ErrorState, Field, Input, Mono, PageHeader, SkeletonRows } from '../components/ui';
+import { Alert, Badge, Button, Card, CardHeader, Dialog, ErrorState, Field, HelpTip, Input, Mono, PageHeader, SkeletonRows } from '../components/ui';
 import { AuthFrame } from '../components/layout/AuthFrame';
 import { printDocument } from '../lib/print';
 import { RecoveryCodesPrint } from '../print/documents';
@@ -78,13 +78,15 @@ function WhatToExpect() {
   const { t } = useI18n();
   return (
     <div className="rounded-lg border border-line bg-canvas/60 p-4 text-[13px] leading-relaxed text-ink-700">
-      <div className="mb-1.5 font-semibold text-ink-900">{t('What to expect')}</div>
+      <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-ink-900">
+        {t('What to expect')}
+        <HelpTip>{t('Your fingerprint or face never leaves this computer. The system only stores a public key.')}</HelpTip>
+      </div>
       <ol className="list-decimal space-y-1 ps-5">
         <li>{t('A Windows Hello window opens (or the security-key window of your browser).')}</li>
         <li>{t('Touch the fingerprint reader, look at the camera, or type the Windows Hello PIN of this computer. It is not your system password.')}</li>
         <li>{t('That is all: next time you sign in, you type your password and confirm the same way.')}</li>
       </ol>
-      <div className="mt-2 text-ink-500">{t('Your fingerprint or face never leaves this computer. The system only stores a public key.')}</div>
     </div>
   );
 }
@@ -311,7 +313,7 @@ export function SecurityPage() {
 
   return (
     <div className="p-5 lg:p-6">
-      <PageHeader title={t('Sign-in security')} subtitle={t('Passkeys, recovery codes and recent sign-ins of your own account')} />
+      <PageHeader title={t('Sign-in security')} />
       <div className="grid gap-5 xl:grid-cols-2">
         <Card padded={false}>
           <CardHeader
@@ -420,14 +422,17 @@ export function SecurityPage() {
         </Card>
 
         <Card className="xl:col-span-2">
-          <div className="mb-2 flex items-center gap-2 text-[13.5px] font-semibold"><Smartphone className="size-4 text-ink-500" /> {t('Register your phone as a second device')}</div>
-          <ol className="list-decimal space-y-1 ps-5 text-[13px] leading-relaxed text-ink-700">
+          {/* UX-2: the how-to stays closed until asked for. */}
+          <details data-testid="phone-steps">
+          <summary className="flex cursor-pointer select-none items-center gap-2 text-[13.5px] font-semibold"><Smartphone className="size-4 text-ink-500" /> {t('Register your phone as a second device')}</summary>
+          <ol className="mt-2 list-decimal space-y-1 ps-5 text-[13px] leading-relaxed text-ink-700">
             <li>{t('Turn on Bluetooth on this computer and on the phone, and keep the phone near the computer.')}</li>
             <li>{t('Press “Add a device”, name it (e.g. “My phone”) and continue.')}</li>
             <li>{t('In the window that opens, choose “iPhone, iPad or Android device” (or “Use a phone or tablet”). A QR code appears.')}</li>
             <li>{t('Scan the QR code with the phone’s camera and confirm with the phone’s fingerprint, face or screen lock.')}</li>
             <li>{t('Next time, at the passkey step, you can choose the phone the same way if the computer is not available.')}</li>
           </ol>
+          </details>
         </Card>
       </div>
 

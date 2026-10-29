@@ -10,7 +10,7 @@ import { dateTime, grams, karatLabel, money, todayKey } from '../../lib/format';
 import { useBranches } from '../../lib/hooks';
 import { tk, useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import { Alert, Button, Card, CardHeader, DateInput, DetailPending, Dialog, Field, Input, KeyValue, MoneyInput, Mono, ReferenceInput, WeightInput, PageHeader, Select, StatusBadge } from '../../components/ui';
+import { Alert, Button, Card, CardHeader, DateInput, DetailPending, Dialog, Field, HelpTip, Input, KeyValue, MoneyInput, Mono, ReferenceInput, WeightInput, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { useServerList } from '../../lib/paging';
 import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect, DateRange, useRangeParams } from '../../components/Filters';
@@ -20,6 +20,7 @@ import { NewButton, NewSupplierDialog, useProducts, useSuppliers } from '../../c
 import { NewProductPanel, ProductPicker } from '../../components/ProductPicker';
 import { PieceKindFields, descriptionTooLong, emptyKind, kindBody, type PieceKindValue } from '../../components/PieceKind';
 import { CorrectionDialog, type Confirmation } from '../../components/CorrectionDialog';
+import { openWindowWith } from '../../lib/reauth';
 
 interface Settlement {
   id: number;
@@ -115,7 +116,6 @@ export function PurchasesPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={t('Purchases')}
-        subtitle={t('Stock received from suppliers. Each line creates one uniquely identified piece.')}
         actions={can('purchases.create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setOpen(true)} data-testid="new-purchase">{t('New purchase')}</Button>}
       />
       <Card padded={false}>
@@ -271,7 +271,7 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
       }, actionKeys.for('purchase')),
     onSuccess: (p) => {
       actionKeys.rotate('purchase');
-      toast.success(t('Purchase {number} received', { number: p.number }), t('{n} piece(s) now AVAILABLE: {codes}', { n: p.itemCodes.length, codes: p.itemCodes.join('، ') }));
+      toast.success(t('Purchase {number} received', { number: p.number }), t('{n} piece(s) in stock: {codes}', { n: p.itemCodes.length, codes: p.itemCodes.join('، ') }));
       qc.invalidateQueries();
       onClose();
       navigate(`/purchases/${p.id}`);
@@ -295,7 +295,6 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
       open
       onClose={onClose}
       title={t('New purchase (stock receipt)')}
-      subtitle={t('Pieces are created as PURCHASED → RECEIVED → AVAILABLE with a PURCHASE ledger movement.')}
       width="max-w-6xl"
       footer={
         <>
@@ -372,7 +371,10 @@ function NewPurchaseDialog({ onClose }: { onClose: () => void }) {
         </Alert>
       )}
       {!tagPrices && (
-        <p className="mb-2 text-meta text-ink-3" data-testid="purchase-price-follows-rate">{t('No selling price to type: each piece sells at its net weight × today’s new-piece rate of its karat.')}</p>
+        <div className="mb-2 flex items-center gap-1.5 text-meta text-ink-3" data-testid="purchase-price-follows-rate">
+          {t('The selling price follows today’s rate')}
+          <HelpTip>{t('No selling price to type: each piece sells at its net weight × today’s new-piece rate of its karat.')}</HelpTip>
+        </div>
       )}
       <div className={clsx(lineGrid, 'mb-1 border-b border-line pb-2')} data-testid="purchase-line-hints">
         {columns.map((c) => (
@@ -551,7 +553,7 @@ export function PurchaseDetailPage() {
       </Card>
       <SettlementsCard purchaseId={p.id} branchId={p.branchId} settlements={p.settlements} owed={p.goldOwedMgPure24} />
       <Card padded={false}>
-        <CardHeader title={t('Pieces received')} subtitle={t('Current status shows where each piece is now')} />
+        <CardHeader title={t('Pieces received')} />
         <table className="w-full text-[13px]">
           <thead className="bg-[#f7f8fa] text-ink-500">
             <tr>
@@ -634,7 +636,7 @@ function CorrectionsCard({ corrections, showValues }: { corrections: PurchaseCor
   const shown = (c: PurchaseCorrection, v: string | null | undefined) => (v == null ? '—' : c.field === 'MAKING_COST' ? money(Number(v), false) : ltr(v));
   return (
     <Card padded={false} className="mt-5">
-      <CardHeader title={t('Corrections')} subtitle={t('The order as recorded is kept; each line below changed one value after it.')} />
+      <CardHeader title={t('Corrections')} />
       <table className="w-full text-[13px]" data-testid="purchase-corrections">
         <thead className="bg-[#f7f8fa] text-ink-500">
           <tr>
@@ -680,14 +682,16 @@ function PurchaseFixDialog({ purchaseId, fixing, currentReference, onClose }: { 
   const newRef = validBankReference(reference);
   const valid = fixing?.field === 'MAKING_COST' ? newCost != null : newRef != null;
   const m = useMutation({
-    mutationFn: (c: Confirmation) =>
-      postOnce(
+    mutationFn: async (c: Confirmation) => {
+      await openWindowWith(c.confirmPassword); // UX-3: one password for the window and the correction
+      return postOnce(
         `/purchases/${purchaseId}/corrections`,
         fixing?.field === 'MAKING_COST'
           ? { field: 'MAKING_COST', purchaseItemId: fixing.piece.purchaseItemId, newValue: newCost ?? -1, ...c }
           : { field: 'MAKING_CHARGE_REFERENCE', newValue: reference, ...(duplicateOf ? { confirmDuplicateReference: true } : {}), ...c },
         actionKeys.for(key),
-      ),
+      );
+    },
     onSuccess: () => {
       actionKeys.rotate(key);
       toast.success(t('Correction saved'));
@@ -727,7 +731,7 @@ function PurchaseFixDialog({ purchaseId, fixing, currentReference, onClose }: { 
       testId="purchase-fix-dialog"
     >
       {piece ? (
-        <Field label={t('New making cost')} hint={t('Whole SDG; 0 is allowed while the order’s total stays above 0.')}>
+        <Field label={t('New making cost')} help={t('Whole SDG; 0 is allowed while the order’s total stays above 0.')}>
           <MoneyInput value={cost} onValueChange={setCost} placeholder="0" data-testid="purchase-fix-cost" />
         </Field>
       ) : (
@@ -758,7 +762,7 @@ function SettlementsCard({ purchaseId, branchId, settlements, owed }: { purchase
   const canSettle = can('purchases.settle') && owed !== 0;
   return (
     <Card padded={false} className="mb-5">
-      <CardHeader title={t('Supplier settlements (broken scrap)')} subtitle={t('Gold owed to the supplier is settled only with broken-scrap weight from this branch’s pool. Never with cash or bank.')} />
+      <CardHeader title={t('Supplier settlements (broken scrap)')} subtitle={t('Settled only with broken scrap from this branch’s pool.')} />
       {settlements.length ? (
         <table className="w-full text-[13px]">
           <thead className="bg-[#f7f8fa] text-ink-500">

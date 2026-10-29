@@ -165,6 +165,9 @@ export default function UiKitPage() {
           <Field label={tx('Note', 'ملاحظة')}>
             <Textarea placeholder={tx('Optional', 'اختياري')} />
           </Field>
+          <Field label={tx('Rounding step', 'خطوة التقريب')} help={tx('Applied once, after weight × rate.', 'يُطبَّق مرة واحدة بعد الوزن × السعر.')} className="sm:col-span-2">
+            <Input defaultValue="1000" data-testid="kit-help-field" />
+          </Field>
         </div>
       </Section>
 
@@ -353,6 +356,7 @@ export default function UiKitPage() {
         onClose={() => setDialog(false)}
         title={tx('New branch', 'فرع جديد')}
         subtitle={tx('Recorded in the audit log', 'يُسجل في سجل التدقيق')}
+        help={tx('A branch code can never be changed later.', 'لا يمكن تغيير رمز الفرع لاحقاً.')}
         footer={
           <>
             <Button onClick={() => setDialog(false)}>{tx('Cancel', 'إلغاء')}</Button>

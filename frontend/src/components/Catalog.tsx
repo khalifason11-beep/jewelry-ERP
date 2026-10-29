@@ -105,7 +105,7 @@ export function NewTypeDialog({ onClose, onCreated }: { onClose: () => void; onC
       open
       onClose={onClose}
       title={t('New type')}
-      subtitle={t('A kind of piece, such as rings or bracelets. Used to group stock and reports.')}
+      help={t('A kind of piece, such as rings or bracelets. Used to group stock and reports.')}
       footer={
         <>
           <Button onClick={onClose}>{t('Cancel')}</Button>
@@ -144,7 +144,7 @@ export function NewProductDialog({ onClose, onCreated, karat: fixedKarat }: { on
       open
       onClose={onClose}
       title={t('New product')}
-      subtitle={t('A design you stock, such as “Cuban chain”. Every piece received belongs to one product.')}
+      help={t('A design you stock, such as “Cuban chain”. Every piece received belongs to one product.')}
       footer={
         <>
           <Button onClick={onClose}>{t('Cancel')}</Button>

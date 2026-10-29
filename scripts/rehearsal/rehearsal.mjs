@@ -163,6 +163,20 @@ async function changePassword(page, current, next) {
 }
 
 /** A sensitive action may ask for the password and then the passkey (D-1a-8, D-2fa-7). */
+/**
+ * UX-3: a button that starts a protected flow asks first when less than half of the window is left: answer the one
+ * dialog (password; the passkey follows by itself), then wait for the flow's first field.
+ */
+async function startFlow(page, testId, firstField, password) {
+  await page.click(`[data-testid=${testId}]`);
+  await page.locator(`#reauth-form, [data-testid=${firstField}]`).first().waitFor({ timeout: 15_000 });
+  if (await page.locator('#reauth-form').count()) {
+    await page.fill('[data-testid=reauth-password]', password);
+    await page.click('[data-testid=reauth-confirm]');
+  }
+  await page.getByTestId(firstField).waitFor({ timeout: 15_000 });
+}
+
 async function confirmIfAsked(page, password) {
   await page.waitForTimeout(400);
   if (await page.locator('#reauth-form').count()) {
@@ -225,6 +239,8 @@ async function dialogKeepsChosenField(page, { open, first, second, text, what })
   await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1_000); // the page's (fake) clock, not ours
   try {
     await page.click(`[data-testid=${open}]`);
+    // UX-3: the button first asks the server whether the window is open, so the dialog appears a moment later.
+    await page.getByTestId(first).waitFor({ timeout: 15_000 });
     const autofocus = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'));
     await page.click(`[data-testid=${second}]`);
     await page.clock.runFor(1_000);
@@ -266,6 +282,9 @@ const SHELL_NAV = {
   // PRC-1 (D-prc1-8): the cashier buys a sellable piece from a customer.
   cashier: ['pos', 'scrap', 'me'],
 };
+// UX-2: status and event codes, permission codes and hashing; for the cashier also the audit log explained on screen.
+const TECH_CODES = /\b(?:AVAILABLE|SOLD|VOIDED|RETURN|TRANSFER_IN|TRANSFERRED|PRICE_CHANGED|SETTINGS_CHANGED|SCRAP_RATE_CHANGED|SESSION_REVOKED|SECURITY_SETTING_CHANGED|INVENTORY_ADJUSTMENT|PURCHASED)\b|Argon2id|\b(?:scope|pos|sales|inventory|catalog|purchases|dashboard|reports|profit|users|sessions|audit|settings|branches|cash|scrap|backups|funding|opening)\.[a-z_]+\b/;
+const TECH_WORDS = new RegExp(`${TECH_CODES.source}|audit log|سجل التدقيق`);
 const COST_WORDS = /cost|profit|margin|تكلفة|التكلفة|ربح|أرباح|الربح|هامش/i;
 /** A money figure: thousands separators or two or more decimals (the IP address and small counts are not). */
 const MONEY_FIGURE = /\d{1,3}(?:[,٬]\d{3})+|\d+[.٫]\d{2,}/;
@@ -395,7 +414,8 @@ const FUND = { cash: 2_000_000, bank: 1_500_000 };
 /** Record an advance through Cash › Funding (password re-confirmation as for every money action of the GM). */
 async function fundBranch(page, base, { branchId, account, amount, reason, bankReference, kind = 'advance' }) {
   await page.goto(`${base}/cash`);
-  await page.getByTestId(kind === 'advance' ? 'funding-advance' : 'funding-repayment').click({ timeout: 15_000 });
+  await page.getByTestId(kind === 'advance' ? 'funding-advance' : 'funding-repayment').waitFor({ timeout: 15_000 });
+  await startFlow(page, kind === 'advance' ? 'funding-advance' : 'funding-repayment', 'funding-branch', GM.password);
   await page.selectOption('[data-testid=funding-branch]', String(branchId));
   if (account === 'BANK') await page.locator('[data-testid=funding-account] [role=radio]').nth(1).click();
   await page.fill('[data-testid=funding-amount]', String(amount));
@@ -635,17 +655,25 @@ async function main() {
     check(JSON.stringify(inv0.allowedKarats) === '[21]' && inv0.allowedKaratsConfirmed === false, 'ALLOWED_KARATS_INITIAL=21 applied on the first start, not yet confirmed by the General Manager');
     await page.goto(`${origin}/overview`);
     await page.getByTestId('first-steps').waitFor({ timeout: 15_000 });
-    const stepState = async () => Object.fromEntries(await Promise.all(['karats', 'rates', 'branch', 'staff', 'fund'].map(async (k) => [k, await page.getAttribute(`[data-testid=step-${k}]`, 'data-done')])));
-    check(Object.values(await stepState()).every((v) => v === 'false'), 'the GM home shows the five first steps (karats, rates, branch, staff, fund the branch), none done');
+    const STEPS = ['branch', 'karats', 'rates', 'staff', 'opening', 'fund'];
+    const stepState = async () => Object.fromEntries(await Promise.all(STEPS.map(async (k) => [k, await page.getAttribute(`[data-testid=step-${k}]`, 'data-done')])));
+    const shownOrder = await page.locator('[data-testid=first-steps] li[data-testid^=step-]').evaluateAll((els) => els.map((e) => e.dataset.testid.slice(5)));
+    check(Object.values(await stepState()).every((v) => v === 'false') && JSON.stringify(shownOrder) === JSON.stringify(STEPS), `UX-4: the GM home shows six first steps in the owner's order (${shownOrder.join(', ')}), none done`);
+    check((await page.getAttribute('[data-testid=step-opening]', 'data-state')) === 'NOT_STARTED' && (await page.getAttribute('[data-testid=step-opening-action]', 'href')) === '/openings' && (await page.getAttribute('[data-testid=step-rates-action]', 'href')) === '/prices', 'UX-4: the opening balance is a step (not started, link to Opening balance); the rates step links to the Prices page');
     const chip = await page.getByTestId('rate-chip').innerText();
     check(/حدّد سعر اليوم/.test(chip) && !/—/.test(chip), 'the rate chip says "Set today’s rate" instead of "—/g"');
     check((await page.getByTestId('demo-badge').count()) === 0, 'production mode shows no "Demo" badge');
-    await page.click('[data-testid=step-karats-action]');
+    // UX-3: right after signing in the window is not open yet (question Q1), so the flow asks once, here at its start.
+    await startFlow(page, 'step-karats-action', 'karat-21', GM.password);
     check(await page.isChecked('[data-testid=karat-21]'), 'the confirmation dialog proposes 21K (from ALLOWED_KARATS_INITIAL)');
     await page.click('[data-testid=confirm-karats]');
     await confirmIfAsked(page, GM.password);
     await waitFor(async () => (await page.getAttribute('[data-testid=step-karats]', 'data-done')) === 'true', 'step 1 done', 15_000);
     ok('the General Manager confirms the allowed karats (password re-confirmation): step 1 done');
+    // UX-3: that one confirmation opened the window (15 minutes by default) for every protected action.
+    const win = (await apiGet(page, '/api/auth/reauth')).body;
+    const left = (new Date(win.passwordUntil).getTime() - Date.now()) / 60_000;
+    check(win.password === true && win.windowMinutes === 15 && left > 13 && left <= 15, `UX-3: the re-confirmation window is open for ${left.toFixed(1)} more minutes (default 15)`);
     await noWords(page, origin, ['/overview', '/settings', '/users'], 'General Manager', /prototype|نموذج أولي|demo account|حسابات تجريبية/i, 'prototype or demo-account wording');
 
     section('General Manager: branch and staff');
@@ -684,7 +712,7 @@ async function main() {
       await page.goto(`${origin}/users`);
       await page.getByTestId('new-user').waitFor();
       if (u === BM) await dialogKeepsChosenField(page, { open: 'new-user', first: 'user-username', second: 'user-full-name', text: u.fullName, what: 'New user dialog' });
-      else await page.click('[data-testid=new-user]');
+      else await startFlow(page, 'new-user', 'user-username', GM.password);
       await page.fill('[data-testid=user-username]', u.username);
       await page.fill('[data-testid=user-full-name]', u.fullName);
       await page.selectOption('[data-testid=user-role]', u.role);
@@ -726,7 +754,9 @@ async function main() {
     check((await page.getByTestId('rates-history').locator('tbody tr').count()) === 3, 'the rate history shows the three changes, each with who and when');
     await page.goto(`${origin}/overview`);
     await page.waitForLoadState('networkidle');
-    check((await page.getByTestId('first-steps').count()) === 0 && /190,000/.test(await page.getByTestId('rate-chip').innerText()), 'gold rate set: all five first steps done, the checklist disappears and the rate chip shows the rate');
+    await page.getByTestId('step-opening').waitFor({ timeout: 15_000 });
+    const stepsLeft = Object.entries(await stepState()).filter(([, v]) => v === 'false').map(([k]) => k);
+    check(JSON.stringify(stepsLeft) === '["opening"]' && /190,000/.test(await page.getByTestId('rate-chip').innerText()), `gold rate set: five first steps done; only the opening balance is left (${stepsLeft.join(', ')}); the rate chip shows the rate`);
     await page.getByTestId('home-sales').waitFor({ timeout: 15_000 });
     const zeroHome = await page.locator('main').innerText();
     check(
@@ -761,6 +791,8 @@ async function main() {
     await fundingRefused(page, 'cashier', branchId);
     const cashierUsers = await apiGet(page, '/api/users');
     check(cashierUsers.status === 403, 'the cashier cannot open the user list (403)');
+    // UX-2: the cashier's screens carry no internal codes and no explanation of how the system works inside.
+    await noWords(page, origin, ['/pos', '/scrap', '/me', '/security'], 'cashier', TECH_WORDS, 'internal code or audit-log wording');
     await signOut(page);
 
     section('REM-1: no expenses anywhere (both languages)');
@@ -986,6 +1018,8 @@ async function main() {
     await noExpenseWords(page, origin, ['/overview', '/branches', '/cash', '/reports', '/settings'], 'General Manager');
     await noWords(page, origin, ['/overview', '/branches', '/reports'], 'General Manager', HASAD_WORDS, 'Hasad withdrawal wording');
     await noWords(page, origin, ['/overview'], 'General Manager (menu)', HASAD_WORDS, 'Hasad entry in the menu', 'nav');
+    // UX-2: no internal code on the General Manager's screens either (the audit log is a page of its own, so its name may show).
+    await noWords(page, origin, ['/cash', '/prices', '/settings', '/users', '/sessions', '/inventory', '/purchases', '/transfers'], 'General Manager', TECH_CODES, 'internal code');
     const settings = (await apiGet(page, '/api/settings')).body.settings;
     check(settings.hasad === undefined && settings.mockHasad === undefined, 'no Hasad workspace or mock settings remain');
     const rec = await apiGet(page, `/api/cash/reconciliation?branchId=${branchId}`);
@@ -1020,11 +1054,23 @@ async function main() {
     await page.goto(`${origin}/users`);
     await page.getByTestId('security-locked-badge').waitFor({ timeout: 15_000 });
     ok('the Users list marks the account "Security-locked since …"');
+    // UX-2: permissions read as Arabic names; the codes only in the General Manager's closed "Technical codes".
+    const PERMISSION_CODE = /\b(?:scope|pos|sales|inventory|catalog|purchases|dashboard|reports|profit|users|sessions|audit|settings|branches|cash|scrap|backups|funding|opening)\.[a-z_]+\b/;
+    await page.getByTestId('role-CASHIER').waitFor({ timeout: 15_000 });
+    const cashierPerms = await page.locator('[data-testid=role-CASHIER] [data-testid=role-permissions]').innerText();
+    check(/نقطة البيع/.test(cashierPerms) && /البيع/.test(cashierPerms) && !PERMISSION_CODE.test(await page.locator('body').innerText()), `UX-2: the roles show permission names in Arabic, and no permission code is visible (cashier: ${cashierPerms.replace(/\s+/g, ' ').slice(0, 60)}…)`);
+    const roleCodes = page.locator('[data-testid=role-CASHIER] [data-testid=role-codes]');
+    check((await roleCodes.getAttribute('open')) === null, 'UX-2: the General Manager\'s "Technical codes" section is closed by default');
+    await roleCodes.locator('summary').click();
+    check(/pos\.access/.test(await roleCodes.innerText()), 'UX-2: opened, it lists the codes (pos.access)');
     await signOut(page);
     await signIn(page, origin, BM.username, BM.password);
     await pathIs(page, ['/dashboard']);
     await page.getByTestId('security-locked-banner').waitFor({ timeout: 15_000 });
     ok('the branch manager of that branch sees the notice too');
+    await page.goto(`${origin}/users`);
+    await page.getByTestId('role-CASHIER').waitFor({ timeout: 15_000 });
+    check((await page.getByTestId('role-codes').count()) === 0 && !PERMISSION_CODE.test(await page.locator('body').innerText()), 'UX-2: the branch manager reads the role names only: no code, no "Technical codes"');
     await signOut(page);
     await signIn(page, origin, CASHIER.username, CASHIER.password);
     await page.getByText(/تعذّر تسجيل الدخول|Sign-in failed/).first().waitFor({ timeout: 15_000 });
@@ -1269,7 +1315,7 @@ async function main() {
     section('FIX-1 / REM-4: the branch manager sends the POS cart; the General Manager keeps "New transfer"; no other start point');
     const BRANCH_B = { code: 'RHB', name: 'Rehearsal Branch B', nameAr: 'فرع التجربة ب', city: 'Rehearsal City' };
     await page.goto(`${origin}/branches`);
-    await page.click('[data-testid=new-branch]');
+    await startFlow(page, 'new-branch', 'branch-code', GM.password);
     await page.fill('[data-testid=branch-code]', BRANCH_B.code);
     await page.fill('[data-testid=branch-name]', BRANCH_B.name);
     await page.fill('[data-testid=branch-name-ar]', BRANCH_B.nameAr);
@@ -1517,14 +1563,64 @@ async function main() {
       check(byCondition['21-NEW'] === `2/${4_100 + 11_750}` && byCondition['21-USED'] === `2/${3_400 + 9_500}`, `the review counts by karat and condition (21K new ${byCondition['21-NEW']}, 21K used ${byCondition['21-USED']})`);
       check(await page.getByTestId('opening-karat-21-USED').isVisible(), 'the review screen shows the 21K used group');
       check((await apiGet(page, `/api/reports/stock-weight?branchId=${branchId}`)).body.totals.itemsWeightMg === stockBefore, 'a draft is not stock: the stock weight is unchanged before the seal');
+      // UX-4: the draft is a first step again on the GM home, with what it means and the way to it.
+      await page.goto(`${origin}/overview`);
+      await page.getByTestId('step-opening').waitFor({ timeout: 15_000 });
+      check(
+        (await page.getAttribute('[data-testid=step-opening]', 'data-state')) === 'DRAFT' && (await page.getAttribute('[data-testid=step-opening-action]', 'href')) === `/openings/${openingId}` && /ليس في المخزون بعد/.test(await page.getByTestId('step-opening-body').innerText()),
+        'UX-4: a draft opening shows on the GM home: "not in stock yet: seal it so the cashier can sell it", with a link to the draft',
+      );
+      await page.goto(`${origin}/openings/${openingId}`);
+      await page.getByTestId('opening-seal').waitFor({ timeout: 15_000 });
+      // UX-3: a stale password window used to bring a second password dialog after the seal dialog's own password.
+      await sqlAs(`UPDATE sessions SET reauth_at = now() - interval '1 hour' WHERE user_id = (SELECT id FROM users WHERE username = $1)`, [GM.username]);
       await page.click('[data-testid=opening-seal]');
       await page.fill('[data-testid=opening-seal-password]', GM.password);
       await page.click('[data-testid=opening-seal-passkey]');
       await waitFor(async () => !(await page.getByTestId('opening-seal-confirm').isDisabled()), 'the passkey confirmation', 15_000);
       await page.click('[data-testid=opening-seal-confirm]');
-      await confirmIfAsked(page, GM.password);
-      await waitFor(async () => (await apiGet(page, `/api/openings/${openingId}`)).body.status === 'SEALED', 'the seal', 20_000);
-      ok('sealed with the password and a passkey confirmation (virtual authenticator)');
+      let secondPrompt = false;
+      await waitFor(async () => {
+        secondPrompt ||= (await page.locator('#reauth-form').count()) > 0;
+        return (await apiGet(page, `/api/openings/${openingId}`)).body.status === 'SEALED';
+      }, 'the seal', 20_000);
+      check(!secondPrompt, 'sealed with the password typed once and a passkey confirmation: no second password dialog (UX-3), though the window had expired');
+      await page.goto(`${origin}/overview`);
+      await page.getByTestId('home-sales').waitFor({ timeout: 15_000 });
+      check((await page.getByTestId('first-steps').count()) === 0, 'UX-4: once sealed, the opening step is done and the first steps are gone again');
+      // UX-4: an empty branch whose opening is still a draft: the point of sale says so in one line; the GM gets the link.
+      const rhc = (await apiSend(page, 'POST', '/api/branches', { code: 'RHC', name: 'Rehearsal Branch C', nameAr: 'فرع التجربة ج', city: 'Rehearsal City' })).body;
+      check((await apiSend(page, 'POST', '/api/openings', { branchId: rhc.id })).status === 200, 'a draft opening for an empty third branch');
+      check((await apiGet(page, `/api/inventory/items?branchId=${rhc.id}&status=AVAILABLE,RESERVED`)).body.openingDraft === true, 'UX-4: an empty items page of that branch says its opening is a draft (openingDraft)');
+      await page.goto(`${origin}/pos`);
+      await page.selectOption('[data-testid=pos-branch]', String(rhc.id));
+      await page.getByTestId('pos-opening-draft').waitFor({ timeout: 15_000 });
+      check(
+        (await page.getByTestId('pos-no-stock').count()) === 1 && /لم يُختم بعد/.test(await page.getByTestId('pos-opening-draft').innerText()) && (await page.getAttribute('[data-testid=pos-opening-link]', 'href')) === '/openings',
+        'UX-4: the empty point of sale of that branch says in one line that the opening balance is not sealed yet; the General Manager gets the link',
+      );
+      // A cashier of that branch reads the same line, without the link (the screen is the General Manager's).
+      const cashierC = (await apiSend(page, 'POST', '/api/users', { username: 'rehearsal.cashier.c', fullName: 'Rehearsal Cashier C', roleCode: 'CASHIER', branchId: rhc.id })).body;
+      const cctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1366, height: 768 } });
+      const cpage = await cctx.newPage();
+      await signIn(cpage, origin, cashierC.username, cashierC.temporaryPassword);
+      await changePassword(cpage, cashierC.temporaryPassword, 'Rehearsal-Cashier-C-2026');
+      await cpage.getByTestId('pos-opening-draft').waitFor({ timeout: 15_000 });
+      check((await cpage.getByTestId('pos-opening-link').count()) === 0, 'UX-4: the cashier of that branch sees the same line, without the link');
+      await cctx.close();
+
+      // UX-3: a flow start with an expired window: one dialog (password, then the passkey by itself), then the form opens
+      // without a second click; never a separate "Use my passkey" step.
+      await sqlAs(`UPDATE sessions SET reauth_at = NULL, passkey_reauth_at = NULL WHERE user_id = (SELECT id FROM users WHERE username = $1)`, [GM.username]);
+      await page.goto(`${origin}/users`);
+      await page.click('[data-testid=new-user]');
+      await page.locator('#reauth-form').waitFor({ timeout: 15_000 });
+      await page.fill('[data-testid=reauth-password]', GM.password);
+      await page.click('[data-testid=reauth-confirm]');
+      await page.getByTestId('user-username').waitFor({ timeout: 15_000 });
+      const win = (await apiGet(page, '/api/auth/reauth')).body;
+      check(win.password && win.passkey && (await page.getByTestId('reauth-passkey').count()) === 0, 'UX-3: one dialog asked for the password, the passkey followed by itself, and the New user form opened with no second click');
+      await page.keyboard.press('Escape');
       const sw = (await apiGet(page, `/api/reports/stock-weight?branchId=${branchId}`)).body.totals.itemsWeightMg;
       check(sw - stockBefore === sheetNetMg, `the stock-weight report grew by exactly the sheet's net weight (${sw - stockBefore} mg)`);
       const pieces = (await apiGet(page, `/api/inventory/items?branchId=${branchId}&origin=OPENING&pageSize=50`)).body.rows;

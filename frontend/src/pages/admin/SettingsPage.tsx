@@ -58,7 +58,7 @@ function SettingsForm() {
       return put<SettingsResponse>('/settings', { changes, expectedVersions, ...(reason.trim() ? { reason: reason.trim() } : {}) });
     },
     onSuccess: (res) => {
-      if (res) toast.success(t('Settings saved'), t('Recorded as SETTINGS_CHANGED in the audit log.'));
+      if (res) toast.success(t('Settings saved'));
       setReason('');
       refreshAll();
     },
@@ -88,7 +88,7 @@ function SettingsForm() {
   if (!draft)
     return (
       <div className="p-5 lg:p-6">
-        <PageHeader title={t('Settings')} subtitle={t('Business rules the client will confirm. Configurable here, not hard-coded.')} />
+        <PageHeader title={t('Settings')} />
         <Card padded={false}>
           {s.isError ? <ErrorState error={s.error} onRetry={() => s.refetch()} /> : <SkeletonRows rows={8} className="p-5" />}
         </Card>
@@ -110,9 +110,9 @@ function SettingsForm() {
 
   return (
     <div className="p-5 lg:p-6">
-      <PageHeader title={t('Settings')} subtitle={t('Business rules the client will confirm. Configurable here, not hard-coded.')} />
+      <PageHeader title={t('Settings')} />
       <Card className="mb-5">
-        <Field label={t('Reason for the change (optional, recorded in the history)')}>
+        <Field label={t('Reason (optional)')}>
           <Input value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} />
         </Field>
       </Card>
@@ -121,7 +121,7 @@ function SettingsForm() {
         <Card padded={false}>
           <CardHeader
             title={t('Company & branding')}
-            subtitle={t('Shown on the login page, the header, the browser title and printed invoices')}
+            help={t('Shown on the login page, the header, the browser title and printed invoices')}
             actions={saveBtn(['company.nameEn', 'company.nameAr', 'company.currencyLabelEn', 'company.currencyLabelAr', 'branding.invoiceFooterEn', 'branding.invoiceFooterAr', 'branding.loginTaglineAr', 'branding.loginTaglineEn'], 'save-company')}
           />
           <div className="grid gap-3 p-5 sm:grid-cols-2">
@@ -138,10 +138,10 @@ function SettingsForm() {
               <Input value={draft.company.currencyLabelAr} maxLength={12} onChange={(e) => set('company', { currencyLabelAr: e.target.value })} />
             </Field>
             {/* UI-A2 (D-ui-14): one line under the company name on the sign-in page; public, so nothing private. */}
-            <Field label={t('Sign-in tagline (Arabic)')} hint={t('Shown to anyone who opens the sign-in page. One line, up to 120 characters. Leave empty for none.')}>
+            <Field label={t('Sign-in tagline (Arabic)')} hint={t('One line, up to 120 characters.')}>
               <Input value={draft.branding.loginTaglineAr} maxLength={120} onChange={(e) => set('branding', { loginTaglineAr: e.target.value })} data-testid="tagline-ar" />
             </Field>
-            <Field label={t('Sign-in tagline (English)')} hint={t('Optional: English shows the Arabic one when this is empty.')}>
+            <Field label={t('Sign-in tagline (English)')}>
               <Input value={draft.branding.loginTaglineEn} maxLength={120} onChange={(e) => set('branding', { loginTaglineEn: e.target.value })} data-testid="tagline-en" />
             </Field>
             <Field label={t('Invoice footer (English)')} className="sm:col-span-2">
@@ -188,7 +188,7 @@ function SettingsForm() {
           />
           <div className="grid gap-3 p-5 sm:grid-cols-2">
             <div className="sm:col-span-2">{checkbox(draft.purchases.supplierCreditEnabled, (v) => set('purchases', { supplierCreditEnabled: v }), t('Allow supplier purchases on credit (creates a supplier payable)'))}</div>
-            <Field label={t('Scrap price tolerance (%)')} hint={t('How far a branch manager may deviate from today’s scrap rate')}>
+            <Field label={t('Scrap price tolerance (%)')} help={t('How far a branch manager may deviate from today’s scrap rate')}>
               {numberInput(draft.purchases.scrapPriceTolerancePct, (n) => set('purchases', { scrapPriceTolerancePct: n }), { min: 0, max: 50, decimals: 2, unit: '%' })}
             </Field>
             <div className="self-end pb-2">{checkbox(draft.purchases.requireGmApprovalForScrapOverride, (v) => set('purchases', { requireGmApprovalForScrapOverride: v }), t('Deviations beyond the tolerance need General Manager approval'))}</div>
@@ -196,10 +196,10 @@ function SettingsForm() {
               {numberInput(draft.transfers.pendingClaimStaleHours, (n) => set('transfers', { pendingClaimStaleHours: n }), { min: 1, max: 720 })}
             </Field>
             {/* UI-B (D-ux-12): thresholds of the attention list. */}
-            <Field label={t('Cash count: accepted difference ({currency})', { currency: currencyLabel() })} hint={t('A count that differs from the expected cash by more than this appears under Needs attention. 0 = any difference.')}>
+            <Field label={t('Cash count: accepted difference ({currency})', { currency: currencyLabel() })} help={t('A count that differs from the expected cash by more than this appears under Needs attention. 0 = any difference.')}>
               <span data-testid="count-tolerance" className="block">{numberInput(draft.cash.countDifferenceTolerance, (n) => set('cash', { countDifferenceTolerance: n }), { min: 0, money: true })}</span>
             </Field>
-            <Field label={t('Gold owed to a supplier: warn after (days)')} hint={t('Older supplier gold debts appear as a warning under Needs attention.')}>
+            <Field label={t('Gold owed to a supplier: warn after (days)')} help={t('Older supplier gold debts appear as a warning under Needs attention.')}>
               <span data-testid="supplier-debt-days" className="block">{numberInput(draft.purchases.supplierDebtMaxAgeDays, (n) => set('purchases', { supplierDebtMaxAgeDays: n }), { min: 1, max: 3650 })}</span>
             </Field>
             <Field label={t('Allowed karats')} className="sm:col-span-2">
@@ -229,7 +229,7 @@ function SettingsForm() {
         <Card padded={false}>
           <CardHeader title={t('Sales')} actions={saveBtn(['sales.maxDiscountPercentByRole', 'sales.posPaymentMethods', 'sales.voidReauthAboveAmount'], 'save-sales')} />
           <div className="grid gap-3 p-5 sm:grid-cols-3">
-            <Field label={t('Payment methods at the counter')} className="sm:col-span-3" hint={t('What the cashier can choose at the POS. Hasad asks for the Hasad invoice number.')}>
+            <Field label={t('Payment methods at the counter')} className="sm:col-span-3" help={t('What the cashier can choose at the POS. Hasad asks for the Hasad invoice number.')}>
               <div className="flex flex-wrap gap-4 pt-1">
                 {PAYMENT_METHODS.map((m) =>
                   checkbox(
@@ -259,7 +259,7 @@ function SettingsForm() {
         {/* ── Backups (Phase 2c) ── (anchor: the attention list's backup line links here, UI-B) */}
         <span id="backups" className="-mb-5 block scroll-mt-4" />
         <Card padded={false}>
-          <CardHeader title={t('Backups')} subtitle={t('The dashboard warns the General Manager when backups or restore drills are older than this.')} actions={saveBtn(['backup.maxAgeHours', 'backup.maxVerifyAgeDays'])} />
+          <CardHeader title={t('Backups')} help={t('The dashboard warns the General Manager when backups or restore drills are older than this.')} actions={saveBtn(['backup.maxAgeHours', 'backup.maxVerifyAgeDays'])} />
           <div className="grid gap-3 p-5 sm:grid-cols-2">
             <Field label={t('Warn after a backup is older than (hours)')}>
               {numberInput(draft.backup.maxAgeHours, (n) => set('backup', { maxAgeHours: n }), { min: 1, max: 336 })}
@@ -283,7 +283,7 @@ function SettingsForm() {
             <Field label={t('Maximum session length (hours)')}>
               {numberInput(draft.security.sessionAbsoluteHours, (n) => set('security', { sessionAbsoluteHours: n }), { min: 1, max: 24 })}
             </Field>
-            <Field label={t('Password re-confirmation valid for (minutes)')} hint={t('How long sensitive actions stay allowed after the password is re-entered (1–30)')}>
+            <Field label={t('Password re-confirmation valid for (minutes)')} hint={t('One confirmation covers every protected action for this many minutes (1–30, default 15).')}>
               {numberInput(draft.security.reauthWindowMinutes, (n) => set('security', { reauthWindowMinutes: n }), { min: 1, max: 30 })}
             </Field>
             <Field label={t('Shown as idle after (minutes)')}>
@@ -311,7 +311,7 @@ function SettingsForm() {
         <Card padded={false}>
           <CardHeader
             title={t('Printing')}
-            subtitle={t('Invoices are printed by the browser through the Windows printer driver (no special printer commands).')}
+            help={t('Invoices are printed by the browser through the Windows printer driver (no special printer commands).')}
             actions={
               <>
                 <Button
@@ -340,21 +340,21 @@ function SettingsForm() {
               </Field>
               <Field
                 label={t('Receipt printable width (mm)')}
-                hint={t('The PRINTABLE width from the printer driver, not the roll width: usually 72 for an 80 mm roll and 48 for a 58 mm roll (48–80).')}
+                help={t('The PRINTABLE width from the printer driver, not the roll width: usually 72 for an 80 mm roll and 48 for a 58 mm roll (48–80).')}
               >
                 {numberInput(draft.print.receiptWidthMm, (n) => set('print', { receiptWidthMm: n }), { min: 48, max: 80 })}
               </Field>
               {checkbox(draft.print.autoPrintAfterSale, (v) => set('print', { autoPrintAfterSale: v }), t('Open printing by itself after every completed sale'))}
             </div>
-            <div className="rounded-lg border border-line bg-canvas/60 p-4 text-[13px] leading-relaxed text-ink-700">
-              <div className="mb-1.5 font-semibold text-ink-900">{t('Setting up the printer on the shop PC')}</div>
-              <ol className="list-decimal space-y-1 ps-5">
+            <details className="rounded-lg border border-line bg-canvas/60 p-4 text-[13px] leading-relaxed text-ink-700" data-testid="printer-steps">
+              <summary className="cursor-pointer select-none font-semibold text-ink-900">{t('Setting up the printer on the shop PC')}</summary>
+              <ol className="mt-1.5 list-decimal space-y-1 ps-5">
                 <li>{t('In Windows, make the receipt (or invoice) printer the DEFAULT printer.')}</li>
                 <li>{t('In the printer driver’s preferences, check the paper size: for an 80 mm roll the printable width is usually 72 mm. Enter that number above.')}</li>
                 <li>{t('Press “Test print”: the ruler must reach both edges of the paper and nothing may be cut off. Adjust the width until it does.')}</li>
                 <li>{t('For printing without the print window, open the system with the desktop shortcut prepared by the administrator (silent printing). Then there is no confirmation: check the paper, and use Reprint if something did not come out.')}</li>
               </ol>
-            </div>
+            </details>
           </div>
         </Card>
 
@@ -398,7 +398,7 @@ function SecondFactorCard() {
         ...(roles.slice().sort().join(',') !== sf.requiredRoles.slice().sort().join(',') ? { requiredRoles: roles } : {}),
         ...(reason.trim() ? { reason: reason.trim() } : {}),
       });
-      toast.success(t('Second-factor rules saved'), t('Recorded as SECURITY_SETTING_CHANGED in the audit log.'));
+      toast.success(t('Second-factor rules saved'));
       setReason('');
       await refresh();
     } catch (err) {

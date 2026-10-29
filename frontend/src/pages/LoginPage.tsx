@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Fingerprint, KeyRound, LogIn, ShieldCheck } from 'lucide-react';
+import { Eye, EyeOff, Fingerprint, KeyRound, LogIn } from 'lucide-react';
 import { ApiError, errorText, post } from '../lib/api';
 import { getPasskey, PasskeyError, type PublicKeyCredentialRequestOptionsJSON } from '../lib/webauthn';
 import { accountLockedHere, homePath, sessionEnded, useAuth, type Me, type PendingSignIn } from '../lib/auth';
@@ -64,7 +64,6 @@ export function LoginPage() {
               {t('Welcome back')}
             </p>
             <h1 className="mt-1 text-title font-semibold text-ink">{t('Sign in')}</h1>
-            <p className="mt-1 text-meta text-ink-3">{t('Use the account assigned to you by the General Manager.')}</p>
 
             <form onSubmit={submit} className="mt-6 space-y-4">
               <Field label={t('Username')}>
@@ -86,9 +85,6 @@ export function LoginPage() {
           </>
         )}
       </Card>
-      <p className="mt-4 flex items-center justify-center gap-1.5 text-[12px] text-ink-3">
-        <ShieldCheck className="size-3.5" /> {t('Passwords are stored as Argon2id hashes. Sign-ins are recorded in the audit log.')}
-      </p>
     </AuthFrame>
   );
 }

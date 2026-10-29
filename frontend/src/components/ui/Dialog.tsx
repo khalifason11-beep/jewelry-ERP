@@ -7,6 +7,7 @@ import { useEffect, useId, useRef, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { X } from 'lucide-react';
 import { translate } from '../../lib/i18n';
+import { HelpTip } from './HelpTip';
 
 const openDialogs: object[] = [];
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
@@ -17,6 +18,7 @@ export function Dialog({
   onClose,
   title,
   subtitle,
+  help,
   children,
   footer,
   size,
@@ -26,7 +28,10 @@ export function Dialog({
   onClose: () => void;
   title: ReactNode;
   subtitle?: ReactNode;
-  children: ReactNode;
+  /** UX-2: background text behind a "?" beside the title. */
+  help?: ReactNode;
+  /** UX-2: optional: a confirmation that says all in its title and subtitle has no body. */
+  children?: ReactNode;
   footer?: ReactNode;
   size?: keyof typeof SIZE;
   /** Tailwind max-width class (kept for existing screens); `size` wins when given. */
@@ -86,16 +91,19 @@ export function Dialog({
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} className={clsx('w-full rounded-panel bg-surface shadow-pop', size ? SIZE[size] : width)}>
         <div className="flex items-start justify-between gap-4 px-5 pb-3 pt-4">
           <div>
-            <h2 id={titleId} className="text-section font-semibold text-ink">
-              {title}
-            </h2>
+            <div className="flex items-center gap-1.5">
+              <h2 id={titleId} className="text-section font-semibold text-ink">
+                {title}
+              </h2>
+              {help && <HelpTip>{help}</HelpTip>}
+            </div>
             {subtitle && <p className="mt-0.5 text-meta text-ink-3">{subtitle}</p>}
           </div>
           <button onClick={onClose} className="rounded-control p-1.5 text-ink-3 hover:bg-panel hover:text-ink" aria-label={translate('Close')}>
             <X className="size-4" />
           </button>
         </div>
-        <div className="px-5 py-3">{children}</div>
+        {children != null && children !== false && <div className="px-5 py-3">{children}</div>}
         {footer && <div className="flex flex-wrap items-center justify-end gap-2 rounded-b-panel bg-panel px-5 py-3">{footer}</div>}
       </div>
     </div>

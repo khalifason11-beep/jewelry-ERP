@@ -42,7 +42,6 @@ export function CatalogPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={t('Types & products')}
-        subtitle={t('What you stock. A type groups pieces (rings, bracelets…); a product is one design in one karat.')}
         actions={
           <>
             <Button icon={<Plus className="size-4" />} onClick={() => setNewType(true)} data-testid="new-type">{t('New type')}</Button>

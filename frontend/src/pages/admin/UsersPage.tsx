@@ -7,8 +7,10 @@ import { dateTime, relative, time } from '../../lib/format';
 import { useBranches } from '../../lib/hooks';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import { Alert, Badge, Button, Card, Dialog, ErrorState, Field, Input, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
+import { Badge, Button, Card, Dialog, ErrorState, Field, Input, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
+import { permissionLabel } from '../../lib/permission-labels';
+import { ensureFresh } from '../../lib/reauth';
 
 interface UserRow {
   id: number;
@@ -82,8 +84,8 @@ export function UsersPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={t('Users')}
-        subtitle={t('Accounts, roles and branch assignments. Passwords are managed centrally: they can be reset, never viewed.')}
-        actions={manage && <Button variant="primary" icon={<UserPlus className="size-4" />} onClick={() => setEditing('new')} data-testid="new-user">{t('New user')}</Button>}
+        subtitle={t('Passwords can be reset, never viewed.')}
+        actions={manage && <Button variant="primary" icon={<UserPlus className="size-4" />} onClick={async () => (await ensureFresh()) && setEditing('new')} data-testid="new-user">{t('New user')}</Button>}
       />
       <Card padded={false}>
         <DataTable
@@ -162,18 +164,26 @@ export function UsersPage() {
         <Card padded={false} className="mt-5">
           <div className="border-b border-line px-5 py-3.5">
             <h3 className="text-[15px] font-semibold">{t('Roles & permissions')}</h3>
-            <p className="text-[13px] text-ink-500">{t('Roles are data, not code. New roles can be added without a release.')}</p>
           </div>
           <div className="grid gap-4 p-5 lg:grid-cols-3">
             {roles.data.map((r) => (
-              <div key={r.id} className="rounded-md border border-line p-3">
+              <div key={r.id} className="rounded-md border border-line p-3" data-testid={`role-${r.code}`}>
                 <div className="mb-2 flex items-center justify-between">
                   <span className="font-semibold">{t(r.name)}</span>
                   <span className="text-[11.5px] text-ink-500">{t('{n} permissions', { n: r.permissions.length })}</span>
                 </div>
-                <div className="flex flex-wrap gap-1">
-                  {r.permissions.map((p) => <Mono key={p} className="rounded bg-canvas px-1.5 py-0.5 text-[11px] text-ink-600">{p}</Mono>)}
+                {/* UX-2: names, never codes; the codes only for the General Manager, closed by default. */}
+                <div className="flex flex-wrap gap-1" data-testid="role-permissions">
+                  {r.permissions.map((p) => <span key={p} className="rounded bg-canvas px-1.5 py-0.5 text-[12px] text-ink-600">{t(permissionLabel(p))}</span>)}
                 </div>
+                {manage && (
+                  <details className="mt-2 text-[12px] text-ink-500" data-testid="role-codes">
+                    <summary className="cursor-pointer select-none">{t('Technical codes')}</summary>
+                    <div className="mt-1 flex flex-wrap gap-1" dir="ltr">
+                      {r.permissions.map((p) => <Mono key={p} className="rounded bg-canvas px-1.5 py-0.5 text-[11px] text-ink-600">{p}</Mono>)}
+                    </div>
+                  </details>
+                )}
               </div>
             ))}
           </div>
@@ -205,16 +215,13 @@ export function UsersPage() {
             <Button variant={confirm?.action === 'disable' ? 'danger-solid' : 'primary'} loading={act.isPending} onClick={() => confirm && act.mutate(confirm)}>{t('Confirm')}</Button>
           </>
         }
-      >
-        <p className="text-[13px] text-ink-600">{t('This action is recorded in the audit log.')}</p>
-      </Dialog>
+      />
 
       <Dialog open={!!secret} onClose={() => setSecret(null)} title={t('Temporary password')} subtitle={t('For {user}. Shown only once. Hand it to the user securely.', { user: secret?.username ?? '' })} footer={<Button variant="primary" onClick={() => setSecret(null)} data-testid="temporary-password-done">{t('Done')}</Button>}>
         <div className="flex items-center gap-2 rounded-md border border-gold-400 bg-gold-50 px-4 py-3">
           <Mono className="flex-1 text-lg tracking-wider" data-testid="temporary-password">{secret?.temporaryPassword}</Mono>
           <Button size="sm" icon={<Copy className="size-4" />} onClick={() => { navigator.clipboard?.writeText(secret?.temporaryPassword ?? ''); toast.info(t('Copied')); }}>{t('Copy')}</Button>
         </div>
-        <Alert tone="info" className="mt-3">{t('The system stores only a salted hash. Nobody, including the General Manager, can see this password again.')}</Alert>
       </Dialog>
     </div>
   );

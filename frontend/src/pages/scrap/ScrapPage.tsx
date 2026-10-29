@@ -20,6 +20,7 @@ import { DataTable } from '../../components/ui/DataTable';
 import { NewProductPanel, ProductPicker } from '../../components/ProductPicker';
 import { PieceKindFields, descriptionTooLong, emptyKind, type PieceKindValue } from '../../components/PieceKind';
 import type { Product } from '../../lib/types';
+import { openWindowWith } from '../../lib/reauth';
 
 export interface ScrapRates {
   rates: { karat: number; pricePerGram: number; effectiveAt: string }[];
@@ -110,7 +111,6 @@ export function ScrapPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={full ? t('Scrap gold') : t('Buy a piece from a customer')}
-        subtitle={full ? t('Buy gold from customers at today’s scrap rate. Broken scrap goes into the branch pool, which is how suppliers are paid in gold.') : t('A piece in good condition, bought at today’s scrap rate and put on sale at the used-piece rate.')}
         actions={
           isGlobal && (
             <Select value={branchId ?? ''} onChange={(e) => setBranchId(e.target.value ? Number(e.target.value) : undefined)} className="h-9 w-48" aria-label={t('Branch')}>
@@ -123,7 +123,7 @@ export function ScrapPage() {
 
       {full && (
       <Card padded={false} className="mb-5">
-        <CardHeader title={t('Broken-scrap pool')} subtitle={t('Weight held per karat (never an inventory item). Counted in the branch’s total stock weight.')} />
+        <CardHeader title={t('Broken-scrap pool')} help={t('Weight held per karat (never an inventory item). Counted in the branch’s total stock weight.')} />
         <div className="p-5">
           <QueryState query={pool} loading={<SkeletonRows rows={3} />}>
             {(p) => <PoolSummary pool={p} />}
@@ -216,7 +216,10 @@ function VoidScrapDialog({ row, onClose }: { row: ScrapRow | null; onClose: () =
   const actionKeys = useActionKeys();
   const [error, setError] = useState<string | null>(null);
   const m = useMutation({
-    mutationFn: (c: Confirmation) => postOnce<{ number: string }>(`/scrap-purchases/${row!.id}/void`, c, actionKeys.for(`void-${row!.id}`)),
+    mutationFn: async (c: Confirmation) => {
+      await openWindowWith(c.confirmPassword); // UX-3: one password for the window and the void
+      return postOnce<{ number: string }>(`/scrap-purchases/${row!.id}/void`, c, actionKeys.for(`void-${row!.id}`));
+    },
     onSuccess: (r) => {
       actionKeys.rotate(`void-${row!.id}`);
       toast.success(t('Scrap purchase {number} voided', { number: r.number }));
@@ -390,7 +393,7 @@ function BuyForm({ branchId }: { branchId: number }) {
       actionKeys.rotate('scrap');
       toast.success(
         t('Scrap {number} bought', { number: r.number }),
-        r.itemCode ? t('Piece {code} is now AVAILABLE for sale. Paid {amount}.', { code: r.itemCode, amount: money(r.amount) }) : t('Added to the broken-scrap pool. Paid {amount}.', { amount: money(r.amount) }),
+        r.itemCode ? t('Piece {code} is on sale. Paid {amount}.', { code: r.itemCode, amount: money(r.amount) }) : t('Added to the broken-scrap pool. Paid {amount}.', { amount: money(r.amount) }),
       );
       reset();
       qc.invalidateQueries();
@@ -403,7 +406,7 @@ function BuyForm({ branchId }: { branchId: number }) {
 
   return (
     <Card padded={false}>
-      <CardHeader title={t('Buy scrap from a customer')} subtitle={t('The customer is paid now: from the drawer, by bank transfer, or part of each.')} />
+      <CardHeader title={t('Buy scrap from a customer')} />
       <div className="space-y-4 p-5">
         {kinds.length > 1 && (
         <div className="flex rounded-md border border-line-strong p-0.5 sm:w-fit" role="radiogroup" aria-label={t('Type')}>
@@ -453,7 +456,7 @@ function BuyForm({ branchId }: { branchId: number }) {
           <Field label={t('Today’s scrap rate')} hint={karat !== '' && !rate ? t('No scrap buying rate is set for this karat') : undefined}>
             <Input value={rate ? money(rate, false) : '—'} readOnly className="num bg-canvas" />
           </Field>
-          <Field label={t('Agreed price per gram')} hint={rate ? t('Within {pct}% of the scrap rate the branch manager decides', { pct: tolerance }) : undefined}>
+          <Field label={t('Agreed price per gram')} help={rate ? t('Within {pct}% of the scrap rate the branch manager decides', { pct: tolerance }) : undefined}>
             <MoneyInput value={agreed} placeholder={rate ? String(rate) : ''} onValueChange={setAgreed} data-testid="scrap-agreed" />
           </Field>
           {kind === 'SELLABLE' && (

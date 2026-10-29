@@ -86,10 +86,10 @@ export function CashPage() {
 
   return (
     <div className="p-5 lg:p-6">
-      <PageHeader title={t('Cash')} subtitle={t('Expected cash in each drawer, from the branch money ledger, and the daily cash reconciliation.')} />
+      <PageHeader title={t('Cash')} />
 
       <Card padded={false} className="mb-5">
-        <CardHeader title={t('Expected cash now')} subtitle={t('Every sale, cancellation, scrap purchase and advance from the General Manager moves these balances. Nothing is typed in by hand.')} />
+        <CardHeader title={t('Expected cash now')} help={t('Every sale, cancellation, scrap purchase and advance from the General Manager moves these balances. Nothing is typed in by hand.')} />
         <DataTable
           query={drawer}
           rows={drawer.data?.branches ?? []}
@@ -110,7 +110,7 @@ export function CashPage() {
       <Card padded={false}>
         <CardHeader
           title={t('Daily reconciliation')}
-          subtitle={t('Opening cash + the day’s cash movements = expected cash. Count the drawer and record the amount to see the difference.')}
+          help={t('Opening cash + the day’s cash movements = expected cash. Count the drawer and record the amount to see the difference.')}
           actions={
             <div className="flex flex-wrap items-center gap-2">
               {isGlobal && (

@@ -14,6 +14,7 @@ import { currencyLabel, dateTime, grams, karatLabel, money } from '../../lib/for
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { Alert, Button, Card, CardHeader, Dialog, ErrorState, Field, Input, IntegerInput, MoneyInput, PageHeader, Select, SkeletonRows, Textarea } from '../../components/ui';
+import { openWindowWith } from '../../lib/reauth';
 
 type Kind = 'NEW' | 'USED';
 interface RateNow {
@@ -55,7 +56,7 @@ export function PricesPage() {
   const scrap = useQuery({ queryKey: ['scrap-rates'], queryFn: () => get<ScrapRatesView>('/scrap-rates') });
   return (
     <div className="p-5 lg:p-6">
-      <PageHeader title={t('Prices')} subtitle={t('Rates per gram for every karat you sell, set by the General Manager. Every change is kept with who and when.')} />
+      <PageHeader title={t('Prices')} />
       {q.isError ? (
         <Card padded={false}><ErrorState error={q.error} onRetry={() => q.refetch()} /></Card>
       ) : !q.data ? (
@@ -108,7 +109,7 @@ function PricingCard({ view }: { view: SellingRatesView }) {
       return put('/settings', { changes, expectedVersions });
     },
     onSuccess: (r) => {
-      if (r) toast.success(t('Settings saved'), t('Recorded as SETTINGS_CHANGED in the audit log.'));
+      if (r) toast.success(t('Settings saved'));
       qc.invalidateQueries();
     },
     onError: (e) => toast.fromError(e),
@@ -121,26 +122,30 @@ function PricingCard({ view }: { view: SellingRatesView }) {
         actions={<Button size="sm" variant="primary" icon={<Save className="size-4" />} disabled={!stepOk || !guardOk || !s.data} loading={save.isPending} onClick={() => save.mutate()} data-testid="save-pricing">{t('Save')}</Button>}
       />
       <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-3">
-        <Field label={t('Selling prices')}>
+        <Field
+          label={t('Selling prices')}
+          help={
+            <span data-testid="pricing-example">
+              {mode === 'RATE_COMPUTED'
+                ? firstRate > 0 && stepOk
+                  ? t('Example: a piece of {weight} at {rate} per gram sells for {price}. When the rate changes, the price changes with it; a sale keeps the price it was sold at.', { weight: grams(EXAMPLE_MG), rate: money(firstRate), price: money(computedPrice(EXAMPLE_MG, firstRate, stepN) ?? 0) })
+                  : t('Price = net weight × the rate per gram of the piece’s karat (new or used piece). No making charge is added.')
+                : t('Each piece sells at the price typed when it was received; the rates below do not change it.')}
+            </span>
+          }
+        >
           <Select value={mode} onChange={(e) => setMode(e.target.value as PricingSettingMode)} data-testid="pricing-mode">
             <option value="RATE_COMPUTED">{t('From the rate per gram (weight × rate)')}</option>
             <option value="FIXED_TAG">{t('Fixed price typed for each piece')}</option>
           </Select>
         </Field>
-        <Field label={t('Round prices to ({currency})', { currency: currencyLabel() })} hint={t('Applied once, after weight × rate. 1 = whole units, no further rounding.')}>
+        <Field label={t('Round prices to ({currency})', { currency: currencyLabel() })} help={t('Applied once, after weight × rate. 1 = whole units, no further rounding.')}>
           <IntegerInput min={1} max={1_000_000} value={step} onValueChange={setStep} disabled={mode !== 'RATE_COMPUTED'} data-testid="pricing-step" />
         </Field>
-        <div className="self-end pb-2 text-meta text-ink-3" data-testid="pricing-example">
-          {mode === 'RATE_COMPUTED'
-            ? firstRate > 0 && stepOk
-              ? t('Example: a piece of {weight} at {rate} per gram sells for {price}. When the rate changes, the price changes with it; a sale keeps the price it was sold at.', { weight: grams(EXAMPLE_MG), rate: money(firstRate), price: money(computedPrice(EXAMPLE_MG, firstRate, stepN) ?? 0) })
-              : t('Price = net weight × the rate per gram of the piece’s karat (new or used piece). No making charge is added.')
-            : t('Each piece sells at the price typed when it was received; the rates below do not change it.')}
-        </div>
-        <Field label={t('Ask for a reason above (%)')} hint={t('A rate edit that moves a rate by more than this asks for a written reason.')}>
+        <Field label={t('Ask for a reason above (%)')} help={t('A rate edit that moves a rate by more than this asks for a written reason.')}>
           <IntegerInput min={1} max={99} value={warn} onValueChange={setWarn} invalid={!guardOk} data-testid="rate-warn-pct" />
         </Field>
-        <Field label={t('Ask for the password too above (%)')} hint={t('Above this, the reason and your password again. Must be more than the first number, at most 100.')}>
+        <Field label={t('Ask for the password too above (%)')} help={t('Above this, the reason and your password again. Must be more than the first number, at most 100.')}>
           <IntegerInput min={2} max={100} value={confirm} onValueChange={setConfirm} invalid={!guardOk} data-testid="rate-confirm-pct" />
         </Field>
       </div>
@@ -162,7 +167,10 @@ function SellingRatesCard({ view, kind }: { view: SellingRatesView; kind: Kind }
   const top = strictestLevel(changed.map(([k, v]) => rateChangeLevel(prev(Number(k)), Number(v), view.guard.warnChangePercent, view.guard.confirmChangePercent)));
   const [ask, setAsk] = useState<RateChangeLevel | null>(null);
   const m = useMutation({
-    mutationFn: (g: GuardFields) => post('/gold-rates', { [kind === 'NEW' ? 'rates' : 'usedRates']: Object.fromEntries(changed.map(([k, v]) => [k, Number(v)])), ...g }),
+    mutationFn: async (g: GuardFields) => {
+      if (g.confirmPassword) await openWindowWith(g.confirmPassword); // UX-3: the guard's password opens the window too
+      return post('/gold-rates', { [kind === 'NEW' ? 'rates' : 'usedRates']: Object.fromEntries(changed.map(([k, v]) => [k, Number(v)])), ...g });
+    },
     onSuccess: () => {
       setAsk(null);
       toast.success(t('Gold rates updated'), t('New rates apply immediately.'));
@@ -211,10 +219,13 @@ function ScrapRatesCard({ karats, guard, query }: { karats: number[]; guard: Gua
   const top = strictestLevel(filled.filter(([k, v]) => Number(v) !== prev(Number(k))).map(([k, v]) => rateChangeLevel(prev(Number(k)), Number(v), guard.warnChangePercent, guard.confirmChangePercent)));
   const [ask, setAsk] = useState<RateChangeLevel | null>(null);
   const m = useMutation({
-    mutationFn: (g: GuardFields) => post('/scrap-rates', { rates: filled.map(([k, v]) => ({ karat: Number(k), pricePerGram: Number(v) })), ...g }),
+    mutationFn: async (g: GuardFields) => {
+      if (g.confirmPassword) await openWindowWith(g.confirmPassword); // UX-3: the guard's password opens the window too
+      return post('/scrap-rates', { rates: filled.map(([k, v]) => ({ karat: Number(k), pricePerGram: Number(v) })), ...g });
+    },
     onSuccess: () => {
       setAsk(null);
-      toast.success(t('Scrap rates updated'), t('Recorded as SCRAP_RATE_CHANGED in the audit log.'));
+      toast.success(t('Scrap rates updated'));
       qc.invalidateQueries();
     },
     onError: (e) => guardError(e, setAsk, toast),
@@ -368,7 +379,7 @@ function HistoryCard({ view, scrap }: { view: SellingRatesView; scrap: ScrapRate
   return (
     <div className="mt-5" data-testid="rates-history">
       <Card padded={false}>
-        <CardHeader title={t('Rate history')} subtitle={t('Kept for good: a change adds a line, nothing is overwritten.')} />
+        <CardHeader title={t('Rate history')} />
         {rows.length === 0 ? (
           <Alert tone="info" className="m-5">{t('No rate has been set yet.')}</Alert>
         ) : (

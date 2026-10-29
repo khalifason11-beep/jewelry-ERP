@@ -336,6 +336,7 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'POST /auth/logout': () => ({ path: '/auth/logout' }),
   'POST /auth/change-password': () => ({ path: '/auth/change-password', body: {} }),
   'POST /auth/reauth': () => ({ path: '/auth/reauth', body: {} }),
+  'GET /auth/reauth': () => ({ path: '/auth/reauth' }),
   'POST /auth/login/passkey/options': () => ({ path: '/auth/login/passkey/options', body: {} }),
   'POST /auth/login/passkey/verify': () => ({ path: '/auth/login/passkey/verify', body: {} }),
   'POST /auth/login/recovery': () => ({ path: '/auth/login/recovery', body: {} }),

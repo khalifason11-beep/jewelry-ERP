@@ -45,7 +45,7 @@ export function ReportsHubPage() {
   const { can } = useAuth();
   return (
     <div className="p-5 lg:p-6">
-      <PageHeader title={t('Reports')} subtitle={t('Every report supports date range, branch and user filters, search, sorting and CSV export.')} />
+      <PageHeader title={t('Reports')} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {REPORTS.filter((r) => !r.perm || can(r.perm)).map((r) => (
           <Link key={r.key} to={`/reports/${r.key}`} className="group">

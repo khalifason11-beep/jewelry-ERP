@@ -50,7 +50,7 @@ export function ChangePasswordPage() {
           </div>
         </div>
         <Alert tone="gold" className="mb-4">
-          {t('Your account uses a temporary password issued by the General Manager. Choose a personal password to continue. At least 10 characters, with letters and digits, not containing your username.')}
+          {t('Choose a personal password to continue: at least 10 characters, with letters and digits, not containing your username.')}
         </Alert>
         <form onSubmit={submit} className="space-y-3.5">
           <Field label={t('Temporary password')}>

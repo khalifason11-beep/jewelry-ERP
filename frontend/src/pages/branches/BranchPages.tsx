@@ -18,6 +18,7 @@ import { SalesTable, Crumbs } from '../sales/SalesPages';
 import { InventoryTable } from '../inventory/InventoryPages';
 import { PurchasesTable } from '../purchases/PurchasesPages';
 import { SessionsTable } from '../admin/SessionsPage';
+import { ensureFresh } from '../../lib/reauth';
 
 interface CompanyBranches {
   branches: { branchId: number; name: string; nameAr: string; city: string; revenue: number; grossProfit: number; availableItems: number; availableWeightMg: number; salesCount: number }[];
@@ -33,8 +34,7 @@ export function BranchesPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={t('Branches')}
-        subtitle={t('Month-to-date results. Open a branch to drill into its sales, inventory, purchases and staff.')}
-        actions={can('branches.manage') ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')} data-testid="new-branch">{t('New branch')}</Button> : undefined}
+        actions={can('branches.manage') ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={async () => (await ensureFresh()) && setEditing('new')} data-testid="new-branch">{t('New branch')}</Button> : undefined}
       />
       <QueryState query={q} loading={<SkeletonRows rows={4} />}>
         {(d) =>
@@ -86,7 +86,7 @@ function BranchRegister({ onEdit }: { onEdit: (b: Branch) => void }) {
   const q = useBranches();
   return (
     <Card padded={false} className="mt-5">
-      <CardHeader title={t('Branch register')} subtitle={t('Branch codes are permanent: they appear in every document number.')} />
+      <CardHeader title={t('Branch register')} />
       {q.data === undefined ? (
         q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : <SkeletonRows rows={3} className="p-5" />
       ) : (
