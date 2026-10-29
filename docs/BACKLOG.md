@@ -462,6 +462,14 @@ removed (status and audit-event codes, hashing); background behind a "?" (`HelpT
 named in Arabic on the Users page, the codes only in the General Manager's closed "Technical codes"; the cashier's
 screens carry the least text. Interface only.
 
+### UX-3 — Fewer passkey and re-authentication prompts · DONE · M · P1
+**Done (owner request 2026-10-29, D-ux3-1, D-ux3-2, plan `docs/plans/UX-3.md`, `docs/acceptance/UX-3.md`):** one dialog
+(password, then the passkey by itself) and the action completes by itself; one prompt shared by parallel requests; forms
+that ask the password never ask it twice; flows ask once at their start; window 15 minutes by default (1–30). The five
+routes that asked only in one case are declared (`reauthWhen`); any route that asks without declaring it fails the
+tests. Nothing left the protected list. **Open questions:** Q1 (count the sign-in as the start of the window), Q2
+(branding and piece adjustments leaving the list).
+
 ### UI-C — All other screens · TODO · L · P1
 POS first (as `cashier-home.html`: Cash first and selected by default, Hasad fields only when Hasad is selected; owner reviews a screenshot before the build; built with FIX-1 and FIX-2), then scrap (form first) and supplier purchases, a Suppliers page (gold owed per supplier, A6), cash, transfers (no horizontal overflow), inventory (7 default columns + drawer), settings, security, users, reports. Empty states as in `docs/ux/ANALYSIS.md` §8.
 
