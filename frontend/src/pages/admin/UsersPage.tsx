@@ -10,6 +10,7 @@ import { useToast } from '../../lib/toast';
 import { Badge, Button, Card, Dialog, ErrorState, Field, Input, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
 import { permissionLabel } from '../../lib/permission-labels';
+import { ensureFresh } from '../../lib/reauth';
 
 interface UserRow {
   id: number;
@@ -84,7 +85,7 @@ export function UsersPage() {
       <PageHeader
         title={t('Users')}
         subtitle={t('Passwords can be reset, never viewed.')}
-        actions={manage && <Button variant="primary" icon={<UserPlus className="size-4" />} onClick={() => setEditing('new')} data-testid="new-user">{t('New user')}</Button>}
+        actions={manage && <Button variant="primary" icon={<UserPlus className="size-4" />} onClick={async () => (await ensureFresh()) && setEditing('new')} data-testid="new-user">{t('New user')}</Button>}
       />
       <Card padded={false}>
         <DataTable

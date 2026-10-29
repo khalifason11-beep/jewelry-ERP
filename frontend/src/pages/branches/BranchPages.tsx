@@ -18,6 +18,7 @@ import { SalesTable, Crumbs } from '../sales/SalesPages';
 import { InventoryTable } from '../inventory/InventoryPages';
 import { PurchasesTable } from '../purchases/PurchasesPages';
 import { SessionsTable } from '../admin/SessionsPage';
+import { ensureFresh } from '../../lib/reauth';
 
 interface CompanyBranches {
   branches: { branchId: number; name: string; nameAr: string; city: string; revenue: number; grossProfit: number; availableItems: number; availableWeightMg: number; salesCount: number }[];
@@ -33,7 +34,7 @@ export function BranchesPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={t('Branches')}
-        actions={can('branches.manage') ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')} data-testid="new-branch">{t('New branch')}</Button> : undefined}
+        actions={can('branches.manage') ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={async () => (await ensureFresh()) && setEditing('new')} data-testid="new-branch">{t('New branch')}</Button> : undefined}
       />
       <QueryState query={q} loading={<SkeletonRows rows={4} />}>
         {(d) =>

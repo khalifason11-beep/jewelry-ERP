@@ -978,8 +978,6 @@ export const AR: Record<string, string> = {
   "SYSTEM": "النظام",
 
   // ── generated from translation sheets ──
-  "Confirm your password": "تأكيد كلمة المرور",
-  "This action is protected. Enter your password to continue.": "هذا الإجراء محمي. أدخل كلمة المرور للمتابعة.",
   "Sign out after inactivity · {role} (minutes)": "تسجيل الخروج بعد عدم النشاط · {role} (دقيقة)",
   "Maximum session length (hours)": "أقصى مدة للجلسة (ساعة)",
   "Shown as idle after (minutes)": "يظهر كخامل بعد (دقيقة)",
@@ -1355,11 +1353,8 @@ export const AR: Record<string, string> = {
   "Warn after a restore drill is older than (days)": "التنبيه عندما يكون اختبار الاستعادة أقدم من (أيام)",
   // Phase 2fa: passkeys, recovery codes, sign-in alerts
   "Confirm with your passkey": "التأكيد بمفتاح المرور",
-  "This action is protected. Enter your password, then confirm with your passkey.": "هذا الإجراء محمي. أدخل كلمة المرور، ثم أكّد بمفتاح المرور.",
-  "Touch the fingerprint reader, look at the camera or enter the PIN of your passkey device.": "المس قارئ البصمة، أو انظر إلى الكاميرا، أو أدخل الرقم السري لجهاز مفتاح المرور.",
   "Next": "التالي",
   "Use my passkey": "استخدام مفتاح المرور",
-  "Your password is confirmed. One more step: your passkey.": "تم تأكيد كلمة المرور. خطوة أخيرة: مفتاح المرور.",
   "Sign-in security": "أمان تسجيل الدخول",
   "Confirm it is you": "أكّد أنك أنت",
   "Your password is correct. Now confirm with your passkey: the fingerprint, face or PIN of this computer (Windows Hello), your security key, or your phone.": "كلمة المرور صحيحة. أكّد الآن بمفتاح المرور: بصمة الإصبع أو الوجه أو الرقم السري لهذا الكمبيوتر (Windows Hello)، أو مفتاح الأمان، أو هاتفك.",
@@ -2135,4 +2130,7 @@ export const AR: Record<string, string> = {
   'Accounts {names} are security-locked. Nobody can sign in to them until the system operator unlocks them on the server.': 'الحسابات {names} مقفلة لدواعٍ أمنية. لا يمكن لأحد الدخول إليها حتى يفتحها مشغّل النظام على الخادم.',
   'For the system operator: the server command is unlock-security-lock.': 'لمشغّل النظام: أمر الخادم هو unlock-security-lock.',
   'One confirmation covers every protected action for this many minutes (1–30, default 15).': 'تأكيد واحد يكفي لكل العمليات المحمية خلال هذه الدقائق (1–30، الافتراضي 15).',
+  'Confirm with your passkey.': 'أكّد بمفتاح المرور.',
+  'Enter your password, then confirm with your passkey.': 'أدخل كلمة المرور، ثم أكّد بمفتاح المرور.',
+  'Enter your password to continue.': 'أدخل كلمة المرور للمتابعة.',
 };

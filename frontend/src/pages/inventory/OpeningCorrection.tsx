@@ -19,7 +19,7 @@ import { useActionKeys } from '../../lib/idempotency';
 import { useDebounced } from '../../lib/hooks';
 import { dateTime, grams, karatLabel, signedMoney, money } from '../../lib/format';
 import { Alert, Badge, Button, Card, CardHeader, Dialog, Field, Input, Select, Textarea, WeightInput } from '../../components/ui';
-import { confirmWithPasskey } from '../../components/ReauthDialog';
+import { confirmWithPasskey, openWindowWith } from '../../lib/reauth';
 import type { ItemRow } from '../../lib/types';
 
 type Condition = 'NEW' | 'USED';
@@ -104,7 +104,10 @@ function OpeningCorrectionDialog({ item, openingId, onClose }: { item: ItemRow; 
     onError: (e) => setPasskeyError(errorText(e)),
   });
   const save = useMutation({
-    mutationFn: () => postOnce(`/openings/${openingId}/pieces/${item.id}/correction`, { ...change, reason, confirmPassword: password }, keys.for('opening-correction')),
+    mutationFn: async () => {
+      await openWindowWith(password); // UX-3: one password for the window and the correction
+      return postOnce(`/openings/${openingId}/pieces/${item.id}/correction`, { ...change, reason, confirmPassword: password }, keys.for('opening-correction'));
+    },
     onSuccess: () => {
       keys.rotate('opening-correction');
       toast.success(action === 'VOID' ? t('The opening piece {code} is voided', { code: item.code }) : t('The opening piece {code} is corrected', { code: item.code }));

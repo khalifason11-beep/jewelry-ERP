@@ -16,3 +16,4 @@ export * from './pricing';
 export * from './rate-guard';
 export * from './csv';
 export * from './payments';
+export * from './step-up-gate';

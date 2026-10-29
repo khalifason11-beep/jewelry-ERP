@@ -20,6 +20,7 @@ import { NewButton, NewSupplierDialog, useProducts, useSuppliers } from '../../c
 import { NewProductPanel, ProductPicker } from '../../components/ProductPicker';
 import { PieceKindFields, descriptionTooLong, emptyKind, kindBody, type PieceKindValue } from '../../components/PieceKind';
 import { CorrectionDialog, type Confirmation } from '../../components/CorrectionDialog';
+import { openWindowWith } from '../../lib/reauth';
 
 interface Settlement {
   id: number;
@@ -681,14 +682,16 @@ function PurchaseFixDialog({ purchaseId, fixing, currentReference, onClose }: { 
   const newRef = validBankReference(reference);
   const valid = fixing?.field === 'MAKING_COST' ? newCost != null : newRef != null;
   const m = useMutation({
-    mutationFn: (c: Confirmation) =>
-      postOnce(
+    mutationFn: async (c: Confirmation) => {
+      await openWindowWith(c.confirmPassword); // UX-3: one password for the window and the correction
+      return postOnce(
         `/purchases/${purchaseId}/corrections`,
         fixing?.field === 'MAKING_COST'
           ? { field: 'MAKING_COST', purchaseItemId: fixing.piece.purchaseItemId, newValue: newCost ?? -1, ...c }
           : { field: 'MAKING_CHARGE_REFERENCE', newValue: reference, ...(duplicateOf ? { confirmDuplicateReference: true } : {}), ...c },
         actionKeys.for(key),
-      ),
+      );
+    },
     onSuccess: () => {
       actionKeys.rotate(key);
       toast.success(t('Correction saved'));

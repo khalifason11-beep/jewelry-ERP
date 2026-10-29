@@ -150,9 +150,10 @@ async function main() {
     await page.click('[data-testid=regenerate-codes]');
     await page.fill('#reauth-form input[type=password]', GM.password);
     await page.click('button[form=reauth-form]');
-    await page.click('[data-testid=reauth-passkey]');
+    // UX-3: one step: the passkey prompt follows the password by itself, then the request is retried by itself.
     const newCodesBox = page.getByTestId('recovery-codes');
     await newCodesBox.waitFor();
+    check((await page.locator('#reauth-form').count()) === 0, 'one dialog: password, then the passkey by itself, and the new codes appear with no second click (UX-3)');
     const codes2 = (await newCodesBox.innerText()).split(/\s+/).filter((c) => /^[A-Z0-9]{5}-[A-Z0-9]{5}$/.test(c));
     check(codes2.length === 10 && !codes2.includes(codes[1]), 'new recovery codes after password + passkey; the old set is replaced');
     await page.check('[data-testid=codes-saved]');

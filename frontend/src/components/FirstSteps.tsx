@@ -15,6 +15,7 @@ import { karatLabel } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { useToast } from '../lib/toast';
 import { Button, Dialog, Panel, PanelHeader } from './ui';
+import { ensureFresh } from '../lib/reauth';
 
 export interface SetupStatus {
   complete: boolean;
@@ -34,7 +35,7 @@ export function FirstSteps({ status }: { status: SetupStatus }) {
     karats: {
       title: t('Confirm the karats you sell'),
       body: t('Only these karats can be bought from suppliers and sold. Scrap of any karat can still be bought.'),
-      action: <Button size="sm" variant="primary" onClick={() => setKarats(true)} data-testid="step-karats-action">{t('Confirm karats')}</Button>,
+      action: <Button size="sm" variant="primary" onClick={async () => (await ensureFresh()) && setKarats(true)} data-testid="step-karats-action">{t('Confirm karats')}</Button>,
     },
     rates: {
       title: t('Set today’s gold rate and the scrap rates'),

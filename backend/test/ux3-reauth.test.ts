@@ -9,7 +9,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { eq } from 'drizzle-orm';
-import { DEFAULT_SETTINGS, ROUTE_MATRIX, findRouteRule, routeId, type RouteRule } from '@jerp/shared';
+import { DEFAULT_SETTINGS, ROUTE_MATRIX, covers, createStepUpGate, findRouteRule, routeId, type RouteRule, type StepUpNeeds } from '@jerp/shared';
 import { t, type DatabaseHandle } from '@jerp/database';
 import { createApp } from '../src/app';
 import { createContext } from '../src/bootstrap';
@@ -206,5 +206,37 @@ describe('UX-3: the window, with the clock passed in (no wall clock)', () => {
     expect(until).toBeGreaterThan(Date.now() + 14 * 60_000);
     expect(until).toBeLessThanOrEqual(Date.now() + 15 * 60_000);
     expect((await request(app).get('/api/auth/reauth')).status).toBe(401);
+  });
+});
+
+describe('UX-3: one prompt at a time (shared step-up gate, used by the screens)', () => {
+  const deferred = () => {
+    let resolve!: (ok: boolean) => void;
+    const promise = new Promise<boolean>((r) => (resolve = r));
+    return { promise, resolve };
+  };
+  it('requests that need it at the same moment share one prompt and are all retried after it', async () => {
+    const asks: StepUpNeeds[] = [];
+    const d = deferred();
+    const gate = createStepUpGate((n) => (asks.push(n), d.promise));
+    const all = Promise.all([gate({ password: true, passkey: true }), gate({ password: true, passkey: true }), gate({ password: false, passkey: true })]);
+    d.resolve(true);
+    expect(await all).toEqual([true, true, true]);
+    expect(asks).toEqual([{ password: true, passkey: true }]);
+  });
+  it('a cancelled prompt cancels every request waiting on it; the next action asks again', async () => {
+    let n = 0;
+    const gate = createStepUpGate(async () => ++n > 1);
+    expect(await Promise.all([gate({ password: true, passkey: false }), gate({ password: true, passkey: false })])).toEqual([false, false]);
+    expect(await gate({ password: true, passkey: false })).toBe(true);
+    expect(n).toBe(2);
+  });
+  it('a request that needs more than the open prompt asks once more, for the rest only', async () => {
+    const asks: StepUpNeeds[] = [];
+    const gate = createStepUpGate(async (needs) => (asks.push(needs), true));
+    expect(await Promise.all([gate({ password: true, passkey: false }), gate({ password: true, passkey: true })])).toEqual([true, true]);
+    expect(asks).toEqual([{ password: true, passkey: false }, { password: false, passkey: true }]);
+    expect(covers({ password: true, passkey: true }, { password: false, passkey: true })).toBe(true);
+    expect(covers({ password: true, passkey: false }, { password: true, passkey: true })).toBe(false);
   });
 });

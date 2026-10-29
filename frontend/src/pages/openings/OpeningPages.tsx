@@ -21,7 +21,7 @@ import { useDebounced } from '../../lib/hooks';
 import { dateTime, grams, karatLabel, num } from '../../lib/format';
 import { Alert, Badge, Button, Card, CardHeader, DataTable, DetailPending, Dialog, Field, Input, Mono, PageHeader, Select, StatusBadge, WeightInput } from '../../components/ui';
 import { PieceKindFields, descriptionTooLong, emptyKind, type PieceKindValue } from '../../components/PieceKind';
-import { confirmWithPasskey } from '../../components/ReauthDialog';
+import { confirmWithPasskey, openWindowWith } from '../../lib/reauth';
 import { OpeningCorrectionsCard, type OpeningCorrectionRow } from '../inventory/OpeningCorrection';
 
 type Condition = 'NEW' | 'USED';
@@ -539,7 +539,11 @@ function SealDialog({ opening, onClose }: { opening: Opening; onClose: () => voi
     onError: (e) => setPasskeyError(errorText(e)),
   });
   const seal = useMutation({
-    mutationFn: () => postOnce<{ pieces: number; firstCode: string; lastCode: string }>(`/openings/${opening.id}/seal`, { confirmPassword: password }, keys.for('opening-seal')),
+    // UX-3: the typed password opens the window first, so the seal never asks for it a second time.
+    mutationFn: async () => {
+      await openWindowWith(password);
+      return postOnce<{ pieces: number; firstCode: string; lastCode: string }>(`/openings/${opening.id}/seal`, { confirmPassword: password }, keys.for('opening-seal'));
+    },
     onSuccess: (r) => {
       keys.rotate('opening-seal');
       toast.success(t('Opening sealed: {n} piece(s), codes {first} to {last}', { n: r.pieces, first: r.firstCode, last: r.lastCode }));

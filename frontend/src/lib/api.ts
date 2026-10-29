@@ -1,6 +1,7 @@
 // Thin fetch wrapper. Sends the current module so the server can show it in Active Sessions.
 
 import { translate, type Params } from './i18n';
+import { createStepUpGate } from '@jerp/shared';
 
 /**
  * API error. The server sends a stable English `key` (template) + `params`; `errorText()`
@@ -112,6 +113,11 @@ let reauthHandler: ReauthHandler | null = null;
 export function setReauthHandler(h: ReauthHandler | null) {
   reauthHandler = h;
 }
+/**
+ * UX-3: every re-authentication goes through one gate: requests that need it at the same moment share one dialog
+ * (before, a second dialog cancelled the first and its action failed), and are each retried after it.
+ */
+export const stepUp = createStepUpGate((needs) => (reauthHandler ? reauthHandler(needs) : Promise.resolve(false)));
 
 // ───────── idempotency (docs/decisions.md D-2a-4) ─────────
 /** A new random Idempotency-Key (one per user action; see lib/idempotency.ts). */
@@ -185,7 +191,7 @@ async function send<T>(path: string, init: ApiInit, retried: boolean): Promise<T
   if (!res.ok) {
     const err = new ApiError(res.status, data?.error?.code ?? 'ERROR', data?.error?.message ?? res.statusText, data?.error?.details, data?.error?.key, data?.error?.params);
     // The retry after re-authentication reuses the same Idempotency-Key: it is the same action.
-    if (err.code === 'REAUTH_REQUIRED' && reauthHandler && !retried && (await reauthHandler(reauthNeeds(err.details)))) {
+    if (err.code === 'REAUTH_REQUIRED' && reauthHandler && !retried && (await stepUp(reauthNeeds(err.details)))) {
       return send<T>(path, init, true);
     }
     if (res.status === 401 || err.code === 'PASSWORD_CHANGE_REQUIRED') authListeners.forEach((l) => l(err));

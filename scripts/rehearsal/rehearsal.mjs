@@ -163,6 +163,20 @@ async function changePassword(page, current, next) {
 }
 
 /** A sensitive action may ask for the password and then the passkey (D-1a-8, D-2fa-7). */
+/**
+ * UX-3: a button that starts a protected flow asks first when less than half of the window is left: answer the one
+ * dialog (password; the passkey follows by itself), then wait for the flow's first field.
+ */
+async function startFlow(page, testId, firstField, password) {
+  await page.click(`[data-testid=${testId}]`);
+  await page.locator(`#reauth-form, [data-testid=${firstField}]`).first().waitFor({ timeout: 15_000 });
+  if (await page.locator('#reauth-form').count()) {
+    await page.fill('[data-testid=reauth-password]', password);
+    await page.click('[data-testid=reauth-confirm]');
+  }
+  await page.getByTestId(firstField).waitFor({ timeout: 15_000 });
+}
+
 async function confirmIfAsked(page, password) {
   await page.waitForTimeout(400);
   if (await page.locator('#reauth-form').count()) {
@@ -225,6 +239,8 @@ async function dialogKeepsChosenField(page, { open, first, second, text, what })
   await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1_000); // the page's (fake) clock, not ours
   try {
     await page.click(`[data-testid=${open}]`);
+    // UX-3: the button first asks the server whether the window is open, so the dialog appears a moment later.
+    await page.getByTestId(first).waitFor({ timeout: 15_000 });
     const autofocus = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'));
     await page.click(`[data-testid=${second}]`);
     await page.clock.runFor(1_000);
@@ -398,7 +414,8 @@ const FUND = { cash: 2_000_000, bank: 1_500_000 };
 /** Record an advance through Cash › Funding (password re-confirmation as for every money action of the GM). */
 async function fundBranch(page, base, { branchId, account, amount, reason, bankReference, kind = 'advance' }) {
   await page.goto(`${base}/cash`);
-  await page.getByTestId(kind === 'advance' ? 'funding-advance' : 'funding-repayment').click({ timeout: 15_000 });
+  await page.getByTestId(kind === 'advance' ? 'funding-advance' : 'funding-repayment').waitFor({ timeout: 15_000 });
+  await startFlow(page, kind === 'advance' ? 'funding-advance' : 'funding-repayment', 'funding-branch', GM.password);
   await page.selectOption('[data-testid=funding-branch]', String(branchId));
   if (account === 'BANK') await page.locator('[data-testid=funding-account] [role=radio]').nth(1).click();
   await page.fill('[data-testid=funding-amount]', String(amount));
@@ -643,7 +660,8 @@ async function main() {
     const chip = await page.getByTestId('rate-chip').innerText();
     check(/حدّد سعر اليوم/.test(chip) && !/—/.test(chip), 'the rate chip says "Set today’s rate" instead of "—/g"');
     check((await page.getByTestId('demo-badge').count()) === 0, 'production mode shows no "Demo" badge');
-    await page.click('[data-testid=step-karats-action]');
+    // UX-3: right after signing in the window is not open yet (question Q1), so the flow asks once, here at its start.
+    await startFlow(page, 'step-karats-action', 'karat-21', GM.password);
     check(await page.isChecked('[data-testid=karat-21]'), 'the confirmation dialog proposes 21K (from ALLOWED_KARATS_INITIAL)');
     await page.click('[data-testid=confirm-karats]');
     await confirmIfAsked(page, GM.password);
@@ -691,7 +709,7 @@ async function main() {
       await page.goto(`${origin}/users`);
       await page.getByTestId('new-user').waitFor();
       if (u === BM) await dialogKeepsChosenField(page, { open: 'new-user', first: 'user-username', second: 'user-full-name', text: u.fullName, what: 'New user dialog' });
-      else await page.click('[data-testid=new-user]');
+      else await startFlow(page, 'new-user', 'user-username', GM.password);
       await page.fill('[data-testid=user-username]', u.username);
       await page.fill('[data-testid=user-full-name]', u.fullName);
       await page.selectOption('[data-testid=user-role]', u.role);
@@ -1292,7 +1310,7 @@ async function main() {
     section('FIX-1 / REM-4: the branch manager sends the POS cart; the General Manager keeps "New transfer"; no other start point');
     const BRANCH_B = { code: 'RHB', name: 'Rehearsal Branch B', nameAr: 'فرع التجربة ب', city: 'Rehearsal City' };
     await page.goto(`${origin}/branches`);
-    await page.click('[data-testid=new-branch]');
+    await startFlow(page, 'new-branch', 'branch-code', GM.password);
     await page.fill('[data-testid=branch-code]', BRANCH_B.code);
     await page.fill('[data-testid=branch-name]', BRANCH_B.name);
     await page.fill('[data-testid=branch-name-ar]', BRANCH_B.nameAr);
@@ -1540,14 +1558,32 @@ async function main() {
       check(byCondition['21-NEW'] === `2/${4_100 + 11_750}` && byCondition['21-USED'] === `2/${3_400 + 9_500}`, `the review counts by karat and condition (21K new ${byCondition['21-NEW']}, 21K used ${byCondition['21-USED']})`);
       check(await page.getByTestId('opening-karat-21-USED').isVisible(), 'the review screen shows the 21K used group');
       check((await apiGet(page, `/api/reports/stock-weight?branchId=${branchId}`)).body.totals.itemsWeightMg === stockBefore, 'a draft is not stock: the stock weight is unchanged before the seal');
+      // UX-3: a stale password window used to bring a second password dialog after the seal dialog's own password.
+      await sqlAs(`UPDATE sessions SET reauth_at = now() - interval '1 hour' WHERE user_id = (SELECT id FROM users WHERE username = $1)`, [GM.username]);
       await page.click('[data-testid=opening-seal]');
       await page.fill('[data-testid=opening-seal-password]', GM.password);
       await page.click('[data-testid=opening-seal-passkey]');
       await waitFor(async () => !(await page.getByTestId('opening-seal-confirm').isDisabled()), 'the passkey confirmation', 15_000);
       await page.click('[data-testid=opening-seal-confirm]');
-      await confirmIfAsked(page, GM.password);
-      await waitFor(async () => (await apiGet(page, `/api/openings/${openingId}`)).body.status === 'SEALED', 'the seal', 20_000);
-      ok('sealed with the password and a passkey confirmation (virtual authenticator)');
+      let secondPrompt = false;
+      await waitFor(async () => {
+        secondPrompt ||= (await page.locator('#reauth-form').count()) > 0;
+        return (await apiGet(page, `/api/openings/${openingId}`)).body.status === 'SEALED';
+      }, 'the seal', 20_000);
+      check(!secondPrompt, 'sealed with the password typed once and a passkey confirmation: no second password dialog (UX-3), though the window had expired');
+
+      // UX-3: a flow start with an expired window: one dialog (password, then the passkey by itself), then the form opens
+      // without a second click; never a separate "Use my passkey" step.
+      await sqlAs(`UPDATE sessions SET reauth_at = NULL, passkey_reauth_at = NULL WHERE user_id = (SELECT id FROM users WHERE username = $1)`, [GM.username]);
+      await page.goto(`${origin}/users`);
+      await page.click('[data-testid=new-user]');
+      await page.locator('#reauth-form').waitFor({ timeout: 15_000 });
+      await page.fill('[data-testid=reauth-password]', GM.password);
+      await page.click('[data-testid=reauth-confirm]');
+      await page.getByTestId('user-username').waitFor({ timeout: 15_000 });
+      const win = (await apiGet(page, '/api/auth/reauth')).body;
+      check(win.password && win.passkey && (await page.getByTestId('reauth-passkey').count()) === 0, 'UX-3: one dialog asked for the password, the passkey followed by itself, and the New user form opened with no second click');
+      await page.keyboard.press('Escape');
       const sw = (await apiGet(page, `/api/reports/stock-weight?branchId=${branchId}`)).body.totals.itemsWeightMg;
       check(sw - stockBefore === sheetNetMg, `the stock-weight report grew by exactly the sheet's net weight (${sw - stockBefore} mg)`);
       const pieces = (await apiGet(page, `/api/inventory/items?branchId=${branchId}&origin=OPENING&pageSize=50`)).body.rows;

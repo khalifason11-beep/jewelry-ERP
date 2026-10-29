@@ -17,6 +17,7 @@ import { useBranches } from '../../lib/hooks';
 import { useActionKeys } from '../../lib/idempotency';
 import { Badge, Button, Card, CardHeader, Dialog, Field, Input, MoneyInput, Mono, ReferenceInput, PillGroup, Select, Textarea } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
+import { ensureFresh } from '../../lib/reauth';
 
 type Account = 'CASH' | 'BANK';
 interface FundingEvent {
@@ -77,10 +78,10 @@ export function FundingPanel({ branchId }: { branchId?: number }) {
           actions={
             manage ? (
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="primary" icon={<HandCoins className="size-4" />} onClick={() => setDialog('ADVANCE')} data-testid="funding-advance">
+                <Button size="sm" variant="primary" icon={<HandCoins className="size-4" />} onClick={async () => (await ensureFresh()) && setDialog('ADVANCE')} data-testid="funding-advance">
                   {t('Record an advance')}
                 </Button>
-                <Button size="sm" icon={<Undo2 className="size-4" />} onClick={() => setDialog('REPAYMENT')} data-testid="funding-repayment">
+                <Button size="sm" icon={<Undo2 className="size-4" />} onClick={async () => (await ensureFresh()) && setDialog('REPAYMENT')} data-testid="funding-repayment">
                   {t('Record a repayment')}
                 </Button>
               </div>

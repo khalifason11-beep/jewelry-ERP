@@ -347,6 +347,13 @@ async function main() {
     await offFunding();
     await page.reload();
     await page.getByTestId('funding-advance').click({ timeout: 15_000 });
+    // UX-3: the advance starts a protected flow: right after signing in the window is not open, so it asks once first.
+    await page.locator('#reauth-form, [data-testid=funding-amount]').first().waitFor({ timeout: 15_000 });
+    if (await page.locator('#reauth-form').count()) {
+      await page.fill('[data-testid=reauth-password]', world.gm.password);
+      await page.click('[data-testid=reauth-confirm]');
+    }
+    await page.getByTestId('funding-amount').waitFor({ timeout: 15_000 });
     check((await page.getByTestId('funding-bank-ref').count()) === 0, 'the advance dialog asks for a bank reference only when the money goes to the bank');
     await page.locator('[data-testid=funding-account] [role=radio]').nth(1).click();
     await page.getByTestId('funding-bank-ref').waitFor();

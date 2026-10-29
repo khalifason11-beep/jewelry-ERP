@@ -20,6 +20,7 @@ import { DataTable } from '../../components/ui/DataTable';
 import { NewProductPanel, ProductPicker } from '../../components/ProductPicker';
 import { PieceKindFields, descriptionTooLong, emptyKind, type PieceKindValue } from '../../components/PieceKind';
 import type { Product } from '../../lib/types';
+import { openWindowWith } from '../../lib/reauth';
 
 export interface ScrapRates {
   rates: { karat: number; pricePerGram: number; effectiveAt: string }[];
@@ -215,7 +216,10 @@ function VoidScrapDialog({ row, onClose }: { row: ScrapRow | null; onClose: () =
   const actionKeys = useActionKeys();
   const [error, setError] = useState<string | null>(null);
   const m = useMutation({
-    mutationFn: (c: Confirmation) => postOnce<{ number: string }>(`/scrap-purchases/${row!.id}/void`, c, actionKeys.for(`void-${row!.id}`)),
+    mutationFn: async (c: Confirmation) => {
+      await openWindowWith(c.confirmPassword); // UX-3: one password for the window and the void
+      return postOnce<{ number: string }>(`/scrap-purchases/${row!.id}/void`, c, actionKeys.for(`void-${row!.id}`));
+    },
     onSuccess: (r) => {
       actionKeys.rotate(`void-${row!.id}`);
       toast.success(t('Scrap purchase {number} voided', { number: r.number }));

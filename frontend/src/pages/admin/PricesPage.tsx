@@ -14,6 +14,7 @@ import { currencyLabel, dateTime, grams, karatLabel, money } from '../../lib/for
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { Alert, Button, Card, CardHeader, Dialog, ErrorState, Field, Input, IntegerInput, MoneyInput, PageHeader, Select, SkeletonRows, Textarea } from '../../components/ui';
+import { openWindowWith } from '../../lib/reauth';
 
 type Kind = 'NEW' | 'USED';
 interface RateNow {
@@ -166,7 +167,10 @@ function SellingRatesCard({ view, kind }: { view: SellingRatesView; kind: Kind }
   const top = strictestLevel(changed.map(([k, v]) => rateChangeLevel(prev(Number(k)), Number(v), view.guard.warnChangePercent, view.guard.confirmChangePercent)));
   const [ask, setAsk] = useState<RateChangeLevel | null>(null);
   const m = useMutation({
-    mutationFn: (g: GuardFields) => post('/gold-rates', { [kind === 'NEW' ? 'rates' : 'usedRates']: Object.fromEntries(changed.map(([k, v]) => [k, Number(v)])), ...g }),
+    mutationFn: async (g: GuardFields) => {
+      if (g.confirmPassword) await openWindowWith(g.confirmPassword); // UX-3: the guard's password opens the window too
+      return post('/gold-rates', { [kind === 'NEW' ? 'rates' : 'usedRates']: Object.fromEntries(changed.map(([k, v]) => [k, Number(v)])), ...g });
+    },
     onSuccess: () => {
       setAsk(null);
       toast.success(t('Gold rates updated'), t('New rates apply immediately.'));
@@ -215,7 +219,10 @@ function ScrapRatesCard({ karats, guard, query }: { karats: number[]; guard: Gua
   const top = strictestLevel(filled.filter(([k, v]) => Number(v) !== prev(Number(k))).map(([k, v]) => rateChangeLevel(prev(Number(k)), Number(v), guard.warnChangePercent, guard.confirmChangePercent)));
   const [ask, setAsk] = useState<RateChangeLevel | null>(null);
   const m = useMutation({
-    mutationFn: (g: GuardFields) => post('/scrap-rates', { rates: filled.map(([k, v]) => ({ karat: Number(k), pricePerGram: Number(v) })), ...g }),
+    mutationFn: async (g: GuardFields) => {
+      if (g.confirmPassword) await openWindowWith(g.confirmPassword); // UX-3: the guard's password opens the window too
+      return post('/scrap-rates', { rates: filled.map(([k, v]) => ({ karat: Number(k), pricePerGram: Number(v) })), ...g });
+    },
     onSuccess: () => {
       setAsk(null);
       toast.success(t('Scrap rates updated'));
