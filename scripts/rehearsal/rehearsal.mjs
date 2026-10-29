@@ -1020,11 +1020,23 @@ async function main() {
     await page.goto(`${origin}/users`);
     await page.getByTestId('security-locked-badge').waitFor({ timeout: 15_000 });
     ok('the Users list marks the account "Security-locked since …"');
+    // UX-2: permissions read as Arabic names; the codes only in the General Manager's closed "Technical codes".
+    const PERMISSION_CODE = /\b(?:scope|pos|sales|inventory|catalog|purchases|dashboard|reports|profit|users|sessions|audit|settings|branches|cash|scrap|backups|funding|opening)\.[a-z_]+\b/;
+    await page.getByTestId('role-CASHIER').waitFor({ timeout: 15_000 });
+    const cashierPerms = await page.locator('[data-testid=role-CASHIER] [data-testid=role-permissions]').innerText();
+    check(/نقطة البيع/.test(cashierPerms) && /البيع/.test(cashierPerms) && !PERMISSION_CODE.test(await page.locator('body').innerText()), `UX-2: the roles show permission names in Arabic, and no permission code is visible (cashier: ${cashierPerms.replace(/\s+/g, ' ').slice(0, 60)}…)`);
+    const roleCodes = page.locator('[data-testid=role-CASHIER] [data-testid=role-codes]');
+    check((await roleCodes.getAttribute('open')) === null, 'UX-2: the General Manager\'s "Technical codes" section is closed by default');
+    await roleCodes.locator('summary').click();
+    check(/pos\.access/.test(await roleCodes.innerText()), 'UX-2: opened, it lists the codes (pos.access)');
     await signOut(page);
     await signIn(page, origin, BM.username, BM.password);
     await pathIs(page, ['/dashboard']);
     await page.getByTestId('security-locked-banner').waitFor({ timeout: 15_000 });
     ok('the branch manager of that branch sees the notice too');
+    await page.goto(`${origin}/users`);
+    await page.getByTestId('role-CASHIER').waitFor({ timeout: 15_000 });
+    check((await page.getByTestId('role-codes').count()) === 0 && !PERMISSION_CODE.test(await page.locator('body').innerText()), 'UX-2: the branch manager reads the role names only: no code, no "Technical codes"');
     await signOut(page);
     await signIn(page, origin, CASHIER.username, CASHIER.password);
     await page.getByText(/تعذّر تسجيل الدخول|Sign-in failed/).first().waitFor({ timeout: 15_000 });

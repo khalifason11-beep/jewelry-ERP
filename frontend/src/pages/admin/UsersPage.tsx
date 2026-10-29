@@ -9,6 +9,7 @@ import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { Alert, Badge, Button, Card, Dialog, ErrorState, Field, Input, Mono, PageHeader, Select, StatusBadge } from '../../components/ui';
 import { DataTable } from '../../components/ui/DataTable';
+import { permissionLabel } from '../../lib/permission-labels';
 
 interface UserRow {
   id: number;
@@ -162,18 +163,26 @@ export function UsersPage() {
         <Card padded={false} className="mt-5">
           <div className="border-b border-line px-5 py-3.5">
             <h3 className="text-[15px] font-semibold">{t('Roles & permissions')}</h3>
-            <p className="text-[13px] text-ink-500">{t('Roles are data, not code. New roles can be added without a release.')}</p>
           </div>
           <div className="grid gap-4 p-5 lg:grid-cols-3">
             {roles.data.map((r) => (
-              <div key={r.id} className="rounded-md border border-line p-3">
+              <div key={r.id} className="rounded-md border border-line p-3" data-testid={`role-${r.code}`}>
                 <div className="mb-2 flex items-center justify-between">
                   <span className="font-semibold">{t(r.name)}</span>
                   <span className="text-[11.5px] text-ink-500">{t('{n} permissions', { n: r.permissions.length })}</span>
                 </div>
-                <div className="flex flex-wrap gap-1">
-                  {r.permissions.map((p) => <Mono key={p} className="rounded bg-canvas px-1.5 py-0.5 text-[11px] text-ink-600">{p}</Mono>)}
+                {/* UX-2: names, never codes; the codes only for the General Manager, closed by default. */}
+                <div className="flex flex-wrap gap-1" data-testid="role-permissions">
+                  {r.permissions.map((p) => <span key={p} className="rounded bg-canvas px-1.5 py-0.5 text-[12px] text-ink-600">{t(permissionLabel(p))}</span>)}
                 </div>
+                {manage && (
+                  <details className="mt-2 text-[12px] text-ink-500" data-testid="role-codes">
+                    <summary className="cursor-pointer select-none">{t('Technical codes')}</summary>
+                    <div className="mt-1 flex flex-wrap gap-1" dir="ltr">
+                      {r.permissions.map((p) => <Mono key={p} className="rounded bg-canvas px-1.5 py-0.5 text-[11px] text-ink-600">{p}</Mono>)}
+                    </div>
+                  </details>
+                )}
               </div>
             ))}
           </div>
