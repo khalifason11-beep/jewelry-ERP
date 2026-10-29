@@ -649,6 +649,10 @@ async function main() {
     await confirmIfAsked(page, GM.password);
     await waitFor(async () => (await page.getAttribute('[data-testid=step-karats]', 'data-done')) === 'true', 'step 1 done', 15_000);
     ok('the General Manager confirms the allowed karats (password re-confirmation): step 1 done');
+    // UX-3: that one confirmation opened the window (15 minutes by default) for every protected action.
+    const win = (await apiGet(page, '/api/auth/reauth')).body;
+    const left = (new Date(win.passwordUntil).getTime() - Date.now()) / 60_000;
+    check(win.password === true && win.windowMinutes === 15 && left > 13 && left <= 15, `UX-3: the re-confirmation window is open for ${left.toFixed(1)} more minutes (default 15)`);
     await noWords(page, origin, ['/overview', '/settings', '/users'], 'General Manager', /prototype|نموذج أولي|demo account|حسابات تجريبية/i, 'prototype or demo-account wording');
 
     section('General Manager: branch and staff');

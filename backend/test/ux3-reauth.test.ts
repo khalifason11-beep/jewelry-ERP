@@ -9,14 +9,14 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { eq } from 'drizzle-orm';
-import { ROUTE_MATRIX, findRouteRule, routeId, type RouteRule } from '@jerp/shared';
+import { DEFAULT_SETTINGS, ROUTE_MATRIX, findRouteRule, routeId, type RouteRule } from '@jerp/shared';
 import { t, type DatabaseHandle } from '@jerp/database';
 import { createApp } from '../src/app';
 import { createContext } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
 import type { Ctx } from '../src/core/context';
 import { errorHandler, forgetUndeclaredReauth, undeclaredReauthRoutes } from '../src/core/http';
-import { reauthRequired } from '../src/auth/reauth';
+import { isFresh, reauthRequired, reauthState, windowUntil } from '../src/auth/reauth';
 import { seedWorld } from './fixtures/world';
 import { DEMO_PASSWORDS } from './fixtures/world-data';
 import { openTestDatabase, withIdempotencyKeys } from './helpers';
@@ -158,5 +158,53 @@ describe('UX-3: with a stale window, only declared routes ask (dynamic)', () => 
     errorHandler(reauthRequired({ password: false, hasPasskey: false, passkey: false, passkeyUv: false }), { routeRule: findRouteRule('POST', '/sales/:id/void') } as never, res, () => undefined);
     expect(undeclaredReauthRoutes()).toEqual(['GET /declared/nowhere']);
     forgetUndeclaredReauth();
+  });
+});
+
+describe('UX-3: the window, with the clock passed in (no wall clock)', () => {
+  const at = new Date('2026-10-29T10:00:00Z');
+  const plus = (min: number, s = 0) => new Date(at.getTime() + min * 60_000 + s * 1000);
+  it('fresh from the confirmation up to the end of the window, that instant included; never without a confirmation', () => {
+    expect(DEFAULT_SETTINGS.security.reauthWindowMinutes).toBe(15);
+    expect(isFresh(at, 15, at)).toBe(true);
+    expect(isFresh(at, 15, plus(14, 59))).toBe(true);
+    expect(isFresh(at, 15, plus(15))).toBe(true);
+    expect(isFresh(at, 15, plus(15, 1))).toBe(false);
+    expect(isFresh(at, 1, plus(1, 1))).toBe(false);
+    expect(isFresh(at, 30, plus(29))).toBe(true);
+    expect(isFresh(null, 15, at)).toBe(false);
+    expect(isFresh(undefined, 15, at)).toBe(false);
+    expect(windowUntil(at, 15)).toEqual(plus(15));
+    expect(windowUntil(null, 15)).toBeNull();
+  });
+
+  it('the session state follows the setting and the instant asked about; one confirmation opens it for every protected route', async () => {
+    const gm = await login('general.manager', 'GENERAL_MANAGER');
+    const me = await gm.get('/api/auth/me');
+    const [s] = await ctx.db.select().from(t.sessions).where(eq(t.sessions.csrfToken, me.body.csrfToken));
+    await ctx.db.update(t.sessions).set({ reauthAt: at, passkeyReauthAt: null }).where(eq(t.sessions.id, s.id));
+    const state = (now: Date) => reauthState(ctx, ctx.db, s.id, s.userId, now);
+    expect((await state(plus(10))).factors).toMatchObject({ password: true, passkey: false, hasPasskey: false });
+    expect((await state(plus(16))).factors.password).toBe(false);
+    expect((await state(plus(10))).passwordUntil).toEqual(plus(15));
+    // The General Manager shortens the window: the same confirmation is now stale at +10.
+    await ctx.settings.apply(ctx.db, { 'security.reauthWindowMinutes': 5 }, { actor: { id: s.userId, username: 'general.manager' }, reason: 'test' });
+    expect((await state(plus(10))).factors.password).toBe(false);
+    expect((await state(plus(4))).factors.password).toBe(true);
+    await ctx.settings.apply(ctx.db, { 'security.reauthWindowMinutes': 15 }, { actor: { id: s.userId, username: 'general.manager' }, reason: 'test' });
+  });
+
+  it('GET /auth/reauth says whether the window is open and until when; it changes nothing', async () => {
+    const gm = await login('general.manager', 'GENERAL_MANAGER');
+    const before = await gm.get('/api/auth/reauth');
+    expect(before.status).toBe(200);
+    expect(before.body).toEqual({ password: false, passkey: false, hasPasskey: false, windowMinutes: 15, passwordUntil: null, passkeyUntil: null });
+    expect((await gm.post('/api/auth/reauth').send({ password: DEMO_PASSWORDS.GENERAL_MANAGER })).status).toBe(200);
+    const after = await gm.get('/api/auth/reauth');
+    expect(after.body.password).toBe(true);
+    const until = new Date(after.body.passwordUntil).getTime();
+    expect(until).toBeGreaterThan(Date.now() + 14 * 60_000);
+    expect(until).toBeLessThanOrEqual(Date.now() + 15 * 60_000);
+    expect((await request(app).get('/api/auth/reauth')).status).toBe(401);
   });
 });

@@ -48,7 +48,7 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
 
 ## 3. Authentication and security [INVARIANT unless noted]
 
-- **[BUILT]** Argon2id passwords, atomic lockout (reserve the failure before verifying), identical failure responses for unknown user, locked account and wrong password, session idle timeout **60 minutes for every role** (a GM setting), absolute timeout 12 hours, session rotation, password re-confirmation for sensitive actions (window is a GM setting, default 5 minutes), CSRF protection, strict CSP.
+- **[BUILT]** Argon2id passwords, atomic lockout (reserve the failure before verifying), identical failure responses for unknown user, locked account and wrong password, session idle timeout **60 minutes for every role** (a GM setting), absolute timeout 12 hours, session rotation, password re-confirmation for sensitive actions (window is a GM setting, default 15 minutes since UX-3, D-ux3-1), CSRF protection, strict CSP.
 - **[BUILT]** The GM's second factor is a **passkey** (WebAuthn): Windows Hello or a USB security key, two devices registered, recovery codes, security lock after a reported recovery-code sign-in, operator command-line recovery. Setting `webauthnUserVerification` is `required` (default) or `preferred`.
 - **[OPEN]** Which hardware the GM will use (Windows Hello with fingerprint, face or PIN, or a USB key). It decides the verification setting. The final production domain must be fixed **before** any passkey is registered.
 - **[INVARIANT]** Production refuses to start without HTTPS origin, a real PostgreSQL server and safe settings; no demo data, demo reset or demo accounts exist in production.

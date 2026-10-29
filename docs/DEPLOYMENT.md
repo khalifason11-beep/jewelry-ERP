@@ -796,7 +796,17 @@ until a second device exists. A single device is a single point of failure.
 
 - Sign-in: password → "Use my passkey" → fingerprint/face/PIN (or the key / phone).
 - Sensitive actions (rates, users, settings, adjustments…) ask for the password and the passkey again, then stay
-  open for the re-confirmation window (Settings, default 5 minutes).
+  open for the **re-confirmation window** (UX-3, D-ux3-1):
+  - **Settings › Security › "Password re-confirmation valid for (minutes)"**, `security.reauthWindowMinutes`, **default
+    15** (was 5), allowed 1–30, General Manager only, audited. An installation that never saved the Security card
+    gets 15 on upgrade; one that saved it keeps its value until the General Manager changes it.
+  - One confirmation (password and passkey together, in one dialog) opens the window for **every** protected action
+    of that session; the action that asked is then completed by itself. A setup flow asks once at its start when
+    less than half of the window is left.
+  - The protected list is the route matrix: `reauth: true` (always) and `reauthWhen` (only in one case: a role or
+    branch change, a sale void above `sales.voidReauthAboveAmount`, a new passkey, new recovery codes). A route that
+    asks without declaring it fails the tests. `GET /auth/reauth` tells the screens whether the window is open and
+    until when (no data, own session only).
 - **New-device alert**: a sign-in from a browser or passkey not seen in 30 days shows a red banner. "It was me"
   closes it. **"This wasn't me"** signs out every session, removes every passkey and forces a new password.
   - If that sign-in used a **passkey**: the GM signs in with the password + a recovery code, sets a new password,

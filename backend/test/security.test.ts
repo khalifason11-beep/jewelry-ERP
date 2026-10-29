@@ -9,6 +9,7 @@ import request from 'supertest';
 import { openTestDatabase, withIdempotencyKeys } from './helpers';
 import { and, desc, eq } from 'drizzle-orm';
 import { t, type DatabaseHandle } from '@jerp/database';
+import { DEFAULT_SETTINGS } from '@jerp/shared';
 import { createApp } from '../src/app';
 import { createContext } from '../src/bootstrap';
 import { loadConfig } from '../src/config';
@@ -433,33 +434,33 @@ describe('re-authentication for sensitive actions', () => {
     expect((await gm.post('/api/auth/reauth').send({ password: DEMO_PASSWORDS.GENERAL_MANAGER })).status).toBe(200);
     expect((await gm.post('/api/gold-rates').send({ rates: { '21': 191_000 } })).status).toBe(200);
 
-    // The window closes after 5 minutes.
+    // The window closes after the default window (15 minutes since UX-3).
     const me = await gm.get('/api/auth/me');
-    await ctx.db.update(t.sessions).set({ reauthAt: new Date(Date.now() - 6 * 60_000) }).where(eq(t.sessions.csrfToken, me.body.csrfToken));
+    await ctx.db.update(t.sessions).set({ reauthAt: new Date(Date.now() - (DEFAULT_SETTINGS.security.reauthWindowMinutes + 1) * 60_000) }).where(eq(t.sessions.csrfToken, me.body.csrfToken));
     expect((await gm.post('/api/gold-rates').send({ rates: { '21': 192_000 } })).body.error.code).toBe('REAUTH_REQUIRED');
   });
 
-  it('the GM can change the re-auth window (default 5, 1–30), validated and audited', async () => {
+  it('the GM can change the re-auth window (default 15, 1–30), validated and audited', async () => {
     const gm = await loginRole('general.manager');
     const me = await gm.get('/api/auth/me');
     const ago = (min: number) => ctx.db.update(t.sessions).set({ reauthAt: new Date(Date.now() - min * 60_000) }).where(eq(t.sessions.csrfToken, me.body.csrfToken));
-    expect((await ctx.settings.get()).security.reauthWindowMinutes).toBe(5);
+    expect((await ctx.settings.get()).security.reauthWindowMinutes).toBe(15);
     await gm.post('/api/auth/reauth').send({ password: DEMO_PASSWORDS.GENERAL_MANAGER });
     for (const bad of [0, 31, 2.5, '10']) {
       const r = await gm.put('/api/settings').send({ changes: { 'security.reauthWindowMinutes': bad } });
       expect(r.status, `value ${bad}`).toBe(400);
     }
-    const ok = await gm.put('/api/settings').send({ changes: { 'security.reauthWindowMinutes': 15 }, reason: 'Fewer prompts' });
+    const ok = await gm.put('/api/settings').send({ changes: { 'security.reauthWindowMinutes': 20 }, reason: 'Fewer prompts' });
     expect(ok.status).toBe(200);
     const [audit] = await ctx.db.select().from(t.auditLogs).where(eq(t.auditLogs.action, 'SETTINGS_CHANGED')).orderBy(desc(t.auditLogs.id)).limit(1);
     expect(JSON.stringify(audit.metadata)).toContain('security.reauthWindowMinutes');
-    expect((await gm.post('/api/auth/reauth').send({ password: DEMO_PASSWORDS.GENERAL_MANAGER })).body.validForMinutes).toBe(15);
-    await ago(10); // inside the new 15-minute window
+    expect((await gm.post('/api/auth/reauth').send({ password: DEMO_PASSWORDS.GENERAL_MANAGER })).body.validForMinutes).toBe(20);
+    await ago(18); // inside the new 20-minute window
     expect((await gm.post('/api/gold-rates').send({ rates: { '21': 193_000 } })).status).toBe(200);
-    await ago(16);
+    await ago(21);
     expect((await gm.post('/api/gold-rates').send({ rates: { '21': 193_500 } })).body.error.code).toBe('REAUTH_REQUIRED');
     await gm.post('/api/auth/reauth').send({ password: DEMO_PASSWORDS.GENERAL_MANAGER });
-    expect((await gm.put('/api/settings').send({ changes: { 'security.reauthWindowMinutes': 5 } })).status).toBe(200);
+    expect((await gm.put('/api/settings').send({ changes: { 'security.reauthWindowMinutes': 15 } })).status).toBe(200);
   });
 
   it('requires re-auth for role changes', async () => {

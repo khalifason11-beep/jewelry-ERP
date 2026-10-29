@@ -119,6 +119,7 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /ready': ['/ready'],
       'GET /branding/logo': [], // binary image, not JSON
       'GET /auth/me': ['/auth/me'],
+      'GET /auth/reauth': ['/auth/reauth'],
       'GET /branches': ['/branches'],
       'GET /branches/directory': ['/branches/directory'],
       'GET /categories': ['/categories'],

@@ -602,3 +602,12 @@ Owner request of 2026-10-29 (after the trial on the hosted installation). Plan `
 |---|---|---|---|
 | D-ux2-1 | Which texts stay on screen | **Kept:** warnings about money, irreversible actions (seal, cancel, void, correction, transfer), security and re-authentication explanations needed to proceed, errors, empty states that say what to do. **Removed:** text that restates the label or the screen, and any description of how the system works inside (status codes such as AVAILABLE or RETURN, audit-event names such as PRICE_CHANGED, ledger movements, hashing). **Behind a "?":** background that is useful once (`HelpTip`: a disclosure button, Enter/Space/Escape, a tap; Escape closes only the help); long how-to lists (the printer set-up, adding a phone) are closed sections. **Permission codes** never show in the normal interface: the Users page shows each permission's Arabic name (`permission-labels.ts`, typed on the shared catalogue); the codes are in a closed "Technical codes" section for whoever can manage users (the General Manager). REH-1 checks that the cashier's screens and eight of the General Manager's carry no internal code, in both languages. No business, money or permission rule changed. | owner |
 
+## UX-3: fewer re-authentication prompts
+
+Owner request of 2026-10-29. Plan `docs/plans/UX-3.md`.
+
+| ID | Question | Decision | By |
+|---|---|---|---|
+| D-ux3-1 | How long one re-confirmation lasts | `security.reauthWindowMinutes` **default 15 minutes** (was 5, D-2a-0), range 1–30 unchanged, still the General Manager's setting. Reason: the owner was asked again at almost every step of setting up (karats, rates, branch, users), because a setup takes longer than 5 minutes; 15 minutes covers one such flow, while the sign-in session limits and the passkey requirement are unchanged. The window logic is one pure function of the clock passed in (`isFresh`, `windowUntil`), tested without the wall clock. | owner |
+| D-ux3-2 | Routes that ask only in one case | Declared in the route matrix with `reauthWhen: <the case>` (role or branch change, void above the amount, new passkey, new recovery codes), so the protected list is complete; nothing was removed from it. The error handler records a `REAUTH_REQUIRED` from a route declaring neither `reauth` nor `reauthWhen`, and every test file fails on one (`test/setup.ts`); a static test maps every call of the step-up check to a declared route. | owner |
+

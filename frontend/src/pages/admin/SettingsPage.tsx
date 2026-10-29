@@ -283,7 +283,7 @@ function SettingsForm() {
             <Field label={t('Maximum session length (hours)')}>
               {numberInput(draft.security.sessionAbsoluteHours, (n) => set('security', { sessionAbsoluteHours: n }), { min: 1, max: 24 })}
             </Field>
-            <Field label={t('Password re-confirmation valid for (minutes)')} hint={t('How long sensitive actions stay allowed after the password is re-entered (1–30)')}>
+            <Field label={t('Password re-confirmation valid for (minutes)')} hint={t('One confirmation covers every protected action for this many minutes (1–30, default 15).')}>
               {numberInput(draft.security.reauthWindowMinutes, (n) => set('security', { reauthWindowMinutes: n }), { min: 1, max: 30 })}
             </Field>
             <Field label={t('Shown as idle after (minutes)')}>

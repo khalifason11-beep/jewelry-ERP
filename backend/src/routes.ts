@@ -18,7 +18,7 @@ import { badRequest, forbidden, notFound } from './core/errors';
 import { writeAudit } from './core/audit';
 import { branchScope, isGlobal, requirePerm } from './authz';
 import { clientIp } from './auth/middleware';
-import { requireRecentReauth } from './auth/reauth';
+import { reauthState, requireRecentReauth } from './auth/reauth';
 import * as auth from './modules/auth/service';
 import * as sessions from './modules/sessions/service';
 import * as users from './modules/users/service';
@@ -205,6 +205,11 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     await setSessionCookie(res, result.token);
     const actor = (await sessions.loadActor(ctx.db, actorOf(req).userId, result.sessionId))!;
     res.json(await auth.me(ctx, actor));
+  });
+  route('GET', '/auth/reauth', async (req, res) => {
+    const actor = actorOf(req);
+    const s = await reauthState(ctx, ctx.db, actor.sessionId, actor.userId);
+    res.json({ password: s.factors.password, passkey: s.factors.passkey, hasPasskey: s.factors.hasPasskey, windowMinutes: s.windowMinutes, passwordUntil: s.passwordUntil, passkeyUntil: s.passkeyUntil });
   });
   route('POST', '/auth/reauth', async (req, res) => {
     const body = parse(z.object({ password: z.string().min(1).max(128) }).strict(), req.body);

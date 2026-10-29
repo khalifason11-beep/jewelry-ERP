@@ -1085,7 +1085,6 @@ export const AR: Record<string, string> = {
 
   // ── generated from translation sheets ──
   "Password re-confirmation valid for (minutes)": "صلاحية إعادة تأكيد كلمة المرور (دقائق)",
-  "How long sensitive actions stay allowed after the password is re-entered (1–30)": "المدة التي تبقى فيها الإجراءات الحساسة مسموحة بعد إعادة إدخال كلمة المرور (من 1 إلى 30)",
   "Invalid Idempotency-Key": "مفتاح عدم التكرار غير صالح",
   "This request needs an Idempotency-Key header": "هذا الطلب يحتاج إلى مفتاح عدم التكرار",
   "The same request is still being processed. Please wait.": "الطلب نفسه ما زال قيد المعالجة. يرجى الانتظار.",
@@ -2135,4 +2134,5 @@ export const AR: Record<string, string> = {
   'Account {names} is security-locked. Nobody can sign in to it until the system operator unlocks it on the server.': 'الحساب {names} مقفل لدواعٍ أمنية. لا يمكن لأحد الدخول إليه حتى يفتحه مشغّل النظام على الخادم.',
   'Accounts {names} are security-locked. Nobody can sign in to them until the system operator unlocks them on the server.': 'الحسابات {names} مقفلة لدواعٍ أمنية. لا يمكن لأحد الدخول إليها حتى يفتحها مشغّل النظام على الخادم.',
   'For the system operator: the server command is unlock-security-lock.': 'لمشغّل النظام: أمر الخادم هو unlock-security-lock.',
+  'One confirmation covers every protected action for this many minutes (1–30, default 15).': 'تأكيد واحد يكفي لكل العمليات المحمية خلال هذه الدقائق (1–30، الافتراضي 15).',
 };

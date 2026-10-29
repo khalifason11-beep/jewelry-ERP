@@ -75,6 +75,8 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/auth/logout', 'self'),
   r('POST', '/auth/change-password', 'self'),
   r('POST', '/auth/reauth', 'self'),
+  // UX-3: is the window still open, and until when (a flow asks once at its start; no data).
+  r('GET', '/auth/reauth', 'self'),
   // Passkeys and recovery codes (own account). Removing a passkey needs password + passkey step-up.
   r('POST', '/auth/reauth/passkey/options', 'self'),
   r('POST', '/auth/reauth/passkey/verify', 'self'),
