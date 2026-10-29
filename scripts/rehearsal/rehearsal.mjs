@@ -655,8 +655,11 @@ async function main() {
     check(JSON.stringify(inv0.allowedKarats) === '[21]' && inv0.allowedKaratsConfirmed === false, 'ALLOWED_KARATS_INITIAL=21 applied on the first start, not yet confirmed by the General Manager');
     await page.goto(`${origin}/overview`);
     await page.getByTestId('first-steps').waitFor({ timeout: 15_000 });
-    const stepState = async () => Object.fromEntries(await Promise.all(['karats', 'rates', 'branch', 'staff', 'fund'].map(async (k) => [k, await page.getAttribute(`[data-testid=step-${k}]`, 'data-done')])));
-    check(Object.values(await stepState()).every((v) => v === 'false'), 'the GM home shows the five first steps (karats, rates, branch, staff, fund the branch), none done');
+    const STEPS = ['branch', 'karats', 'rates', 'staff', 'opening', 'fund'];
+    const stepState = async () => Object.fromEntries(await Promise.all(STEPS.map(async (k) => [k, await page.getAttribute(`[data-testid=step-${k}]`, 'data-done')])));
+    const shownOrder = await page.locator('[data-testid=first-steps] li[data-testid^=step-]').evaluateAll((els) => els.map((e) => e.dataset.testid.slice(5)));
+    check(Object.values(await stepState()).every((v) => v === 'false') && JSON.stringify(shownOrder) === JSON.stringify(STEPS), `UX-4: the GM home shows six first steps in the owner's order (${shownOrder.join(', ')}), none done`);
+    check((await page.getAttribute('[data-testid=step-opening]', 'data-state')) === 'NOT_STARTED' && (await page.getAttribute('[data-testid=step-opening-action]', 'href')) === '/openings' && (await page.getAttribute('[data-testid=step-rates-action]', 'href')) === '/prices', 'UX-4: the opening balance is a step (not started, link to Opening balance); the rates step links to the Prices page');
     const chip = await page.getByTestId('rate-chip').innerText();
     check(/حدّد سعر اليوم/.test(chip) && !/—/.test(chip), 'the rate chip says "Set today’s rate" instead of "—/g"');
     check((await page.getByTestId('demo-badge').count()) === 0, 'production mode shows no "Demo" badge');
@@ -751,7 +754,9 @@ async function main() {
     check((await page.getByTestId('rates-history').locator('tbody tr').count()) === 3, 'the rate history shows the three changes, each with who and when');
     await page.goto(`${origin}/overview`);
     await page.waitForLoadState('networkidle');
-    check((await page.getByTestId('first-steps').count()) === 0 && /190,000/.test(await page.getByTestId('rate-chip').innerText()), 'gold rate set: all five first steps done, the checklist disappears and the rate chip shows the rate');
+    await page.getByTestId('step-opening').waitFor({ timeout: 15_000 });
+    const stepsLeft = Object.entries(await stepState()).filter(([, v]) => v === 'false').map(([k]) => k);
+    check(JSON.stringify(stepsLeft) === '["opening"]' && /190,000/.test(await page.getByTestId('rate-chip').innerText()), `gold rate set: five first steps done; only the opening balance is left (${stepsLeft.join(', ')}); the rate chip shows the rate`);
     await page.getByTestId('home-sales').waitFor({ timeout: 15_000 });
     const zeroHome = await page.locator('main').innerText();
     check(
@@ -1558,6 +1563,15 @@ async function main() {
       check(byCondition['21-NEW'] === `2/${4_100 + 11_750}` && byCondition['21-USED'] === `2/${3_400 + 9_500}`, `the review counts by karat and condition (21K new ${byCondition['21-NEW']}, 21K used ${byCondition['21-USED']})`);
       check(await page.getByTestId('opening-karat-21-USED').isVisible(), 'the review screen shows the 21K used group');
       check((await apiGet(page, `/api/reports/stock-weight?branchId=${branchId}`)).body.totals.itemsWeightMg === stockBefore, 'a draft is not stock: the stock weight is unchanged before the seal');
+      // UX-4: the draft is a first step again on the GM home, with what it means and the way to it.
+      await page.goto(`${origin}/overview`);
+      await page.getByTestId('step-opening').waitFor({ timeout: 15_000 });
+      check(
+        (await page.getAttribute('[data-testid=step-opening]', 'data-state')) === 'DRAFT' && (await page.getAttribute('[data-testid=step-opening-action]', 'href')) === `/openings/${openingId}` && /ليس في المخزون بعد/.test(await page.getByTestId('step-opening-body').innerText()),
+        'UX-4: a draft opening shows on the GM home: "not in stock yet: seal it so the cashier can sell it", with a link to the draft',
+      );
+      await page.goto(`${origin}/openings/${openingId}`);
+      await page.getByTestId('opening-seal').waitFor({ timeout: 15_000 });
       // UX-3: a stale password window used to bring a second password dialog after the seal dialog's own password.
       await sqlAs(`UPDATE sessions SET reauth_at = now() - interval '1 hour' WHERE user_id = (SELECT id FROM users WHERE username = $1)`, [GM.username]);
       await page.click('[data-testid=opening-seal]');
@@ -1571,6 +1585,29 @@ async function main() {
         return (await apiGet(page, `/api/openings/${openingId}`)).body.status === 'SEALED';
       }, 'the seal', 20_000);
       check(!secondPrompt, 'sealed with the password typed once and a passkey confirmation: no second password dialog (UX-3), though the window had expired');
+      await page.goto(`${origin}/overview`);
+      await page.getByTestId('home-sales').waitFor({ timeout: 15_000 });
+      check((await page.getByTestId('first-steps').count()) === 0, 'UX-4: once sealed, the opening step is done and the first steps are gone again');
+      // UX-4: an empty branch whose opening is still a draft: the point of sale says so in one line; the GM gets the link.
+      const rhc = (await apiSend(page, 'POST', '/api/branches', { code: 'RHC', name: 'Rehearsal Branch C', nameAr: 'فرع التجربة ج', city: 'Rehearsal City' })).body;
+      check((await apiSend(page, 'POST', '/api/openings', { branchId: rhc.id })).status === 200, 'a draft opening for an empty third branch');
+      check((await apiGet(page, `/api/inventory/items?branchId=${rhc.id}&status=AVAILABLE,RESERVED`)).body.openingDraft === true, 'UX-4: an empty items page of that branch says its opening is a draft (openingDraft)');
+      await page.goto(`${origin}/pos`);
+      await page.selectOption('[data-testid=pos-branch]', String(rhc.id));
+      await page.getByTestId('pos-opening-draft').waitFor({ timeout: 15_000 });
+      check(
+        (await page.getByTestId('pos-no-stock').count()) === 1 && /لم يُختم بعد/.test(await page.getByTestId('pos-opening-draft').innerText()) && (await page.getAttribute('[data-testid=pos-opening-link]', 'href')) === '/openings',
+        'UX-4: the empty point of sale of that branch says in one line that the opening balance is not sealed yet; the General Manager gets the link',
+      );
+      // A cashier of that branch reads the same line, without the link (the screen is the General Manager's).
+      const cashierC = (await apiSend(page, 'POST', '/api/users', { username: 'rehearsal.cashier.c', fullName: 'Rehearsal Cashier C', roleCode: 'CASHIER', branchId: rhc.id })).body;
+      const cctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1366, height: 768 } });
+      const cpage = await cctx.newPage();
+      await signIn(cpage, origin, cashierC.username, cashierC.temporaryPassword);
+      await changePassword(cpage, cashierC.temporaryPassword, 'Rehearsal-Cashier-C-2026');
+      await cpage.getByTestId('pos-opening-draft').waitFor({ timeout: 15_000 });
+      check((await cpage.getByTestId('pos-opening-link').count()) === 0, 'UX-4: the cashier of that branch sees the same line, without the link');
+      await cctx.close();
 
       // UX-3: a flow start with an expired window: one dialog (password, then the passkey by itself), then the form opens
       // without a second click; never a separate "Use my passkey" step.

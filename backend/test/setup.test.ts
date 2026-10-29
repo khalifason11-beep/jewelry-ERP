@@ -18,6 +18,9 @@ import { createUser } from '../src/modules/users/service';
 import { setScrapRates } from '../src/modules/scrap/service';
 import { companyDashboard } from '../src/modules/dashboard/service';
 import { correctFunding, recordAdvance } from '../src/modules/funding/service';
+import { createOpening } from '../src/modules/openings/service';
+import { createCategory, createSupplier } from '../src/modules/catalog/service';
+import { createPurchase } from '../src/modules/purchases/service';
 import { openTestDatabase } from './helpers';
 
 let handle: DatabaseHandle;
@@ -52,9 +55,11 @@ describe('a new system', () => {
 });
 
 describe('first-steps checklist (GM home)', () => {
-  it('starts with five open steps and closes each one only when the work is really done', async () => {
-    expect(await setupStatus(ctx, gm)).toMatchObject({ complete: false, steps: [{ key: 'karats' }, { key: 'rates' }, { key: 'branch' }, { key: 'staff' }, { key: 'fund' }] });
-    expect(await done()).toEqual({ karats: false, rates: false, branch: false, staff: false, fund: false });
+  it('starts with six open steps in the owner\'s order and closes each one only when the work is really done', async () => {
+    // UX-4: branch, karats, rates, users, opening balance, then funding.
+    expect((await setupStatus(ctx, gm)).steps.map((s) => s.key)).toEqual(['branch', 'karats', 'rates', 'staff', 'opening', 'fund']);
+    expect(await done()).toEqual({ branch: false, karats: false, rates: false, staff: false, opening: false, fund: false });
+    expect((await setupStatus(ctx, gm)).steps.find((s) => s.key === 'opening')).toEqual({ key: 'opening', done: false, state: 'NOT_STARTED' });
 
     // 1. Allowed karats: an explicit confirmation by the GM, audited.
     await confirmAllowedKarats(ctx, gm, [21]);
@@ -90,11 +95,45 @@ describe('first-steps checklist (GM home)', () => {
     await correctFunding(ctx, gm, wrong.id, { reason: 'test: recorded by mistake' });
     expect(await done()).toMatchObject({ fund: false });
     await recordAdvance(ctx, gm, { branchId: b.id, account: 'CASH', amount: 100_000, reason: 'test drawer float' });
+    // UX-4: everything but the opening balance: not complete yet; a draft keeps it open and points at itself; sealed, done.
+    expect(await done()).toMatchObject({ fund: true, opening: false });
+    expect(await setupStatus(ctx, gm)).toMatchObject({ complete: false });
+    const o = await createOpening(ctx, gm, { branchId: b.id });
+    expect((await setupStatus(ctx, gm)).steps.find((s) => s.key === 'opening')).toEqual({ key: 'opening', done: false, state: 'DRAFT', openingId: o.id });
+    await ctx.db.update(t.openings).set({ status: 'SEALED', sealedAt: new Date(), sealedBy: gm.userId }).where(eq(t.openings.id, o.id));
+    expect((await setupStatus(ctx, gm)).steps.find((s) => s.key === 'opening')).toEqual({ key: 'opening', done: true, state: 'SEALED' });
     expect(await setupStatus(ctx, gm)).toMatchObject({ complete: true });
     const b2 = await createBranch(ctx, gm, { code: 'OMD', name: 'Omdurman', nameAr: 'أم درمان', city: 'Omdurman' });
     expect(await done()).toMatchObject({ fund: false });
     await recordAdvance(ctx, gm, { branchId: b2.id, account: 'CASH', amount: 100_000, reason: 'test drawer float' });
     expect(await setupStatus(ctx, gm)).toMatchObject({ complete: true });
+  });
+
+  it('UX-4: without an opening, pieces received another way close the step (no opening needed); a draft never does', async () => {
+    const b = await createBranch(ctx, gm, { code: 'KRT', name: 'Khartoum', nameAr: 'الخرطوم', city: 'Khartoum' });
+    const opening = async () => (await setupStatus(ctx, gm)).steps.find((s) => s.key === 'opening');
+    expect(await opening()).toEqual({ key: 'opening', done: false, state: 'NOT_STARTED' });
+    // A supplier order brings the first pieces: the opening is not needed any more.
+    await confirmAllowedKarats(ctx, gm, [21]);
+    const type = await createCategory(ctx, gm, { nameAr: '[اختبار] خواتم' });
+    const supplier = await createSupplier(ctx, gm, { nameAr: '[اختبار] مورد' });
+    await createPurchase(ctx, gm, {
+      branchId: b.id,
+      supplierId: supplier.id,
+      confirmOpenSupplierDebt: true,
+      makingChargeReference: 'UX4-REF-1',
+      makingChargeTransferDate: '2026-10-29',
+      lines: [{ categoryId: type.id, karat: 21, grossWeightMg: 4_100, netWeightMg: 4_000, purchaseCost: 700_000, makingCost: 20_000, otherCost: 0 }],
+    });
+    expect(Number((await ctx.db.select({ n: count() }).from(t.jewelryItems))[0].n)).toBe(1);
+    expect(await opening()).toEqual({ key: 'opening', done: true, state: 'NOT_STARTED' });
+    const o = await createOpening(ctx, gm, { branchId: b.id });
+    expect(await opening()).toEqual({ key: 'opening', done: false, state: 'DRAFT', openingId: o.id });
+  });
+
+  it('UX-4: the opening step is only for whoever can enter the opening balance', async () => {
+    const without = { ...gm, permissions: new Set([...gm.permissions].filter((p) => p !== 'opening.manage')) } as typeof gm;
+    expect((await setupStatus(ctx, without)).steps.map((s) => s.key)).toEqual(['branch', 'karats', 'rates', 'staff', 'fund']);
   });
 
   it('only the General Manager sees or changes it', async () => {

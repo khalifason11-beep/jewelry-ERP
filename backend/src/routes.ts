@@ -7,7 +7,7 @@
 
 import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import { GOLD_RATE_KINDS, OPENING_CORRECTION_KINDS, TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, PAYMENT_METHODS, SCRAP_KINDS, PURCHASE_CORRECTION_FIELDS, CHANGE_REASON_MAX, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
@@ -515,7 +515,16 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     );
     // PRC-1 (D-prc1-7): the karat filter accepts the karats allowed in Settings, not a fixed list.
     if (q.karat != null && !(await ctx.settings.get()).inventory.allowedKarats.includes(q.karat)) throw badRequest('Invalid value for {field}', { field: 'karat' }, [{ path: 'karat', code: 'custom' }]);
-    res.json(await inventory.pageItems(ctx, actorOf(req), { ...q, status: q.status as never }));
+    const page = await inventory.pageItems(ctx, actorOf(req), { ...q, status: q.status as never });
+    // UX-4: an empty page of a branch whose opening balance is still a draft says so (the POS explains its empty grid).
+    // Always the branch the page was confined to: a branch-bound user's own branch, whatever the query says.
+    const branchId = actorOf(req).permissions.has('scope.all_branches') ? q.branchId : actorOf(req).branchId;
+    if (page.rows.length === 0 && branchId != null) {
+      const [draft] = await ctx.db.select({ id: t.openings.id }).from(t.openings).where(and(eq(t.openings.branchId, branchId), eq(t.openings.status, 'DRAFT')));
+      res.json({ ...page, openingDraft: !!draft });
+      return;
+    }
+    res.json(page);
   });
   route('GET', '/inventory/items/:id', async (req, res) => res.json(await inventory.getItemDetail(ctx, actorOf(req), parse(zId, req.params.id))));
   route('POST', '/inventory/items/:id/price', async (req, res) => {

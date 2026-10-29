@@ -1,6 +1,7 @@
 import { PAGE_SIZE_MAX, type Page } from '@jerp/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import clsx from 'clsx';
 import {
   ArrowRight,
@@ -75,7 +76,7 @@ export function PosPage() {
   const items = useQuery({
     queryKey: ['pos-items', branchId, dq, karat, category, sort],
     // BE-7: the largest page (200); the count shows every match and the search narrows them.
-    queryFn: () => get<Page<ItemRow>>('/inventory/items', { branchId, q: dq, karat, categoryId: category || undefined, sort, status: 'AVAILABLE,RESERVED', pageSize: PAGE_SIZE_MAX }),
+    queryFn: () => get<Page<ItemRow> & { openingDraft?: boolean }>('/inventory/items', { branchId, q: dq, karat, categoryId: category || undefined, sort, status: 'AVAILABLE,RESERVED', pageSize: PAGE_SIZE_MAX }),
     enabled: !!branchId,
     // Typing in the search keeps the shown pieces until the new answer arrives (no skeleton on every key).
     placeholderData: keepPreviousData,
@@ -274,7 +275,7 @@ export function PosPage() {
         <div className="border-b border-line bg-white px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
             {isGlobal && (
-              <Select value={branchId ?? ''} onChange={(e) => { setBranchId(Number(e.target.value)); setCart([]); }} className="w-44" aria-label={t('Branch')}>
+              <Select value={branchId ?? ''} onChange={(e) => { setBranchId(Number(e.target.value)); setCart([]); }} className="w-44" aria-label={t('Branch')} data-testid="pos-branch">
                 {branches.data?.map((b) => (
                   <option key={b.id} value={b.id}>{L(b.name, b.nameAr)}</option>
                 ))}
@@ -337,6 +338,13 @@ export function PosPage() {
                   title={t('No pieces in this branch yet')}
                   body={can('purchases.create') ? t('Receive a supplier order or buy scrap to add stock.') : can('scrap.buy') ? t('The General Manager records supplier orders; you can buy scrap to add stock.') : t('Ask your branch manager to receive stock.')}
                 />
+                {/* UX-4: a draft opening is not stock yet; say so in one line (the General Manager also gets the way there). */}
+                {items.data.openingDraft && (
+                  <p className="mt-2 text-center text-[13px] text-ink-700" data-testid="pos-opening-draft">
+                    {t('The opening balance of this branch is not sealed yet.')}{' '}
+                    {can('opening.manage') && <Link to="/openings" className="font-medium text-gold-700 hover:underline" data-testid="pos-opening-link">{t('Open the opening balance')}</Link>}
+                  </p>
+                )}
               </div>
             ) : (
               <Empty icon={<Search className="size-5" />} title={t('No matching pieces')} body={q ? t('Nothing in {branch} matches “{q}”.', { branch: branchName, q }) : t('No pieces match these filters.')} />

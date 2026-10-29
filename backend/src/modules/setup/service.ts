@@ -7,6 +7,9 @@
 //   5. CSH-2 (Q8): every active branch funded: an advance from the General Manager into its drawer (the drawer cannot
 //      pay out money it does not hold, Q7), so the first scrap purchase is not refused on day one
 // Every step is derived from real data; nothing here can be "ticked" without doing the step.
+// UX-4: the owner's order (branch, karats, rates, users, opening balance, then funding) and a sixth step, the opening
+// balance, for whoever can enter it (`opening.manage`): NOT_STARTED, DRAFT (not stock yet: seal it) or SEALED. It is
+// done when sealed, or when pieces already came in another way (no opening needed); a draft is never done.
 
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { t } from '@jerp/database';
@@ -18,7 +21,26 @@ import { writeAudit } from '../../core/audit';
 import { badRequest } from '../../core/errors';
 import { rows } from '../../core/sql';
 
-export type SetupStepKey = 'karats' | 'rates' | 'branch' | 'staff' | 'fund';
+export type SetupStepKey = 'branch' | 'karats' | 'rates' | 'staff' | 'opening' | 'fund';
+export type OpeningStepState = 'NOT_STARTED' | 'DRAFT' | 'SEALED';
+export interface SetupStep {
+  key: SetupStepKey;
+  done: boolean;
+  /** UX-4, the opening step only. */
+  state?: OpeningStepState;
+  /** UX-4, the opening step in DRAFT: the draft to open (the first one by id). */
+  openingId?: number;
+}
+
+/** UX-4: the opening balance step, from the openings and the stock. */
+export async function openingStep(ctx: Ctx): Promise<SetupStep> {
+  const openings = await ctx.db.select({ id: t.openings.id, status: t.openings.status }).from(t.openings).orderBy(t.openings.id);
+  const draft = openings.find((o) => o.status === 'DRAFT');
+  if (draft) return { key: 'opening', done: false, state: 'DRAFT', openingId: draft.id };
+  if (openings.some((o) => o.status === 'SEALED')) return { key: 'opening', done: true, state: 'SEALED' };
+  const [{ pieces }] = rows<{ pieces: boolean }>(await ctx.db.execute(sql`SELECT EXISTS (SELECT 1 FROM jewelry_items) AS pieces`));
+  return { key: 'opening', done: !!pieces, state: 'NOT_STARTED' };
+}
 
 /**
  * The first step "rates" and A16 (PRC-1, D-prc1-7): every allowed karat (any karat the setting accepts, no fixed list)
@@ -54,11 +76,12 @@ export async function setupStatus(ctx: Ctx, actor: Actor) {
         WHERE g.branch_id = b.id AND g.kind = 'ADVANCE' AND g.account = 'CASH'
           AND NOT EXISTS (SELECT 1 FROM gm_funding_events r WHERE r.reverses_event_id = g.id))`),
   );
-  const steps: { key: SetupStepKey; done: boolean }[] = [
+  const steps: SetupStep[] = [
+    { key: 'branch', done: Number(branches) > 0 },
     { key: 'karats', done: inventory.allowedKaratsConfirmed },
     { key: 'rates', done: await setupRatesDone(ctx) },
-    { key: 'branch', done: Number(branches) > 0 },
     { key: 'staff', done: roles.has('BRANCH_MANAGER') && roles.has('CASHIER') },
+    ...(actor.permissions.has('opening.manage') ? [await openingStep(ctx)] : []),
     { key: 'fund', done: Number(branches) > 0 && Number(unfunded) === 0 },
   ];
   return { complete: steps.every((s) => s.done), steps, allowedKarats: allowed };

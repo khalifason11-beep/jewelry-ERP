@@ -611,3 +611,11 @@ Owner request of 2026-10-29. Plan `docs/plans/UX-3.md`.
 | D-ux3-1 | How long one re-confirmation lasts | `security.reauthWindowMinutes` **default 15 minutes** (was 5, D-2a-0), range 1–30 unchanged, still the General Manager's setting. Reason: the owner was asked again at almost every step of setting up (karats, rates, branch, users), because a setup takes longer than 5 minutes; 15 minutes covers one such flow, while the sign-in session limits and the passkey requirement are unchanged. The window logic is one pure function of the clock passed in (`isFresh`, `windowUntil`), tested without the wall clock. | owner |
 | D-ux3-2 | Routes that ask only in one case | Declared in the route matrix with `reauthWhen: <the case>` (role or branch change, void above the amount, new passkey, new recovery codes), so the protected list is complete; nothing was removed from it. The error handler records a `REAUTH_REQUIRED` from a route declaring neither `reauth` nor `reauthWhen`, and every test file fails on one (`test/setup.ts`); a static test maps every call of the step-up check to a declared route. | owner |
 
+## UX-4: the opening balance as a first step
+
+Owner request of 2026-10-29. Plan `docs/plans/UX-4.md`.
+
+| ID | Question | Decision | By |
+|---|---|---|---|
+| D-ux4-1 | The first steps and the opening balance | Six steps in the owner's order: branch, karats, rates (every allowed karat, new and used with computed prices, and the scrap rate; the link goes to Prices), users, **opening balance**, funding (CSH-2's step, kept last). The opening step is only for whoever can enter the opening (`opening.manage`) and has a state: `NOT_STARTED`, `DRAFT` (any branch's draft; "not in stock yet: seal it so the cashier can sell it", link to the draft) or `SEALED`. **Done** when sealed, or when pieces came in another way (a supplier order or a bought piece: the opening is for stock held before the system); a draft is never done. An empty point-of-sale page of a branch with a draft says so in one line (`openingDraft` on an empty `GET /inventory/items` page, always for the branch the page was confined to); the General Manager also gets the link. No permission, money or stock rule changed. **Open question Q1** (whether a supplier order should close the step). | owner |
+
