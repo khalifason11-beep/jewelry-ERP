@@ -5,12 +5,17 @@
 //   * A→B and B→A confirmed at once, several rounds: no deadlock, both land;
 //   * a send to a branch and its deactivation at once: either the send is refused (inactive) or the deactivation is
 //     refused (money in transit); never a transfer to an inactive branch;
+//   * the same Idempotency-Key five times at once, for a send and for a confirm: one transfer, its entries once;
 //   * every round: Σ CASH + BANK + FUNDS_IN_TRANSIT of the branches involved is unchanged (no exit here).
 
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import request from 'supertest';
+import { and, eq } from 'drizzle-orm';
 import { t, type DatabaseHandle } from '@jerp/database';
+import { createApp } from '../../src/app';
 import { createContext } from '../../src/bootstrap';
+import { loadConfig } from '../../src/config';
 import type { Actor, Ctx } from '../../src/core/context';
 import { loadActor } from '../../src/modules/sessions/service';
 import { recordAdvance } from '../../src/modules/funding/service';
@@ -19,6 +24,7 @@ import { buyScrap } from '../../src/modules/scrap/service';
 import { updateBranch } from '../../src/modules/branches/service';
 import { cancelMoneyTransfer, confirmMoneyTransfer, sendMoneyTransfer } from '../../src/modules/money-transfers/service';
 import { seedWorld } from '../fixtures/world';
+import { DEMO_PASSWORDS } from '../fixtures/world-data';
 import { openTestDatabase, PG_MODE } from '../helpers';
 
 let handle: DatabaseHandle;
@@ -121,5 +127,35 @@ describe('money transfers racing', () => {
       for (const tr of inTransitToPzu) await cancelMoneyTransfer(ctx, bm.KRT, tr.id, { reason: 'race test cleanup' });
     }
     await ctx.db.update(t.branches).set({ isActive: true }).where(eq(t.branches.id, br.PZU));
+  }, 120_000);
+
+  it('the same Idempotency-Key five times at once: one transfer, one confirmation, the entries once', async () => {
+    const app = createApp(ctx, loadConfig({ APP_MODE: 'demo', VITEST: '1' } as NodeJS.ProcessEnv));
+    const agentOf = async (username: string) => {
+      const agent = request.agent(app);
+      const login = await agent.post('/api/auth/login').send({ username, password: DEMO_PASSWORDS.BRANCH_MANAGER });
+      expect(login.status).toBe(200);
+      agent.set('x-csrf-token', login.body.csrfToken);
+      return agent;
+    };
+    const [krt, omd] = [await agentOf('branch.manager.kh'), await agentOf('branch.manager.omd')];
+    const m0 = await money(br.KRT, br.OMD);
+    const key = randomUUID();
+    const body = { to: { branchId: br.OMD }, account: 'CASH', amount: 7_000, reason: 'five times at once' };
+    const sends = await Promise.all([1, 2, 3, 4, 5].map(() => krt.post('/api/money-transfers').set('Idempotency-Key', key).send(body)));
+    for (const r of sends) expect([200, 409]).toContain(r.status);
+    const sent = sends.filter((r) => r.status === 200);
+    expect(sent.length).toBeGreaterThanOrEqual(1);
+    expect(new Set(sent.map((r) => r.body.id)).size).toBe(1);
+    const id = sent[0].body.id as number;
+    expect((await ctx.db.select().from(t.moneyTransfers).where(eq(t.moneyTransfers.reason, 'five times at once')))).toHaveLength(1);
+    const ckey = randomUUID();
+    const confirms = await Promise.all([1, 2, 3, 4, 5].map(() => omd.post(`/api/money-transfers/${id}/confirm`).set('Idempotency-Key', ckey).send({ account: 'CASH' })));
+    for (const r of confirms) expect([200, 409]).toContain(r.status);
+    expect(confirms.some((r) => r.status === 200)).toBe(true);
+    const entries = await ctx.db.select().from(t.ledgerEntries).where(and(eq(t.ledgerEntries.refType, 'money_transfer'), eq(t.ledgerEntries.refId, id)));
+    expect(entries.map((e) => e.eventType).sort()).toEqual(['MONEY_TRANSFER_RECEIVED', 'MONEY_TRANSFER_RECEIVED', 'MONEY_TRANSFER_SENT', 'MONEY_TRANSFER_SENT']);
+    expect((await ctx.db.select().from(t.moneyTransferEvents).where(eq(t.moneyTransferEvents.transferId, id))).map((e) => e.kind).sort()).toEqual(['RECEIVED', 'SENT']);
+    expect(await money(br.KRT, br.OMD)).toBe(m0);
   }, 120_000);
 });
