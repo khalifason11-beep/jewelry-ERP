@@ -122,7 +122,7 @@ export const SCRAP_PAYMENT_METHODS = ['CASH', 'BANK_TRANSFER', 'SPLIT'] as const
 export type ScrapPaymentMethod = (typeof SCRAP_PAYMENT_METHODS)[number];
 
 /** Movements of the broken-scrap weight pool. */
-export const SCRAP_WEIGHT_EVENT_TYPES = ['SCRAP_PURCHASE', 'SUPPLIER_SETTLEMENT', 'REVERSAL'] as const;
+export const SCRAP_WEIGHT_EVENT_TYPES = ['SCRAP_PURCHASE', 'SUPPLIER_SETTLEMENT', 'REVERSAL', 'OPENING', 'OPENING_CORRECTION'] as const;
 export type ScrapWeightEventType = (typeof SCRAP_WEIGHT_EVENT_TYPES)[number];
 
 /** CSH-2 (D-csh-2): funding events between the General Manager and a branch; a REVERSAL corrects one of the others. */
@@ -215,6 +215,11 @@ export const AUDIT_ACTIONS = [
   // OPN-FIX: a piece of a sealed opening corrected or voided after the seal
   'OPENING_PIECE_CORRECTED',
   'OPENING_PIECE_VOIDED',
+  // OPN-3: the broken scrap of the opening (draft lines; a correction after the seal)
+  'OPENING_SCRAP_LINE_ADDED',
+  'OPENING_SCRAP_LINE_CHANGED',
+  'OPENING_SCRAP_LINE_REMOVED',
+  'OPENING_SCRAP_CORRECTED',
   'ITEM_TYPE_RENAMED',
   'USER_CREATED',
   'USER_UPDATED',

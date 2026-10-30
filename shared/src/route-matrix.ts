@@ -182,6 +182,11 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   // preview is read-only (no write, no Idempotency-Key).
   r('GET', '/openings/:id/pieces/:itemId/correction-preview', 'global', { all: ['opening.correct'] }),
   r('POST', '/openings/:id/pieces/:itemId/correction', 'global', { all: ['opening.correct'], reauth: true, idempotent: true, idempotencyInTx: true }),
+  // OPN-3: broken scrap of the opening (keyboard only) and its corrections after the seal (password + passkey).
+  r('POST', '/openings/:id/scrap-lines', 'global', { all: ['opening.manage'], idempotent: true, idempotencyInTx: true }),
+  r('POST', '/openings/:id/scrap-lines/:lineId', 'global', { all: ['opening.manage'], idempotent: true, idempotencyInTx: true }),
+  r('POST', '/openings/:id/scrap-lines/:lineId/remove', 'global', { all: ['opening.manage'], idempotent: true, idempotencyInTx: true }),
+  r('POST', '/openings/:id/scrap-corrections', 'global', { all: ['opening.correct'], reauth: true, idempotent: true, idempotencyInTx: true }),
   r('GET', '/scrap-pool', 'branch', { any: ['inventory.view', 'scrap.buy'] }),
   // MIS-1 (PUR-FIX): a correction of one piece's making cost or of the order's transfer reference (General Manager only).
   r('POST', '/purchases/:id/corrections', 'branch', { all: ['purchases.correct'], reauth: true, idempotent: true, idempotencyInTx: true }),

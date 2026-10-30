@@ -264,6 +264,13 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   },
   // ── OPN-2 (migration 0031): only an opening piece may be priced either way; scrap is USED, a supplier piece NEW.
   { name: 'ck_jewelry_items_rate_kind_origin', table: 'jewelry_items', expr: "(origin <> 'SCRAP' OR rate_kind = 'USED') AND (origin <> 'SUPPLIER_NEW' OR rate_kind = 'NEW')" },
+  // ── OPN-3 (migration 0037): the broken scrap of an opening and its corrections.
+  karat('opening_scrap_lines'),
+  { name: 'ck_opening_scrap_lines_weight_positive', table: 'opening_scrap_lines', expr: 'weight_mg > 0' },
+  { name: 'ck_opening_scrap_lines_note', table: 'opening_scrap_lines', expr: 'note IS NULL OR length(btrim(note)) BETWEEN 1 AND 120' },
+  karat('opening_scrap_corrections'),
+  { name: 'ck_opening_scrap_corrections_weight_nonzero', table: 'opening_scrap_corrections', expr: 'weight_mg_change <> 0' },
+  { name: 'ck_opening_scrap_corrections_reason', table: 'opening_scrap_corrections', expr: 'length(btrim(reason)) BETWEEN 3 AND 200' },
   // ── PAY-1 (migration 0033): the payment lines of a sale (D-pay1-1); the 1–2 lines and their sum are checked at commit
   // (0035, trigger jerp_sale_payments_check). 0035 replaces ck_sales_hasad_reference and ck_sales_bank_transfer_reference
   // (FIX-2) with the references check of the lines.

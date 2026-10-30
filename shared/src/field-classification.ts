@@ -120,6 +120,9 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   openings: { safe: words('id branch_id status created_by created_at sealed_by sealed_at session_id') },
   opening_lines: { safe: words('id opening_id line_no category_id description karat gross_weight_mg net_weight_mg source import_id item_id created_by created_at condition') },
   opening_imports: { safe: words('id opening_id file_name sha256 row_count created_by created_at') },
+  // OPN-3: the broken scrap of an opening (weights only: SAFE; the opening is the General Manager's anyway).
+  opening_scrap_lines: { safe: words('id opening_id line_no karat weight_mg note created_by created_at updated_by updated_at') },
+  opening_scrap_corrections: { safe: words('id opening_id branch_id karat weight_mg_change reason corrected_by session_id created_at') },
   // OPN-FIX: none of these is a cost (the opening piece's cost stays unknown and is never written here).
   opening_piece_corrections: {
     safe: words('id item_id opening_id branch_id kind condition_before condition_after karat_before karat_after gross_weight_mg_before gross_weight_mg_after net_weight_mg_before net_weight_mg_after reason corrected_by session_id created_at'),
@@ -172,6 +175,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     used pricing roundingStep rateKind priceMissing pricingMode
     sealedAt lineCount importId duplicate fileName byType imports lineNo source pieces firstCode lastCode errors errorCount column
     condition byKaratCondition openingId
+    scrap scrapLines scrapCorrections scrapNow scrapWeightMg weightMgChange changes removedLineNo
     openingCorrections conditionBefore conditionAfter karatBefore karatAfter grossWeightMgBefore grossWeightMgAfter
     netWeightMgBefore netWeightMgAfter before after sellingPriceBefore sellingPriceAfter valuationChange stockWeightChangeMg
     stockCountChange now sold

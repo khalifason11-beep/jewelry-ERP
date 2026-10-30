@@ -11,6 +11,9 @@
 //     and barcode in the sheet's order (D-opn1-1), origin OPENING, cost UNKNOWN (NULL, never 0), price from the
 //     new-piece rate, an ADJUSTMENT +1 movement with a NULL cost value; no cash, no ledger entry. Then nothing changes:
 //     the service answers 409 OPENING_SEALED and the triggers of migration 0026 refuse it in the database too.
+//   * OPN-3 (D-opn3-*): the draft also holds broken scrap (weight per karat, ./scrap.ts); the seal posts it into the
+//     branch's pool in the same transaction. An opening with only broken scrap may be sealed (owner Q5); the piece
+//     checks (computed prices, rates) apply only when there are pieces.
 
 import { createHash } from 'node:crypto';
 import { and, asc, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
@@ -29,6 +32,7 @@ import { reauthenticate } from '../auth/service';
 import { cleanDescription } from '../catalog/service';
 import { currentSellingRates, lockPricingShared, rateKey } from '../pricing/service';
 import { openingCorrectionsOf } from './corrections';
+import { postOpeningScrap, scrapCorrectionsOf, scrapLineCount, scrapLinesOf, scrapNowOf, scrapSummaryOf } from './scrap';
 
 /** At most this many rows in one file (plan §5: about 550 kB for a typical sheet; the route limits the body to 1 MB). */
 export const OPENING_IMPORT_MAX_ROWS = 5_000;
@@ -209,6 +213,8 @@ export async function listOpenings(ctx: Ctx, actor: Actor) {
       sealedAt: t.openings.sealedAt,
       lineCount: sql<number>`(select count(*) from opening_lines ol where ol.opening_id = "openings"."id")`.mapWith(Number),
       netWeightMg: sql<number>`(select coalesce(sum(ol.net_weight_mg), 0) from opening_lines ol where ol.opening_id = "openings"."id")`.mapWith(Number),
+      // OPN-3: the broken scrap entered (or sealed) in it.
+      scrapWeightMg: sql<number>`(select coalesce(sum(sl.weight_mg), 0) from opening_scrap_lines sl where sl.opening_id = "openings"."id")`.mapWith(Number),
     })
     .from(t.openings);
   const byBranch = new Map(openings.map((o) => [o.branchId, o]));
@@ -305,7 +311,11 @@ export async function getOpening(ctx: Ctx, actor: Actor, id: number, q: PageRequ
     status: opening.status,
     createdAt: opening.createdAt,
     sealedAt: opening.sealedAt,
-    summary: await summaryOf(ctx.db, id),
+    summary: { ...(await summaryOf(ctx.db, id)), scrap: await scrapSummaryOf(ctx.db, id) },
+    // OPN-3: the broken scrap lines (a few per branch: all of them), and once sealed its corrections and its value now.
+    scrapLines: await scrapLinesOf(ctx.db, id),
+    scrapCorrections: opening.status === 'SEALED' ? await scrapCorrectionsOf(ctx.db, id) : [],
+    scrapNow: opening.status === 'SEALED' ? await scrapNowOf(ctx.db, id) : null,
     // OPN-FIX: once sealed, the pieces as they are now and the corrections after the seal.
     now: opening.status === 'SEALED' ? await nowOf(ctx.db, id) : null,
     corrections: opening.status === 'SEALED' ? await openingCorrectionsOf(ctx.db, { openingId: id }) : [],
@@ -585,8 +595,11 @@ export async function exportOpeningCsv(ctx: Ctx, actor: Actor, id: number) {
 export async function sealOpening(ctx: Ctx, actor: Actor, id: number, input: { confirmPassword?: string }, opts: { at?: Date; idem?: TxIdempotency } = {}) {
   requirePerm(actor, 'opening.manage');
   const settings = await ctx.settings.get();
+  // OPN-3: the piece rules below apply only to an opening with pieces (one with broken scrap only may be sealed, Q5).
+  // Read before the transaction so a refusal never spends a password attempt; re-read under the lock below.
+  const [{ n: pieceLines }] = await ctx.db.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(t.openingLines).where(eq(t.openingLines.openingId, id));
   // D-opn1-4: opening pieces carry no tag price; they sell at the new-piece rate (computed prices only).
-  if (settings.pricing.mode !== 'RATE_COMPUTED') {
+  if (pieceLines > 0 && settings.pricing.mode !== 'RATE_COMPUTED') {
     throw new AppError(409, 'OPENING_NEEDS_COMPUTED_PRICES', 'Switch on computed prices (price per gram) before sealing: opening pieces have no tag price');
   }
   if (!input.confirmPassword) throw new AppError(403, 'CONFIRM_PASSWORD_REQUIRED', 'Enter your password to confirm');
@@ -606,7 +619,10 @@ export async function sealOpening(ctx: Ctx, actor: Actor, id: number, input: { c
       .from(t.openingLines)
       .where(eq(t.openingLines.openingId, id))
       .orderBy(sql`${t.openingLines.importId} IS NULL`, asc(t.openingLines.importId), asc(t.openingLines.lineNo));
-    if (!lines.length) throw new AppError(422, 'OPENING_EMPTY', 'The opening has no pieces: enter or import them first');
+    if (!lines.length && !(await scrapLineCount(tx, id))) throw new AppError(422, 'OPENING_EMPTY', 'The opening has no pieces and no broken scrap: enter them first');
+    if (lines.length && settings.pricing.mode !== 'RATE_COMPUTED') {
+      throw new AppError(409, 'OPENING_NEEDS_COMPUTED_PRICES', 'Switch on computed prices (price per gram) before sealing: opening pieces have no tag price');
+    }
     // OPN-2 (D-opn2-4): every karat and condition in the draft needs its current selling rate, or its pieces would have
     // no price. Read under the pricing lock (shared), as a sale does, so a rate change cannot slip in between.
     await lockPricingShared(tx);
@@ -631,7 +647,7 @@ export async function sealOpening(ctx: Ctx, actor: Actor, id: number, input: { c
         { missing },
       );
     }
-    const codes = await nextItemCodes(tx, lines.length);
+    const codes = lines.length ? await nextItemCodes(tx, lines.length) : [];
     const ref = { refType: 'opening', refId: opening.id, refNumber: `OPN-${branch.code}` };
     const note = 'Opening balance';
     for (let i = 0; i < lines.length; i += CHUNK) {
@@ -675,19 +691,28 @@ export async function sealOpening(ctx: Ctx, actor: Actor, id: number, input: { c
         FROM (VALUES ${sql.join(made.map(({ line, item }) => sql`(${line.id}::int, ${item.id}::int)`), sql`, `)}) AS v(id, item_id)
         WHERE ol.id = v.id`);
     }
+    // OPN-3: the broken scrap into the branch's pool (one OPENING movement per line), before the opening is SEALED.
+    const scrap = await postOpeningScrap(tx, actor, opening, branch.code, at, opts.idem?.key);
     await tx.update(t.openings).set({ status: 'SEALED', sealedBy: actor.userId, sealedAt: at, sessionId: actor.sessionId ?? null }).where(eq(t.openings.id, id));
     const { byKarat, total } = await summaryOf(tx, id);
+    const firstCode = codes[0]?.code ?? null;
+    const lastCode = codes[codes.length - 1]?.code ?? null;
+    const scrapWeight = ap.list(scrap.byKarat.map((k) => ap.phrase('{weight} {karat}', { weight: ap.mg(k.weightMg), karat: ap.karat(k.karat) })));
     await writeAudit(tx, actor, {
       action: 'OPENING_SEALED',
       entityType: 'opening',
       entityId: id,
       branchId: branch.id,
       at,
-      key: 'Opening of {branch} sealed: {n} piece(s), {weight}, codes {first} to {last}',
-      params: { branch: ap.text(branch.name, branch.nameAr), n: total.count, weight: ap.mg(total.netWeightMg), first: codes[0].code, last: codes[codes.length - 1].code },
-      metadata: { pieces: total.count, netWeightMg: total.netWeightMg, byKarat, firstCode: codes[0].code, lastCode: codes[codes.length - 1].code, passkeyUv: f.passkeyUv },
+      key: !scrap.lines
+        ? 'Opening of {branch} sealed: {n} piece(s), {weight}, codes {first} to {last}'
+        : total.count
+          ? 'Opening of {branch} sealed: {n} piece(s), {weight}, codes {first} to {last}; broken scrap {scrap}'
+          : 'Opening of {branch} sealed: no pieces; broken scrap {scrap}',
+      params: { branch: ap.text(branch.name, branch.nameAr), n: total.count, weight: ap.mg(total.netWeightMg), first: firstCode ?? '', last: lastCode ?? '', ...(scrap.lines ? { scrap: scrapWeight } : {}) },
+      metadata: { pieces: total.count, netWeightMg: total.netWeightMg, byKarat, firstCode, lastCode, scrap, passkeyUv: f.passkeyUv },
     });
-    const result = { id, status: 'SEALED' as const, pieces: total.count, netWeightMg: total.netWeightMg, byKarat, firstCode: codes[0].code, lastCode: codes[codes.length - 1].code, sealedAt: at };
+    const result = { id, status: 'SEALED' as const, pieces: total.count, netWeightMg: total.netWeightMg, byKarat, firstCode, lastCode, scrap, sealedAt: at };
     await opts.idem?.complete(tx, result);
     return result;
   });

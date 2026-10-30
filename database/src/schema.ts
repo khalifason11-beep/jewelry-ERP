@@ -551,6 +551,53 @@ export const openingPieceCorrections = pgTable(
   (t) => [index('opening_piece_corrections_item_idx').on(t.itemId, t.id), index('opening_piece_corrections_opening_idx').on(t.openingId, t.id)],
 );
 
+/**
+ * OPN-3 (D-opn3-*): a line of broken scrap in a draft opening: weight only, per karat (any karat 1–24), never a piece,
+ * no cost, no price. Typed in only (no CSV). Sealing posts one OPENING movement per line into the branch's pool
+ * (`scrap_weight_entries`); then the line never changes (the trigger `jerp_opening_scrap_line_check`).
+ */
+export const openingScrapLines = pgTable(
+  'opening_scrap_lines',
+  {
+    id: serial('id').primaryKey(),
+    openingId: integer('opening_id').notNull().references(() => openings.id),
+    lineNo: integer('line_no').notNull(),
+    karat: smallint('karat').notNull(),
+    /** The net weight, whole mg, > 0. */
+    weightMg: integer('weight_mg').notNull(),
+    /** Optional, at most 120 characters ("bag 3"). */
+    note: text('note'),
+    createdBy: integer('created_by').notNull().references(() => users.id),
+    createdAt: createdAt(),
+    updatedBy: integer('updated_by').references(() => users.id),
+    updatedAt: ts('updated_at'),
+  },
+  (t) => [uniqueIndex('opening_scrap_lines_no_uq').on(t.openingId, t.lineNo)],
+);
+
+/**
+ * OPN-3 (D-opn3-*): a correction of the broken scrap of a SEALED opening: a signed weight change at one karat, posted
+ * to the pool as an OPENING_CORRECTION movement. Append-only; a karat move is two rows of one request.
+ */
+export const openingScrapCorrections = pgTable(
+  'opening_scrap_corrections',
+  {
+    id: serial('id').primaryKey(),
+    openingId: integer('opening_id').notNull().references(() => openings.id),
+    /** The opening's branch (the pool the change goes to). */
+    branchId: integer('branch_id').notNull().references(() => branches.id),
+    karat: smallint('karat').notNull(),
+    /** Signed mg, never 0. */
+    weightMgChange: integer('weight_mg_change').notNull(),
+    /** Why (3–200 characters after trimming). */
+    reason: text('reason').notNull(),
+    correctedBy: integer('corrected_by').notNull().references(() => users.id),
+    sessionId: text('session_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('opening_scrap_corrections_opening_idx').on(t.openingId, t.id)],
+);
+
 // ───────────────────────────── Sales ─────────────────────────────
 
 export const sales = pgTable(

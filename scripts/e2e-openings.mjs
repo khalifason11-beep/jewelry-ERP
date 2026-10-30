@@ -128,6 +128,31 @@ async function opening(page, gm, world) {
   check(/1/.test(await k21u.innerText()) && (await k21u.innerText()).includes('5.500'), `the summary: 21K used, 1 piece, 5.500 g net (${(await k21u.innerText()).replace(/\s+/g, ' ')})`);
   await shot(page, 'review');
 
+  // OPN-3: broken scrap typed in (karat, net weight, an optional note), edited and removed; the totals per karat and
+  // the total gold (pieces + scrap) follow.
+  const scrapRows = () => page.getByTestId('opening-scrap-lines').locator('tbody tr');
+  const addScrap = async (karat, grams, note) => {
+    await page.selectOption('[data-testid=opening-scrap-karat]', String(karat));
+    await page.fill('[data-testid=opening-scrap-weight]', grams);
+    await page.fill('[data-testid=opening-scrap-note]', note);
+    await page.click('[data-testid=opening-scrap-add]');
+  };
+  check(await page.getByTestId('opening-scrap-add').isDisabled(), 'broken scrap: Add is grey until a karat and a weight are given');
+  await addScrap(21, '10.5', 'كيس 1');
+  check(await eventually(async () => (await scrapRows().count()) === 1), 'a broken-scrap line of 21K is added');
+  await addScrap(18, '2', '');
+  await addScrap(22, '1', '');
+  check(await eventually(async () => (await scrapRows().count()) === 3), 'two more lines (18K, 22K: any karat)');
+  await page.click('[data-testid=opening-scrap-edit-2]');
+  await page.fill('[data-testid=opening-scrap-edit-weight]', '3');
+  await page.click('[data-testid=opening-scrap-edit-save]');
+  check(await eventually(async () => (await page.getByTestId('opening-scrap-line-2').innerText()).includes('3.000')), 'a line is edited (18K: 2 g → 3 g)');
+  await page.click('[data-testid=opening-scrap-remove-3]');
+  check(await eventually(async () => (await scrapRows().count()) === 2), 'a line is removed');
+  check(await eventually(async () => (await page.getByTestId('opening-scrap-total-weight').innerText()).includes('13.500')), `the scrap total: 13.500 g (${await page.getByTestId('opening-scrap-total-weight').innerText()})`);
+  check((await page.getByTestId('opening-gold-all').innerText()).includes('26.000'), `the total gold: pieces 12.500 g + scrap 13.500 g = 26.000 g (${(await page.getByTestId('opening-gold-all').innerText()).replace(/\s+/g, ' ')})`);
+  await shot(page, 'scrap-draft');
+
   // The draft's export imports again (the sheet's columns).
   const exported = await page.evaluate(async (u) => (await fetch(u)).text(), `/api/openings/${id}/export`);
   check(exported.includes('النوع / Type') && exported.includes('الحالة / Condition') && exported.split(/\r\n/).filter(Boolean).length === 4, 'the draft exports as CSV (header with the condition + 3 rows)');
@@ -141,6 +166,9 @@ async function seal(page, gm, cashierApi, world, id) {
   check(await confirm.isDisabled(), 'Seal is grey with no password and no passkey');
   const sealSummary = await page.getByTestId('opening-seal-summary').innerText();
   check(sealSummary.includes('12.500') && sealSummary.includes('مستعمل') && sealSummary.includes('5.500'), `the dialog shows the count and weight by karat and condition (${sealSummary.replace(/\s+/g, ' ')})`);
+  const sealScrap = await page.getByTestId('opening-seal-scrap').innerText();
+  check(sealScrap.includes('13.500') && sealScrap.includes('10.500') && sealScrap.includes('3.000'), `OPN-3: the dialog shows the broken scrap by karat (${sealScrap.replace(/\s+/g, ' ')}) and the total gold`);
+  const poolBefore = (await gm.must('GET', `/scrap-pool?branchId=${world.branchId}`)).weightMg;
   await page.fill('[data-testid=opening-seal-password]', world.gm.password);
   check(await confirm.isDisabled(), 'the password alone keeps Seal grey');
   await page.click('[data-testid=opening-seal-passkey]');
@@ -153,7 +181,27 @@ async function seal(page, gm, cashierApi, world, id) {
   await page.reload();
   check(await eventually(async () => /J-\d+/.test(await rowsOf(page).first().innerText())), 'the lines show their system codes');
   check((await page.getByTestId('opening-keyboard').count()) === 0 && (await page.getByTestId('opening-seal').count()) === 0, 'nothing can be added any more (no entry, no seal)');
+  // OPN-3: the scrap is in the branch's pool once; the sealed page shows it and has no entry form any more.
+  check((await gm.must('GET', `/scrap-pool?branchId=${world.branchId}`)).weightMg - poolBefore === 13_500, 'OPN-3: the seal put the 13.500 g of broken scrap into the branch pool');
+  check((await page.getByTestId('opening-scrap-sealed').count()) === 1 && (await page.getByTestId('opening-scrap-add').count()) === 0, 'OPN-3: the sealed page shows the broken scrap, without the entry form');
   await shot(page, 'sealed');
+  // OPN-3: a correction of the scrap through its dialog: 0.5 g of 21K less (reason, password, passkey).
+  await page.click('[data-testid=opening-scrap-correct]');
+  await page.selectOption('[data-testid=opening-scrap-correct-kind]', 'REMOVE');
+  await page.selectOption('[data-testid=opening-scrap-correct-karat]', '21');
+  await page.fill('[data-testid=opening-scrap-correct-weight]', '0.5');
+  await page.fill('[data-testid=opening-scrap-correct-reason]', 'وُزن مرة أخرى');
+  await page.fill('[data-testid=opening-scrap-correct-password]', world.gm.password);
+  const fixConfirm = page.getByTestId('opening-scrap-correct-confirm');
+  check(await fixConfirm.isDisabled(), 'the scrap correction waits for the passkey');
+  await page.click('[data-testid=opening-scrap-correct-passkey]');
+  await confirmIfAsked(page, world.gm.password);
+  check(await eventually(async () => !(await fixConfirm.isDisabled())), 'after the passkey the correction can be saved');
+  await fixConfirm.click();
+  await confirmIfAsked(page, world.gm.password);
+  check(await eventually(async () => (await gm.must('GET', `/scrap-pool?branchId=${world.branchId}`)).weightMg - poolBefore === 13_000, 15_000), 'OPN-3: the correction took 0.5 g of 21K out of the pool');
+  check(await eventually(async () => (await page.getByTestId('opening-scrap-corrections').locator('tbody tr').count()) === 1), 'OPN-3: the sealed page lists the correction');
+  await shot(page, 'scrap-corrected');
 
   // In stock, as "Opening balance", with an unknown cost.
   const items = (await gm.must('GET', `/inventory/items?branchId=${world.branchId}&origin=OPENING`)).rows;

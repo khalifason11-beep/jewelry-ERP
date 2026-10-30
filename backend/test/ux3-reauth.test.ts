@@ -34,6 +34,7 @@ const SERVICE_STEP_UPS: Record<string, { fn: string; routes: string[] }[]> = {
   ],
   'modules/openings/service.ts': [{ fn: 'sealOpening', routes: ['POST /openings/:id/seal'] }],
   'modules/openings/corrections.ts': [{ fn: 'correctOpeningPiece', routes: ['POST /openings/:id/pieces/:itemId/correction'] }],
+  'modules/openings/scrap.ts': [{ fn: 'correctOpeningScrap', routes: ['POST /openings/:id/scrap-corrections'] }],
 };
 /** Files that define or relay the check (not a route of their own). */
 const INFRASTRUCTURE = ['auth/reauth.ts', 'core/guard.ts'];
@@ -74,8 +75,8 @@ describe('UX-3: the step-up check is only ever reached from a declared route (st
     );
   });
 
-  it('the protected list: 20 routes always, 5 in one case each', () => {
-    expect(ROUTE_MATRIX.filter((r) => r.reauth).length).toBe(20);
+  it('the protected list: 21 routes always (OPN-3 added the opening scrap correction), 5 in one case each', () => {
+    expect(ROUTE_MATRIX.filter((r) => r.reauth).length).toBe(21);
     expect(ROUTE_MATRIX.filter((r) => r.reauthWhen).map((r) => routeId(r.method, r.path)).sort()).toEqual(
       ['PATCH /users/:id', 'POST /auth/passkeys/register/options', 'POST /auth/passkeys/register/verify', 'POST /auth/recovery-codes', 'POST /sales/:id/void'].sort(),
     );

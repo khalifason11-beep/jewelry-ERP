@@ -449,6 +449,22 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   `OPENING_NEEDS_COMPUTED_PRICES` (a condition or karat correction on FIXED_TAG), `CORRECTION_REASON_REQUIRED`,
   `CONFIRM_PASSWORD_REQUIRED`, `PASSKEY_REQUIRED`, `REAUTH_REQUIRED`.
 
+### OPN-3: broken scrap in the opening balance (migration 0037)
+
+- **0037** adds `opening_scrap_lines` (the draft's broken scrap) and the append-only `opening_scrap_corrections`, and
+  widens the pool's movement types with `OPENING` and `OPENING_CORRECTION` (the CHECK is replaced, D-opn3-1; no row
+  changes). Additive: nothing stops the upgrade, and no existing opening or pool balance moves.
+- Routes (General Manager; Idempotency-Key on every write): `POST /api/openings/:id/scrap-lines` (karat 1–24, net weight
+  in mg, optional note ≤ 120), `POST /api/openings/:id/scrap-lines/:lineId` (edit) and `…/remove` while the opening is a
+  draft; the existing `POST /api/openings/:id/seal` also posts the broken scrap into the branch's pool;
+  `POST /api/openings/:id/scrap-corrections` (`opening.correct`: one change, or two for a karat move; reason, the
+  password in the request and a fresh passkey). Keyboard only: there is no CSV for broken scrap (owner, Q7).
+- An opening with broken scrap only can be sealed; then computed prices and rates are not needed.
+- error codes: `OPENING_NOT_SEALED` (409, a correction of a draft), `OPENING_SCRAP_CORRECTION_TOO_LARGE` (409, more out
+  than the opening put in for that karat), `OPENING_LINE_UNCHANGED` (422); and the existing `OPENING_SEALED`,
+  `OPENING_EMPTY` (no pieces and no broken scrap), `SCRAP_POOL_SHORT`, `CORRECTION_REASON_REQUIRED`,
+  `CONFIRM_PASSWORD_REQUIRED`, `PASSKEY_REQUIRED`, `REAUTH_REQUIRED`.
+
 ### PAY-1: split payments and Hasad as a sales channel only (migrations 0033–0036)
 
 - **0033** adds the append-only table `sale_payments` (one or two payment lines per sale) and the `SPLIT` label of

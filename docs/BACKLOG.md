@@ -223,6 +223,16 @@ is AVAILABLE: void it (VOIDED, as MIS-1 does for a scrap piece) or correct its w
 password, audited, never by editing history (status history, ADJUSTMENT movements). Not built by OPN-1, which adds a
 review screen and a CSV export of the draft so mistakes are caught before the seal.
 
+### OPN-3 — Broken scrap in the opening balance · DONE · S · P0 (before real operation) · OPN-1
+**Done (plan `docs/plans/OPN-3.md`, owner decisions of 2026-10-30, D-opn3-1…4, migration 0037,
+`docs/acceptance/OPN-3.md`):** the opening draft holds the branch's broken scrap (any karat 1–24, the net weight, an
+optional note; several lines of a karat; typed in only), sealed in the same step (password and passkey once) into the
+branch's scrap pool as OPENING movements, so a supplier can be settled on day one; an opening of broken scrap only can be
+sealed. The totals, the checklist, the seal dialog and the sealed page show pieces, broken scrap and the 24K equivalent.
+Corrections after the seal (General Manager, `opening.correct`): less, more or a karat move, never beyond what the opening
+put in or below the pool. **Not built:** a CSV for broken scrap (owner Q7); part B, a damaged piece into the pool (plan
+§12, waits for the client's answers).
+
 ### LBL-1 — Barcode labels for physical pieces · DEFERRED (Q-9: labels later) · M · P3
 Print a label (code, karat, weight, Code128 or QR) for each piece, from the opening import and from every receipt. Needs the printer model and label size.
 

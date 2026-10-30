@@ -53,6 +53,8 @@
 | `openings` | OPN-1 (0026): one per branch (UNIQUE `branch_id`), DRAFT → SEALED once (`sealed_by`, `sealed_at`); never changed after the seal or deleted (trigger) |
 | `opening_lines` | OPN-1: the draft, not stock: type, description, karat, `condition` (NEW, USED; required on every new line by the trigger, OPN-2; NULL only on lines sealed before OPN-2), weights, `source` (KEYBOARD, IMPORT), `import_id`, and `item_id` once sealed; no change to a sealed opening's lines (trigger) |
 | `opening_piece_corrections` | OPN-FIX, append-only: a correction (condition, karat, weights) or a void of a piece of a sealed opening: before and after values, reason, who, when, the session and the branch the piece was in; the piece row carries the effective values (trigger: the piece is a line of that sealed opening) |
+| `opening_scrap_lines` | OPN-3 (0037): the broken scrap of a draft opening, typed in only: `line_no`, `karat` (any 1–24), `weight_mg` (net, > 0), optional `note` (≤ 120); several lines of a karat allowed; no cost, no price. The seal posts one OPENING movement per line into the branch's pool; no change to a sealed opening's lines (trigger `jerp_opening_scrap_line_check`) |
+| `opening_scrap_corrections` | OPN-3, append-only: a correction of a sealed opening's broken scrap: `karat`, `weight_mg_change` (signed, ≠ 0), `reason`, who, when, the session and the opening's branch; posted to the pool as an OPENING_CORRECTION movement (trigger: a sealed opening of that branch) |
 | `opening_imports` | OPN-1, append-only: each CSV file imported (name, SHA-256, rows, who, when); the same file twice changes nothing (UNIQUE `opening_id, sha256`) |
 | `transfers`, `transfer_items` | Transfers between branches: IN_TRANSIT → RECEIVED, `courier_name` (0019) |
 
@@ -73,7 +75,7 @@
 | `supplier_settlements` | Append-only: a settlement visit, in which broken scrap (karat, weight, pure 24K) reduces `gold_owed_mg_pure24` |
 | `scrap_rates` | Append-only rate history per karat; the latest row is current |
 | `scrap_purchases` | Append-only: scrap bought from a customer (see below) |
-| `scrap_weight_entries` | Append-only movements of the broken-scrap pool, per branch and karat (SCRAP_PURCHASE, SUPPLIER_SETTLEMENT, REVERSAL) |
+| `scrap_weight_entries` | Append-only movements of the broken-scrap pool, per branch and karat (SCRAP_PURCHASE, SUPPLIER_SETTLEMENT, REVERSAL; OPENING and OPENING_CORRECTION from the opening balance, OPN-3) |
 | `scrap_purchase_voids` | Append-only (MIS-1, migration 0025): the void of a scrap purchase, at most one per purchase (`purchase_id` UNIQUE), with `reason`, `voided_by`, `session_id`, `created_at` |
 | `purchase_corrections` | Append-only (MIS-1, migration 0025): corrections of a supplier order (see below) |
 
@@ -159,7 +161,7 @@ These tables are protected by triggers (`jerp_forbid_modification`, against UPDA
 PostgreSQL, the runtime role's privileges are also removed (`jerp_lock_append_only`):
 
 `audit_logs`, `backup_runs`, `cash_counts`, `gm_funding_events`, `gold_rates`,
-`inventory_movements`, `item_status_history`, `ledger_entries`, `opening_imports`, `opening_piece_corrections`, `purchase_corrections`, `sale_payments`, `scrap_purchase_voids`,
+`inventory_movements`, `item_status_history`, `ledger_entries`, `opening_imports`, `opening_piece_corrections`, `opening_scrap_corrections`, `purchase_corrections`, `sale_payments`, `scrap_purchase_voids`,
 `scrap_purchases`, `scrap_rates`, `scrap_weight_entries`, `settings_history`, `supplier_settlements`.
 
 The start-up privilege report and the restore drill use the same list (`APPEND_ONLY_TABLES` in
@@ -228,6 +230,7 @@ a conditional update on the current status.
 | `0034_pay1_backfill_payments` | PAY-1: one payment line per existing sale (its method, its whole total, its references). Two guards stop the upgrade, changing nothing: a sale that disagrees with its SALE ledger entries, and a sale that cannot make a valid line |
 | `0035_pay1_tighten_payments` | PAY-1: at commit, every sale has 1 or 2 payment lines summing to its total and its label follows them (deferred constraint trigger `jerp_sale_payments_check`); `ck_sales_hasad_reference` and `ck_sales_bank_transfer_reference` are replaced by the lines' references check |
 | `0036_pay1_hasad_channel_only` | PAY-1 / HSD-2: stops, changing nothing, on any Hasad receivable history (an entry on a `HASAD_RECEIVABLE` account, a settlement record or entry, a settlement in the audit log; owner Q5: such a database is recreated); otherwise deletes the empty `HASAD_RECEIVABLE` accounts, drops `hasad_receivable_settlements`, removes `HASAD_RECEIVABLE_SETTLEMENT` from the event-type check and the kind from the account-kind check, and removes the permission `cash.settle_hasad` |
+| `0037_opn3_opening_scrap` | OPN-3: the tables `opening_scrap_lines` (draft broken scrap; trigger: nothing changes once the opening is sealed) and `opening_scrap_corrections` (append-only, a sealed opening of that branch only); the pool's event-type CHECK replaced with the wider list (OPENING, OPENING_CORRECTION; D-opn3-1). No existing row changes |
 | `0031_opn2_tighten` | OPN-2: `rate_kind` becomes required (no default); CHECK `ck_jewelry_items_rate_kind_origin`: sellable scrap is USED, a supplier piece NEW (only an opening piece may be either). A row breaking either rule stops the upgrade with its count (none can exist after 0030) |
 | `0026_opn1_catalog_optional` | OPN-1 / CAT-1: `jewelry_items.category_id` and `description`; the product and the cost become optional (DROP NOT NULL; 0028 tightens again); sale-line name snapshots; `sales.unknown_cost_lines`; the tables `openings`, `opening_lines`, `opening_imports`; permission `opening.manage` (General Manager). Additive only |
 | `0024_prc1_computed_prices` | PRC-1: `gold_rates.kind` (NEW/USED, validated check, index), permission `scrap.buy_sellable` (every role), and `pricing.mode = FIXED_TAG` written only when pieces already exist (an upgraded installation keeps its tag prices). Additive only |
