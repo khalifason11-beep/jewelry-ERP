@@ -67,6 +67,10 @@ const LINE_LABEL: Record<string, string> = {
   // CSH-2: the General Manager's advances into, and repayments out of, the drawer or the bank (D-csh-3).
   GM_ADVANCES: tk('Advances from the General Manager'),
   GM_REPAYMENTS: tk('Repayments to the General Manager'),
+  // MNY-1: money transfers (a cancel counts under its send's line).
+  MONEY_SENT: tk('Money sent to branches'),
+  MONEY_RECEIVED: tk('Money received from branches'),
+  MONEY_TO_GM: tk('Money handed to the General Manager'),
   OTHER: tk('Other movements'),
 };
 

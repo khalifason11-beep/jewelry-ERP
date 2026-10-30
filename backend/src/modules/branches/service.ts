@@ -9,7 +9,8 @@ import { ap } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
-import { conflict, notFound } from '../../core/errors';
+import { AppError, conflict, notFound } from '../../core/errors';
+import { transfersInTransitOf } from '../money-transfers/service';
 
 export interface BranchInput {
   code: string;
@@ -53,6 +54,12 @@ export async function updateBranch(ctx: Ctx, actor: Actor, id: number, patch: Br
       if (patch[k] !== undefined && patch[k] !== before[k]) changes.push(k);
     }
     if (!changes.length) return before;
+    // MNY-1 (owner, decision 8): a branch with money in transit, sent or coming, cannot be deactivated. The row lock above
+    // makes a send to (or from) this branch wait, or wait for it (a send locks both branch rows FOR SHARE).
+    if (patch.isActive === false && before.isActive) {
+      const n = await transfersInTransitOf(tx, id);
+      if (n > 0) throw new AppError(409, 'BRANCH_HAS_MONEY_IN_TRANSIT', 'This branch has {n} money transfer(s) in transit: confirm or cancel them first', { n });
+    }
     if (patch.name) {
       const [dup] = await tx.select({ id: t.branches.id }).from(t.branches).where(and(eq(t.branches.name, patch.name), ne(t.branches.id, id)));
       if (dup) throw conflict('Another branch already uses this name');

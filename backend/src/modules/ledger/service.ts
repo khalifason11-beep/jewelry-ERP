@@ -77,14 +77,40 @@ export async function lockAccounts(exec: Executor, branchId: number, kinds: read
   return out;
 }
 
+/**
+ * MNY-1: lock accounts of several branches at once (a money transfer touches both sides), ALWAYS in ascending
+ * `ledger_accounts.id`, as `lockAccounts` does for one branch (D-csh-4): two transfers A→B and B→A can never deadlock.
+ * Returns the balance of each read under the lock.
+ */
+export async function lockAccountsAcross(exec: Executor, specs: readonly { branchId: number; kind: LedgerAccountKind }[]) {
+  const wanted = new Set(specs.map((s) => `${s.branchId}:${s.kind}`));
+  const branchIds = [...new Set(specs.map((s) => s.branchId))];
+  const candidates = await exec
+    .select({ id: t.ledgerAccounts.id, branchId: t.ledgerAccounts.branchId, kind: t.ledgerAccounts.kind })
+    .from(t.ledgerAccounts)
+    .where(and(inArray(t.ledgerAccounts.branchId, branchIds), inArray(t.ledgerAccounts.kind, [...new Set(specs.map((s) => s.kind))])))
+    .orderBy(asc(t.ledgerAccounts.id));
+  const ids = candidates.filter((a) => wanted.has(`${a.branchId}:${a.kind}`)).map((a) => a.id);
+  const locked = ids.length ? await exec.select({ id: t.ledgerAccounts.id, branchId: t.ledgerAccounts.branchId, kind: t.ledgerAccounts.kind }).from(t.ledgerAccounts).where(inArray(t.ledgerAccounts.id, ids)).orderBy(asc(t.ledgerAccounts.id)).for('update') : [];
+  const out = new Map<string, { id: number; balance: number }>();
+  for (const a of locked) {
+    const [{ balance }] = rows<{ balance: string | number }>(await exec.execute(sql`SELECT coalesce(sum(amount), 0)::bigint AS balance FROM ledger_entries WHERE account_id = ${a.id}`));
+    out.set(`${a.branchId}:${a.kind}`, { id: a.id, balance: Number(balance) });
+  }
+  for (const k of wanted) if (!out.has(k)) throw new Error(`ledger account ${k} missing`);
+  return { get: (branchId: number, kind: LedgerAccountKind) => out.get(`${branchId}:${kind}`)! };
+}
+
 /** CSH-2 (Q7): what a payment out of the drawer is for; it picks the refusal sentence (each names the shortfall and what to do). */
 // MKC-1: the supplier making charge is no longer one of them (the owner pays it from his personal account).
-export type DrawerOutflow = 'SCRAP_PURCHASE' | 'SALE_VOID' | 'GM_REPAYMENT' | 'GM_CORRECTION';
+export type DrawerOutflow = 'SCRAP_PURCHASE' | 'SALE_VOID' | 'GM_REPAYMENT' | 'GM_CORRECTION' | 'MONEY_TRANSFER';
 export const DRAWER_SHORT: Record<DrawerOutflow, string> = {
   SCRAP_PURCHASE: 'The drawer holds {balance}: the cash part of {amount} is {short} more than that. Pay {short} more by bank transfer, or ask the General Manager to record an advance into the drawer',
   SALE_VOID: 'The drawer holds {balance}: refunding {amount} in cash needs {short} more. Ask the General Manager to record an advance into the drawer, then cancel the sale again',
   GM_REPAYMENT: 'The drawer holds {balance}: a repayment of {amount} from it is {short} more than that. Repay at most {balance} from the drawer, or repay from the bank',
   GM_CORRECTION: 'The drawer holds {balance}: correcting this advance takes {amount} out of it, {short} more than it holds. That money has already been paid out: record the advance that really came in first, then correct this one',
+  // MNY-1: a money transfer from the drawer.
+  MONEY_TRANSFER: 'The drawer holds {balance}: sending {amount} from it needs {short} more. Send at most {balance} from the drawer, or send from the bank',
 };
 const fmtMoney = (n: number) => n.toLocaleString('en-US');
 
@@ -137,7 +163,7 @@ export async function reverseRef(
   exec: Executor,
   ref: LedgerRef,
   original: LedgerEventType,
-  as: Extract<LedgerEventType, 'SALE_VOID' | 'REVERSAL'>,
+  as: Extract<LedgerEventType, 'SALE_VOID' | 'REVERSAL' | 'MONEY_TRANSFER_CANCELLED'>,
   by: PostedBy,
   opts: { note?: string; at?: Date } = {},
 ): Promise<number> {
@@ -220,8 +246,8 @@ export async function drawer(ctx: Ctx, actor: Actor, q: { branchId?: number }) {
  * Nothing silently disappears.
  */
 export const RECONCILIATION_LINES = {
-  CASH: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'GM_ADVANCES', 'GM_REPAYMENTS', 'OTHER'],
-  BANK: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'GM_ADVANCES', 'GM_REPAYMENTS', 'OTHER'],
+  CASH: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'GM_ADVANCES', 'GM_REPAYMENTS', 'MONEY_SENT', 'MONEY_RECEIVED', 'MONEY_TO_GM', 'OTHER'],
+  BANK: ['SALES', 'VOIDS', 'SCRAP_PURCHASES', 'GM_ADVANCES', 'GM_REPAYMENTS', 'MONEY_SENT', 'MONEY_RECEIVED', 'MONEY_TO_GM', 'OTHER'],
 } as const;
 export type ReconciliationLine = (typeof RECONCILIATION_LINES)['BANK'][number];
 export const LINE_OF_EVENT: Partial<Record<LedgerEventType, ReconciliationLine>> = {
@@ -231,6 +257,11 @@ export const LINE_OF_EVENT: Partial<Record<LedgerEventType, ReconciliationLine>>
   // CSH-2 (D-csh-3): the General Manager's money into and out of the drawer or the bank.
   GM_ADVANCE: 'GM_ADVANCES',
   GM_REPAYMENT: 'GM_REPAYMENTS',
+  // MNY-1: money sent to another branch, money received from one, money handed to the General Manager (its confirmation
+  // posts on FUNDS_IN_TRANSIT only, never a drawer line). A cancel counts under the line of the send it reverses.
+  MONEY_TRANSFER_SENT: 'MONEY_SENT',
+  MONEY_TRANSFER_RECEIVED: 'MONEY_RECEIVED',
+  MONEY_TRANSFER_TO_GM: 'MONEY_TO_GM',
 };
 
 /**
@@ -246,16 +277,13 @@ export const OTHER_EVENT_TYPES: Readonly<Partial<Record<LedgerEventType, string>
   // MKC-1 (Q7, D-mkc-4): historical only. A making charge is paid by the owner from his personal account and posts no
   // entry any more; the type stays valid in the database check so the ledger's history is never rewritten.
   SUPPLIER_MAKING_CHARGE: 'historical, MKC-1: making charges no longer touch branch money',
-  // MNY-1 c1: the event types exist from migration 0038; their reconciliation lines come with the service (MNY-1 c2).
-  MONEY_TRANSFER_SENT: 'MNY-1: no transfer can be recorded before the service (c2) gives it its line',
-  MONEY_TRANSFER_RECEIVED: 'MNY-1: no transfer can be recorded before the service (c2) gives it its line',
-  MONEY_TRANSFER_CANCELLED: 'MNY-1: no transfer can be recorded before the service (c2) gives it its line',
-  MONEY_TRANSFER_TO_GM: 'MNY-1: no transfer can be recorded before the service (c2) gives it its line',
+  // MNY-1: a cancel reverses the send's entries (reverses_entry_id), so it counts under the send's line, like a REVERSAL.
+  MONEY_TRANSFER_CANCELLED: 'shown under the line of the send it cancels (Money sent or To the General Manager)',
 };
 
 /** The event type an entry counts as in the reconciliation: a REVERSAL counts as the entry it reverses (Q9). */
 export const effectiveEventType = (e: { eventType: string; reversedEventType?: string | null }): string =>
-  e.eventType === 'REVERSAL' && e.reversedEventType ? e.reversedEventType : e.eventType;
+  (e.eventType === 'REVERSAL' || e.eventType === 'MONEY_TRANSFER_CANCELLED') && e.reversedEventType ? e.reversedEventType : e.eventType;
 
 /** Group one account's entries into its reconciliation lines; their sum always equals the account's movement. */
 export function reconciliationLines(kind: keyof typeof RECONCILIATION_LINES, entries: { kind: string; eventType: string; reversedEventType?: string | null; amount: number }[]) {

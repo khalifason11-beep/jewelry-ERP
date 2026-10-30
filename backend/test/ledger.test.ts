@@ -410,7 +410,7 @@ describe('expected cash and daily reconciliation', () => {
       expect((LEDGER_EVENT_TYPES as readonly string[]).includes(e), `${e} is not a ledger event type`).toBe(true);
       expect(reason?.trim().length, `${e} needs a reason`).toBeGreaterThan(10);
     }
-    expect(Object.keys(OTHER_EVENT_TYPES).sort()).toEqual(['MONEY_TRANSFER_CANCELLED', 'MONEY_TRANSFER_RECEIVED', 'MONEY_TRANSFER_SENT', 'MONEY_TRANSFER_TO_GM', 'REVERSAL', 'SUPPLIER_MAKING_CHARGE']); // EXPENSE and HASAD_SETTLEMENT were dropped by REM-5; SUPPLIER_MAKING_CHARGE is historical since MKC-1
+    expect(Object.keys(OTHER_EVENT_TYPES).sort()).toEqual(['MONEY_TRANSFER_CANCELLED', 'REVERSAL', 'SUPPLIER_MAKING_CHARGE']); // EXPENSE and HASAD_SETTLEMENT were dropped by REM-5; SUPPLIER_MAKING_CHARGE is historical since MKC-1
     // And the lines they map to exist for at least one account.
     const all = new Set<string>([...RECONCILIATION_LINES.CASH, ...RECONCILIATION_LINES.BANK]);
     for (const line of Object.values(LINE_OF_EVENT)) expect(all.has(line!), line).toBe(true);
@@ -426,7 +426,7 @@ describe('expected cash and daily reconciliation', () => {
       { kind: 'CASH', eventType: 'SOMETHING_NEW', amount: 3 },
       { kind: 'BANK', eventType: 'SALE', amount: 999 }, // another account: ignored
     ]);
-    expect(Object.fromEntries(lines.map((l) => [l.line, l.amount]))).toEqual({ SALES: 50_000, VOIDS: 0, SCRAP_PURCHASES: 0, GM_ADVANCES: 0, GM_REPAYMENTS: 0, OTHER: -7_098 });
+    expect(Object.fromEntries(lines.map((l) => [l.line, l.amount]))).toEqual({ SALES: 50_000, VOIDS: 0, SCRAP_PURCHASES: 0, GM_ADVANCES: 0, GM_REPAYMENTS: 0, MONEY_SENT: 0, MONEY_RECEIVED: 0, MONEY_TO_GM: 0, OTHER: -7_098 });
     // And through the API: an entry on the drawer whose event type has no drawer line appears under OTHER, and the total still matches.
     const bm = await login('branch.manager.kh', 'BRANCH_MANAGER');
     const krt = await branchId('KRT');
