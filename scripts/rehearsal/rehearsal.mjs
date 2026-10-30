@@ -1569,11 +1569,20 @@ async function main() {
       const scrapIn = [{ karat: 21, weightMg: 50_000, note: 'كيس 1' }, { karat: 21, weightMg: 2_500 }, { karat: 18, weightMg: 7_250 }];
       const scrapAdded = [];
       for (const l of scrapIn) scrapAdded.push(await apiSend(page, 'POST', `/api/openings/${openingId}/scrap-lines`, l));
+      // OPN-3 (screen): a fourth line typed in the "Broken scrap" card of the draft page: 9K, 1.000 g (any karat).
+      await page.goto(`${origin}/openings/${openingId}`);
+      await page.getByTestId('opening-scrap').waitFor({ timeout: 15_000 });
+      await page.selectOption('[data-testid=opening-scrap-karat]', '9');
+      await page.fill('[data-testid=opening-scrap-weight]', '1');
+      await page.click('[data-testid=opening-scrap-add]');
+      await waitFor(async () => (await apiGet(page, `/api/openings/${openingId}`)).body.scrapLines.length === 4, 'the typed scrap line', 15_000);
       const scrapDraft = (await apiGet(page, `/api/openings/${openingId}`)).body;
       check(
-        scrapAdded.every((r) => r.status === 200) && scrapDraft.scrapLines.length === 3 && scrapDraft.summary.scrap.weightMg === 59_750 && scrapDraft.summary.scrap.byKarat.map((k) => `${k.karat}:${k.weightMg}`).join(',') === '18:7250,21:52500',
-        `OPN-3: three broken-scrap lines in the draft (21K twice, 18K once): ${scrapDraft.summary.scrap.weightMg} mg, ${scrapDraft.summary.scrap.pureMg24} mg of 24K`,
+        scrapAdded.every((r) => r.status === 200) && scrapDraft.scrapLines.length === 4 && scrapDraft.summary.scrap.weightMg === 60_750 && scrapDraft.summary.scrap.byKarat.map((k) => `${k.karat}:${k.weightMg}`).join(',') === '9:1000,18:7250,21:52500',
+        `OPN-3: four broken-scrap lines in the draft (three by the API, one typed in the card; 21K twice, 18K, 9K): ${scrapDraft.summary.scrap.weightMg} mg, ${scrapDraft.summary.scrap.pureMg24} mg of 24K`,
       );
+      await waitFor(async () => (await page.getByTestId('opening-scrap-total-weight').innerText()).includes('60.750'), 'the card total', 15_000);
+      check((await page.getByTestId('opening-scrap-lines').locator('tbody tr').count()) === 4 && (await page.getByTestId('opening-gold-scrap').innerText()).includes('60.750'), 'OPN-3: the draft page lists the four lines; the card and the total gold show 60.750 g of broken scrap');
       check((await apiGet(page, `/api/scrap-pool?branchId=${branchId}`)).body.weightMg === poolBefore, 'OPN-3: the draft scrap is not in the pool yet');
       // UX-4: the draft is a first step again on the GM home, with what it means and the way to it.
       await page.goto(`${origin}/overview`);
@@ -1587,6 +1596,9 @@ async function main() {
       // UX-3: a stale password window used to bring a second password dialog after the seal dialog's own password.
       await sqlAs(`UPDATE sessions SET reauth_at = now() - interval '1 hour' WHERE user_id = (SELECT id FROM users WHERE username = $1)`, [GM.username]);
       await page.click('[data-testid=opening-seal]');
+      await page.getByTestId('opening-seal-scrap').waitFor({ timeout: 15_000 });
+      const sealScrapText = await page.getByTestId('opening-seal-scrap').innerText();
+      check(sealScrapText.includes('60.750') && sealScrapText.includes('52.500') && (await page.getByTestId('opening-gold-all').count()) >= 1, `OPN-3: the seal dialog shows the broken scrap by karat and the total gold before the password (${sealScrapText.replace(/\s+/g, ' ')})`);
       await page.fill('[data-testid=opening-seal-password]', GM.password);
       await page.click('[data-testid=opening-seal-passkey]');
       await waitFor(async () => !(await page.getByTestId('opening-seal-confirm').isDisabled()), 'the passkey confirmation', 15_000);
@@ -1664,15 +1676,22 @@ async function main() {
       const poolAfter = (await apiGet(page, `/api/scrap-pool?branchId=${branchId}`)).body.weightMg;
       const swReport = (await apiGet(page, `/api/reports/stock-weight?branchId=${branchId}`)).body.totals.brokenScrapWeightMg;
       const companyScrap = (await apiGet(page, '/api/dashboard/company')).body.branches.find((b) => b.code === BRANCH.code).brokenScrapWeightMg;
-      check(poolAfter - poolBefore === 59_750 && swReport === poolAfter && companyScrap === poolAfter, `OPN-3: the seal added exactly the opening scrap to the pool (+${poolAfter - poolBefore} mg); the stock-weight report and the company home show the same ${poolAfter} mg`);
+      check(poolAfter - poolBefore === 60_750 && swReport === poolAfter && companyScrap === poolAfter, `OPN-3: the seal added exactly the opening scrap to the pool (+${poolAfter - poolBefore} mg); the stock-weight report and the company home show the same ${poolAfter} mg`);
       const lateScrap = await apiSend(page, 'POST', `/api/openings/${openingId}/scrap-lines`, { karat: 21, weightMg: 1_000 });
       check(lateScrap.status === 409 && lateScrap.body.error.code === 'OPENING_SEALED', 'OPN-3: no broken scrap can be added after the seal (409 OPENING_SEALED)');
       // OPN-3: a correction after the seal (reason, password, the passkey confirmed for the seal): 1 g of 21K less.
       const scrapFix = await apiSend(page, 'POST', `/api/openings/${openingId}/scrap-corrections`, { changes: [{ karat: 21, weightMgChange: -1_000 }], reason: 'وُزن مرة أخرى', confirmPassword: GM.password });
       const scrapView = (await apiGet(page, `/api/openings/${openingId}`)).body;
       check(
-        scrapFix.status === 200 && (await apiGet(page, `/api/scrap-pool?branchId=${branchId}`)).body.weightMg === poolAfter - 1_000 && scrapView.scrapCorrections.length === 1 && scrapView.scrapNow.weightMg === 58_750 && scrapView.summary.scrap.weightMg === 59_750,
-        `OPN-3: the opening scrap corrected by −1.000 g of 21K (${scrapFix.status}): the pool fell by 1 g, the sealed totals stay, the scrap now is 58.750 g`,
+        scrapFix.status === 200 && (await apiGet(page, `/api/scrap-pool?branchId=${branchId}`)).body.weightMg === poolAfter - 1_000 && scrapView.scrapCorrections.length === 1 && scrapView.scrapNow.weightMg === 59_750 && scrapView.summary.scrap.weightMg === 60_750,
+        `OPN-3: the opening scrap corrected by −1.000 g of 21K (${scrapFix.status}): the pool fell by 1 g, the sealed totals stay, the scrap now is 59.750 g`,
+      );
+      // OPN-3 (screen): the sealed page shows the broken scrap now and the correction; no entry form any more.
+      await page.goto(`${origin}/openings/${openingId}`);
+      await page.getByTestId('opening-scrap-sealed').waitFor({ timeout: 15_000 });
+      check(
+        (await page.getByTestId('opening-scrap-now-weight').innerText()).includes('59.750') && (await page.getByTestId('opening-scrap-corrections').locator('tbody tr').count()) === 1 && (await page.getByTestId('opening-scrap-add').count()) === 0,
+        'OPN-3: the sealed page shows the broken scrap now (59.750 g) and its correction, without the entry form',
       );
       const tooMuch = await apiSend(page, 'POST', `/api/openings/${openingId}/scrap-corrections`, { changes: [{ karat: 18, weightMgChange: -8_000 }], reason: 'أكثر من اللازم', confirmPassword: GM.password });
       check(tooMuch.status === 409 && tooMuch.body.error.code === 'OPENING_SCRAP_CORRECTION_TOO_LARGE', 'OPN-3: a correction cannot take out more than the opening put in for that karat (409)');

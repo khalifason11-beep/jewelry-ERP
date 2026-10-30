@@ -7,6 +7,9 @@
 //     and by type, the lines paged and searchable, and a CSV export. Sealing shows the summary and a checklist, asks the
 //     password and a passkey confirmation, then every line becomes a piece (cost unknown, price from the new-piece
 //     rate) and nothing can change any more; the export then lists the codes to write on the tags.
+//   * OPN-3: the draft also holds the branch's broken scrap (weight per karat, typed in: ./OpeningScrap.tsx). The totals,
+//     the checklist and the seal dialog show the pieces and the broken scrap with their 24K equivalent; sealing puts the
+//     scrap into the branch's scrap stock. An opening of broken scrap only can be sealed.
 
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -23,6 +26,7 @@ import { Alert, Badge, Button, Card, CardHeader, DataTable, DetailPending, Dialo
 import { PieceKindFields, descriptionTooLong, emptyKind, type PieceKindValue } from '../../components/PieceKind';
 import { confirmWithPasskey, openWindowWith } from '../../lib/reauth';
 import { OpeningCorrectionsCard, type OpeningCorrectionRow } from '../inventory/OpeningCorrection';
+import { piecesPure24, scrapLine, ScrapDraftCard, ScrapSealedCard, type ScrapCorrection, type ScrapLine, type ScrapTotals } from './OpeningScrap';
 
 type Condition = 'NEW' | 'USED';
 interface OpeningRow {
@@ -30,7 +34,7 @@ interface OpeningRow {
   branchCode: string;
   branchName: string;
   branchNameAr: string;
-  opening: { id: number; status: 'DRAFT' | 'SEALED'; createdAt: string; sealedAt: string | null; lineCount: number; netWeightMg: number } | null;
+  opening: { id: number; status: 'DRAFT' | 'SEALED'; createdAt: string; sealedAt: string | null; lineCount: number; netWeightMg: number; scrapWeightMg: number } | null;
 }
 interface Summary {
   total: { count: number; grossWeightMg: number; netWeightMg: number };
@@ -38,6 +42,8 @@ interface Summary {
   /** OPN-2: by karat and condition (the rate each group needs). */
   byKaratCondition: { karat: number; condition: Condition; count: number; grossWeightMg: number; netWeightMg: number }[];
   byType: { categoryId: number; categoryName: string | null; categoryNameAr: string; count: number; netWeightMg: number }[];
+  /** OPN-3: the broken scrap entered (or sealed), by karat with its 24K equivalent. */
+  scrap: ScrapTotals;
 }
 interface Line {
   id: number;
@@ -72,6 +78,10 @@ interface Opening {
   /** OPN-FIX: once sealed, the pieces as they are now (voided out, corrected values in) and the corrections. */
   now: { total: { count: number; grossWeightMg: number; netWeightMg: number }; byKaratCondition: Summary['byKaratCondition']; voided: number; sold: number } | null;
   corrections: (OpeningCorrectionRow & { code: string })[];
+  /** OPN-3: the broken scrap lines; once sealed, its corrections and its value now. */
+  scrapLines: ScrapLine[];
+  scrapCorrections: ScrapCorrection[];
+  scrapNow: ScrapTotals | null;
 }
 interface ImportProblem {
   line: number;
@@ -112,7 +122,7 @@ export function OpeningsPage() {
     <div className="p-5 lg:p-6">
       <PageHeader
         title={t('Opening balance')}
-        help={t('The pieces each branch already holds on the first day, entered once. Their cost is unknown; they sell at the new-piece or the used-piece rate, by their condition.')}
+        help={t('The pieces and the broken scrap each branch already holds on the first day, entered once. The cost of the pieces is unknown; they sell at the new-piece or the used-piece rate, by their condition.')}
       />
       <Card padded={false}>
         <DataTable
@@ -127,6 +137,7 @@ export function OpeningsPage() {
             { key: 'status', header: t('Status'), value: (r) => r.opening?.status ?? '', render: (r) => statusBadge(r.opening?.status ?? null, t) },
             { key: 'count', header: t('Pieces'), align: 'end', value: (r) => r.opening?.lineCount ?? 0, render: (r) => (r.opening ? num(r.opening.lineCount) : '—') },
             { key: 'weight', header: t('Net weight'), align: 'end', value: (r) => r.opening?.netWeightMg ?? 0, render: (r) => (r.opening ? grams(r.opening.netWeightMg) : '—') },
+            { key: 'scrap', header: t('Broken scrap'), align: 'end', value: (r) => r.opening?.scrapWeightMg ?? 0, render: (r) => (r.opening ? grams(r.opening.scrapWeightMg) : '—') },
             { key: 'sealedAt', header: t('Sealed'), value: (r) => r.opening?.sealedAt ?? '', render: (r) => (r.opening?.sealedAt ? dateTime(r.opening.sealedAt) : '—') },
             {
               key: 'actions',
@@ -166,7 +177,7 @@ export function OpeningPage() {
             {t('Opening balance of {branch}', { branch: L(o.branchName, o.branchNameAr) })} {statusBadge(o.status, t)}
           </span>
         }
-        subtitle={draft ? t('A draft is not stock yet: nothing here can be sold or moved until it is sealed.') : t('Sealed on {date}: every line is a piece in stock. Nothing can be added or changed.', { date: dateTime(o.sealedAt) })}
+        subtitle={draft ? t('A draft is not stock yet: nothing here can be sold or moved until it is sealed.') : t('Sealed on {date}: the pieces are in stock and the broken scrap in the scrap stock. Nothing can be added or changed.', { date: dateTime(o.sealedAt) })}
         actions={
           <>
             {draft && (
@@ -191,6 +202,16 @@ export function OpeningPage() {
         <div className="mb-4 grid gap-4 xl:grid-cols-2">
           <KeyboardEntry openingId={o.id} />
           <ImportPanel openingId={o.id} imports={o.imports} />
+        </div>
+      )}
+      {draft && (
+        <div className="mb-4">
+          <ScrapDraftCard openingId={o.id} lines={o.scrapLines} totals={o.summary.scrap} />
+        </div>
+      )}
+      {!draft && o.scrapNow && (o.summary.scrap.lines > 0 || o.scrapCorrections.length > 0) && (
+        <div className="mb-4">
+          <ScrapSealedCard openingId={o.id} sealed={o.summary.scrap} now={o.scrapNow} corrections={o.scrapCorrections} />
         </div>
       )}
       {draft && <SealPanel opening={o} />}
@@ -269,10 +290,41 @@ function NowCard({ now }: { now: NonNullable<Opening['now']> }) {
   );
 }
 
+/** OPN-3: everything the opening holds: the pieces, the broken scrap and both together, with the 24K equivalent. */
+function GoldTotals({ summary }: { summary: Summary }) {
+  const { t } = useI18n();
+  const pieces24 = piecesPure24(summary.byKarat);
+  const rows = [
+    { key: 'pieces', label: t('Pieces ({n})', { n: num(summary.total.count) }), weight: summary.total.netWeightMg, pure: pieces24 },
+    { key: 'scrap', label: t('Broken scrap'), weight: summary.scrap.weightMg, pure: summary.scrap.pureMg24 },
+    { key: 'all', label: t('Total gold'), weight: summary.total.netWeightMg + summary.scrap.weightMg, pure: pieces24 + summary.scrap.pureMg24 },
+  ];
+  return (
+    <table className="w-full text-[13px]" data-testid="opening-gold">
+      <thead className="text-ink-3">
+        <tr><th className="py-1 text-start font-medium" /><th className="py-1 text-end font-medium">{t('Net weight')}</th><th className="py-1 text-end font-medium">{t('24K equivalent')}</th></tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.key} className={`border-t border-line ${r.key === 'all' ? 'font-medium' : ''}`} data-testid={`opening-gold-${r.key}`}>
+            <td className="py-1">{r.label}</td>
+            <td className="py-1 text-end num">{grams(r.weight)}</td>
+            <td className="py-1 text-end num">{grams(r.pure)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function SummaryCards({ summary }: { summary: Summary }) {
   const { t, L } = useI18n();
   return (
     <div className="mb-4 grid gap-4 lg:grid-cols-2" data-testid="opening-summary">
+      <Card className="lg:col-span-2">
+        <CardHeader title={t('Total gold')} />
+        <GoldTotals summary={summary} />
+      </Card>
       <Card>
         <CardHeader title={t('By karat and condition')} subtitle={t('{n} piece(s), {weight} net', { n: num(summary.total.count), weight: grams(summary.total.netWeightMg) })} />
         <table className="w-full text-[13px]">
@@ -500,6 +552,8 @@ function SealPanel({ opening }: { opening: Opening }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const rates = useMemo(() => opening.summary.byKaratCondition.map((k) => karatCondition(k, t)).join('، '), [opening.summary.byKaratCondition, t]);
+  const pieces = opening.summary.total.count > 0;
+  const scrap = opening.summary.scrap.lines > 0;
   return (
     <Card>
       <CardHeader title={t('Before sealing')} />
@@ -507,14 +561,17 @@ function SealPanel({ opening }: { opening: Opening }) {
         <li>
           {t('Register a passkey on this device (sealing asks for it).')} <Link to="/security" className="text-gold-700 hover:underline">{t('Security')}</Link>
         </li>
-        <li>
-          {t('Switch on computed prices and set the selling rate of every karat and condition in the sheet (new pieces: the new-piece rate; used pieces: the used-piece rate): {rates}.', { rates: rates || '—' })}{' '}
-          <Link to="/prices" className="text-gold-700 hover:underline">{t('Prices')}</Link>
-        </li>
+        {pieces && (
+          <li>
+            {t('Switch on computed prices and set the selling rate of every karat and condition in the sheet (new pieces: the new-piece rate; used pieces: the used-piece rate): {rates}.', { rates: rates || '—' })}{' '}
+            <Link to="/prices" className="text-gold-700 hover:underline">{t('Prices')}</Link>
+          </li>
+        )}
+        <li>{t('Enter the broken scrap too: it goes into the branch scrap stock and can settle suppliers.')}</li>
         <li>{t('Review the draft: the totals above against the paper count, and the lines below (or the CSV export).')}</li>
         <li>{t('After sealing nothing can be added or changed here; each piece gets its code in the order of the sheet.')}</li>
       </ul>
-      <Button variant="primary" icon={<Lock className="size-4" />} disabled={opening.summary.total.count === 0} onClick={() => setOpen(true)} data-testid="opening-seal">
+      <Button variant="primary" icon={<Lock className="size-4" />} disabled={!pieces && !scrap} onClick={() => setOpen(true)} data-testid="opening-seal">
         {t('Seal the opening balance')}
       </Button>
       {open && <SealDialog opening={opening} onClose={() => setOpen(false)} />}
@@ -542,11 +599,11 @@ function SealDialog({ opening, onClose }: { opening: Opening; onClose: () => voi
     // UX-3: the typed password opens the window first, so the seal never asks for it a second time.
     mutationFn: async () => {
       await openWindowWith(password);
-      return postOnce<{ pieces: number; firstCode: string; lastCode: string }>(`/openings/${opening.id}/seal`, { confirmPassword: password }, keys.for('opening-seal'));
+      return postOnce<{ pieces: number; firstCode: string | null; lastCode: string | null; scrap: ScrapTotals }>(`/openings/${opening.id}/seal`, { confirmPassword: password }, keys.for('opening-seal'));
     },
     onSuccess: (r) => {
       keys.rotate('opening-seal');
-      toast.success(t('Opening sealed: {n} piece(s), codes {first} to {last}', { n: r.pieces, first: r.firstCode, last: r.lastCode }));
+      toast.success(r.pieces ? t('Opening sealed: {n} piece(s), codes {first} to {last}', { n: r.pieces, first: r.firstCode ?? '', last: r.lastCode ?? '' }) : t('Opening sealed: broken scrap {weight}', { weight: grams(r.scrap.weightMg) }));
       qc.invalidateQueries();
       onClose();
     },
@@ -560,7 +617,7 @@ function SealDialog({ opening, onClose }: { opening: Opening; onClose: () => voi
       open
       onClose={onClose}
       title={t('Seal the opening balance of {branch}', { branch: L(opening.branchName, opening.branchNameAr) })}
-      subtitle={t('Every line becomes a piece in stock with an unknown cost. This cannot be undone.')}
+      subtitle={t('The pieces go into stock with an unknown cost, the broken scrap into the scrap stock. This cannot be undone.')}
       footer={
         <>
           <Button onClick={onClose}>{t('Cancel')}</Button>
@@ -574,6 +631,13 @@ function SealDialog({ opening, onClose }: { opening: Opening; onClose: () => voi
         {t('{n} piece(s), {weight} net:', { n: num(opening.summary.total.count), weight: grams(opening.summary.total.netWeightMg) })}{' '}
         {opening.summary.byKaratCondition.map((k) => `${karatCondition(k, t)} ${num(k.count)} / ${grams(k.netWeightMg)}`).join(' · ')}
       </p>
+      <p className="mb-2 text-[13px]" data-testid="opening-seal-scrap">
+        {t('Broken scrap: {weight}', { weight: grams(opening.summary.scrap.weightMg) })}
+        {opening.summary.scrap.lines > 0 ? ` — ${scrapLine(opening.summary.scrap)}` : ''}
+      </p>
+      <div className="mb-3">
+        <GoldTotals summary={opening.summary} />
+      </div>
       <Field label={t('Your password')}>
         <Input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="opening-seal-password" />
       </Field>
