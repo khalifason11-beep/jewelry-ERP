@@ -131,11 +131,15 @@ async function opening(page, gm, world) {
   // OPN-3: broken scrap typed in (karat, net weight, an optional note), edited and removed; the totals per karat and
   // the total gold (pieces + scrap) follow.
   const scrapRows = () => page.getByTestId('opening-scrap-lines').locator('tbody tr');
+  // A saved line clears the weight and the note (the next bag is often the same karat): wait for the line before
+  // typing the next one, or the clearing can land on what was just typed (seen on a busy machine: Add went grey).
   const addScrap = async (karat, grams, note) => {
+    const before = await scrapRows().count();
     await page.selectOption('[data-testid=opening-scrap-karat]', String(karat));
     await page.fill('[data-testid=opening-scrap-weight]', grams);
     await page.fill('[data-testid=opening-scrap-note]', note);
     await page.click('[data-testid=opening-scrap-add]');
+    await eventually(async () => (await scrapRows().count()) === before + 1 && (await page.inputValue('[data-testid=opening-scrap-weight]')) === '');
   };
   check(await page.getByTestId('opening-scrap-add').isDisabled(), 'broken scrap: Add is grey until a karat and a weight are given');
   await addScrap(21, '10.5', 'كيس 1');
