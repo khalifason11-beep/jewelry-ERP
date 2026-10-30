@@ -64,6 +64,7 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
   The list must be **filterable by weight, karat and kind**.
 - **[CLIENT]** **Broken scrap (كسر مكسور)** — an irreparable piece (a broken ring, a cut chain) — is **never an inventory item**. It exists only as a **weight pool per branch**, by karat. It **counts in the branch's total stock weight** (raw weight by karat and the 24-karat equivalent), is visible, and is used to pay suppliers (§7).
 - **[BUILT]** The broken-scrap pool is an append-only weight ledger; balance = sum of entries.
+- **[OWNER, BUILT OPN-3]** The broken scrap a branch already holds on its first day is entered in its **opening balance** (weight per karat, any karat 1–24, typed in) and enters the pool when the opening is sealed (movement OPENING «رصيد افتتاحي»); a correction after the seal is a movement OPENING_CORRECTION «تصحيح رصيد افتتاحي» by the General Manager. Used opening pieces stay items of origin OPENING priced at the used-piece rate (D-opn2-1).
 - **[OWNER]** **Weight precision (Q-14, closed):** the client's scales read to **0.001 g** (1 mg). Weights are stored as integer milligrams and **shown with three decimals everywhere**. (An earlier version of this document said 0.01 g was the rule; that was wrong: 0.01 g is 10 mg.) A per-deployment precision setting (BACKLOG WGT-1) is deferred until a client weighs to two decimals.
 - **[CLIENT]** The client sells **21 karat only**. This is the setting `allowedKarats = [21]` for this deployment (never hardcode 21). It restricts what can be created and sold as a sellable piece. **Buying is not restricted**: customers' scrap may be any karat from 1 to 24.
 - **[OPEN]** A clean-scrap piece bought at another karat (for example 18): today it cannot be sold, repriced or delivered. Does the client melt it, sell it anyway at its real karat, or reject such purchases?
@@ -102,7 +103,7 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
 - A purchase order is recorded **by the General Manager only**, **after the pieces have arrived at the branch**; recording it receives them into the branch at once. **[CLIENT, BUILT MKC-1]**
 - The **making charge (المصنعية)** is the **only money** that ever goes to a supplier. It is **always one full bank transfer paid by the owner from the owner's personal account**: the order records that fact, the transfer reference and its date (General Manager only), and **no branch money moves** (no drawer, bank or ledger entry; the branch owes nothing). The charge stays in each piece's cost, so cost and profit are unchanged. **[CLIENT, BUILT MKC-1]**
 - The rest is a **gold debt measured in pure-24K weight**: sum over items of `round(net_weight_mg × karat / 24)`, per purchase order.
-- The shop never initiates collection. When the **supplier's representative visits**, the branch manager settles that order **only with broken-scrap weight from the branch pool** (any karat, converted to 24K). Partial settlements are allowed until the debt is exactly zero; over-settlement is refused. Never cash, never bank.
+- The shop never initiates collection. When the **supplier's representative visits**, the branch manager settles that order **only with broken-scrap weight from the branch pool** (any karat, converted to 24K). The pool holds the scrap bought at the counter and, from day one, the broken scrap of the sealed opening balance (OPN-3). Partial settlements are allowed until the debt is exactly zero; over-settlement is refused. Never cash, never bank.
 - Gold debt and settlement weights are visible to the branch manager. Money costs are GM-only.
 - **[CLIENT, closed 2026-10-18, Q-4]** The acquisition cost of supplier items stays as built (derived from the supplier order), unless the owner says otherwise.
 
@@ -159,6 +160,8 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
 2. The GM enters **the list of the branch's jewelry with exact weights and karats** (items only; no opening cash) so the system computes the branch stock. **[CLIENT, Q-4]** Each item's cost is **unknown (null), never zero**.
 3. The GM creates the staff users, assigns roles, sets passwords, and tells them their activity is monitored.
 4. The cashier starts working normally.
+
+**[OWNER, BUILT OPN-3]** The opening also records the branch's **broken scrap** (weight per karat, no cost), sealed in the same step into the scrap pool, so suppliers can be settled from the first day.
 
 Requirements: GM-only, once per branch, then **sealed** (changes only through audited adjustments); fast entry (keyboard and barcode scanner); **import from a spreadsheet** (CSV/Excel) for hundreds of pieces; **barcode labels** to stick on the physical pieces (printer unknown); nothing invented in the books. **[CLIENT, Q-4]** No cost formula: the cost of an opening piece is unknown (null) (§5).
 

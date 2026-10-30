@@ -203,6 +203,13 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
     (3–200 characters), the password and a passkey. Condition and karat need computed prices and a rate for the new
     karat and condition. The opening keeps its totals as sealed and shows its pieces now and every correction; the
     export adds the values now. The cost stays unknown.
+  - **Broken scrap at the opening** (OPN-3): the draft also holds the branch's broken scrap, weight only, by karat (any
+    karat 1–24; the net weight; an optional note; several lines of a karat), typed in only (no CSV), edited or removed
+    while a draft. The totals, the checklist and the seal dialog show the pieces, the broken scrap and the total gold
+    with the 24K equivalent. The same seal puts each line into the branch's scrap pool (movement «رصيد افتتاحي»), so a
+    supplier can be settled on day one; an opening of broken scrap only can be sealed. After the seal the General
+    Manager corrects it (less, more, or a wrong karat moved; reason, password and passkey; «تصحيح رصيد افتتاحي»),
+    never beyond what the opening put in for a karat or below what the pool holds.
 - **Mistake correction** (MIS-1, General Manager only, reason and password asked again, idempotent):
   - **Void a scrap purchase** (`scrap.void`): the money is reversed, the sellable piece becomes VOIDED (only while
     still AVAILABLE in its branch) or the broken-scrap weight leaves the pool (only if the pool still holds it).
@@ -301,7 +308,7 @@ A review of the reports after the removals is still to do (RPT-1).
 ## 13. Not built or open (summary)
 
 - Computed pricing (PRC-1).
-- Correcting a piece of a sealed opening (OPN-FIX); XLSX import of the opening.
+- XLSX import of the opening; a CSV for the opening's broken scrap (OPN-3: keyboard only, owner Q7).
 - Barcode labels (LBL-1).
 - Tax invoice (TAX-1).
 - Cash-out for the operating amount (CSH-3).
