@@ -198,6 +198,13 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('GET', '/cash/reconciliation', 'branch', { all: ['cash.view'] }),
   r('POST', '/cash/counts', 'branch', { all: ['cash.count'], idempotent: true }),
   // ── CSH-2: the General Manager's advances to a branch and its repayments (GM only, password, key in the transaction)
+  // MNY-1: money transfers. Branch managers send, confirm and cancel for the own branch; the General Manager views every
+  // transfer and confirms only those addressed to him (the services check the side, D-mny1-2). No re-auth (owner).
+  r('GET', '/money-transfers', 'branch', { all: ['money_transfers.view'] }),
+  r('GET', '/money-transfers/:id', 'branch', { all: ['money_transfers.view'] }),
+  r('POST', '/money-transfers', 'branch', { all: ['money_transfers.send'], idempotent: true, idempotencyInTx: true }),
+  r('POST', '/money-transfers/:id/confirm', 'branch', { all: ['money_transfers.receive'], idempotent: true, idempotencyInTx: true }),
+  r('POST', '/money-transfers/:id/cancel', 'branch', { all: ['money_transfers.send'], idempotent: true, idempotencyInTx: true }),
   r('GET', '/funding', 'branch', { all: ['funding.view'] }),
   r('POST', '/funding/advances', 'branch', { all: ['funding.manage'], reauth: true, idempotent: true, idempotencyInTx: true }),
   r('POST', '/funding/repayments', 'branch', { all: ['funding.manage'], reauth: true, idempotent: true, idempotencyInTx: true }),

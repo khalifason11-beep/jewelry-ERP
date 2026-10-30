@@ -19,6 +19,25 @@ import type { Ctx } from '../src/core/context';
 import { seedWorld } from './fixtures/world';
 import { DEMO_PASSWORDS } from './fixtures/world-data';
 import { openTestDatabase, withIdempotencyKeys } from './helpers';
+import { loadActor } from '../src/modules/sessions/service';
+import { recordAdvance } from '../src/modules/funding/service';
+import { cancelMoneyTransfer, sendMoneyTransfer } from '../src/modules/money-transfers/service';
+
+/** MNY-1: two money transfers of KRT (one in transit, one cancelled), made once; the drawer funded by the test itself. */
+let moneyIdsCache: number[] | null = null;
+async function moneyTransfersOfKrt(): Promise<number[]> {
+  if (moneyIdsCache) return moneyIdsCache;
+  const user = async (username: string) => (await loadActor(ctx.db, (await ctx.db.select().from(t.users).where(eq(t.users.username, username)))[0].id, null))!;
+  const [gm, bm] = [await user(ROLES.GENERAL_MANAGER), await user(ROLES.BRANCH_MANAGER)];
+  const [krt] = await ctx.db.select().from(t.branches).where(eq(t.branches.code, 'KRT'));
+  const [omd] = await ctx.db.select().from(t.branches).where(eq(t.branches.code, 'OMD'));
+  await recordAdvance(ctx, gm, { branchId: krt.id, account: 'CASH', amount: 50_000, reason: 'test: fund the drawer' });
+  const a = await sendMoneyTransfer(ctx, bm, { to: { branchId: omd.id }, account: 'CASH', amount: 10_000, reason: 'test transfer' });
+  const b = await sendMoneyTransfer(ctx, bm, { to: { generalManager: true }, account: 'CASH', amount: 5_000, reason: 'test transfer' });
+  await cancelMoneyTransfer(ctx, bm, b.id, { reason: 'test cancel' });
+  moneyIdsCache = [a.id, b.id];
+  return moneyIdsCache;
+}
 
 let handle: DatabaseHandle;
 let ctx: Ctx;
@@ -107,6 +126,7 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
     )
       .filter(Boolean)
       .map((x) => x.id);
+    const moneyIds = await moneyTransfersOfKrt();
     const reportPaths = [
       ...REPORT_KEYS.map((k) => `/reports/${k}`),
       '/reports/inventory-ledger',
@@ -150,6 +170,8 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /purchases/:id': [`/purchases/${purchase.id}`, `/purchases/${settled.purchaseId}`],
       'GET /scrap-rates': ['/scrap-rates'],
       'GET /funding': ['/funding', `/funding?branchId=${krt.id}`],
+      'GET /money-transfers': ['/money-transfers', `/money-transfers?branchId=${krt.id}`, '/money-transfers?status=CANCELLED', '/money-transfers?direction=IN'],
+      'GET /money-transfers/:id': moneyIds.map((id) => `/money-transfers/${id}`),
       'GET /scrap-purchases': ['/scrap-purchases', '/scrap-purchases?kind=SELLABLE', '/scrap-purchases?status=VOIDED'],
       'GET /scrap-purchases/:id': scrapIds.map((id) => `/scrap-purchases/${id}`),
       'GET /scrap-pool': ['/scrap-pool', `/scrap-pool?branchId=${krt.id}`],

@@ -179,6 +179,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     sealedAt lineCount importId duplicate fileName byType imports lineNo source pieces firstCode lastCode errors errorCount column
     condition byKaratCondition openingId
     scrap scrapLines scrapCorrections scrapNow scrapWeightMg weightMgChange changes removedLineNo
+    fromBranchNameAr toKind toBranchNameAr sourceAccount closedAt closedByName landedAccount landedBankReference cancelReason events actorName inTransit
     openingCorrections conditionBefore conditionAfter karatBefore karatAfter grossWeightMgBefore grossWeightMgAfter
     netWeightMgBefore netWeightMgAfter before after sellingPriceBefore sellingPriceAfter valuationChange stockWeightChangeMg
     stockCountChange now sold

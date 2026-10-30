@@ -1768,6 +1768,115 @@ async function main() {
       await signOut(page);
     }
 
+    section('MNY-1 (routes): money between branches and to the General Manager (send, confirm into the drawer or the bank, cancel, the wrong-amount procedure)');
+    {
+      await signIn(page, origin, GM.username, GM.password);
+      await page.getByTestId('second-step').waitFor();
+      await page.click('[data-testid=use-passkey]');
+      await pathIs(page, ['/overview']);
+      // A branch manager for the second branch (test user); the first branch's manager is BM.
+      // A new user needs the password and the passkey confirmed: the one dialog of "New user" (UX-3) opens both.
+      await page.goto(`${origin}/users`);
+      await startFlow(page, 'new-user', 'user-username', GM.password);
+      await page.keyboard.press('Escape');
+      const bmBNew = await apiSend(page, 'POST', '/api/users', { username: 'rehearsal.manager.b', fullName: 'Rehearsal Manager B', roleCode: 'BRANCH_MANAGER', branchId: branchB });
+      check(bmBNew.status === 200 && !!bmBNew.body.temporaryPassword, `a branch manager for branch B (test user) created (${bmBNew.status} ${bmBNew.body?.error?.code ?? ''})`);
+      const bmB = bmBNew.body;
+      const staff = async (username, password, next) => {
+        const c = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1366, height: 768 } });
+        const p = await c.newPage();
+        await signIn(p, origin, username, password);
+        if (next) await changePassword(p, password, next);
+        await p.waitForURL((u) => !['/login', '/change-password'].includes(u.pathname), { timeout: 15_000 });
+        return { c, p };
+      };
+      const a = await staff(BM.username, BM.password);
+      const b = await staff(bmB.username, bmB.temporaryPassword, 'Rehearsal-Manager-B-2026');
+      const cashier = await staff(CASHIER.username, CASHIER.password);
+      const drawerOf = async (id) => (await apiGet(page, '/api/cash/drawer')).body.branches.find((x) => x.branchId === id);
+      const recon = async (id) => (await apiGet(page, `/api/cash/reconciliation?branchId=${id}`)).body;
+      const lineOf = (r, kind, line) => r[kind === 'CASH' ? 'cashLines' : 'bankLines'].find((l) => l.line === line).amount;
+      const owedA = async () => (await apiGet(page, '/api/funding')).body.branches.find((x) => x.branchId === branchId).owedToGm;
+      const [dA0, dB0, rA0, rB0, owed0] = [await drawerOf(branchId), await drawerOf(branchB), await recon(branchId), await recon(branchB), await owedA()];
+
+      // From the drawer of branch A to branch B; B's manager sees it waiting and confirms it into the drawer.
+      const toB = await apiSend(a.p, 'POST', '/api/money-transfers', { to: { branchId: branchB }, account: 'CASH', amount: 30_000, reason: 'سيولة لفرع التجربة ب' });
+      check(toB.status === 200 && toB.body.status === 'IN_TRANSIT' && toB.body.number, `branch manager A sends 30,000 from the drawer to branch B (${toB.body?.number ?? toB.status}); no re-confirmation asked`);
+      const waitingB = (await apiGet(b.p, '/api/money-transfers?direction=IN&status=IN_TRANSIT')).body.rows;
+      check(waitingB.some((x) => x.id === toB.body.id), 'branch manager B sees it waiting for confirmation');
+      const okB = await apiSend(b.p, 'POST', `/api/money-transfers/${toB.body.id}/confirm`, { account: 'CASH' });
+      check(okB.status === 200 && okB.body.status === 'RECEIVED', 'branch manager B confirms it into the drawer');
+      const twice = await apiSend(b.p, 'POST', `/api/money-transfers/${toB.body.id}/confirm`, { account: 'CASH' });
+      check(twice.status === 409 && twice.body.error.code === 'MONEY_TRANSFER_STATE', 'a second confirmation is refused (409 MONEY_TRANSFER_STATE)');
+      // From the bank: the reference is required to send, and to confirm into the bank.
+      const noRef = await apiSend(a.p, 'POST', '/api/money-transfers', { to: { branchId: branchB }, account: 'BANK', amount: 25_000, reason: 'تحويل بنكي' });
+      const bankSent = await apiSend(a.p, 'POST', '/api/money-transfers', { to: { branchId: branchB }, account: 'BANK', amount: 25_000, reason: 'تحويل بنكي', bankReference: 'RHMT 2001' });
+      const bankNoRef = await apiSend(b.p, 'POST', `/api/money-transfers/${bankSent.body?.id}/confirm`, { account: 'BANK' });
+      const bankOk = await apiSend(b.p, 'POST', `/api/money-transfers/${bankSent.body?.id}/confirm`, { account: 'BANK', bankReference: 'RHMT 2002' });
+      check(noRef.status === 400 && bankSent.status === 200 && bankNoRef.status === 400 && bankOk.status === 200, `from the bank: refused without a bank reference (${noRef.status}), sent with one; confirmed into B's bank only with a reference (${bankNoRef.status}, then ${bankOk.status})`);
+      // The owner's wrong-amount procedure: cancel (by the sender, with a reason) and send again.
+      const wrong = (await apiSend(a.p, 'POST', '/api/money-transfers', { to: { branchId: branchB }, account: 'CASH', amount: 5_000, reason: 'سيولة إضافية' })).body;
+      const cancelled = await apiSend(a.p, 'POST', `/api/money-transfers/${wrong.id}/cancel`, { reason: 'المبلغ خطأ: 50,000 لا 5,000' });
+      const right = await apiSend(a.p, 'POST', '/api/money-transfers', { to: { branchId: branchB }, account: 'CASH', amount: 50_000, reason: 'سيولة إضافية' });
+      const rightOk = await apiSend(b.p, 'POST', `/api/money-transfers/${right.body?.id}/confirm`, { account: 'CASH' });
+      check(cancelled.status === 200 && cancelled.body.status === 'CANCELLED' && right.status === 200 && rightOk.status === 200, `wrong amount: ${wrong.number} (5,000) cancelled by its sender with a reason, ${right.body?.number} sent again with 50,000 and confirmed`);
+      const lateConfirm = await apiSend(b.p, 'POST', `/api/money-transfers/${wrong.id}/confirm`, { account: 'CASH' });
+      check(lateConfirm.status === 409 && lateConfirm.body.error.code === 'MONEY_TRANSFER_STATE', 'the cancelled transfer can no longer be confirmed (409)');
+      // To the General Manager: he confirms with no account; what the branch owes him does not move.
+      const toGm = await apiSend(a.p, 'POST', '/api/money-transfers', { to: { generalManager: true }, account: 'CASH', amount: 20_000, reason: 'إيراد اليوم للمدير العام' });
+      const gmOk = await apiSend(page, 'POST', `/api/money-transfers/${toGm.body?.id}/confirm`, {});
+      check(toGm.status === 200 && gmOk.status === 200 && gmOk.body.status === 'RECEIVED', `branch manager A hands 20,000 to the General Manager (${toGm.body?.number}); he confirms it, recording nothing`);
+      check((await owedA()) === owed0, `what branch A owes the General Manager is unchanged (${owed0})`);
+
+      // Who may do what (D-mny1-2): the General Manager never sends nor confirms a branch's transfer; a cashier nothing.
+      const probe = (await apiSend(a.p, 'POST', '/api/money-transfers', { to: { branchId: branchB }, account: 'CASH', amount: 1_000, reason: 'قيد الطريق' })).body;
+      const gmCodes = [
+        (await apiSend(page, 'POST', '/api/money-transfers', { to: { branchId: branchB }, account: 'CASH', amount: 1_000, reason: 'from the GM' })).status,
+        (await apiSend(page, 'POST', `/api/money-transfers/${probe.id}/confirm`, { account: 'CASH' })).status,
+        (await apiSend(page, 'POST', `/api/money-transfers/${probe.id}/cancel`, { reason: 'the GM cancels' })).status,
+      ];
+      check(gmCodes.every((s) => s === 403), `General Manager: 403 on send, on confirming a branch's transfer and on cancel (${gmCodes.join(', ')})`);
+      const cashierCodes = [
+        (await apiGet(cashier.p, '/api/money-transfers')).status,
+        (await apiGet(cashier.p, `/api/money-transfers/${probe.id}`)).status,
+        (await apiSend(cashier.p, 'POST', '/api/money-transfers', { to: { branchId: branchB }, account: 'CASH', amount: 1, reason: 'cashier' })).status,
+        (await apiSend(cashier.p, 'POST', `/api/money-transfers/${probe.id}/confirm`, { account: 'CASH' })).status,
+        (await apiSend(cashier.p, 'POST', `/api/money-transfers/${probe.id}/cancel`, { reason: 'cashier' })).status,
+      ];
+      check(cashierCodes.every((s) => s === 403), `cashier: 403 on every money-transfer route (${cashierCodes.join(', ')})`);
+      const short = await apiSend(a.p, 'POST', '/api/money-transfers', { to: { branchId: branchB }, account: 'CASH', amount: 10_000_000_000, reason: 'أكثر من الدرج' });
+      check(short.status === 409 && short.body.error.code === 'DRAWER_SHORT', 'more than the drawer holds is refused (409 DRAWER_SHORT), the only limit');
+      // A branch with money in transit cannot be deactivated; once cancelled, nothing is left in transit.
+      const deactivate = await apiSend(page, 'PATCH', `/api/branches/${branchB}`, { isActive: false });
+      check(deactivate.status === 409 && deactivate.body.error.code === 'BRANCH_HAS_MONEY_IN_TRANSIT', `branch B cannot be deactivated while ${probe.number} is in transit to it (409 BRANCH_HAS_MONEY_IN_TRANSIT)`);
+      check((await apiSend(a.p, 'POST', `/api/money-transfers/${probe.id}/cancel`, { reason: 'اختبار الإيقاف انتهى' })).status === 200, `${probe.number} cancelled by its sender`);
+
+      // The General Manager's read-only list: every transfer, the cancelled one with who, when and why.
+      const all = (await apiGet(page, '/api/money-transfers?pageSize=200')).body;
+      const seen = all.rows.find((x) => x.id === wrong.id);
+      check(
+        seen?.status === 'CANCELLED' && seen.closedByName === BM.fullName && seen.cancelReason === 'المبلغ خطأ: 50,000 لا 5,000' && !!seen.closedAt && all.totals.inTransit === 0,
+        `General Manager: the list shows ${wrong.number} CANCELLED, by ${seen?.closedByName}, with its reason and time; nothing left in transit`,
+      );
+      // The money: A's drawer −100,000 (30,000 + 50,000 to B, 20,000 to the GM), its bank −25,000; B the mirror for the
+      // branch transfers; the day's reconciliation lines add up to each account's movement.
+      const [dA1, dB1, rA1, rB1] = [await drawerOf(branchId), await drawerOf(branchB), await recon(branchId), await recon(branchB)];
+      check(
+        dA1.expectedCash - dA0.expectedCash === -100_000 && dA1.bank - dA0.bank === -25_000 && dB1.expectedCash - dB0.expectedCash === 80_000 && dB1.bank - dB0.bank === 25_000 && dA1.fundsInTransit === dA0.fundsInTransit,
+        `the drawers and banks moved once each: A ${dA1.expectedCash - dA0.expectedCash} / ${dA1.bank - dA0.bank}, B +${dB1.expectedCash - dB0.expectedCash} / +${dB1.bank - dB0.bank}; nothing left in transit`,
+      );
+      const delta = (r1, r0, kind, line) => lineOf(r1, kind, line) - lineOf(r0, kind, line);
+      check(
+        delta(rA1, rA0, 'CASH', 'MONEY_SENT') === -80_000 && delta(rA1, rA0, 'CASH', 'MONEY_TO_GM') === -20_000 && delta(rA1, rA0, 'BANK', 'MONEY_SENT') === -25_000 &&
+          delta(rB1, rB0, 'CASH', 'MONEY_RECEIVED') === 80_000 && delta(rB1, rB0, 'BANK', 'MONEY_RECEIVED') === 25_000,
+        'the reconciliation lines: money sent to branches (cancels net out under it), handed to the General Manager, received from branches',
+      );
+      const adds = (r) => r.cashLines.reduce((s, l) => s + l.amount, 0) === r.cashMovement && r.bankLines.reduce((s, l) => s + l.amount, 0) === r.bankMovement;
+      check(adds(rA1) && adds(rB1), "both branches' reconciliation lines add up to the day's drawer and bank movements");
+      for (const s of [a, b, cashier]) await s.c.close();
+      await signOut(page);
+    }
+
     section('REM-5: no deprecated schema left');
     const rdb = new pg.Client({ connectionString: dbUrl.toString() });
     await rdb.connect();
