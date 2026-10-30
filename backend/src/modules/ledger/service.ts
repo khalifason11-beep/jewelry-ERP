@@ -246,6 +246,11 @@ export const OTHER_EVENT_TYPES: Readonly<Partial<Record<LedgerEventType, string>
   // MKC-1 (Q7, D-mkc-4): historical only. A making charge is paid by the owner from his personal account and posts no
   // entry any more; the type stays valid in the database check so the ledger's history is never rewritten.
   SUPPLIER_MAKING_CHARGE: 'historical, MKC-1: making charges no longer touch branch money',
+  // MNY-1 c1: the event types exist from migration 0038; their reconciliation lines come with the service (MNY-1 c2).
+  MONEY_TRANSFER_SENT: 'MNY-1: no transfer can be recorded before the service (c2) gives it its line',
+  MONEY_TRANSFER_RECEIVED: 'MNY-1: no transfer can be recorded before the service (c2) gives it its line',
+  MONEY_TRANSFER_CANCELLED: 'MNY-1: no transfer can be recorded before the service (c2) gives it its line',
+  MONEY_TRANSFER_TO_GM: 'MNY-1: no transfer can be recorded before the service (c2) gives it its line',
 };
 
 /** The event type an entry counts as in the reconciliation: a REVERSAL counts as the entry it reverses (Q9). */

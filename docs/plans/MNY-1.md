@@ -1,4 +1,4 @@
-# MNY-1: money transfers between branches and to the General Manager (revised plan; questions answered, waiting for approval)
+# MNY-1: money transfers between branches and to the General Manager (revised plan, approved 2026-10-30)
 
 BACKLOG MNY-1, owner decision Q-8 / D-dec1-6 (2026-10-18). First plan `afd3679` (2026-10-30); **revised after the
 owner's decisions of 2026-10-30 (§0)**. This item moves money: **no code before the owner's written approval of this
@@ -250,7 +250,9 @@ PostgreSQL races + REH-1 (by API) · c4 screens + attention + REH-1 (screens) ·
 
 1. **Where a branch receiver's money lands:** the receiving branch manager **chooses the drawer or the bank** when
    confirming (a bank reference when the bank). Owner: agreed.
-2. **24 hours:** a **fixed rule** (no setting). Owner: agreed.
+2. **24 hours:** owner's final word (approval of 2026-10-30): reuse the piece transfers' late-alert setting if one
+   exists, else a fixed 24 hours. **Found:** `transfers.pendingClaimStaleHours` (General Manager setting, default 24, used
+   by attention A2); A19 reuses it, no new setting (D-mny1-3).
 3. **Transfers to the General Manager:** he records **nothing** when he confirms; the sender's reason is enough.
    Owner: agreed.
 

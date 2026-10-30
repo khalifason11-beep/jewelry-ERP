@@ -2181,4 +2181,7 @@ export const AR: Record<string, string> = {
   'From karat': 'من عيار',
   'To karat': 'إلى عيار',
   'Weight (g)': 'الوزن (جم)',
+  'See money transfers': 'عرض التحويلات النقدية',
+  'Send money': 'إرسال تحويل نقدي',
+  'Confirm money received': 'تأكيد استلام تحويل نقدي',
 };

@@ -1540,6 +1540,10 @@ async function main() {
       await pathIs(page, ['/overview']);
       const gmPerms = (await apiGet(page, '/api/auth/me')).body.user.permissions;
       check(gmPerms.includes('opening.manage') && gmPerms.includes('opening.correct'), 'the General Manager holds opening.manage and opening.correct (migration 0032 on a production database)');
+      check(
+        gmPerms.includes('money_transfers.view') && gmPerms.includes('money_transfers.receive') && !gmPerms.includes('money_transfers.send'),
+        'MNY-1: the General Manager holds money_transfers.view and .receive, never .send (migration 0038, D-mny1-2)',
+      );
       // Types created by the General Manager; the sheet names them (the importer never creates types).
       const ring = (await apiSend(page, 'POST', '/api/categories', { nameAr: 'خواتم الافتتاح' })).body;
       const bangle = (await apiSend(page, 'POST', '/api/categories', { nameAr: 'أساور الافتتاح' })).body;

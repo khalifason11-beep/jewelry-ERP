@@ -410,7 +410,7 @@ describe('expected cash and daily reconciliation', () => {
       expect((LEDGER_EVENT_TYPES as readonly string[]).includes(e), `${e} is not a ledger event type`).toBe(true);
       expect(reason?.trim().length, `${e} needs a reason`).toBeGreaterThan(10);
     }
-    expect(Object.keys(OTHER_EVENT_TYPES).sort()).toEqual(['REVERSAL', 'SUPPLIER_MAKING_CHARGE']); // EXPENSE and HASAD_SETTLEMENT were dropped by REM-5; SUPPLIER_MAKING_CHARGE is historical since MKC-1
+    expect(Object.keys(OTHER_EVENT_TYPES).sort()).toEqual(['MONEY_TRANSFER_CANCELLED', 'MONEY_TRANSFER_RECEIVED', 'MONEY_TRANSFER_SENT', 'MONEY_TRANSFER_TO_GM', 'REVERSAL', 'SUPPLIER_MAKING_CHARGE']); // EXPENSE and HASAD_SETTLEMENT were dropped by REM-5; SUPPLIER_MAKING_CHARGE is historical since MKC-1
     // And the lines they map to exist for at least one account.
     const all = new Set<string>([...RECONCILIATION_LINES.CASH, ...RECONCILIATION_LINES.BANK]);
     for (const line of Object.values(LINE_OF_EVENT)) expect(all.has(line!), line).toBe(true);

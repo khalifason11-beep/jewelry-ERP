@@ -952,6 +952,62 @@ export const gmFundingEvents = pgTable(
   (t) => [index('gm_funding_events_branch_idx').on(t.branchId, t.at), uniqueIndex('gm_funding_events_reverses_idx').on(t.reversesEventId)],
 );
 
+/**
+ * MNY-1 (D-mny1-*): a money transfer from a branch to another branch or to the General Manager. The row is the
+ * lockable head of the transfer: its money never changes; only `status` moves, IN_TRANSIT → RECEIVED or CANCELLED
+ * (trigger `jerp_money_transfer_check`). The money sits in the sending branch's FUNDS_IN_TRANSIT until it is
+ * confirmed (or cancelled). Its steps are the append-only `money_transfer_events`.
+ */
+export const moneyTransfers = pgTable(
+  'money_transfers',
+  {
+    id: serial('id').primaryKey(),
+    number: text('number').notNull().unique(),
+    fromBranchId: integer('from_branch_id').notNull().references(() => branches.id),
+    /** BRANCH | GM */
+    toKind: text('to_kind').notNull(),
+    /** The receiving branch (BRANCH), null for the General Manager (GM). */
+    toBranchId: integer('to_branch_id').references(() => branches.id),
+    /** CASH (the drawer) | BANK: where the money left the sending branch. */
+    sourceAccount: text('source_account').notNull(),
+    /** Whole SDG, > 0. */
+    amount: money('amount').notNull(),
+    /** Why the money moves (3–300 characters, required). */
+    reason: text('reason').notNull(),
+    /** The bank's reference (FIX-2 rules), required when it left the BANK. */
+    bankReference: text('bank_reference'),
+    /** IN_TRANSIT | RECEIVED | CANCELLED */
+    status: text('status').notNull().default('IN_TRANSIT'),
+    createdBy: integer('created_by').notNull().references(() => users.id),
+    createdAt: createdAt(),
+    sessionId: text('session_id'),
+    idempotencyKey: text('idempotency_key'),
+  },
+  (t) => [index('money_transfers_from_idx').on(t.fromBranchId, t.status), index('money_transfers_to_idx').on(t.toBranchId, t.status), index('money_transfers_status_idx').on(t.status, t.createdAt)],
+);
+
+/** MNY-1: the steps of a money transfer, append-only: SENT, then at most one RECEIVED or CANCELLED. */
+export const moneyTransferEvents = pgTable(
+  'money_transfer_events',
+  {
+    id: serial('id').primaryKey(),
+    transferId: integer('transfer_id').notNull().references(() => moneyTransfers.id),
+    /** SENT | RECEIVED | CANCELLED */
+    kind: text('kind').notNull(),
+    /** RECEIVED at a branch: where it landed (CASH | BANK); null otherwise. */
+    account: text('account'),
+    /** The bank's reference (FIX-2 rules) when it landed in the BANK. */
+    bankReference: text('bank_reference'),
+    /** CANCELLED: why (3–300 characters). */
+    reason: text('reason'),
+    actorId: integer('actor_id').notNull().references(() => users.id),
+    sessionId: text('session_id'),
+    idempotencyKey: text('idempotency_key'),
+    at: ts('at').notNull().defaultNow(),
+  },
+  (t) => [index('money_transfer_events_transfer_idx').on(t.transferId, t.id)],
+);
+
 // ───────────────────────────── Branch money ledger (Phase 2b) ─────────────────────────────
 
 /** One account per branch and kind (CASH, BANK, FUNDS_IN_TRANSIT); created by a trigger on branches. */

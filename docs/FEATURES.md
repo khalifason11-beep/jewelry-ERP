@@ -185,6 +185,10 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   - **Repayments** take money back the same way.
   - A **correction** (a reversal) undoes one event, once.
   - `OWED_TO_GM` shows what each branch owes the General Manager.
+- **Money transfers** (MNY-1): `money_transfers.view` (the branch manager: the own branch; the General Manager: every
+  branch, read only), `money_transfers.send` (the branch manager: send from the own branch and cancel while in transit;
+  never the General Manager) and `money_transfers.receive` (the branch manager: confirm a transfer to the own branch;
+  the General Manager: only one addressed to him). Cashiers: none.
 - **Opening balance** (OPN-1, `opening.manage`, General Manager only): one per branch, DRAFT → SEALED.
   - The draft is not stock. Pieces are typed in (Enter moves to the next field) or imported from a CSV file (template
     in Arabic and English; comma or semicolon; one wrong row rejects the file with every problem by row and column; the

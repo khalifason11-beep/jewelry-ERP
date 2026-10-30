@@ -36,5 +36,6 @@
   "0034_pay1_backfill_payments.sql": "a3a72c310cefa714d9df9d3e98b17f920cc21cc446d925dce8603221614bd83c",
   "0035_pay1_tighten_payments.sql": "05a5101970b2b08245dc55bad3c82a00629b8055033e792e54279e44cc66fa15",
   "0036_pay1_hasad_channel_only.sql": "91e931bc3930041e05e2c300f30ee5f990320971c2a3e2fbe195920b4da2e89f",
-  "0037_opn3_opening_scrap.sql": "7a5f1b90248c3122d24038b578278e58b1ee43cb07f77bb2b41638814ba82ee7"
+  "0037_opn3_opening_scrap.sql": "7a5f1b90248c3122d24038b578278e58b1ee43cb07f77bb2b41638814ba82ee7",
+  "0038_mny1_money_transfers.sql": "6ea3a2f038ced3bdca124c7ebd7967a9b92441ef4a5cc6d3d63f8ae5a055e5c3"
 }
