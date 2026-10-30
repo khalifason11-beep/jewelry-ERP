@@ -524,6 +524,9 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   send. What a branch owes the General Manager (`OWED_TO_GM`) never moves. The only limit is the drawer
   (`DRAWER_SHORT`); the bank, as everywhere since CSH-2, may go below zero and raises A17. The daily reconciliation gains the lines `MONEY_SENT`, `MONEY_RECEIVED` and `MONEY_TO_GM`.
 - A branch with money in transit (to or from it) cannot be deactivated (`BRANCH_HAS_MONEY_IN_TRANSIT`).
+- Screens (c4): the page **Money transfers** (`/money-transfers`, Money group of the menu, a link from Cash) and the column
+  "Money on the way" on Cash. Attention **A18** (waiting for you to confirm) and **A19** (waiting longer than
+  `transfers.pendingClaimStaleHours`, the existing setting of A2, default 24; no new setting, D-mny1-3).
 - **A wrong amount (owner's procedure):** a transfer is never edited. While it is in transit, the sending branch
   manager cancels it with the reason (for example "wrong amount: 50,000, not 5,000") and sends the right amount as a
   new transfer. A confirmed transfer cannot be cancelled.
