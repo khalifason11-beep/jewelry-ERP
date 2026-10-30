@@ -1,12 +1,26 @@
-# SCR-1 — Broken scrap in the opening balance (plan, stop for approval)
+# OPN-3 — Broken scrap in the opening balance (plan, approved 2026-10-30)
 
-Owner request of 2026-10-30. Branch `claude/scr-1` from `origin/main` 12c09f1. **No code until the owner approves this
-plan in writing.** Part A is the item; part B (§12) is a separate proposal and is not built without its own approval.
+Owner request of 2026-10-30 (first written as SCR-1, plan `e283f21`). Branch `claude/scr-1` from `origin/main` 12c09f1.
+Part A is the item; part B (§12) is a proposal only and is **not built**.
 
-> **Name clash:** `docs/BACKLOG.md` already has **SCR-1 — Customer identification on scrap purchases · CANCELLED
-> (Q-12)**. This plan keeps the name the owner gave (SCR-1) for the plan and acceptance files; the BACKLOG entry would be
-> written as "SCR-1 (2026-10-30) — Broken scrap in the opening balance", with the cancelled one renamed SCR-0. Question
-> Q11.
+## 0. Owner decisions (2026-10-30)
+
+- **Name:** OPN-3 everywhere (this file, `docs/acceptance/OPN-3.md`, BACKLOG "OPN-3 — Broken scrap in the opening
+  balance", decisions D-opn3-*). The cancelled SCR-1 in the BACKLOG stays untouched.
+- **Q1:** used opening pieces keep origin OPENING with the used-piece rate (D-opn2-1). No change.
+- **Q2:** opening broken scrap accepts **any karat 1–24**, as a scrap purchase does.
+- **Q3:** one weight per line, the net weight.
+- **Q4:** movement types OPENING «رصيد افتتاحي» and OPENING_CORRECTION «تصحيح رصيد افتتاحي».
+- **Q5:** an opening with broken scrap and no pieces may be sealed.
+- **Q6:** corrections as proposed in §4; no time limit.
+- **Q7:** **no CSV for broken scrap**: keyboard entry only. The pieces importer is untouched; no scrap template or import
+  route, no `kind` column on `opening_imports`.
+- **Q8:** several lines of the same karat, one pool movement per line.
+- **Q9:** the optional note (≤ 120 characters) stays.
+- **Q10:** the opening stays General Manager only.
+- **Part B:** not approved now; §12 stays a proposal waiting for the client's answers.
+- **Migration:** this item takes **0037**; MNY-1 moves to 0038 when it is built.
+- Reminder: the seal still asks for the password and passkey once only (UX-3); every new route is in the route matrix.
 
 ## 1. Findings of step 1 (code read + a real run on a fresh database)
 
@@ -56,29 +70,22 @@ Other facts found that shape the design:
 | `karat` | smallint NOT NULL | CHECK 1–24 (the service applies Q2) |
 | `weight_mg` | integer NOT NULL | CHECK > 0; whole mg (the pool's column is `integer` too) |
 | `note` | text NULL | ≤ 120 characters, optional ("bag 3", "the safe") |
-| `source` | text NOT NULL | KEYBOARD or IMPORT; CHECK (`source` = 'IMPORT') = (`import_id` IS NOT NULL) |
-| `import_id` | int NULL | the CSV it came from (no FK: `opening_imports` is append-only, as `opening_lines`) |
 | `created_by`, `created_at`, `updated_by`, `updated_at` | | |
 
 No cost, no price, no money column. Several lines of the same karat are allowed (several bags); the seal writes one pool
 movement per line, as the owner asked.
 
 Trigger `jerp_opening_scrap_line_check` (same pattern as `jerp_opening_line_check`, migration 0026): INSERT, UPDATE and
-DELETE are refused when the opening is SEALED; an imported line must name an import of the same opening; TRUNCATE
-refused (`jerp_forbid_modification`). A draft line may be edited (UPDATE) or removed (DELETE), audited by the service.
+DELETE are refused when the opening is SEALED; TRUNCATE refused (`jerp_forbid_modification`). A draft line may be edited (UPDATE) or removed (DELETE), audited by the service.
 
 **`opening_scrap_corrections`** — append-only, a correction after the seal (§4):
 `id`, `opening_id`, `branch_id` (the opening's branch), `karat`, `weight_mg_change` (signed, ≠ 0), `reason` (3–200),
 `corrected_by`, `session_id`, `created_at`. Triggers: `jerp_forbid_modification` (no UPDATE/DELETE/TRUNCATE),
 `jerp_lock_append_only`, and a check that the opening is SEALED and the branch is the opening's branch.
 
-**`opening_imports`** — one additive column `kind` text NOT NULL DEFAULT 'PIECES', CHECK IN ('PIECES', 'SCRAP'), so a
-scrap file has the same record (file name, SHA-256, rows, who, when) and the same "same file twice changes nothing"
-rule. Existing rows become PIECES by the default; nothing else changes.
-
-**`scrap_weight_entries.event_type`** — two new values, **OPENING** and **OPENING_CORRECTION** (names: question Q4).
+**`scrap_weight_entries.event_type`** — two new values, **OPENING** and **OPENING_CORRECTION** (names: Q4).
 The CHECK `ck_scrap_weight_entries_event_type` is replaced (DROP CONSTRAINT then ADD with the wider list), so the
-statement carries `-- allow-destructive: D-scr1-1 widen the event-type CHECK of the pool with OPENING and
+statement carries `-- allow-destructive: D-opn3-1 widen the event-type CHECK of the pool with OPENING and
 OPENING_CORRECTION (no row changes)`. `SCRAP_WEIGHT_EVENT_TYPES` in `shared/src/enums.ts` and `db-checks.ts` follow.
 Pool rows of the seal: `ref_type` 'opening_scrap_line', `ref_id` the line, `ref_number` `OPN-<branch code>`; of a
 correction: `ref_type` 'opening_scrap_correction', `ref_id` the correction.
@@ -87,7 +94,7 @@ Grants as in 0032: the runtime role gets SELECT/INSERT on the new append-only ta
 draft lines (the trigger guards the sealed ones). Drizzle schema, `APPEND_ONLY_TABLES`, `DATA_MODEL.md` updated.
 
 **Upgrade safety:** nothing existing is updated or deleted. The migration does not touch `openings`, `opening_lines`,
-`jewelry_items` or any pool row; an upgrade test (§8) proves a database that already holds a sealed opening, scrap
+`jewelry_items` or any pool row; an upgrade test (§9) proves a database that already holds a sealed opening, scrap
 purchases, a void and a settlement has the same pool balances, the same opening and the same pieces after 0037.
 
 ## 3. Ledger and pool effect per step
@@ -98,7 +105,6 @@ ledger entries before and after; the new tests do the same for scrap lines and c
 | Step | Pool (`scrap_weight_entries`) | Pieces / movements | Other |
 |---|---|---|---|
 | Add / edit / remove a draft scrap line | nothing | nothing | the line; audit `OPENING_SCRAP_LINE_ADDED / _CHANGED / _REMOVED` (karat, weight before/after) |
-| Import a scrap CSV | nothing | nothing | `opening_imports` (kind SCRAP) + lines; audit `OPENING_SCRAP_IMPORTED` |
 | **Seal** | **+ weight_mg per line**, type OPENING, at the opening's branch and the line's karat | the pieces as today (unchanged) | opening SEALED; audit `OPENING_SEALED` now also carries the scrap totals |
 | Correction after the seal (§4) | ± weight, type OPENING_CORRECTION | nothing | correction row; audit `OPENING_SCRAP_CORRECTED` |
 | Later scrap purchases, voids, settlements | as today | as today | as today |
@@ -109,7 +115,7 @@ karat: Σ OPENING movements of the branch = Σ that karat's sealed scrap lines.
 ## 4. The opening's states
 
 ```
-            add / edit / remove piece lines and scrap lines, import piece CSV or scrap CSV
+            add / edit / remove piece lines and scrap lines, import piece CSV
             ┌───────────────┐
             ▼               │
   (none) ──create──► DRAFT ─┘
@@ -145,15 +151,13 @@ correction.
 | `POST /openings/:id/scrap-lines` (karat, weightMg, note?) | `opening.manage` | no (as piece lines) | yes, in the transaction |
 | `POST /openings/:id/scrap-lines/:lineId` (edit: karat, weightMg, note) | `opening.manage` | no | yes |
 | `POST /openings/:id/scrap-lines/:lineId/remove` | `opening.manage` | no | yes |
-| `GET /openings/scrap-template.csv` | `opening.manage` | no | — |
-| `POST /openings/:id/scrap-import` (raw `text/csv`, ≤ 1 MB, ≤ 5,000 rows) | `opening.manage` | no | yes (hash covers the bytes) |
 | `POST /openings/:id/seal` (unchanged route) | `opening.manage` | **yes, as today** (`reauth: true`) | yes |
 | `POST /openings/:id/scrap-corrections` (karat, weightMgChange, reason, confirmPassword; or a karat move) | `opening.correct` | **yes** (`reauth: true`, as OPN-FIX) | yes |
 
 No conditional step-up is added, so no new `reauthWhen`; the two re-auth routes are declared `reauth: true` in
 `shared/src/route-matrix.ts` and the UX-3 audit test covers them. All routes are `global` (GM only), as the other
 opening routes. Error codes: existing `OPENING_SEALED`, `OPENING_EMPTY` (text changes: "no pieces and no broken
-scrap"), `SCRAP_POOL_SHORT`, `OPENING_IMPORT_INVALID`; new `OPENING_SCRAP_CORRECTION_TOO_LARGE`. Every new error code
+scrap"), `SCRAP_POOL_SHORT`; new `OPENING_SCRAP_CORRECTION_TOO_LARGE`. Every new error code
 and route goes in the route matrix and `decisions.md` (check:docs).
 
 **Responses:** `GET /openings/:id` gains `scrapLines` (all of them; there are few), `summary.scrap` =
@@ -163,29 +167,17 @@ once sealed, `scrapCorrections` and `scrapNow` (sealed lines + corrections per k
 **SAFE** in `shared/src/field-classification.ts` (the pool is visible to branch managers; these routes are GM-only
 anyway). The 24K equivalent uses the one helper `pureGoldMg`, rounded once per karat, as the pool view.
 
-## 6. CSV for broken scrap (proposal, question Q7)
+## 6. Entry of broken scrap (keyboard only, Q7)
 
-A **separate small file**, not a second section of the pieces file: a CSV with two sections or two kinds of rows breaks
-the "one header, one row = one piece" rule that spreadsheets and the current importer rely on, and the pieces template
-stays unchanged. Template `opening-scrap-template.csv`, header in Arabic and English:
-
-`العيار / Karat` · `الوزن (جم) / Weight (g)` · `ملاحظة / Note` (optional)
-
-Same rules as the pieces importer (D-opn1-2, D-opn1-7): UTF-8 with or without BOM, comma or semicolon, Arabic-Indic
-digits; weight in grams with at most 3 decimals → integer mg (`parseWeightInput`); karat "21", "21K" or "21 قيراط";
-the whole file checked first, one bad row and nothing is written (row, column, reason; at most 500 listed with the
-count); ≤ 1 MB and ≤ 5,000 rows; the same bytes twice return the first result. In practice a branch has a few scrap
-lines, so the keyboard form is the main path; the file is for owners who keep it in a sheet.
-
-**Keyboard form** (on the draft page, its own card "Broken scrap" / "الكسر"): karat (a select; list per Q2), weight in
+**Keyboard form** (on the draft page, its own card "Broken scrap" / "الكسر"): karat (a select of 1–24, Q2), weight in
 grams (the usual weight input, 3 decimals, converted to mg on the server), an optional note, "Add". Below: the lines
 (karat, weight, note, edit, remove) and a clear total per karat, all karats, and the 24K equivalent.
 
 ## 7. Screens (Arabic first, short text, UX-2 rules)
 
 - **Draft page:** the summary shows two blocks side by side: **Pieces** (count, weight per karat, 24K) and **Broken
-  scrap** (weight per karat, 24K), and one **Total gold** line (weight and 24K). The "Broken scrap" card with the form,
-  the lines and "Import file" (template link).
+  scrap** (weight per karat, 24K), and one **Total gold** line (weight and 24K). The "Broken scrap" card with the form
+  and the lines.
 - **Seal checklist and dialog:** the same totals before the password: pieces count and weight, broken scrap per karat,
   24K equivalent of each and of the whole. One new line on the checklist: "Broken scrap goes into the branch's scrap
   stock and can settle suppliers." No technical codes.
@@ -213,8 +205,6 @@ grams (the usual weight input, 3 decimals, converted to mg on the server), an op
   branch and karat; nothing in the ledger; pieces unchanged; an opening with only scrap seals (if Q5 yes) and with
   neither is refused; the rate check ignores scrap; branch manager and cashier 403 on every new route; field
   classification and cost-visibility requests for the new GET fields; route-matrix and UX-3 audit tests.
-- **CSV:** template header; Arabic/English headers; every row error reported with row and column; > 5,000 rows and > 1 MB
-  refused; same file twice → same result, nothing added.
 - **Settlement on day one:** seal an opening with 21K broken scrap, then settle a supplier order with it (the bug that
   started this item).
 - **Corrections:** + and −, the karat move, refused below 0 and beyond what the opening put in; audit; re-auth required.
@@ -223,7 +213,7 @@ grams (the usual weight input, 3 decimals, converted to mg on the server), an op
   Σ movements = Σ purchases − voids − settlements + Σ sealed lines (+ corrections); draft lines never count; stock weight
   = AVAILABLE pieces + pool, and the homes and the report show the same number (no double count).
 - **Upgrade test:** a database at 0036 holding a sealed opening, scrap purchases, a void and a settlement → 0037 → same
-  pool balances per branch and karat, same opening, lines, pieces; existing imports are kind PIECES.
+  pool balances per branch and karat, same opening, lines, pieces.
 - **PostgreSQL race test** (`test/pg/opening-scrap-race.test.ts`): a seal with scrap lines, broken-scrap purchases and a
   settlement of the same branch at once; final balance = Σ movements; edits racing the seal end in 409, never in a line
   added after the seal.
@@ -231,8 +221,8 @@ grams (the usual weight input, 3 decimals, converted to mg on the server), an op
 
 ## 10. REH-1 additions (same commits as the routes and screens)
 
-On the empty production database, in the existing opening step: add two broken-scrap lines by keyboard (21K and 18K
-per Q2), one by the scrap CSV; check the draft totals and the 24K equivalent; the seal dialog shows both blocks; after
+On the empty production database, in the existing opening step: add two broken-scrap lines by keyboard (21K and 18K,
+Q2) and a second 21K one (Q8); check the draft totals and the 24K equivalent; the seal dialog shows both blocks; after
 the seal the sealed page shows them, the branch's stock weight and the company home include them once, and the
 existing supplier-order step settles **with the opening scrap** (today REH-1 buys broken scrap first; that purchase
 stays, the settlement uses the pool). A correction after the seal (−1.000 g) with its dialog. Expected about +10
@@ -241,17 +231,17 @@ checks (336 now).
 ## 11. Docs and commits
 
 Docs: SPEC §4 (broken scrap enters at the opening as weight), §7.1 (the pool can be funded at the opening), §13 (the
-opening covers pieces new and used and broken scrap); DATA_MODEL (two tables, the `kind` column, the two event types);
-DEPLOYMENT (opening notes: the scrap card, the CSV, the correction; migration 0037); decisions D-scr1-1… (the CHECK
-replacement, names, seal rule, correction rule, CSV format); BACKLOG; FEATURES; route matrix; acceptance
-`docs/acceptance/SCR-1.md`.
+opening covers pieces new and used and broken scrap); DATA_MODEL (two tables, the two event types);
+DEPLOYMENT (opening notes: the scrap card, the correction; migration 0037); decisions D-opn3-1… (the CHECK
+replacement, names, seal rule, correction rule); BACKLOG; FEATURES; route matrix; acceptance
+`docs/acceptance/OPN-3.md`.
 
 Commits after approval, suite green and pushed after each, REH-1 run before every push:
 1. migration 0037 + Drizzle schema + enums/db-checks + upgrade test + DATA_MODEL;
-2. service (draft scrap lines, seal into the pool, corrections) + unit and property tests;
-3. routes + route matrix + field classification + API/role tests + PG race test (+ REH-1 for the routes' responses);
-4. screens + CSV import + Arabic + e2e + REH-1;
-5. acceptance, docs, decisions, BACKLOG, `npm run verify -- --full`, report.
+2. service (draft scrap lines, seal into the pool, corrections) + routes + route matrix + field classification + unit,
+   property and API/role tests + PG race test + REH-1 (the new routes and response fields, by API);
+3. screens + Arabic + e2e + REH-1 (the screens);
+4. acceptance, docs, decisions, BACKLOG, `npm run verify -- --full`, report.
 
 ## 12. Part B (optional, separate approval): a damaged piece into the pool
 
@@ -277,28 +267,28 @@ reversing pool movement and SCRAPPED → DAMAGED)? QB4 re-auth for the branch ma
 none? QB5 opening pieces (cost unknown) and supplier pieces alike? QB6 an allowed-karat check does not apply (any karat
 can be scrap): agreed?
 
-## 13. Questions for the owner
+## 13. Questions for the owner (answered 2026-10-30, see §0)
 
-1. **[OPEN] Q1 — Used opening pieces' origin.** Today they are origin OPENING with the used-piece rate (your decision
+1. **Q1 — Used opening pieces' origin.** Today they are origin OPENING with the used-piece rate (your decision
    D-opn2-1); they sell and price exactly as a used piece bought from a customer, but the inventory filter "scrap" does
    not list them (the "used" filter does). Keep as is (proposed), or must they show as scrap?
-2. **[OPEN] Q2 — Karats of opening broken scrap.** Your message says the allowed karats. Allowed karats are one company
+2. **Q2 — Karats of opening broken scrap.** Your message says the allowed karats. Allowed karats are one company
    setting (not per branch), and buying broken scrap accepts any karat 1–24. Proposed: **any karat 1–24**, as a purchase,
    so 18K broken scrap in a 21K shop can be recorded. Or only the allowed karats?
-3. **[OPEN] Q3 — One weight per line.** A broken-scrap purchase records gross and net and the pool takes the net. For the
+3. **Q3 — One weight per line.** A broken-scrap purchase records gross and net and the pool takes the net. For the
    opening, proposed: **one weight** (the net, what the scale shows after removing stones), as you described. Agreed?
-4. **[OPEN] Q4 — Names in reports.** Movement types OPENING and OPENING_CORRECTION, shown as «رصيد افتتاحي» and «تصحيح
+4. **Q4 — Names in reports.** Movement types OPENING and OPENING_CORRECTION, shown as «رصيد افتتاحي» and «تصحيح
    رصيد افتتاحي». Agreed?
-5. **[OPEN] Q5 — An opening with broken scrap only** (no pieces): may it be sealed? Proposed yes.
-6. **[OPEN] Q6 — Corrections after the seal.** Proposed: GM only (`opening.correct`), reason + password + passkey, never
+5. **Q5 — An opening with broken scrap only** (no pieces): may it be sealed? Proposed yes.
+6. **Q6 — Corrections after the seal.** Proposed: GM only (`opening.correct`), reason + password + passkey, never
    below the pool's balance, never more out than the opening put in for that karat; a wrong karat = a move between two
    karats in one step. Agreed, and is there a time limit?
-7. **[OPEN] Q7 — CSV.** A separate small file for broken scrap (karat, weight, note) as proposed, or not needed at all
+7. **Q7 — CSV.** A separate small file for broken scrap (karat, weight, note) as proposed, or not needed at all
    (keyboard only, since there are few lines)?
-8. **[OPEN] Q8 — Several lines of the same karat** (several bags) allowed, one pool movement each? Proposed yes.
-9. **[OPEN] Q9 — The note column** (optional, ≤ 120 characters): wanted?
-10. **[OPEN] Q10 — Branch manager visibility.** The draft and sealed opening stay General Manager only (as today); the
+8. **Q8 — Several lines of the same karat** (several bags) allowed, one pool movement each? Proposed yes.
+9. **Q9 — The note column** (optional, ≤ 120 characters): wanted?
+10. **Q10 — Branch manager visibility.** The draft and sealed opening stay General Manager only (as today); the
     branch manager sees the opening scrap only as part of the pool on the stock-weight screens. Agreed?
-11. **[OPEN] Q11 — The item name.** SCR-1 is already the cancelled "Customer identification on scrap purchases" in the
+11. **Q11 — The item name.** SCR-1 is already the cancelled "Customer identification on scrap purchases" in the
     BACKLOG. Rename the old one SCR-0, or call this one OPN-3?
 12. **Part B:** QB1–QB6 in §12, only if you want part B.
