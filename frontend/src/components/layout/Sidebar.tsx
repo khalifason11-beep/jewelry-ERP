@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import clsx from 'clsx';
 import {
+  HandCoins,
   ArrowLeftRight,
   Banknote,
   BarChart3,
@@ -44,6 +45,7 @@ const ICONS: Record<NavIcon, ReactNode> = {
   catalog: <Tags />,
   purchases: <Truck />,
   cash: <Banknote />,
+  'money-transfers': <HandCoins />,
   branches: <Building2 />,
   reports: <BarChart3 />,
   users: <Users />,

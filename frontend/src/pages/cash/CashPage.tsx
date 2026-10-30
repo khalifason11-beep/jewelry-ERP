@@ -93,7 +93,17 @@ export function CashPage() {
       <PageHeader title={t('Cash')} />
 
       <Card padded={false} className="mb-5">
-        <CardHeader title={t('Expected cash now')} help={t('Every sale, cancellation, scrap purchase and advance from the General Manager moves these balances. Nothing is typed in by hand.')} />
+        <CardHeader
+          title={t('Expected cash now')}
+          help={t('Every sale, cancellation, scrap purchase and advance from the General Manager moves these balances. Nothing is typed in by hand.')}
+          actions={
+            can('money_transfers.view') ? (
+              <Link to="/money-transfers" className="text-[13px] font-medium text-gold-700 hover:underline" data-testid="cash-money-transfers">
+                {t('Money transfers')}
+              </Link>
+            ) : undefined
+          }
+        />
         <DataTable
           query={drawer}
           rows={drawer.data?.branches ?? []}
@@ -104,6 +114,10 @@ export function CashPage() {
             { key: 'branchName', header: t('Branch'), render: (r) => L(r.branchName, r.branchNameAr) },
             { key: 'expectedCash', header: t('Cash drawer'), align: 'end', render: (r) => <span className="font-semibold num">{money(r.expectedCash, false)}</span>, footer: money((drawer.data?.branches ?? []).reduce((s, r) => s + r.expectedCash, 0), false) },
             { key: 'bank', header: t('Bank'), align: 'end', render: (r) => <span className="num">{money(r.bank, false)}</span>, footer: money((drawer.data?.branches ?? []).reduce((s, r) => s + r.bank, 0), false) },
+            // MNY-1: money a branch sent that is not confirmed yet (it left the drawer or the bank, it is still the branch's).
+            ...(can('money_transfers.view')
+              ? [{ key: 'fundsInTransit', header: t('Money on the way'), align: 'end' as const, render: (r: Drawer['branches'][number]) => <span className="num" data-testid={`in-transit-${r.branchCode}`}>{money(r.fundsInTransit, false)}</span>, footer: money((drawer.data?.branches ?? []).reduce((s, r) => s + r.fundsInTransit, 0), false) }]
+              : []),
           ]}
         />
       </Card>

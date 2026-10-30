@@ -67,6 +67,8 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   | A15 | Stock movements do not reconcile with the available pieces | `inventory.view` |
   | A16 | Gold or scrap rate missing (critical) | `settings.manage`, company view |
   | A17 | Branch bank balance below zero (critical) | `cash.view` (branch manager: own branch) |
+  | A18 | Money transfers waiting for you to confirm (number, no amount) | `money_transfers.receive`: the receiving branch manager; the General Manager for transfers to him, company view |
+  | A19 | A money transfer waiting longer than `transfers.pendingClaimStaleHours` (24 h, the setting of A2, reused) | `money_transfers.view`: the receiving branch manager and the General Manager, never the sender |
   | S1 | Only one passkey registered | the signed-in user |
   | S2 | Passkeys set to "touch is enough" | `settings.manage` |
 

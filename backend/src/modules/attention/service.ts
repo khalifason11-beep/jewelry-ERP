@@ -5,7 +5,8 @@
 // A signal carries a code, a severity, the branch it concerns (null = company or personal), a count, a link and
 // `params`: plain data the browser turns into text (the frontend owns every sentence). No signal carries a cost, a
 // profit or a money amount owed to suppliers; supplier debt is a weight (D-4-16). The only money is a cash-count
-// difference (A4), which a branch manager already sees on Cash (`cash.view`).
+// difference (A4), which a branch manager already sees on Cash (`cash.view`). Money transfers (A18, A19, MNY-1) carry
+// their number, branches and hours, never the amount: the amount is on Money transfers.
 
 import { sql } from 'drizzle-orm';
 import type { Actor, Ctx } from '../../core/context';
@@ -20,7 +21,7 @@ import { setupRatesDone } from '../setup/service';
 import { daysOpen, supplierGoldOwed } from '../purchases/supplier-debt';
 
 export type Severity = 'critical' | 'warning' | 'info';
-export type SignalCode = 'A1' | 'A2' | 'A4' | 'A5' | 'A6' | 'A9' | 'A10' | 'A11' | 'A12' | 'A15' | 'A16' | 'A17' | 'S1' | 'S2';
+export type SignalCode = 'A1' | 'A2' | 'A4' | 'A5' | 'A6' | 'A9' | 'A10' | 'A11' | 'A12' | 'A15' | 'A16' | 'A17' | 'A18' | 'A19' | 'S1' | 'S2';
 
 export interface Signal {
   /** Stable id of this line (code + subject), for the list's keys and tests. */
@@ -43,7 +44,7 @@ const RANK: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
  * then leaves out the company-level and personal signals); a branch manager sees their own branch; a cashier has no
  * attention list (the route matrix refuses them before this runs).
  */
-export async function attentionFor(ctx: Ctx, actor: Actor, q: { branchId?: number } = {}) {
+export async function attentionFor(ctx: Ctx, actor: Actor, q: { branchId?: number } = {}, opts: { now?: Date } = {}) {
   if (!can(actor, 'dashboard.company') && !can(actor, 'dashboard.branch')) throw forbidden();
   const global = isGlobal(actor);
   if (!global) {
@@ -54,7 +55,7 @@ export async function attentionFor(ctx: Ctx, actor: Actor, q: { branchId?: numbe
   const companyView = global && q.branchId == null;
   const settings = await ctx.settings.get();
   const tz = settings.company.timezone;
-  const now = new Date();
+  const now = opts.now ?? new Date();
   const today = dayKey(now, tz);
   const inScope = (col: string) => (scope == null ? sql`` : sql.raw(` AND ${col} = ${Number(scope)}`));
   const out: Signal[] = [];
@@ -167,6 +168,50 @@ export async function attentionFor(ctx: Ctx, actor: Actor, q: { branchId?: numbe
     for (const n of negative) {
       const b = Number(n.branch_id);
       push({ id: `A17:${b}`, code: 'A17', severity: 'critical', branchId: b, count: 1, link: `/cash?branchId=${b}`, params: { amount: num(n.balance), ...branchParams(b) }, since: null });
+    }
+  }
+
+  // ── A18 money waiting for you to confirm, A19 money transfers waiting longer (MNY-1, D-mny1-3) ──
+  // A transfer is A18 for its receiver (the receiving branch's manager; the General Manager for one addressed to him)
+  // until it has waited `transfers.pendingClaimStaleHours` (the setting of the late piece transfers, reused), then
+  // A19 for the receiving branch's manager and the General Manager (the sender sees it under "Sent, not yet received").
+  if (can(actor, 'money_transfers.view')) {
+    const staleMs = settings.transfers.pendingClaimStaleHours * 3_600_000;
+    const gm = isGlobal(actor);
+    const mts = rows<{ id: number; number: string; from_branch_id: number; to_kind: string; to_branch_id: number | null; created_at: Date | string }>(
+      await ctx.db.execute(sql`
+        SELECT m.id, m.number, m.from_branch_id, m.to_kind, m.to_branch_id, m.created_at
+        FROM money_transfers m
+        WHERE m.status = 'IN_TRANSIT' ${scope == null ? sql`` : gm ? sql`AND (m.to_branch_id = ${scope} OR m.from_branch_id = ${scope})` : sql`AND m.to_branch_id = ${scope}`}
+        ORDER BY m.created_at, m.id`),
+    );
+    const waiting = new Map<string, { branchId: number | null; count: number; since: string }>();
+    for (const m of mts) {
+      const at = new Date(m.created_at);
+      const toGm = m.to_kind === 'GM';
+      const to = toGm ? null : Number(m.to_branch_id);
+      if (now.getTime() - at.getTime() > staleMs) {
+        push({
+          id: `A19:${m.id}`,
+          code: 'A19',
+          severity: 'warning',
+          branchId: scope ?? to ?? Number(m.from_branch_id),
+          count: 1,
+          link: '/money-transfers',
+          params: { number: m.number, hours: Math.floor((now.getTime() - at.getTime()) / 3_600_000), toGm: toGm ? 1 : 0, ...prefixed('from', branchParams(Number(m.from_branch_id))), ...prefixed('to', branchParams(to)) },
+          since: at.toISOString(),
+        });
+        continue;
+      }
+      // A18: only the receiver confirms (the General Manager's own transfers on his company view).
+      if (!can(actor, 'money_transfers.receive')) continue;
+      if (toGm ? !(gm && companyView) : gm || to !== scope) continue;
+      const key = toGm ? 'GM' : String(to);
+      const cur = waiting.get(key) ?? { branchId: to, count: 0, since: at.toISOString() };
+      waiting.set(key, { ...cur, count: cur.count + 1 });
+    }
+    for (const [key, w] of waiting) {
+      push({ id: `A18:${key}`, code: 'A18', severity: 'info', branchId: w.branchId, count: w.count, link: '/money-transfers', params: { count: w.count, toGm: key === 'GM' ? 1 : 0, ...branchParams(w.branchId) }, since: w.since });
     }
   }
 

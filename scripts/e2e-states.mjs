@@ -163,8 +163,8 @@ async function main() {
     await signOut(page);
 
     section('Every screen renders while its data is still on the way (no crash page)');
-    await sweep(page, world.gm, ['/overview', '/branches', `/branches/${world.branchId}`, '/sales', '/inventory', '/catalog', '/purchases', '/cash', '/scrap', '/transfers', '/reports', '/reports/sales', '/reports/profit', '/users', '/sessions', '/audit', '/settings', '/prices', '/security', '/me', '/pos']);
-    await sweep(page, world.bm, ['/dashboard', '/pos', '/sales', '/inventory', '/transfers', '/scrap', '/catalog', '/purchases', '/cash', '/reports', '/users', '/sessions', '/audit', '/security', '/me']);
+    await sweep(page, world.gm, ['/overview', '/branches', `/branches/${world.branchId}`, '/sales', '/inventory', '/catalog', '/purchases', '/cash', '/money-transfers', '/scrap', '/transfers', '/reports', '/reports/sales', '/reports/profit', '/users', '/sessions', '/audit', '/settings', '/prices', '/security', '/me', '/pos']);
+    await sweep(page, world.bm, ['/dashboard', '/pos', '/sales', '/inventory', '/transfers', '/scrap', '/catalog', '/purchases', '/cash', '/money-transfers', '/reports', '/users', '/sessions', '/audit', '/security', '/me']);
     await sweep(page, world.cashier, ['/pos', '/scrap', '/me', '/security']);
 
     section('FIX-1: "Transfer to branch" in the POS cart (branch manager only), and its refusal state');

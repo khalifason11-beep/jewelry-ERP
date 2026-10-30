@@ -21,6 +21,7 @@ export type NavIcon =
   | 'catalog'
   | 'purchases'
   | 'cash'
+  | 'money-transfers'
   | 'branches'
   | 'reports'
   | 'users'
@@ -85,7 +86,14 @@ export function navFor(can: Can): NavGroupDef[] {
       ],
     },
     { title: tk('Suppliers'), items: can('purchases.view') ? [{ to: '/purchases', label: tk('Supplier purchases'), icon: 'purchases' }] : [] },
-    { title: tk('Money'), items: can('cash.view') ? [{ to: '/cash', label: gm ? tk('Cash & reconciliation') : tk('Cash'), icon: 'cash' }] : [] },
+    {
+      title: tk('Money'),
+      items: [
+        ...(can('cash.view') ? [{ to: '/cash', label: gm ? tk('Cash & reconciliation') : tk('Cash'), icon: 'cash' as const }] : []),
+        // MNY-1: money between branches and to the General Manager (he sees them all, read only).
+        ...(can('money_transfers.view') ? [{ to: '/money-transfers', label: tk('Money transfers'), icon: 'money-transfers' as const }] : []),
+      ],
+    },
     {
       title: tk('Analysis'),
       items: [
