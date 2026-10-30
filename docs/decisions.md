@@ -619,3 +619,11 @@ Owner request of 2026-10-29. Plan `docs/plans/UX-4.md`.
 |---|---|---|---|
 | D-ux4-1 | The first steps and the opening balance | Six steps in the owner's order: branch, karats, rates (every allowed karat, new and used with computed prices, and the scrap rate; the link goes to Prices), users, **opening balance**, funding (CSH-2's step, kept last). The opening step is only for whoever can enter the opening (`opening.manage`) and has a state: `NOT_STARTED`, `DRAFT` (any branch's draft; "not in stock yet: seal it so the cashier can sell it", link to the draft) or `SEALED`. **Done** when sealed, or when pieces came in another way (a supplier order or a bought piece: the opening is for stock held before the system); a draft is never done. An empty point-of-sale page of a branch with a draft says so in one line (`openingDraft` on an empty `GET /inventory/items` page, always for the branch the page was confined to); the General Manager also gets the link. No permission, money or stock rule changed. **Open question Q1** (whether a supplier order should close the step). | owner |
 
+
+## OPN-3: broken scrap in the opening balance
+
+Owner request and decisions of 2026-10-30. Plan `docs/plans/OPN-3.md` (§0 lists the owner's answers).
+
+| ID | Question | Decision | By |
+|---|---|---|---|
+| D-opn3-1 | How opening broken scrap enters the pool | Two new pool movement types: **OPENING** «رصيد افتتاحي» (the seal, one movement per scrap line) and **OPENING_CORRECTION** «تصحيح رصيد افتتاحي» (a correction after the seal). Migration 0037 replaces `ck_scrap_weight_entries_event_type` with the wider list (DROP then ADD, marked `-- allow-destructive: D-opn3-1`); no existing row changes, which the upgrade test proves. The pool stays append-only and its balance the sum of its movements; no reader filters by type, so the opening scrap counts once everywhere. | owner |

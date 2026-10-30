@@ -260,6 +260,13 @@
       "when": 1792972577627,
       "tag": "0036_pay1_hasad_channel_only",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1793352200876,
+      "tag": "0037_opn3_opening_scrap",
+      "breakpoints": true
     }
   ]
 }
