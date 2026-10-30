@@ -751,7 +751,11 @@ async function main() {
     await waitFor(async () => (await apiGet(page, '/api/gold-rates')).body.used['21']?.pricePerGram === 175_000, 'the 21K used-piece rate', 15_000);
     await page.reload();
     await page.getByTestId('rates-history').waitFor({ timeout: 15_000 });
-    check((await page.getByTestId('rates-history').locator('tbody tr').count()) === 3, 'the rate history shows the three changes, each with who and when');
+    // The history merges two answers (/gold-rates, then /scrap-rates) and is drawn once the first is in: wait for the
+    // second (a busy machine answered it late and the count ran on two rows), then the count is exact.
+    const historyRows = page.getByTestId('rates-history').locator('tbody tr');
+    await waitFor(async () => (await historyRows.count()) >= 3, 'the scrap rate in the history', 15_000).catch(() => {});
+    check((await historyRows.count()) === 3, 'the rate history shows the three changes, each with who and when');
     await page.goto(`${origin}/overview`);
     await page.waitForLoadState('networkidle');
     await page.getByTestId('step-opening').waitFor({ timeout: 15_000 });
