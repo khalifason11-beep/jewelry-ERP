@@ -215,6 +215,11 @@ export const AUDIT_ACTIONS = [
   // OPN-FIX: a piece of a sealed opening corrected or voided after the seal
   'OPENING_PIECE_CORRECTED',
   'OPENING_PIECE_VOIDED',
+  // OPN-3: the broken scrap of the opening (draft lines; a correction after the seal)
+  'OPENING_SCRAP_LINE_ADDED',
+  'OPENING_SCRAP_LINE_CHANGED',
+  'OPENING_SCRAP_LINE_REMOVED',
+  'OPENING_SCRAP_CORRECTED',
   'ITEM_TYPE_RENAMED',
   'USER_CREATED',
   'USER_UPDATED',

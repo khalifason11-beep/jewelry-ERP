@@ -91,6 +91,11 @@ describe('idempotency keys', () => {
         'POST /openings/:id/seal',
         // OPN-FIX: a correction or void of a sealed opening's piece (key claimed inside the transaction).
         'POST /openings/:id/pieces/:itemId/correction',
+        // OPN-3: the opening's broken scrap and its corrections (key claimed inside the transaction).
+        'POST /openings/:id/scrap-lines',
+        'POST /openings/:id/scrap-lines/:lineId',
+        'POST /openings/:id/scrap-lines/:lineId/remove',
+        'POST /openings/:id/scrap-corrections',
       ].sort(),
     );
     // Only mutating routes can be idempotent.

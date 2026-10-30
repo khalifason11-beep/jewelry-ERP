@@ -48,6 +48,7 @@ import * as supplierSettlements from './modules/supplier-settlements/service';
 import * as pricing from './modules/pricing/service';
 import * as openings from './modules/openings/service';
 import * as openingFix from './modules/openings/corrections';
+import * as openingScrap from './modules/openings/scrap';
 import { runIdempotent } from './core/idempotency';
 import { log } from './core/logger';
 import { defineRoutes } from './core/guard';
@@ -776,6 +777,29 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     const id = parse(zId, req.params.id);
     const body = parse(z.object({ confirmPassword: z.string().max(128).optional() }).strict(), req.body);
     res.json(await runIdempotent(ctx, req, res, (idem) => openings.sealOpening(ctx, actorOf(req), id, body, { idem })));
+  });
+
+  // OPN-3: broken scrap of the opening, typed in only (no CSV, owner Q7); corrections after the seal (opening.correct).
+  const zOpeningScrapLine = z.object({ karat: zScrapKarat, weightMg: zWeightMg, note: z.string().max(1000).nullable().optional() }).strict();
+  route('POST', '/openings/:id/scrap-lines', async (req, res) => {
+    const id = parse(zId, req.params.id);
+    const body = parse(zOpeningScrapLine, req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => openingScrap.addOpeningScrapLine(ctx, actorOf(req), id, body, { idem })));
+  });
+  route('POST', '/openings/:id/scrap-lines/:lineId', async (req, res) => {
+    const [id, lineId] = [parse(zId, req.params.id), parse(zId, req.params.lineId)];
+    const body = parse(zOpeningScrapLine, req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => openingScrap.updateOpeningScrapLine(ctx, actorOf(req), id, lineId, body, { idem })));
+  });
+  route('POST', '/openings/:id/scrap-lines/:lineId/remove', async (req, res) => {
+    const [id, lineId] = [parse(zId, req.params.id), parse(zId, req.params.lineId)];
+    res.json(await runIdempotent(ctx, req, res, (idem) => openingScrap.removeOpeningScrapLine(ctx, actorOf(req), id, lineId, { idem })));
+  });
+  route('POST', '/openings/:id/scrap-corrections', async (req, res) => {
+    const id = parse(zId, req.params.id);
+    const zChange = z.object({ karat: zScrapKarat, weightMgChange: z.number().int().min(-MAX_WEIGHT_MG).max(MAX_WEIGHT_MG) }).strict();
+    const body = parse(z.object({ changes: z.array(zChange).min(1).max(2), reason: z.string().max(2000).optional(), confirmPassword: z.string().max(128).optional() }).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => openingScrap.correctOpeningScrap(ctx, actorOf(req), id, body, { idem })));
   });
 
   // OPN-FIX: correct or void a piece of a sealed opening; the preview writes nothing.

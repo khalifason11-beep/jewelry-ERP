@@ -379,6 +379,11 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   // OPN-FIX: a missing opening and piece (the guard answers before the service).
   'GET /openings/:id/pieces/:itemId/correction-preview': () => ({ path: `/openings/${NONE}/pieces/${NONE}/correction-preview?action=VOID` }),
   'POST /openings/:id/pieces/:itemId/correction': () => ({ path: `/openings/${NONE}/pieces/${NONE}/correction`, body: { action: 'VOID', reason: 'matrix probe' } }),
+  // OPN-3: a missing opening and line (the guard answers before the service).
+  'POST /openings/:id/scrap-lines': () => ({ path: `/openings/${NONE}/scrap-lines`, body: { karat: 21, weightMg: 1 } }),
+  'POST /openings/:id/scrap-lines/:lineId': () => ({ path: `/openings/${NONE}/scrap-lines/${NONE}`, body: { karat: 21, weightMg: 1 } }),
+  'POST /openings/:id/scrap-lines/:lineId/remove': () => ({ path: `/openings/${NONE}/scrap-lines/${NONE}/remove`, body: {} }),
+  'POST /openings/:id/scrap-corrections': () => ({ path: `/openings/${NONE}/scrap-corrections`, body: { changes: [{ karat: 21, weightMgChange: -1 }], reason: 'matrix probe' } }),
   'POST /categories/:id/reactivate': () => ({ path: `/categories/${NONE}/reactivate`, body: {} }),
   'POST /products': () => ({ path: '/products', body: {} }),
   'POST /products/:id/deactivate': () => ({ path: `/products/${NONE}/deactivate`, body: {} }),

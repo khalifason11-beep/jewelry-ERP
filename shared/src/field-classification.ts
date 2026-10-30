@@ -175,6 +175,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     used pricing roundingStep rateKind priceMissing pricingMode
     sealedAt lineCount importId duplicate fileName byType imports lineNo source pieces firstCode lastCode errors errorCount column
     condition byKaratCondition openingId
+    scrap scrapLines scrapCorrections scrapNow scrapWeightMg weightMgChange changes removedLineNo
     openingCorrections conditionBefore conditionAfter karatBefore karatAfter grossWeightMgBefore grossWeightMgAfter
     netWeightMgBefore netWeightMgAfter before after sellingPriceBefore sellingPriceAfter valuationChange stockWeightChangeMg
     stockCountChange now sold
