@@ -1,4 +1,4 @@
-# MNY-1: money transfers between branches and to the General Manager (revised plan, stop for approval)
+# MNY-1: money transfers between branches and to the General Manager (revised plan; questions answered, waiting for approval)
 
 BACKLOG MNY-1, owner decision Q-8 / D-dec1-6 (2026-10-18). First plan `afd3679` (2026-10-30); **revised after the
 owner's decisions of 2026-10-30 (§0)**. This item moves money: **no code before the owner's written approval of this
@@ -246,11 +246,12 @@ Commits after approval, suite green and pushed after each, REH-1 run before ever
 permissions + upgrade test · c2 ledger service + property and guardrail tests · c3 routes + matrix + API tests +
 PostgreSQL races + REH-1 (by API) · c4 screens + attention + REH-1 (screens) · c5 acceptance, docs, `verify --full`.
 
-## 11. Questions for the owner (still open)
+## 11. Questions for the owner (answered 2026-10-30)
 
-1. **Where a branch receiver's money lands:** the receiving branch manager chooses the drawer or the bank when
-   confirming (as your first message said; a bank reference when the bank). Keep that choice (proposed), or always the
-   drawer?
-2. **24 hours:** a fixed rule (proposed), or a General Manager setting with 24 as the default?
-3. **Transfers to the General Manager:** should he record anything when he confirms (for example how he received it,
-   or a note)? Proposed: nothing; the sender's reason is enough.
+1. **Where a branch receiver's money lands:** the receiving branch manager **chooses the drawer or the bank** when
+   confirming (a bank reference when the bank). Owner: agreed.
+2. **24 hours:** a **fixed rule** (no setting). Owner: agreed.
+3. **Transfers to the General Manager:** he records **nothing** when he confirms; the sender's reason is enough.
+   Owner: agreed.
+
+No question is open.
