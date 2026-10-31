@@ -25,12 +25,28 @@ export interface BootstrapInput {
   branches?: BootstrapBranch[];
 }
 
+/**
+ * DOC-2: an Arabic name typed in a console that does not send UTF-8 (a Windows console by default) arrives as "????",
+ * as U+FFFD, or as Latin letters such as "Ø§Ù„" (UTF-8 read as a Windows code page). Stored, it would show garbled
+ * everywhere. Refused when it holds a "?" or U+FFFD, or not a single Arabic letter; a real Arabic name always passes.
+ */
+export function looksGarbledArabic(text: string): boolean {
+  return /[?\uFFFD]/.test(text) || !/[\u0600-\u06FF]/.test(text);
+}
+
+function assertArabic(text: string): void {
+  if (looksGarbledArabic(text)) {
+    throw badRequest('The Arabic name "{value}" arrived garbled: this console did not send Arabic letters. Leave it out and type it later in the app', { value: text });
+  }
+}
+
 /** Parses "CODE:Name:الاسم:City" (as given on the command line). */
 export function parseBranchArg(arg: string): BootstrapBranch {
   const [code, name, nameAr, city] = arg.split(':').map((s) => s.trim());
   if (!code || !/^[A-Z]{2,6}$/.test(code) || !name || !nameAr || !city) {
     throw badRequest('Branch must be CODE:NameEn:NameAr:City with a 2–6 letter upper-case code');
   }
+  assertArabic(nameAr);
   return { code, name, nameAr, city };
 }
 
@@ -60,6 +76,8 @@ export async function bootstrapProduction(ctx: Ctx, input: BootstrapInput): Prom
   if (!/^[a-z0-9._-]{3,40}$/.test(username)) throw badRequest('Username: 3–40 chars, letters, digits, dot, dash, underscore');
   assertOperatorUsername(username);
   if (input.fullName.trim().length < 2) throw badRequest('Invalid value for {field}', { field: 'fullName' });
+  if (input.fullNameAr?.trim()) assertArabic(input.fullNameAr.trim());
+  for (const b of input.branches ?? []) assertArabic(b.nameAr);
 
   return ctx.db.transaction(async (tx) => {
     const roleId = await seedRolesAndPermissions(tx);
