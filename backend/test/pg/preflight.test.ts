@@ -18,6 +18,7 @@ let emptyUrl: string;
 let emptyName: string;
 const NODRZ = `jerp_t_nodrz_${randomBytes(4).toString('hex')}`;
 const NODRZ_PW = `Pw-${randomBytes(8).toString('hex')}`;
+let granted = false;
 const asBase = async (q: string) => {
   const { default: pg } = await import('pg');
   const c = new pg.Client({ connectionString: base.url });
@@ -54,8 +55,16 @@ beforeAll(async () => {
   emptyUrl = u.toString();
 });
 afterAll(async () => {
-  await asBase(`DROP OWNED BY ${NODRZ}`).catch(() => undefined);
-  await asBase(`DROP ROLE IF EXISTS ${NODRZ}`).catch(() => undefined);
+  // Revoke exactly what the test granted (DROP OWNED needs privileges the non-superuser test role lacks), then drop it.
+  if (granted) {
+    const db = new URL(base.url!).pathname.slice(1);
+    await asBase(`REVOKE ALL ON drizzle.__drizzle_migrations FROM ${NODRZ}`);
+    await asBase(`REVOKE ALL ON SCHEMA drizzle FROM ${NODRZ}`);
+    await asBase(`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${NODRZ}`);
+    await asBase(`REVOKE ALL ON SCHEMA public FROM ${NODRZ}`);
+    await asBase(`REVOKE ALL ON DATABASE ${db} FROM ${NODRZ}`);
+    await asBase(`DROP ROLE ${NODRZ}`);
+  }
   await base?.close();
   const { default: pg } = await import('pg');
   const admin = new pg.Client({ connectionString: process.env.TEST_DATABASE_URL });
@@ -123,6 +132,7 @@ describe('preflight', () => {
   it('a runtime role that cannot read the migration history: FAIL naming the missing grant, with the GRANT lines', async () => {
     const db = new URL(base.url!).pathname.slice(1);
     await asBase(`CREATE ROLE ${NODRZ} LOGIN PASSWORD '${NODRZ_PW}'`);
+    granted = true;
     await asBase(`GRANT CONNECT ON DATABASE ${db} TO ${NODRZ}`);
     await asBase(`GRANT USAGE ON SCHEMA public TO ${NODRZ}`);
     await asBase(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${NODRZ}`);
