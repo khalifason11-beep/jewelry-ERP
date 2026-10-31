@@ -289,6 +289,30 @@ append-only tables); `docs/DEMO_SCRIPT.md` and `docs/DEPLOYMENT.md` corrected (h
 names); the acceptance scripts open the codespace on `main`. New gate `npm run check:docs` (in `typecheck`): every
 migration and append-only table named in DATA_MODEL, every permission code in FEATURES.
 
+### DOC-2 — Go-live reset runbook: wipe the trial, create the real General Manager · DONE · S · P0 (before go-live)
+**Done (plan `docs/plans/DOC-2.md`, owner approval 2026-10-31, `docs/acceptance/DOC-2.md`):**
+- `docs/runbooks/go-live-reset.md`, for a non-technical operator:
+  - preconditions (BKP-1 passed, the final domain, a Hostinger snapshot, the General Manager present);
+  - stop; the trial is discarded (an optional TRIAL copy is deleted after the reset);
+  - drop and recreate the database with the same roles and every grant;
+  - migrate and the preflight;
+  - bootstrap with the English name (the Arabic name and the first branch are typed in the app);
+  - start, `/api/ready`, the Origin echo then the restart, first sign-in, the emptiness check;
+  - the first backup and the drill;
+  - rollback to the snapshot.
+- `scripts/server/go-live-reset.sql` refuses, changing nothing, unless the database name is typed twice, the three roles
+  exist, and the database is the trial one it was told about (its General Manager).
+- The preflight names the missing drizzle grants of the runtime role, and the bootstrap refuses a garbled Arabic name.
+- Tested on real PostgreSQL 16 (CI test `pg/go-live-reset`) and rehearsed end to end on a local PostgreSQL 16 with the
+  real `postgres` admin.
+- `first-deploy.md` and DEPLOYMENT §5/§6 fixed:
+  - the drizzle schema grants;
+  - the `public` grant given by the admin;
+  - `systemctl restart jerp` after the echo test;
+  - the append-only list (20).
+- Not testable without the real server: the Hostinger snapshot and rollback, systemd, the proxy and TLS, the real domain,
+  real passkey devices.
+
 ### CLN-1 — Clean-up found during DOC-1 · DONE · S · P1
 **Done (plan `docs/plans/CLN-1.md`, decisions D-cln1-1…3, no migration):** `APPEND_ONLY_TABLES` includes
 `gm_funding_events`, with a drift test against the migrations (both projects); the first steps say the General Manager
