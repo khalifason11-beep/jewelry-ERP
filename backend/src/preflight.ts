@@ -123,6 +123,34 @@ export async function serverChecks(env: NodeJS.ProcessEnv, now = () => Date.now(
       ? { name: 'clock', status: 'PASS', detail: `app and database clocks agree (${skew} ms apart); the app runs in UTC` }
       : { name: 'clock', status: 'FAIL', detail: `app and database clocks differ by ${Math.round(skew / 1000)} s`, fix: 'Turn on time synchronisation on both machines (e.g. `timedatectl set-ntp true`).' });
 
+    // DOC-2: the runtime role reads the migration history (here and in /api/ready). Without USAGE on schema drizzle or
+    // SELECT on its table, PostgreSQL only says "permission denied for schema drizzle"; name the two grants instead.
+    // Read from the catalogs, which need no privilege on the schema itself.
+    const [acl] = rows<{ schema: boolean; usage: boolean; table: boolean; select: boolean }>(
+      await h.db.execute(sql`
+        SELECT n.oid IS NOT NULL AS schema,
+               coalesce(has_schema_privilege(n.oid, 'USAGE'), false) AS usage,
+               c.oid IS NOT NULL AS table,
+               coalesce(has_table_privilege(c.oid, 'SELECT'), false) AS select
+        FROM (SELECT 1) one
+        LEFT JOIN pg_namespace n ON n.nspname = 'drizzle'
+        LEFT JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = '__drizzle_migrations'`),
+    );
+    if (acl.schema && (!acl.usage || (acl.table && !acl.select))) {
+      const role = userOf(cfg.databaseUrl);
+      const missing = [!acl.usage ? 'USAGE on schema drizzle' : null, acl.table && !acl.select ? 'SELECT on drizzle.__drizzle_migrations' : null].filter(Boolean).join(' and ');
+      out.push({
+        name: 'migrations',
+        status: 'FAIL',
+        detail: `${role} cannot read the migration history: it lacks ${missing} (the server's readiness check reads it too)`,
+        fix: `As the owner role: GRANT USAGE ON SCHEMA drizzle TO ${role}; GRANT SELECT ON drizzle.__drizzle_migrations TO ${role}; (docs/runbooks/go-live-reset.md step 3 sets this up on a new database)`,
+      });
+      out.push({ name: 'runtime role', status: 'SKIP', detail: 'needs the migration history' });
+      out.push({ name: 'append-only', status: 'SKIP', detail: 'needs the migration history' });
+      out.push({ name: 'backups', status: 'SKIP', detail: 'needs the migration history' });
+      return out;
+    }
+
     const [{ present }] = rows<{ present: boolean }>(await h.db.execute(sql`SELECT to_regclass('drizzle.__drizzle_migrations') IS NOT NULL AS present`));
     const applied = present ? Number(rows<{ n: string }>(await h.db.execute(sql`SELECT count(*) AS n FROM drizzle.__drizzle_migrations`))[0].n) : 0;
     const expected = expectedMigrations();

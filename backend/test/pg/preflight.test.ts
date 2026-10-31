@@ -1,5 +1,7 @@
 // SAFE-1: the server preflight (scripts/server/preflight.mjs) reports PASS/WARN/FAIL per check with the fix, exits 1 on
 // any FAIL, and never writes: its connections are read-only, and an empty database stays empty. Real PostgreSQL only.
+// DOC-2: a runtime role that cannot read the migration history (no USAGE on schema drizzle, or no SELECT on its table:
+// the gap found at the first deploy) is a FAIL that names the missing grant and gives the GRANT lines.
 
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -14,6 +16,18 @@ const ROOT = path.resolve(__dirname, '../../..');
 let base: DatabaseHandle & { url?: string };
 let emptyUrl: string;
 let emptyName: string;
+const NODRZ = `jerp_t_nodrz_${randomBytes(4).toString('hex')}`;
+const NODRZ_PW = `Pw-${randomBytes(8).toString('hex')}`;
+const asBase = async (q: string) => {
+  const { default: pg } = await import('pg');
+  const c = new pg.Client({ connectionString: base.url });
+  await c.connect();
+  try {
+    await c.query(q);
+  } finally {
+    await c.end();
+  }
+};
 
 const PROD = (over: Record<string, string | undefined> = {}) => {
   const env: Record<string, string | undefined> = { ...process.env, APP_MODE: 'production', DATABASE_URL: base.url, APP_ORIGIN: 'https://erp.example.com', TRUST_PROXY: '1', STRICT_DB_ROLES: 'false', MIGRATION_DATABASE_URL: undefined, BACKUP_DIR: undefined, VITEST: undefined, ...over };
@@ -40,6 +54,8 @@ beforeAll(async () => {
   emptyUrl = u.toString();
 });
 afterAll(async () => {
+  await asBase(`DROP OWNED BY ${NODRZ}`).catch(() => undefined);
+  await asBase(`DROP ROLE IF EXISTS ${NODRZ}`).catch(() => undefined);
   await base?.close();
   const { default: pg } = await import('pg');
   const admin = new pg.Client({ connectionString: process.env.TEST_DATABASE_URL });
@@ -103,6 +119,32 @@ describe('preflight', () => {
       await h.close();
     }
   }, 120_000);
+
+  it('a runtime role that cannot read the migration history: FAIL naming the missing grant, with the GRANT lines', async () => {
+    const db = new URL(base.url!).pathname.slice(1);
+    await asBase(`CREATE ROLE ${NODRZ} LOGIN PASSWORD '${NODRZ_PW}'`);
+    await asBase(`GRANT CONNECT ON DATABASE ${db} TO ${NODRZ}`);
+    await asBase(`GRANT USAGE ON SCHEMA public TO ${NODRZ}`);
+    await asBase(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${NODRZ}`);
+    const u = new URL(base.url!);
+    u.username = NODRZ;
+    u.password = NODRZ_PW;
+    const run = () => preflight(PROD({ DATABASE_URL: u.toString() }));
+
+    const noUsage = run();
+    expect(noUsage.code).toBe(1);
+    expect(line(noUsage.out, 'migrations')).toMatch(new RegExp(`^FAIL\\s+migrations\\s+${NODRZ} cannot read the migration history: it lacks USAGE on schema drizzle and SELECT on drizzle.__drizzle_migrations`));
+    expect(noUsage.out).toContain(`fix: As the owner role: GRANT USAGE ON SCHEMA drizzle TO ${NODRZ}; GRANT SELECT ON drizzle.__drizzle_migrations TO ${NODRZ};`);
+    expect(noUsage.out).not.toMatch(/permission denied/);
+    expect(line(noUsage.out, 'runtime role')).toMatch(/^SKIP/);
+
+    await asBase(`GRANT USAGE ON SCHEMA drizzle TO ${NODRZ}`);
+    const noSelect = run();
+    expect(line(noSelect.out, 'migrations')).toMatch(/^FAIL .*it lacks SELECT on drizzle.__drizzle_migrations \(/);
+
+    await asBase(`GRANT SELECT ON drizzle.__drizzle_migrations TO ${NODRZ}`);
+    expect(line(run().out, 'migrations')).toMatch(/^PASS\s+migrations\s+(\d+) of \1 applied/);
+  }, 240_000);
 
   it('its connections refuse writes (enforced by PostgreSQL)', async () => {
     const h = await createDatabase({ url: readOnlyUrl(base.url!) });
