@@ -47,6 +47,9 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'funding.manage': tk('Record advances and repayments'),
   'opening.manage': tk('Opening balance'),
   'opening.correct': tk('Correct the opening balance'),
+  'money_transfers.view': tk('See money transfers'),
+  'money_transfers.send': tk('Send money'),
+  'money_transfers.receive': tk('Confirm money received'),
 };
 
 /** The name of a permission code; a code the catalogue does not know (a role added later) has a generic name. */

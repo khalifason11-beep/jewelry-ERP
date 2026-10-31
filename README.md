@@ -8,6 +8,7 @@ It covers:
 - supplier orders paid for in gold, and gold scrap bought from customers;
 - a money ledger for each branch;
 - the General Manager's funding of the branches;
+- money transfers between branches and to the General Manager;
 - dashboards and reports;
 - user and session administration;
 - an append-only audit trail.
@@ -113,7 +114,7 @@ edited in the app.
 | Role | Scope | Works with |
 |---|---|---|
 | Cashier | Own branch | Point of sale (available pieces only, discount up to the role limit), own sales, own sessions. No cost, profit or supplier figure anywhere. |
-| Branch manager | Own branch | Everything the cashier does, plus: branch home, sales list, voids, reprints, inventory (price edits, damage/restock/return), types, products and suppliers, scrap purchases, supplier settlement with scrap, transfers, Cash (reconciliation, counts, Hasad settlement), reports, users and sessions of the branch (read), audit. No cost or profit figures. |
+| Branch manager | Own branch | Everything the cashier does, plus: branch home, sales list, voids, reprints, inventory (price edits, damage/restock/return), types, products and suppliers, scrap purchases, supplier settlement with scrap, transfers, Cash (reconciliation, counts, Hasad settlement), money transfers (send, confirm, cancel), reports, users and sessions of the branch (read), audit. No cost or profit figures. |
 | General Manager | All branches | Everything, plus three things only the General Manager can do: record supplier orders (`purchases.create`), see and manage funding (`funding.view`, `funding.manage`), and see cost and profit. Also manages users, settings, rates, branches and the second factor. |
 
 ## Money model
@@ -124,7 +125,7 @@ edited in the app.
   |---|---|
   | `CASH` | The drawer |
   | `BANK` | The branch's bank account |
-  | `FUNDS_IN_TRANSIT` | Money on its way |
+  | `FUNDS_IN_TRANSIT` | Money a branch sent that is not confirmed yet (MNY-1) |
   | `OWED_TO_GM` | What the branch owes the General Manager. A liability, never counted as money. |
 
 - Ledger entries are append-only and signed; a balance is the sum of its entries. An entry is written in the same
@@ -132,6 +133,7 @@ edited in the app.
   - `SALE`, `SALE_VOID` and `REVERSAL`;
   - `SCRAP_PURCHASE`;
   - `GM_ADVANCE` and `GM_REPAYMENT`;
+  - `MONEY_TRANSFER_SENT`, `MONEY_TRANSFER_RECEIVED`, `MONEY_TRANSFER_TO_GM` and `MONEY_TRANSFER_CANCELLED` (MNY-1);
   - `SUPPLIER_MAKING_CHARGE`, which is historical and no longer written.
 - **Sales** are paid by one or two payment lines (PAY-1), each posting to the account of its method:
   - cash goes to `CASH`;
@@ -143,6 +145,11 @@ edited in the app.
   - A repayment does the reverse.
   - A mistaken event can be corrected once, by a reversal.
   - Only the General Manager sees this, on the Cash page.
+- **Money transfers** (MNY-1, Money transfers page): a branch manager sends money from the drawer or the bank to another
+  branch or to the General Manager, with a reason; it waits in `FUNDS_IN_TRANSIT` until the receiver confirms it (a
+  branch manager chooses the drawer or the bank; the General Manager records nothing). The sender may cancel it while it
+  is on the way (a wrong amount: cancel, send again). The General Manager never sends, and reads every transfer.
+  `OWED_TO_GM` never moves. No step asks for the password again.
 - **The drawer never pays out money it does not hold.** A cash outflow larger than the drawer balance is refused
   (`409 DRAWER_SHORT`), and the message says what to do. The outflows covered are the cash part of a scrap purchase,
   a cash refund on a void, a repayment from the drawer, and the correction of a drawer advance.

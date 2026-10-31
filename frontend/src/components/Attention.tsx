@@ -14,7 +14,7 @@ import { useI18n } from '../lib/i18n';
 export type Severity = 'critical' | 'warning' | 'info';
 export interface Signal {
   id: string;
-  code: 'A1' | 'A2' | 'A4' | 'A5' | 'A6' | 'A9' | 'A10' | 'A11' | 'A12' | 'A15' | 'A16' | 'A17' | 'S1' | 'S2';
+  code: 'A1' | 'A2' | 'A4' | 'A5' | 'A6' | 'A9' | 'A10' | 'A11' | 'A12' | 'A15' | 'A16' | 'A17' | 'A18' | 'A19' | 'S1' | 'S2';
   severity: Severity;
   branchId: number | null;
   count: number;
@@ -113,6 +113,18 @@ export function useSignalText() {
         return {
           title: t('The bank balance of {branch} is below zero', { branch }),
           detail: t('The bank shows {amount}. Record the General Manager’s advance into the bank, or check the bank payments', { amount: `\u2066${money(n('amount'))}\u2069` }),
+        };
+      case 'A18':
+        return n('toGm')
+          ? { title: t('{count} money transfer(s) sent to you', { count: n('count') }), detail: t('Confirm when you have the money') }
+          : { title: t('{count} money transfer(s) waiting for you to confirm', { count: n('count') }), detail: t('Confirm when the money is in the drawer or the bank') };
+      case 'A19':
+        return {
+          title: t('Money transfer {number} is waiting for more than {hours} hours', { number: String(p.number ?? ''), hours: n('hours') }),
+          detail: t('{from} → {to} · not confirmed yet', {
+            from: L(p.fromBranch as string | null, p.fromBranchAr as string | null) || '—',
+            to: n('toGm') ? t('The General Manager') : L(p.toBranch as string | null, p.toBranchAr as string | null) || '—',
+          }),
         };
       case 'S1':
         return { title: t('You have only one passkey'), detail: t('Register a second device (your phone is ideal) so a lost or broken computer does not lock you out.') };

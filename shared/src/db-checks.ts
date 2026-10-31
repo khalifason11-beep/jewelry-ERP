@@ -14,6 +14,9 @@ import {
   BACKUP_RUN_STATUSES,
   BRANDING_ASSET_KINDS,
   CASH_OR_BANK,
+  MONEY_TRANSFER_EVENT_KINDS,
+  MONEY_TRANSFER_STATUSES,
+  MONEY_TRANSFER_TARGETS,
   MAKING_CHARGE_PAYERS,
   GM_FUNDING_KINDS,
   GOLD_RATE_KINDS,
@@ -113,6 +116,12 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   e('opening_piece_corrections', 'kind', OPENING_CORRECTION_KINDS),
   e('opening_piece_corrections', 'condition_before', GOLD_RATE_KINDS),
   e('opening_piece_corrections', 'condition_after', GOLD_RATE_KINDS),
+  // MNY-1 (migration 0038): money transfers and their steps.
+  e('money_transfers', 'to_kind', MONEY_TRANSFER_TARGETS),
+  e('money_transfers', 'source_account', CASH_OR_BANK),
+  e('money_transfers', 'status', MONEY_TRANSFER_STATUSES),
+  e('money_transfer_events', 'kind', MONEY_TRANSFER_EVENT_KINDS),
+  e('money_transfer_events', 'account', CASH_OR_BANK, true),
 ];
 
 const nonNeg = (table: string, ...columns: string[]): ExprCheck[] =>
@@ -161,9 +170,10 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   {
     name: 'ck_ledger_entries_reversal_type',
     table: 'ledger_entries',
-    // Only a void or an explicit reversal may reverse an entry; a REVERSAL must say which one. A void
-    // of a sale recorded before the ledger existed has nothing to reverse but still refunds money.
-    expr: "(reverses_entry_id IS NULL OR event_type IN ('SALE_VOID', 'REVERSAL')) AND (event_type <> 'REVERSAL' OR reverses_entry_id IS NOT NULL)",
+    // Only a void, an explicit reversal or a money transfer's cancel (MNY-1, migration 0038) may reverse an entry; a
+    // REVERSAL and a cancel must say which one. A void of a sale recorded before the ledger existed has nothing to
+    // reverse but still refunds money.
+    expr: "(reverses_entry_id IS NULL OR event_type IN ('SALE_VOID', 'REVERSAL', 'MONEY_TRANSFER_CANCELLED')) AND (event_type NOT IN ('REVERSAL', 'MONEY_TRANSFER_CANCELLED') OR reverses_entry_id IS NOT NULL)",
   },
   ...nonNeg('cash_counts', 'counted_amount'),
   // ── Phase 4: scrap gold, the broken-scrap pool, supplier gold debt, Hasad payments
@@ -271,6 +281,16 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   karat('opening_scrap_corrections'),
   { name: 'ck_opening_scrap_corrections_weight_nonzero', table: 'opening_scrap_corrections', expr: 'weight_mg_change <> 0' },
   { name: 'ck_opening_scrap_corrections_reason', table: 'opening_scrap_corrections', expr: 'length(btrim(reason)) BETWEEN 3 AND 200' },
+  // ── MNY-1 (migration 0038): a money transfer's receiver, amount, reason and bank reference; the shape of each step.
+  { name: 'ck_money_transfers_receiver', table: 'money_transfers', expr: "(to_kind = 'BRANCH' AND to_branch_id IS NOT NULL AND to_branch_id <> from_branch_id) OR (to_kind = 'GM' AND to_branch_id IS NULL)" },
+  { name: 'ck_money_transfers_amount_positive', table: 'money_transfers', expr: 'amount > 0' },
+  { name: 'ck_money_transfers_reason', table: 'money_transfers', expr: 'length(btrim(reason)) BETWEEN 3 AND 300' },
+  { name: 'ck_money_transfers_bank_reference', table: 'money_transfers', expr: "(source_account = 'BANK') = (bank_reference IS NOT NULL)" },
+  {
+    name: 'ck_money_transfer_events_shape',
+    table: 'money_transfer_events',
+    expr: "(kind = 'SENT' AND account IS NULL AND reason IS NULL) OR (kind = 'RECEIVED' AND reason IS NULL AND (account = 'BANK') = (bank_reference IS NOT NULL)) OR (kind = 'CANCELLED' AND account IS NULL AND bank_reference IS NULL AND reason IS NOT NULL AND length(btrim(reason)) BETWEEN 3 AND 300)",
+  },
   // ── PAY-1 (migration 0033): the payment lines of a sale (D-pay1-1); the 1–2 lines and their sum are checked at commit
   // (0035, trigger jerp_sale_payments_check). 0035 replaces ck_sales_hasad_reference and ck_sales_bank_transfer_reference
   // (FIX-2) with the references check of the lines.

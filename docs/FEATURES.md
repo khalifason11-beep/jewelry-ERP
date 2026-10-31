@@ -67,6 +67,8 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   | A15 | Stock movements do not reconcile with the available pieces | `inventory.view` |
   | A16 | Gold or scrap rate missing (critical) | `settings.manage`, company view |
   | A17 | Branch bank balance below zero (critical) | `cash.view` (branch manager: own branch) |
+  | A18 | Money transfers waiting for you to confirm (number, no amount) | `money_transfers.receive`: the receiving branch manager; the General Manager for transfers to him, company view |
+  | A19 | A money transfer waiting longer than `transfers.pendingClaimStaleHours` (24 h, the setting of A2, reused) | `money_transfers.view`: the receiving branch manager and the General Manager, never the sender |
   | S1 | Only one passkey registered | the signed-in user |
   | S2 | Passkeys set to "touch is enough" | `settings.manage` |
 
@@ -185,6 +187,10 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   - **Repayments** take money back the same way.
   - A **correction** (a reversal) undoes one event, once.
   - `OWED_TO_GM` shows what each branch owes the General Manager.
+- **Money transfers** (MNY-1): `money_transfers.view` (the branch manager: the own branch; the General Manager: every
+  branch, read only), `money_transfers.send` (the branch manager: send from the own branch and cancel while in transit;
+  never the General Manager) and `money_transfers.receive` (the branch manager: confirm a transfer to the own branch;
+  the General Manager: only one addressed to him). Cashiers: none.
 - **Opening balance** (OPN-1, `opening.manage`, General Manager only): one per branch, DRAFT → SEALED.
   - The draft is not stock. Pieces are typed in (Enter moves to the next field) or imported from a CSV file (template
     in Arabic and English; comma or semicolon; one wrong row rejects the file with every problem by row and column; the
@@ -220,8 +226,16 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
     and what to do. This covers the scrap cash part, a cash refund on a void, a repayment from the drawer, and the
     correction of a drawer advance.
   - **The bank only warns.** It may go below zero, and attention A17 is raised.
-- Expenses were removed (REM-1). A cash-out for the operating amount is **open** (CSH-3, Q-6). So are money transfers
-  between branches (MNY-1, Q-8).
+- **Money transfers** (MNY-1, page Money transfers; plan `docs/plans/MNY-1.md`, D-mny1-1…5):
+  - A branch manager **sends** money from the drawer (never more than it holds) or the bank (with its reference) to
+    another branch or to the General Manager, with a reason. It is **on the way** until the receiver confirms it.
+  - The receiving branch manager **confirms** it into the drawer or the bank (a reference for the bank); the General
+    Manager confirms only a transfer addressed to him, and records nothing.
+  - The sender **cancels** it while it is on the way, with a reason; the money goes back. A wrong amount: cancel, then
+    send the right amount.
+  - The General Manager reads every transfer (status, who confirmed or cancelled it, when and why) and sees the money on
+    the way per branch on Cash. Attention A18 and A19. A branch with money on the way cannot be deactivated.
+- Expenses were removed (REM-1). A cash-out for the operating amount is **open** (CSH-3, Q-6).
 - **Split payment** (PAY-1): a sale is paid by one or two methods (cash, bank transfer, Hasad), the amounts summing
   exactly to the total; each line moves its own account (Hasad none); a void reverses each line.
 
@@ -312,7 +326,6 @@ A review of the reports after the removals is still to do (RPT-1).
 - Barcode labels (LBL-1).
 - Tax invoice (TAX-1).
 - Cash-out for the operating amount (CSH-3).
-- Money transfers between branches (MNY-1).
 - Customer identification on scrap (SCR-1).
 - Voiding a scrap purchase, and correcting a purchase (SCR-VOID, PUR-FIX).
 - Server-side pagination (BE-7).

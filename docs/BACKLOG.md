@@ -341,8 +341,17 @@ for bank transfer and Hasad, as today); the lines **sum exactly to the invoice t
 otherwise); one ledger entry per line in the same transaction as the sale; a void reverses each line through its own
 method; the invoice **prints one line per method**. Idempotency-Key and audit as for every sale.
 
-### MNY-1 — Money transfers between branches and to the General Manager · TODO · M · P1
-**Q-8 closed (owner, 2026-10-18, D-dec1-6):** required. **Design:**
+### MNY-1 — Money transfers between branches and to the General Manager · DONE · M · P1
+**Done (plan `docs/plans/MNY-1.md`, owner decisions and approval of 2026-10-30, D-mny1-1…5, migration 0038,
+`docs/acceptance/MNY-1.md`):** the branch manager sends money from the drawer or the bank (reference) to a branch or to
+the General Manager with a reason; the receiving branch manager confirms into the drawer or the bank; the General Manager
+reads every transfer, confirms only the ones to him (recording nothing) and never sends; the sender cancels while in
+transit (a wrong amount: cancel and send again); `OWED_TO_GM` never moves; no re-confirmation; DRAWER_SHORT the only
+limit; a branch with money in transit cannot be deactivated; attention A18/A19; reconciliation lines; page Money
+transfers and "Money on the way" on Cash. The owner's decisions replaced the earlier design below (no General Manager
+sending, no DISPUTED state: a wrong amount is cancelled and sent again).
+
+**Earlier design (superseded, kept for the record).** Q-8 closed (owner, 2026-10-18, D-dec1-6): required. **Design:**
 - Parties: **branch ↔ branch** and **branch → General Manager**.
 - The **sender** (branch manager of the sending branch, or the General Manager; **never a cashier**) records an amount
   from either the **cash drawer** or the **bank account** of the branch. The sending balance drops at once (the drawer
@@ -568,7 +577,7 @@ Updated by DEC-1 (owner decisions of 2026-10-18). Done items are no longer liste
 | 1 | **DEC-1** (done) | Record the owner's decisions; discounts off; the gold-rate edit guard (RAT-1) |
 | 2 | **SCR-VOID + PUR-FIX** (done, MIS-1) | Mistake correction before real operation |
 | 3 | **PAY-1** (SPL-1 + HSD-2) (done) | Two-method payments and Hasad as a channel only, one plan |
-| 4 | **MNY-1** | Money transfers branch ↔ branch and branch → General Manager |
+| 4 | **MNY-1** (done) | Money transfers branch ↔ branch and branch → General Manager |
 | 5 | **CAT-1** | Product becomes optional (Q-3) |
 | 6 | **OPN-1** | Opening balance with unknown cost (Q-4), after CAT-1 |
 | — | RPT-1, UI-C (still TODO; not placed in the owner's order) | — |

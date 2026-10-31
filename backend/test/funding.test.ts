@@ -233,6 +233,7 @@ describe('GUARDRAIL: no reader of the ledger counts OWED_TO_GM as money (D-csh-1
   const READERS: Record<string, string> = {
     'modules/ledger/service.ts#accountId': 'kind: looks up one account by branch and kind',
     'modules/ledger/service.ts#lockAccounts': 'kind: locks named kinds only (callers: funding, lockDrawerFor for the scrap, purchase and void drawer checks)',
+    'modules/ledger/service.ts#lockAccountsAcross': 'kind: locks named (branch, kind) accounts only (MNY-1 money transfers: the source, FUNDS_IN_TRANSIT and the landing; never OWED_TO_GM)',
     'modules/ledger/service.ts#post': 'write: appends entries',
     'modules/ledger/service.ts#reverseRef': 'write: reverses the entries of one record and event type',
     'modules/ledger/service.ts#balances': 'kind: returns one balance per (branch, kind); every caller picks a kind: cashBalance (CASH), drawer (named kinds), the homes and attention through cashBalance',

@@ -64,6 +64,11 @@ export const PERMISSIONS = {
   'opening.manage': 'Enter, import, review and seal the opening balance of a branch (once per branch)',
   // OPN-FIX: correct or void a piece of a sealed opening (reason, password and passkey). General Manager only.
   'opening.correct': 'Correct or void a piece of a sealed opening balance (reason, password and passkey)',
+  // MNY-1 (D-mny1-2): money transfers. The branch manager sends, confirms and cancels for the own branch; the General
+  // Manager views every transfer and confirms only those addressed to him (the services check the branch too).
+  'money_transfers.view': 'See the money transfers of the own branch (the General Manager: every branch, read only)',
+  'money_transfers.send': 'Send money from the own branch to another branch or to the General Manager, and cancel it while in transit',
+  'money_transfers.receive': 'Confirm the receipt of a money transfer addressed to the own branch (the General Manager: addressed to him)',
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -110,11 +115,20 @@ const BRANCH_MANAGER: Permission[] = [
   'users.view',
   'sessions.view',
   'audit.view',
+  // MNY-1: money transfers of the own branch (send, confirm, cancel).
+  'money_transfers.view',
+  'money_transfers.send',
+  'money_transfers.receive',
 ];
 
-const GENERAL_MANAGER: Permission[] = [
-  ...(Object.keys(PERMISSIONS) as Permission[]),
-];
+/**
+ * MNY-1 (D-mny1-2): permissions the General Manager never holds. Money moves between branches by their managers; the
+ * General Manager only views every transfer and confirms those addressed to him. Tests prove the defaults, the seed
+ * and the migrations never give these to him (the services check the actor's branch as well).
+ */
+export const NOT_FOR_GENERAL_MANAGER = ['money_transfers.send'] as const satisfies readonly Permission[];
+
+const GENERAL_MANAGER: Permission[] = (Object.keys(PERMISSIONS) as Permission[]).filter((p) => !(NOT_FOR_GENERAL_MANAGER as readonly string[]).includes(p));
 
 /**
  * Permissions that only the General Manager may ever hold (D-csh-5, D-mkc-6, D-mis1-2): the funding of a branch, the creation of

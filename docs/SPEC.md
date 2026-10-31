@@ -117,7 +117,7 @@ Source of truth for permissions: `shared/src/permissions.ts` and `shared/src/rou
   *Built (FIX-1, D-fix-1, D-rem4-1):* the courier's name is required and stored on the transfer; one piece no longer available refuses the whole transfer and nothing changes. The General Manager keeps "New transfer" on the Transfers screen (same rules); there is no other start point.
 - **[BUILT]** Lifecycle: items become **IN_TRANSIT** (not sellable anywhere) until the **receiving branch manager confirms**; then they join the receiving branch's stock with every attribute, **cost unchanged**. Support for partial receipt with disputed items visible to the GM, and cancellation by the sender before receipt.
 - **[OWNER]** The Transfers page is a **log** (outgoing and incoming, with status) and the place where the receiving manager confirms. **It has no "new transfer" button.**
-- **[CLIENT, closed 2026-10-18, Q-8] Money transfers between branches, and from a branch to the General Manager, are required** (BACKLOG MNY-1): the sender records the amount, the receiver confirms. **Not built yet** (only the `FUNDS_IN_TRANSIT` account type exists).
+- **[CLIENT, closed 2026-10-18, Q-8] Money transfers between branches, and from a branch to the General Manager, are required** (BACKLOG MNY-1): the sender records the amount, the receiver confirms. **Built (MNY-1, owner decisions of 2026-10-30, D-mny1-1…5):** the branch manager sends from the drawer or the bank and cancels while in transit; the receiving branch manager confirms into the drawer or the bank; the General Manager reads every transfer and confirms only the ones to him; `OWED_TO_GM` never moves.
 
 ## 9. Cash, the ledger and reconciliation
 

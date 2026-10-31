@@ -96,6 +96,10 @@ describe('idempotency keys', () => {
         'POST /openings/:id/scrap-lines/:lineId',
         'POST /openings/:id/scrap-lines/:lineId/remove',
         'POST /openings/:id/scrap-corrections',
+        // MNY-1: money transfers (key claimed inside the transaction).
+        'POST /money-transfers',
+        'POST /money-transfers/:id/confirm',
+        'POST /money-transfers/:id/cancel',
       ].sort(),
     );
     // Only mutating routes can be idempotent.

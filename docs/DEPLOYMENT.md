@@ -503,6 +503,37 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   report's summary is computed from the payment lines and adds "Direct sales (cash and bank)", "Hasad (paid to the
   General Manager's account)" and "Sales paid by two methods"; its rows and CSV gain "Payment lines".
 
+### MNY-1: money transfers between branches and to the General Manager (migration 0038)
+
+- **0038** adds `money_transfers` (one row per transfer; only its status moves, once, from `IN_TRANSIT` to `RECEIVED`
+  or `CANCELLED`; never deleted) and the append-only `money_transfer_events` (SENT, then RECEIVED or CANCELLED), the
+  ledger event types `MONEY_TRANSFER_SENT`, `_RECEIVED`, `_CANCELLED` and `_TO_GM` (the two ledger CHECKs are replaced,
+  D-mny1-1; no row changes), and the permissions `money_transfers.view`, `.send` and `.receive`: the branch manager
+  gets all three, the General Manager `.view` and `.receive` only (he never sends, D-mny1-2), the cashier none.
+  Additive: nothing stops the upgrade, and no balance moves.
+- Routes (no re-confirmation at any step; Idempotency-Key on every write): `GET /api/money-transfers` (a branch manager
+  sees his branch's transfers, the General Manager every one; `branchId`, `status`, `direction=IN|OUT`, paging),
+  `GET /api/money-transfers/:id` (with its steps), `POST /api/money-transfers` (the sending branch manager:
+  `to: { branchId }` or `to: { generalManager: true }`, `account` CASH or BANK, a whole `amount` > 0, `reason` 3–300,
+  `bankReference` required from the bank), `POST /api/money-transfers/:id/confirm` (the receiving branch manager
+  chooses `account` CASH or BANK, a `bankReference` required for the bank; the General Manager confirms a transfer
+  addressed to him with an empty body) and `POST /api/money-transfers/:id/cancel` (the sending branch manager, while
+  in transit; reason 3–300).
+- Money: the send moves it from the drawer or the bank into the branch's funds in transit; the confirmation moves it
+  into the receiving branch's drawer or bank (or out of the branch, to the General Manager); a cancel reverses the
+  send. What a branch owes the General Manager (`OWED_TO_GM`) never moves. The only limit is the drawer
+  (`DRAWER_SHORT`); the bank, as everywhere since CSH-2, may go below zero and raises A17. The daily reconciliation gains the lines `MONEY_SENT`, `MONEY_RECEIVED` and `MONEY_TO_GM`.
+- A branch with money in transit (to or from it) cannot be deactivated (`BRANCH_HAS_MONEY_IN_TRANSIT`).
+- Screens (c4): the page **Money transfers** (`/money-transfers`, Money group of the menu, a link from Cash) and the column
+  "Money on the way" on Cash. Attention **A18** (waiting for you to confirm) and **A19** (waiting longer than
+  `transfers.pendingClaimStaleHours`, the existing setting of A2, default 24; no new setting, D-mny1-3).
+- **A wrong amount (owner's procedure):** a transfer is never edited. While it is in transit, the sending branch
+  manager cancels it with the reason (for example "wrong amount: 50,000, not 5,000") and sends the right amount as a
+  new transfer. A confirmed transfer cannot be cancelled.
+- error codes: `MONEY_TRANSFER_STATE` (409: already confirmed or cancelled), `BRANCH_HAS_MONEY_IN_TRANSIT` (409); and
+  the existing `DRAWER_SHORT` (409), `FORBIDDEN`, `NOT_FOUND`, `BAD_REQUEST` (no or invalid bank reference, a reason
+  too short, a transfer to the own branch or to an inactive branch).
+
 ### Stop and recreate is a pre-production rule only
 
 Five migrations so far stop on trial data instead of transforming it, and ask for the database to be recreated:

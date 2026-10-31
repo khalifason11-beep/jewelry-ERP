@@ -118,6 +118,8 @@
 | `ledger_accounts` | One account per branch and kind: `CASH`, `BANK`, `FUNDS_IN_TRANSIT`, `OWED_TO_GM` (created for every branch, including new ones; PAY-1 migration 0036 removed `HASAD_RECEIVABLE`) |
 | `ledger_entries` | Append-only signed entries. `event_type` and `payment_method`, a reference (`ref_type`, `ref_id`, `ref_number`), `reverses_entry_id`, the actor, the session, the idempotency key. A balance is the sum of its entries |
 | `gm_funding_events` | Append-only (CSH-2, migration 0020), see below |
+| `money_transfers` | MNY-1 (0038): a money transfer from a branch to another branch or to the General Manager: `number`, `from_branch_id`, `to_kind` (BRANCH, GM), `to_branch_id`, `source_account` (CASH, BANK), `amount` (> 0), `reason` (3–300), `bank_reference` (iff BANK), `status` (IN_TRANSIT → RECEIVED or CANCELLED, once); every other column is immutable and the row is never deleted (trigger `jerp_money_transfer_check`) |
+| `money_transfer_events` | MNY-1, append-only: the steps of a transfer (SENT, RECEIVED with where it landed and its bank reference, CANCELLED with its reason), who and when; one SENT and at most one closing step per transfer (partial unique indexes) |
 | `cash_counts` | Append-only: a counted drawer amount against the expected amount, per business day |
 
 **`gm_funding_events`** columns:
@@ -160,7 +162,7 @@
 These tables are protected by triggers (`jerp_forbid_modification`, against UPDATE, DELETE and TRUNCATE). On
 PostgreSQL, the runtime role's privileges are also removed (`jerp_lock_append_only`):
 
-`audit_logs`, `backup_runs`, `cash_counts`, `gm_funding_events`, `gold_rates`,
+`audit_logs`, `backup_runs`, `cash_counts`, `gm_funding_events`, `gold_rates`, `money_transfer_events`,
 `inventory_movements`, `item_status_history`, `ledger_entries`, `opening_imports`, `opening_piece_corrections`, `opening_scrap_corrections`, `purchase_corrections`, `sale_payments`, `scrap_purchase_voids`,
 `scrap_purchases`, `scrap_rates`, `scrap_weight_entries`, `settings_history`, `supplier_settlements`.
 
@@ -231,6 +233,7 @@ a conditional update on the current status.
 | `0035_pay1_tighten_payments` | PAY-1: at commit, every sale has 1 or 2 payment lines summing to its total and its label follows them (deferred constraint trigger `jerp_sale_payments_check`); `ck_sales_hasad_reference` and `ck_sales_bank_transfer_reference` are replaced by the lines' references check |
 | `0036_pay1_hasad_channel_only` | PAY-1 / HSD-2: stops, changing nothing, on any Hasad receivable history (an entry on a `HASAD_RECEIVABLE` account, a settlement record or entry, a settlement in the audit log; owner Q5: such a database is recreated); otherwise deletes the empty `HASAD_RECEIVABLE` accounts, drops `hasad_receivable_settlements`, removes `HASAD_RECEIVABLE_SETTLEMENT` from the event-type check and the kind from the account-kind check, and removes the permission `cash.settle_hasad` |
 | `0037_opn3_opening_scrap` | OPN-3: the tables `opening_scrap_lines` (draft broken scrap; trigger: nothing changes once the opening is sealed) and `opening_scrap_corrections` (append-only, a sealed opening of that branch only); the pool's event-type CHECK replaced with the wider list (OPENING, OPENING_CORRECTION; D-opn3-1). No existing row changes |
+| `0038_mny1_money_transfers` | MNY-1: the tables `money_transfers` (status-only updates along IN_TRANSIT → RECEIVED / CANCELLED; never deleted) and the append-only `money_transfer_events`; four ledger event types (the CHECK is replaced, D-mny1-1); the permissions `money_transfers.view`, `.send`, `.receive` (branch manager all three, General Manager view and receive, D-mny1-2). No existing row changes |
 | `0031_opn2_tighten` | OPN-2: `rate_kind` becomes required (no default); CHECK `ck_jewelry_items_rate_kind_origin`: sellable scrap is USED, a supplier piece NEW (only an opening piece may be either). A row breaking either rule stops the upgrade with its count (none can exist after 0030) |
 | `0026_opn1_catalog_optional` | OPN-1 / CAT-1: `jewelry_items.category_id` and `description`; the product and the cost become optional (DROP NOT NULL; 0028 tightens again); sale-line name snapshots; `sales.unknown_cost_lines`; the tables `openings`, `opening_lines`, `opening_imports`; permission `opening.manage` (General Manager). Additive only |
 | `0024_prc1_computed_prices` | PRC-1: `gold_rates.kind` (NEW/USED, validated check, index), permission `scrap.buy_sellable` (every role), and `pricing.mode = FIXED_TAG` written only when pieces already exist (an upgraded installation keeps its tag prices). Additive only |

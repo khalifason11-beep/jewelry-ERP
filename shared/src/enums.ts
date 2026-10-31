@@ -88,7 +88,21 @@ export type GoldRateKind = (typeof GOLD_RATE_KINDS)[number];
 export const LEDGER_ACCOUNT_KINDS = ['CASH', 'BANK', 'FUNDS_IN_TRANSIT', 'OWED_TO_GM'] as const;
 export type LedgerAccountKind = (typeof LEDGER_ACCOUNT_KINDS)[number];
 
-export const LEDGER_EVENT_TYPES = ['SALE', 'SALE_VOID', 'REVERSAL', 'SCRAP_PURCHASE', 'SUPPLIER_MAKING_CHARGE', 'GM_ADVANCE', 'GM_REPAYMENT'] as const;
+export const LEDGER_EVENT_TYPES = [
+  'SALE',
+  'SALE_VOID',
+  'REVERSAL',
+  'SCRAP_PURCHASE',
+  'SUPPLIER_MAKING_CHARGE',
+  'GM_ADVANCE',
+  'GM_REPAYMENT',
+  // MNY-1 (D-mny1-1): a money transfer's send to a branch, its confirmation, its cancel (the reversal of the send), and
+  // everything of a transfer to the General Manager (the send, and the exit at his confirmation).
+  'MONEY_TRANSFER_SENT',
+  'MONEY_TRANSFER_RECEIVED',
+  'MONEY_TRANSFER_CANCELLED',
+  'MONEY_TRANSFER_TO_GM',
+] as const;
 export type LedgerEventType = (typeof LEDGER_EVENT_TYPES)[number];
 
 /**
@@ -146,6 +160,16 @@ export type OpeningLineSource = (typeof OPENING_LINE_SOURCES)[number];
 /** A branch money account: the drawer (CASH) or the bank account (BANK). Used by the General Manager's funding (CSH-2). */
 export const CASH_OR_BANK = ['CASH', 'BANK'] as const;
 export type CashOrBank = (typeof CASH_OR_BANK)[number];
+
+/** MNY-1: a money transfer goes to another branch or to the General Manager. */
+export const MONEY_TRANSFER_TARGETS = ['BRANCH', 'GM'] as const;
+export type MoneyTransferTarget = (typeof MONEY_TRANSFER_TARGETS)[number];
+/** MNY-1: IN_TRANSIT until the receiver confirms (RECEIVED) or the sender cancels (CANCELLED); both are final. */
+export const MONEY_TRANSFER_STATUSES = ['IN_TRANSIT', 'RECEIVED', 'CANCELLED'] as const;
+export type MoneyTransferStatus = (typeof MONEY_TRANSFER_STATUSES)[number];
+/** MNY-1: the steps of a transfer (the append-only event log). */
+export const MONEY_TRANSFER_EVENT_KINDS = ['SENT', 'RECEIVED', 'CANCELLED'] as const;
+export type MoneyTransferEventKind = (typeof MONEY_TRANSFER_EVENT_KINDS)[number];
 
 /**
  * MKC-1 (D-mkc-1): who paid a supplier order's making charge. Always one bank transfer from the owner's PERSONAL
@@ -220,6 +244,10 @@ export const AUDIT_ACTIONS = [
   'OPENING_SCRAP_LINE_CHANGED',
   'OPENING_SCRAP_LINE_REMOVED',
   'OPENING_SCRAP_CORRECTED',
+  // MNY-1: money transfers
+  'MONEY_TRANSFER_SENT',
+  'MONEY_TRANSFER_RECEIVED',
+  'MONEY_TRANSFER_CANCELLED',
   'ITEM_TYPE_RENAMED',
   'USER_CREATED',
   'USER_UPDATED',

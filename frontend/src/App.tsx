@@ -20,6 +20,7 @@ import { InventoryPage, ItemDetailPage } from './pages/inventory/InventoryPages'
 import { CatalogPage } from './pages/inventory/CatalogPage';
 import { PurchasesPage, PurchaseDetailPage } from './pages/purchases/PurchasesPages';
 import { CashPage } from './pages/cash/CashPage';
+import { MoneyTransfersPage } from './pages/cash/MoneyTransfersPage';
 import { ScrapPage } from './pages/scrap/ScrapPage';
 import { PricesPage } from './pages/admin/PricesPage';
 import { OpeningsPage, OpeningPage } from './pages/openings/OpeningPages';
@@ -129,6 +130,7 @@ export function App() {
             <Route path="purchases" element={<Guard perm="purchases.view"><PurchasesPage /></Guard>} />
             <Route path="purchases/:id" element={<Guard perm="purchases.view"><PurchaseDetailPage /></Guard>} />
             <Route path="cash" element={<Guard perm="cash.view"><CashPage /></Guard>} />
+            <Route path="money-transfers" element={<Guard perm="money_transfers.view"><MoneyTransfersPage /></Guard>} />
             <Route path="scrap" element={<Guard any={['scrap.buy', 'scrap.buy_sellable']}><ScrapPage /></Guard>} />
             <Route path="transfers" element={<Guard perm="inventory.transfer"><TransfersPage /></Guard>} />
             <Route path="reports" element={<Guard perm="reports.view"><ReportsHubPage /></Guard>} />

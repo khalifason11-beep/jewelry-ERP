@@ -9,7 +9,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { and, eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { GOLD_RATE_KINDS, OPENING_CORRECTION_KINDS, TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, PAYMENT_METHODS, SCRAP_KINDS, PURCHASE_CORRECTION_FIELDS, CHANGE_REASON_MAX, ap, isSettingKey, type RouteRule } from '@jerp/shared';
+import { GOLD_RATE_KINDS, MONEY_TRANSFER_STATUSES, OPENING_CORRECTION_KINDS, TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, PAYMENT_METHODS, SCRAP_KINDS, PURCHASE_CORRECTION_FIELDS, CHANGE_REASON_MAX, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
@@ -44,6 +44,7 @@ import * as scrap from './modules/scrap/service';
 import * as scrapVoid from './modules/scrap/void';
 import * as purchaseCorrections from './modules/purchases/corrections';
 import * as funding from './modules/funding/service';
+import * as moneyTransfers from './modules/money-transfers/service';
 import * as supplierSettlements from './modules/supplier-settlements/service';
 import * as pricing from './modules/pricing/service';
 import * as openings from './modules/openings/service';
@@ -865,6 +866,49 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     const id = parse(zId, req.params.id);
     const body = parse(z.object({ reason: zText(300).min(3) }).strict(), req.body);
     res.json(await runIdempotent(ctx, req, res, (idem) => funding.correctFunding(ctx, actorOf(req), id, body, { idem })));
+  });
+
+  // ─────────── MNY-1: money transfers (branch managers send, confirm, cancel; the General Manager views, confirms his) ───────────
+  // No re-auth on any step (owner, decision 7); the reason and references are checked by the service.
+  route('GET', '/money-transfers', async (req, res) => {
+    const q = parse(
+      z
+        .object({
+          ...pageQuerySchema(moneyTransfers.MONEY_TRANSFER_SORT_KEYS),
+          branchId: zOptId,
+          status: z.enum(MONEY_TRANSFER_STATUSES).optional(),
+          direction: z.enum(['IN', 'OUT']).optional(),
+        })
+        .strict(),
+      req.query,
+    );
+    res.json(await moneyTransfers.listMoneyTransfers(ctx, actorOf(req), q));
+  });
+  route('GET', '/money-transfers/:id', async (req, res) => res.json(await moneyTransfers.getMoneyTransfer(ctx, actorOf(req), parse(zId, req.params.id))));
+  route('POST', '/money-transfers', async (req, res) => {
+    const body = parse(
+      z
+        .object({
+          to: z.union([z.object({ branchId: zIdBody }).strict(), z.object({ generalManager: z.literal(true) }).strict()]),
+          account: z.enum(CASH_OR_BANK),
+          amount: zPositiveMoney,
+          reason: zText(1000),
+          bankReference: zText(80).optional(),
+        })
+        .strict(),
+      req.body,
+    );
+    res.json(await runIdempotent(ctx, req, res, (idem) => moneyTransfers.sendMoneyTransfer(ctx, actorOf(req), body, { idem })));
+  });
+  route('POST', '/money-transfers/:id/confirm', async (req, res) => {
+    const id = parse(zId, req.params.id);
+    const body = parse(z.object({ account: z.enum(CASH_OR_BANK).optional(), bankReference: zText(80).optional() }).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => moneyTransfers.confirmMoneyTransfer(ctx, actorOf(req), id, body, { idem })));
+  });
+  route('POST', '/money-transfers/:id/cancel', async (req, res) => {
+    const id = parse(zId, req.params.id);
+    const body = parse(z.object({ reason: zText(1000).optional() }).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => moneyTransfers.cancelMoneyTransfer(ctx, actorOf(req), id, body, { idem })));
   });
 
   route('GET', '/transfers', async (req, res) => {
