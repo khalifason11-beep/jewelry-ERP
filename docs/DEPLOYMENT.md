@@ -197,11 +197,16 @@ GRANT CONNECT, CREATE ON DATABASE jewelry_erp TO jerp_owner;
 GRANT CONNECT ON DATABASE jewelry_erp TO jerp_app;
 GRANT USAGE, CREATE ON SCHEMA public TO jerp_owner;
 GRANT USAGE ON SCHEMA public TO jerp_app;
+-- The migration history: the runtime role reads it at start-up and in /api/ready (DOC-2; without it the preflight
+-- FAILs "cannot read the migration history" with these grants as the fix).
+CREATE SCHEMA drizzle AUTHORIZATION jerp_owner;
+GRANT USAGE ON SCHEMA drizzle TO jerp_app;
 
 -- 2. As jerp_owner, BEFORE the first migration: every table the migrations create is usable by the app…
 ALTER DEFAULT PRIVILEGES GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO jerp_app;
 ALTER DEFAULT PRIVILEGES GRANT USAGE, SELECT ON SEQUENCES TO jerp_app;
 ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO jerp_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA drizzle GRANT SELECT ON TABLES TO jerp_app;
 -- …and the migrations themselves take UPDATE/DELETE/TRUNCATE away again on every append-only table
 -- (function jerp_lock_append_only, migration 0005).
 ```
@@ -226,12 +231,13 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO jerp_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO jerp_app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO jerp_app;
 -- then, as jerp_owner: step 2 above, and re-apply the append-only lock on EVERY append-only table
--- (the list is APPEND_ONLY_TABLES in backend/src/core/startup.ts; SAFE-1 corrected an older 7-table list here):
+-- (the list is APPEND_ONLY_TABLES in backend/src/core/startup.ts, 20 tables; DOC-2 added the last two):
 SELECT jerp_lock_append_only(t::regclass)
 FROM unnest(ARRAY['audit_logs','inventory_movements','item_status_history','gold_rates','settings_history',
                    'ledger_entries','cash_counts','scrap_rates','scrap_purchases','scrap_weight_entries',
                    'supplier_settlements','backup_runs','gm_funding_events','scrap_purchase_voids','purchase_corrections',
-                   'opening_imports','opening_piece_corrections','sale_payments']) AS t;
+                   'opening_imports','opening_piece_corrections','sale_payments','opening_scrap_corrections',
+                   'money_transfer_events']) AS t;
 ```
 
 Check with the preflight (`node scripts/server/preflight.mjs`: the `runtime role` line must say PASS), then start the
@@ -608,7 +614,11 @@ future migration that cannot transform a row is redesigned, not shipped with a g
   ```
 
   Expected: `"origin":"https://erp.example.com"` (the value sent, unchanged). Any other value: fix the proxy before go-live;
-  do not work around it in the app.
+  do not work around it in the app. **Then stop the echo server (Ctrl+C) and start the app again: `systemctl restart
+  jerp`**, and check `/api/ready` → `{"ready":true}` (without the restart nothing listens on the port).
+- **Go-live on a server that ran a trial:** the trial's data is wiped by dropping and recreating the database with the
+  same roles and every grant: `docs/runbooks/go-live-reset.md` (DOC-2; `scripts/server/go-live-reset.sql`, which
+  refuses unless it is told which trial database it drops).
 
 ## 7. Backups
 

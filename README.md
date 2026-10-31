@@ -299,7 +299,7 @@ npm run ops -w @jerp/backend -- unlock-security-lock --username <user> --confirm
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Stack, layers, request path, security mechanisms |
 | [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Tables, migrations 0000–0023, ledger, append-only tables |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production configuration, database roles, upgrades, backups, passkeys, printing; Appendix A: Render as a worked example, not a decision |
-| [docs/runbooks/](docs/runbooks/) | First deployment, routine update, rollback and restore drill, step by step (provider-neutral) |
+| [docs/runbooks/](docs/runbooks/) | First deployment, routine update, rollback, restore drill and the go-live reset (wipe the trial, create the real General Manager), step by step (provider-neutral) |
 | [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | How to present the system |
 | [docs/BACKLOG.md](docs/BACKLOG.md) | The single backlog: done, to do, blocked on client questions, production readiness |
 | [docs/SPEC.md](docs/SPEC.md) | The specification and the open client questions (Q-n) |

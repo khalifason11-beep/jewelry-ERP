@@ -4,6 +4,9 @@ Provider-neutral: hosting is the owner's decision (BACKLOG HOST-1). The steps as
 public IP, a final domain name (`erp.example.com` below), and root access. Every command is meant to be copied. Do the
 steps in order; each one ends with a check.
 
+> **Trial first, real later?** If this server first runs a trial and the real business starts later, the trial's data is
+> wiped at go-live with `docs/runbooks/go-live-reset.md` (it keeps the roles and the env files).
+
 > **Before you start.** Have ready: the final domain, already pointing at the server (passkeys belong to it and cannot be
 > moved later), three long random passwords (owner, runtime, backup roles), and an off-site place for backups (§7.5 of
 > `docs/DEPLOYMENT.md`).
@@ -50,7 +53,11 @@ GRANT CONNECT, CREATE ON DATABASE jewelry_erp TO jerp_owner;
 GRANT CONNECT ON DATABASE jewelry_erp TO jerp_app, jerp_backup;
 \c jewelry_erp
 GRANT USAGE, CREATE ON SCHEMA public TO jerp_owner;
-GRANT USAGE ON SCHEMA public TO jerp_app;
+GRANT USAGE ON SCHEMA public TO jerp_app, jerp_backup;
+-- The migration history (schema drizzle): created now, owned by the owner, readable by the runtime role, which reads
+-- it at every start and in /api/ready (DOC-2: without this the preflight FAILs "cannot read the migration history").
+CREATE SCHEMA drizzle AUTHORIZATION jerp_owner;
+GRANT USAGE ON SCHEMA drizzle TO jerp_app, jerp_backup;
 ```
 
 Then as the owner (`psql "postgresql://jerp_owner:<owner password>@127.0.0.1:5432/jewelry_erp"`), **before** the first
@@ -60,10 +67,11 @@ migration:
 ALTER DEFAULT PRIVILEGES GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO jerp_app;
 ALTER DEFAULT PRIVILEGES GRANT USAGE, SELECT ON SEQUENCES TO jerp_app;
 ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO jerp_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA drizzle GRANT SELECT ON TABLES TO jerp_app;
 ```
 
 The migrations then take UPDATE, DELETE and TRUNCATE away from the runtime role on every append-only table. The backup
-role's grants are given after the first start (§9), when the `drizzle` schema exists.
+role's read grants are given after the first start (§9), when the tables exist.
 
 ## 4. The application
 
@@ -154,14 +162,20 @@ ufw default deny incoming && ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 
 ufw status                          # 22, 80, 443 only; 4000 and 5432 are NOT open
 ```
 
-Verify the proxy with the Origin echo test (`docs/DEPLOYMENT.md` §6) and the client IP check (§4).
+Verify the proxy with the Origin echo test (`docs/DEPLOYMENT.md` §6; it stops the app for a minute) and **start the app
+again right after it**:
+
+```bash
+systemctl restart jerp && curl -fsS http://127.0.0.1:4000/api/ready     # {"ready":true}; without the restart nothing listens on 4000
+```
+
+Then the client IP check (§4).
 
 ## 9. Backup role grants and the first backup
 
-As the owner (the `drizzle` schema exists now):
+As the owner (the tables exist now; the schema grants were given in §3):
 
 ```sql
-GRANT USAGE ON SCHEMA public, drizzle TO jerp_backup;
 GRANT SELECT ON ALL TABLES    IN SCHEMA public, drizzle TO jerp_backup;
 GRANT SELECT ON ALL SEQUENCES IN SCHEMA public, drizzle TO jerp_backup;
 ALTER DEFAULT PRIVILEGES FOR ROLE jerp_owner IN SCHEMA public  GRANT SELECT ON TABLES    TO jerp_backup;
@@ -189,7 +203,8 @@ on the shop PC and a second device, and print the recovery codes (`docs/DEPLOYME
 - [ ] `curl -fsS https://erp.example.com/api/ready` → `{"ready":true}`
 - [ ] The sign-in page shows the company name and logo from Settings; no "Demo" badge; no accounts listed.
 - [ ] The start-up log has no `refusing to start`, no `SECURITY WARNING`, no `integrity constraints left NOT VALID`.
-- [ ] The Origin echo test returns the origin unchanged (DEPLOYMENT §6).
+- [ ] The Origin echo test returns the origin unchanged (DEPLOYMENT §6), and the app was restarted after it
+      (`systemctl restart jerp`; `/api/ready` → `{"ready":true}`).
 - [ ] The audit log shows real client IPs, not the proxy's (DEPLOYMENT §4).
 - [ ] `ufw status`: only 22, 80, 443.
 - [ ] The first backup exists off-site and the first restore drill passed.
