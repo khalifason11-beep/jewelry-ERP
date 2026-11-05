@@ -35,7 +35,7 @@ import { settleWithScrap } from '../src/modules/supplier-settlements/service';
 import { stockWeight } from '../src/modules/stock/weight';
 import { seedWorld } from './fixtures/world';
 import { DEMO_PASSWORDS } from './fixtures/world-data';
-import { openTestDatabase, withIdempotencyKeys } from './helpers';
+import { openTestDatabase, reviewedOf, withIdempotencyKeys } from './helpers';
 
 let handle: DatabaseHandle;
 let ctx: Ctx;
@@ -59,7 +59,7 @@ const newBranch = async () => {
   return b;
 };
 const freshPasskey = () => ctx.db.update(t.sessions).set({ passkeyReauthAt: new Date(), passkeyReauthUv: true }).where(eq(t.sessions.id, gmSession));
-const seal = (id: number) => gmHttp.post(`/api/openings/${id}/seal`).send({ confirmPassword: PW });
+const seal = async (id: number) => gmHttp.post(`/api/openings/${id}/seal`).send({ confirmPassword: PW, ...(await reviewedOf(ctx.db, id)) });
 const pool = async (branchId: number) => new Map((await poolBalances(ctx.db, branchId)).map((r) => [r.karat, r.weightMg]));
 const movements = (branchId: number) =>
   ctx.db.select().from(t.scrapWeightEntries).where(eq(t.scrapWeightEntries.branchId, branchId)).orderBy(asc(t.scrapWeightEntries.id));

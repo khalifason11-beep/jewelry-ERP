@@ -36,7 +36,7 @@ import { DEMO_PASSWORDS } from '../fixtures/world-data';
 import { fetchAllPages, writeCsv, type PricingSettingMode } from '@jerp/shared';
 import { rows } from '../../src/core/sql';
 import { seedWorld } from '../fixtures/world';
-import { dropTestDatabase } from '../helpers';
+import { dropTestDatabase, reviewedOf } from '../helpers';
 
 const BUDGET_MS = 300;
 const REPORT_BUDGET_MS = 1_000;
@@ -363,8 +363,9 @@ async function openingAtScale(ctx: Ctx) {
   let s = performance.now();
   await importOpeningCsv(ctx, gm, o.id, { fileName: 'perf.csv', bytes });
   const importMs = performance.now() - s;
+  const reviewed = await reviewedOf(ctx.db, o.id);
   s = performance.now();
-  const sealed = await sealOpening(ctx, gm, o.id, { confirmPassword: DEMO_PASSWORDS.GENERAL_MANAGER });
+  const sealed = await sealOpening(ctx, gm, o.id, { confirmPassword: DEMO_PASSWORDS.GENERAL_MANAGER, ...reviewed });
   const sealMs = performance.now() - s;
   if (sealed.pieces !== 5_000) throw new Error(`the seal made ${sealed.pieces} pieces, not 5,000`);
   await x(sql`ANALYZE`);

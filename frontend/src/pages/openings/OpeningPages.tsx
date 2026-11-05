@@ -599,7 +599,12 @@ function SealDialog({ opening, onClose }: { opening: Opening; onClose: () => voi
     // UX-3: the typed password opens the window first, so the seal never asks for it a second time.
     mutationFn: async () => {
       await openWindowWith(password);
-      return postOnce<{ pieces: number; firstCode: string | null; lastCode: string | null; scrap: ScrapTotals }>(`/openings/${opening.id}/seal`, { confirmPassword: password }, keys.for('opening-seal'));
+      // OPN-4 (D-opn4-4): what this dialog shows is what the General Manager reviewed; a draft that changed is refused.
+      return postOnce<{ pieces: number; firstCode: string | null; lastCode: string | null; scrap: ScrapTotals }>(
+        `/openings/${opening.id}/seal`,
+        { confirmPassword: password, expectedLines: opening.summary.total.count, expectedNetWeightMg: opening.summary.total.netWeightMg },
+        keys.for('opening-seal'),
+      );
     },
     onSuccess: (r) => {
       keys.rotate('opening-seal');
@@ -610,6 +615,8 @@ function SealDialog({ opening, onClose }: { opening: Opening; onClose: () => voi
     onError: (e) => {
       keys.rotate('opening-seal');
       toast.fromError(e);
+      // Someone added or removed a piece since the review: the numbers above reload; review them, then seal again.
+      if (e instanceof ApiError && e.code === 'OPENING_CHANGED_SINCE_REVIEW') qc.invalidateQueries({ queryKey: ['opening'] });
     },
   });
   return (

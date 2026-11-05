@@ -34,7 +34,7 @@ import { addOpeningLine, createOpening, sealOpening } from '../src/modules/openi
 import { correctOpeningPiece } from '../src/modules/openings/corrections';
 import { seedWorld } from './fixtures/world';
 import { DEMO_PASSWORDS } from './fixtures/world-data';
-import { openTestDatabase, withIdempotencyKeys } from './helpers';
+import { openTestDatabase, reviewedOf, withIdempotencyKeys } from './helpers';
 
 let handle: DatabaseHandle;
 let ctx: Ctx;
@@ -118,7 +118,7 @@ beforeAll(async () => {
   opening = (await createOpening(ctx, gm, { branchId: bhr })).id;
   const names = ['condition', 'karat', 'weight', 'void', 'sold', 'transit', 'moved', 'replay', 'property', 'refusals'];
   for (const description of names) await addOpeningLine(ctx, gm, opening, { categoryId: type.id, description, karat: k, condition: 'NEW', grossWeightMg: 10_500, netWeightMg: 10_000 });
-  await sealOpening(ctx, gm, opening, { confirmPassword: PW });
+  await sealOpening(ctx, gm, opening, { confirmPassword: PW, ...(await reviewedOf(ctx.db, opening)) });
   const lines = await ctx.db.select({ d: t.openingLines.description, item: t.openingLines.itemId }).from(t.openingLines).where(eq(t.openingLines.openingId, opening));
   for (const l of lines) pieces[l.d!] = l.item!;
   // A sold piece, a piece in transit, a piece moved to KRT and received there.

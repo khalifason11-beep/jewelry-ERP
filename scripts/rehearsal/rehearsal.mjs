@@ -1918,6 +1918,86 @@ async function main() {
       await signOut(page);
     }
 
+    section('OPN-4: the branch manager enters the pieces of the own branch opening; the General Manager reviews who entered what and seals');
+    {
+      await signIn(page, origin, GM.username, GM.password);
+      await page.getByTestId('second-step').waitFor();
+      await page.click('[data-testid=use-passkey]');
+      await pathIs(page, ['/overview']);
+      const ctxOf = async (username, password) => {
+        const c = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1366, height: 768 } });
+        const p = await c.newPage();
+        await signIn(p, origin, username, password);
+        await p.waitForURL((u) => u.pathname !== '/login', { timeout: 15_000 });
+        return { c, p };
+      };
+      /** A CSV file posted as the raw body (text/csv), as the import screen sends it. */
+      const postCsv = (p, url, text) =>
+        p.evaluate(
+          async ({ url, text }) => {
+            const me = await (await fetch('/api/auth/me')).json();
+            const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'text/csv', 'x-csrf-token': me.csrfToken ?? '', 'Idempotency-Key': crypto.randomUUID() }, body: text });
+            return { status: r.status, body: await r.json().catch(() => null) };
+          },
+          { url, text },
+        );
+      const bmB = await ctxOf('rehearsal.manager.b', 'Rehearsal-Manager-B-2026');
+      const bmA = await ctxOf(BM.username, BM.password);
+      // Before the General Manager presses Start: the branch manager sees the own branch, not started (D-opn4-1, Q-e).
+      const before = (await apiGet(bmB.p, '/api/openings')).body.branches;
+      check(before.length === 1 && before[0].branchId === branchB && before[0].opening === null, 'OPN-4: before Start, the branch manager of branch B sees only the own branch, its opening not started');
+      check((await apiSend(bmB.p, 'POST', '/api/openings', { branchId: branchB })).status === 403, 'OPN-4: the branch manager cannot start an opening (403): the General Manager starts it');
+      const started = await apiSend(page, 'POST', '/api/openings', { branchId: branchB });
+      check(started.status === 200 && started.body.status === 'DRAFT', `OPN-4: the General Manager starts the opening of branch B (${started.status})`);
+      const ob = started.body.id;
+      // The branch manager types 3 pieces and imports a small file of 2.
+      const types = (await apiGet(bmB.p, '/api/categories')).body;
+      const ringType = types.find((x) => x.nameAr === 'خواتم الافتتاح');
+      const typed = [];
+      for (const [i, mg] of [[1, 2_100], [2, 3_300], [3, 4_400]]) typed.push(await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: `فرع ب ${i}`, karat: 21, condition: 'NEW', grossWeightMg: mg + 100, netWeightMg: mg }));
+      check(typed.every((r) => r.status === 200), `OPN-4: the branch manager of branch B types 3 pieces into its draft (${typed.map((r) => r.status).join(', ')}); no password asked`);
+      const file = '﻿' + ['النوع;الوصف;العيار;الحالة;الوزن القائم;الوزن الصافي', 'خواتم الافتتاح;ملف ب 1;21;جديد;1.600;1.500', 'خواتم الافتتاح;ملف ب 2;21;مستعمل;2.600;2.500'].join('\r\n') + '\r\n';
+      const imported = await postCsv(bmB.p, `/api/openings/${ob}/import?fileName=branch-b.csv`, file);
+      check(imported.status === 200 && imported.body.rowCount === 2, `OPN-4: the branch manager imports a file of 2 pieces (${imported.status})`);
+      // Branch scope (D-opn4-2): the manager of branch A cannot read or change branch B's opening; nothing GM-only.
+      const crossRead = await apiGet(bmA.p, `/api/openings/${ob}`);
+      const crossWrite = await apiSend(bmA.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: 'cross', karat: 21, condition: 'NEW', grossWeightMg: 1_100, netWeightMg: 1_000 });
+      check(crossRead.status === 404 && crossWrite.status === 404, `OPN-4: the manager of branch A gets 404 on branch B's opening, reading and writing (${crossRead.status}, ${crossWrite.status})`);
+      check(!(await apiGet(bmA.p, '/api/openings')).body.branches.some((x) => x.branchId === branchB), "OPN-4: branch A's manager's list does not show branch B");
+      const gmOnlyCodes = [
+        (await apiSend(bmB.p, 'POST', `/api/openings/${ob}/seal`, { confirmPassword: 'x', expectedLines: 5, expectedNetWeightMg: 13_800 })).status,
+        (await apiSend(bmB.p, 'POST', `/api/openings/${ob}/scrap-lines`, { karat: 21, weightMg: 1_000 })).status,
+        (await apiSend(bmB.p, 'POST', `/api/openings/${ob}/scrap-corrections`, { changes: [{ karat: 21, weightMgChange: -1 }], reason: 'probe' })).status,
+      ];
+      check(gmOnlyCodes.every((c) => c === 403), `OPN-4: the branch manager cannot seal, add broken scrap or correct (${gmOnlyCodes.join(', ')})`);
+      // The General Manager: who entered what (D-opn4-3).
+      const review = (await apiGet(page, `/api/openings/${ob}?pageSize=50`)).body;
+      const byUser = review.summary.byUser;
+      check(
+        review.summary.total.count === 5 && review.lines.rows.every((l) => l.enteredByName === 'Rehearsal Manager B' && l.enteredAt) && byUser.length === 1 && byUser[0].count === 5 && byUser[0].netWeightMg === review.summary.total.netWeightMg,
+        `OPN-4: the General Manager sees every line "entered by" Rehearsal Manager B, and per person: ${byUser.map((u) => `${u.name} ${u.count} piece(s)`).join(', ')}`,
+      );
+      // The seal (D-opn4-4): a piece typed after the review makes the reviewed numbers stale: refused, nothing sealed.
+      const reviewed = { expectedLines: review.summary.total.count, expectedNetWeightMg: review.summary.total.netWeightMg };
+      check((await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: 'بعد المراجعة', karat: 21, condition: 'NEW', grossWeightMg: 5_100, netWeightMg: 5_000 })).status === 200, 'OPN-4: the branch manager types one more piece after the review');
+      // The password and a fresh passkey: the one dialog of a protected flow (UX-3) opens both windows.
+      await page.goto(`${origin}/users`);
+      await startFlow(page, 'new-user', 'user-username', GM.password);
+      await page.keyboard.press('Escape');
+      const stale = await apiSend(page, 'POST', `/api/openings/${ob}/seal`, { confirmPassword: GM.password, ...reviewed });
+      check(stale.status === 409 && stale.body.error.code === 'OPENING_CHANGED_SINCE_REVIEW' && stale.body.error.details.lines === 6, `OPN-4: the seal with the numbers reviewed before that piece is refused (409 OPENING_CHANGED_SINCE_REVIEW, now ${stale.body?.error?.details?.lines} pieces)`);
+      check((await apiGet(page, `/api/openings/${ob}`)).body.status === 'DRAFT', 'OPN-4: nothing was sealed');
+      const now = (await apiGet(page, `/api/openings/${ob}`)).body.summary.total;
+      const sealed = await apiSend(page, 'POST', `/api/openings/${ob}/seal`, { confirmPassword: GM.password, expectedLines: now.count, expectedNetWeightMg: now.netWeightMg });
+      check(sealed.status === 200 && sealed.body.pieces === 6, `OPN-4: the seal with the numbers reviewed now: ${sealed.body?.pieces} pieces into branch B's stock (${sealed.status})`);
+      // Sealed: readable by its branch manager (Q-f), read-only for everyone.
+      const after = await apiGet(bmB.p, `/api/openings/${ob}`);
+      const late = await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: 'متأخر', karat: 21, condition: 'NEW', grossWeightMg: 1_100, netWeightMg: 1_000 });
+      check(after.status === 200 && after.body.status === 'SEALED' && late.status === 409 && late.body.error.code === 'OPENING_SEALED', 'OPN-4: the branch manager reads the sealed opening; nothing can be added (409 OPENING_SEALED)');
+      for (const s of [bmA, bmB]) await s.c.close();
+      await signOut(page);
+    }
+
     section('REM-5: no deprecated schema left');
     const rdb = new pg.Client({ connectionString: dbUrl.toString() });
     await rdb.connect();

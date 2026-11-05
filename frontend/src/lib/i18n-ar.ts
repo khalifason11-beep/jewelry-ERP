@@ -2256,4 +2256,6 @@ export const AR: Record<string, string> = {
   "The Arabic name \"{value}\" arrived garbled: this console did not send Arabic letters. Leave it out and type it later in the app": "وصل الاسم العربي \"{value}\" مشوّهاً: هذه الطرفية لم ترسل حروفاً عربية. اتركه الآن واكتبه لاحقاً داخل النظام",
   "Start and seal the opening balance": "بدء الرصيد الافتتاحي وختمه",
   "Enter opening balance pieces": "إدخال قطع الرصيد الافتتاحي",
+  "Review the opening before sealing: send the number of pieces and the net weight you reviewed": "راجع الرصيد الافتتاحي قبل الختم: أرسل عدد القطع والوزن الصافي اللذين راجعتهما",
+  "The opening changed since you reviewed it: it now has {lines} piece(s), {weightMg} mg net. Review it again, then seal": "تغيّر الرصيد الافتتاحي منذ مراجعتك: فيه الآن {lines} قطعة، ووزن صافٍ ⁦{weightMg}⁩ ملغ. راجعه مرة أخرى ثم اختمه",
 };

@@ -30,7 +30,7 @@ import { periodFor } from '../src/modules/dashboard/service';
 import { addOpeningLine, createOpening, exportOpeningCsv, getOpening, importOpeningCsv } from '../src/modules/openings/service';
 import { seedWorld } from './fixtures/world';
 import { DEMO_PASSWORDS } from './fixtures/world-data';
-import { openTestDatabase, withIdempotencyKeys } from './helpers';
+import { openTestDatabase, reviewedOf, withIdempotencyKeys } from './helpers';
 
 let handle: DatabaseHandle;
 let ctx: Ctx;
@@ -174,7 +174,7 @@ describe('the condition is required, with no default', () => {
 
 describe('sealing needs the rate of every karat and condition; the pieces are priced by their condition', () => {
   let opening: number;
-  const seal = () => gmHttp.post(`/api/openings/${opening}/seal`).send({ confirmPassword: PW });
+  const seal = async () => gmHttp.post(`/api/openings/${opening}/seal`).send({ confirmPassword: PW, ...(await reviewedOf(ctx.db, opening)) });
   const pieces = async () =>
     ctx.db
       .select({ lineNo: t.openingLines.lineNo, condition: t.openingLines.condition, description: t.openingLines.description, item: t.jewelryItems })
