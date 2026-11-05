@@ -279,7 +279,8 @@ const SHELL_NAV = {
   // PRC-1 (D-prc1-9): the General Manager's Prices page sits with stock and gold.
   // MNY-1: "Money transfers" under Money for both managers (the General Manager reads them all); never the cashier.
   gm: ['overview', 'sales', 'inventory', 'transfers', 'scrap', 'prices', 'catalog', 'openings', 'purchases', 'cash', 'money-transfers', 'branches', 'reports', 'users', 'sessions', 'audit', 'settings'],
-  bm: ['dashboard', 'pos', 'sales', 'inventory', 'transfers', 'scrap', 'catalog', 'purchases', 'cash', 'money-transfers', 'reports', 'users', 'sessions', 'audit'],
+  // OPN-4: "Opening balance" for the branch manager (the pieces of the own branch).
+  bm: ['dashboard', 'pos', 'sales', 'inventory', 'transfers', 'scrap', 'catalog', 'openings', 'purchases', 'cash', 'money-transfers', 'reports', 'users', 'sessions', 'audit'],
   // PRC-1 (D-prc1-8): the cashier buys a sellable piece from a customer.
   cashier: ['pos', 'scrap', 'me'],
 };
@@ -1947,6 +1948,13 @@ async function main() {
       const before = (await apiGet(bmB.p, '/api/openings')).body.branches;
       check(before.length === 1 && before[0].branchId === branchB && before[0].opening === null, 'OPN-4: before Start, the branch manager of branch B sees only the own branch, its opening not started');
       check((await apiSend(bmB.p, 'POST', '/api/openings', { branchId: branchB })).status === 403, 'OPN-4: the branch manager cannot start an opening (403): the General Manager starts it');
+      // (screen) The list of the branch manager: the own branch, "the General Manager starts it", no Start button.
+      await bmB.p.goto(`${origin}/openings`);
+      await bmB.p.getByTestId('opening-not-started-RHB').waitFor({ timeout: 15_000 });
+      check(
+        (await bmB.p.locator('[data-testid^=opening-start-]').count()) === 0 && /يبدأ المدير العام الرصيد الافتتاحي لفرعك/.test(await bmB.p.getByTestId('opening-not-started-RHB').innerText()),
+        'OPN-4 (screen): before Start, the branch manager reads "The General Manager starts the opening balance of your branch"; no Start button',
+      );
       const started = await apiSend(page, 'POST', '/api/openings', { branchId: branchB });
       check(started.status === 200 && started.body.status === 'DRAFT', `OPN-4: the General Manager starts the opening of branch B (${started.status})`);
       const ob = started.body.id;
@@ -1956,6 +1964,13 @@ async function main() {
       const typed = [];
       for (const [i, mg] of [[1, 2_100], [2, 3_300], [3, 4_400]]) typed.push(await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: `فرع ب ${i}`, karat: 21, condition: 'NEW', grossWeightMg: mg + 100, netWeightMg: mg }));
       check(typed.every((r) => r.status === 200), `OPN-4: the branch manager of branch B types 3 pieces into its draft (${typed.map((r) => r.status).join(', ')}); no password asked`);
+      // (screen) The draft page of the branch manager: the entry form, no seal button, the broken scrap read-only.
+      await bmB.p.goto(`${origin}/openings/${ob}`);
+      await bmB.p.getByTestId('opening-gm-seals').waitFor({ timeout: 15_000 });
+      check(
+        (await bmB.p.getByTestId('opening-seal').count()) === 0 && (await bmB.p.getByTestId('opening-scrap-add').count()) === 0 && (await bmB.p.getByTestId('opening-scrap-readonly').count()) === 1 && (await bmB.p.getByTestId('opening-file').count()) === 1,
+        'OPN-4 (screen): the branch manager has the entry form and the import, no seal button, no broken-scrap entry; "The General Manager reviews and seals"',
+      );
       const file = '﻿' + ['النوع;الوصف;العيار;الحالة;الوزن القائم;الوزن الصافي', 'خواتم الافتتاح;ملف ب 1;21;جديد;1.600;1.500', 'خواتم الافتتاح;ملف ب 2;21;مستعمل;2.600;2.500'].join('\r\n') + '\r\n';
       const imported = await postCsv(bmB.p, `/api/openings/${ob}/import?fileName=branch-b.csv`, file);
       check(imported.status === 200 && imported.body.rowCount === 2, `OPN-4: the branch manager imports a file of 2 pieces (${imported.status})`);
@@ -1976,6 +1991,15 @@ async function main() {
       check(
         review.summary.total.count === 5 && review.lines.rows.every((l) => l.enteredByName === 'Rehearsal Manager B' && l.enteredAt) && byUser.length === 1 && byUser[0].count === 5 && byUser[0].netWeightMg === review.summary.total.netWeightMg,
         `OPN-4: the General Manager sees every line "entered by" Rehearsal Manager B, and per person: ${byUser.map((u) => `${u.name} ${u.count} piece(s)`).join(', ')}`,
+      );
+      // (screen) The General Manager's draft page: "Entered by" per line and per person.
+      await page.goto(`${origin}/openings/${ob}`);
+      await page.getByTestId('opening-by-user').waitFor({ timeout: 15_000 });
+      const enteredBy = await page.getByTestId('opening-line-entered-by').allInnerTexts();
+      const perPerson = await page.getByTestId('opening-by-user').innerText();
+      check(
+        enteredBy.length === 5 && enteredBy.every((x) => x.trim() === 'Rehearsal Manager B') && perPerson.includes('Rehearsal Manager B') && (await page.getByTestId('opening-seal').count()) === 1,
+        `OPN-4 (screen): the General Manager sees "Entered by" on every line and per person (${perPerson.replace(/\s+/g, ' ')}), and the seal button`,
       );
       // The seal (D-opn4-4): a piece typed after the review makes the reviewed numbers stale: refused, nothing sealed.
       const reviewed = { expectedLines: review.summary.total.count, expectedNetWeightMg: review.summary.total.netWeightMg };

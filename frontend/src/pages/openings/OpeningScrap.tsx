@@ -79,15 +79,22 @@ export function ScrapTotalsTable({ totals, testId }: { totals: ScrapTotals; test
   );
 }
 
-/** The broken scrap of a draft: the form and the lines. */
-export function ScrapDraftCard({ openingId, lines, totals }: { openingId: number; lines: ScrapLine[]; totals: ScrapTotals }) {
+/**
+ * The broken scrap of a draft: the form and the lines. OPN-4 (owner Q-b): `readOnly` for a branch manager, for whom the
+ * broken scrap stays the General Manager's to enter.
+ */
+export function ScrapDraftCard({ openingId, lines, totals, readOnly = false }: { openingId: number; lines: ScrapLine[]; totals: ScrapTotals; readOnly?: boolean }) {
   const { t } = useI18n();
   const [editing, setEditing] = useState<ScrapLine | null>(null);
   return (
     <Card>
       <CardHeader title={t('Broken scrap')} help={t('Weight only, by karat. On sealing it goes into the branch scrap stock and can settle suppliers.')} />
       <div data-testid="opening-scrap">
-        <ScrapForm openingId={openingId} />
+        {readOnly ? (
+          lines.length === 0 && <p className="text-meta text-ink-3" data-testid="opening-scrap-readonly">{t('The General Manager enters the broken scrap.')}</p>
+        ) : (
+          <ScrapForm openingId={openingId} />
+        )}
         {lines.length > 0 && (
           <>
             <table className="mt-3 w-full text-[13px]" data-testid="opening-scrap-lines">
@@ -108,10 +115,12 @@ export function ScrapDraftCard({ openingId, lines, totals }: { openingId: number
                     <td className="py-1 text-end num">{grams(l.weightMg)}</td>
                     <td className="py-1">{l.note ?? '—'}</td>
                     <td className="py-1 text-end">
-                      <span className="inline-flex gap-1">
-                        <Button size="sm" variant="ghost" icon={<PencilLine className="size-4" />} onClick={() => setEditing(l)} aria-label={t('Edit')} data-testid={`opening-scrap-edit-${l.lineNo}`} />
-                        <RemoveScrapLine openingId={openingId} line={l} />
-                      </span>
+                      {!readOnly && (
+                        <span className="inline-flex gap-1">
+                          <Button size="sm" variant="ghost" icon={<PencilLine className="size-4" />} onClick={() => setEditing(l)} aria-label={t('Edit')} data-testid={`opening-scrap-edit-${l.lineNo}`} />
+                          <RemoveScrapLine openingId={openingId} line={l} />
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
