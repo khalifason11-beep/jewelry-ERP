@@ -1942,9 +1942,8 @@ export const AR: Record<string, string> = {
   "Scrap purchases ({n})": "شراء الكسر ({n})",
   "Cash {cash} + bank {bank}": "نقداً {cash} + تحويلاً {bank}",
   "Paid from the drawer": "المدفوع من الدرج",
-  "Leave empty to pay it all in cash": "اتركه فارغاً لدفع المبلغ كله نقداً",
+  "Empty: the rest of the amount": "فارغ: باقي المبلغ",
   "Paid by bank transfer": "المدفوع بتحويل بنكي",
-  "The rest of the amount": "باقي المبلغ",
   // UX-1: number, identifier and date fields
   "Digits only": "أرقام فقط",
   "Whole numbers only": "أرقام صحيحة فقط",

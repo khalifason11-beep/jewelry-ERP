@@ -965,7 +965,24 @@ async function main() {
     await page.keyboard.press('Shift+Tab');
     await page.keyboard.type('120000');
     check((await page.inputValue('[data-testid=scrap-cash-part]')) === '120000', `FIX-NUM-1: Tab into the shown "100,000" and type 120000: the field holds 120000 ("${await page.inputValue('[data-testid=scrap-cash-part]')}")`);
-    check((await page.inputValue('[data-testid=scrap-bank-part]')) === '70,000', 'the scrap form fills the bank part with the rest of the amount (190,000 − 120,000 = 70,000)');
+    // FIX-NUM-1 (D-fixnum-1): an empty part is the rest of the amount, shown as the grey hint and never written into the
+    // field; neither field refills the other. (A field shown grouped is clicked before `fill`, as a person would.)
+    const bankHint = () => page.getAttribute('[data-testid=scrap-bank-part]', 'placeholder');
+    const retypeScrap = async (id, text) => {
+      await page.click(`[data-testid=${id}]`);
+      await page.fill(`[data-testid=${id}]`, text);
+    };
+    check((await page.inputValue('[data-testid=scrap-bank-part]')) === '' && (await bankHint()) === '70,000', 'the scrap form hints the rest of the amount in the empty bank part (190,000 − 120,000 = 70,000)');
+    await retypeScrap('scrap-bank-part', '50000');
+    await page.getByTestId('scrap-parts-mismatch').waitFor({ timeout: 15_000 });
+    await retypeScrap('scrap-cash-part', '130000');
+    check((await page.inputValue('[data-testid=scrap-bank-part]')) === '50,000' && (await page.getByTestId('scrap-parts-mismatch').count()) === 1, 'FIX-NUM-1: editing the cash part keeps the typed bank part (50,000); the parts that do not add up are said');
+    await retypeScrap('scrap-bank-part', '');
+    await retypeScrap('scrap-cash-part', '120000');
+    check(
+      (await page.inputValue('[data-testid=scrap-bank-part]')) === '' && (await bankHint()) === '70,000' && (await page.getByTestId('scrap-parts-mismatch').count()) === 0,
+      `FIX-NUM-1: a cleared bank part stays empty after another cash edit, nothing comes back ("${await page.inputValue('[data-testid=scrap-bank-part]')}", hint ${await bankHint()})`,
+    );
     check(await page.getByTestId('scrap-buy').isDisabled(), 'a bank part without its transfer reference cannot be saved');
     await page.fill('[data-testid=scrap-bank-ref]', 'reh scr ٢');
     const scrapBefore = (await apiGet(page, '/api/scrap-purchases')).body.total;
