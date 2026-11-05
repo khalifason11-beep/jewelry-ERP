@@ -1,7 +1,8 @@
 # OPN-4 — The Branch Manager enters the pieces of their branch's opening balance
 
-Status: **plan, waiting for the owner's approval.** It changes a permission and data that becomes stock at the seal.
-No code is written before the approval.
+Status: **approved by the owner on 2026-11-05** (answers Q-a…Q-f in §6 and `docs/decisions.md` D-opn4-1…4); built in
+c1–c4. Two deviations, both reported: the draft export keeps its columns (D-opn4-3), and the seal dialog sends the
+reviewed numbers from c2 on (the API required them there; plan §4 had it in c3).
 
 **Owner's request.** The opening balance will have a very large number of pieces. Typing them is hard work for the
 General Manager alone, so the Branch Manager must be able to help enter them.

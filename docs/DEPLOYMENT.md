@@ -476,11 +476,11 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   person who imported the file); the summary gains `byUser` (pieces and net weight per person).
 - **After the deploy, on the server:** the normal `docs/runbooks/update-deploy.md`. Nothing is run by hand for the
   permission:
-  1. the pre-update backup;
-  2. pull the release and build (`npm ci --include=dev`, `npm run build`);
-  3. `npm run migrate`, or the start-up migration;
-  4. the preflight: `migrations 40 of 40 applied`, every line PASS;
-  5. `systemctl restart jerp`.
+  1. the pre-update backup (`systemctl stop jerp`, `jerp_backup npm run backup`, `backup:verify` on the drill machine);
+  2. pull the release and build (`git fetch --tags`, `git checkout <tag>`, `npm ci --include=dev`, `npm run build`);
+  3. `jerp npm run migrate` (0039);
+  4. the preflight (`jerp node scripts/server/preflight.mjs`): `migrations: 40 of 40 applied`, every line PASS;
+  5. start the service again (`systemctl start jerp`; it was stopped for the backup) and wait for `/api/ready`.
 
   A signed-in branch manager gets the permission on the next request.
 
