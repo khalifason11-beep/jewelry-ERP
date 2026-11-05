@@ -7,6 +7,7 @@ import {
   dayKeyToInput,
   gramsToMg,
   groupDigits,
+  ungroupedOffset,
   inputToDayKey,
   normalizeDigits,
   parseDecimalInput,
@@ -105,6 +106,30 @@ describe('number fields', () => {
         const shown = groupDigits(String(n));
         expect(sanitizeNumber(shown, 0)).toEqual({ ok: true, value: String(n) });
         expect(parseMoneyInput(shown)).toBe(n);
+      }),
+      RUNS,
+    );
+  });
+
+  it('FIX-NUM-1: a caret in the grouped text maps to the same digits in the typed text', () => {
+    expect(ungroupedOffset('150,000', 0)).toBe(0);
+    expect(ungroupedOffset('150,000', 7)).toBe(6); // all selected stays all selected
+    expect(ungroupedOffset('150,000', 4)).toBe(3); // after the comma: after "150"
+    expect(ungroupedOffset('1,250.125', 9)).toBe(8);
+    expect(ungroupedOffset('', 3)).toBe(0);
+    fc.assert(
+      fc.property(fc.bigInt({ min: 0n, max: 10n ** 18n }), fc.option(fc.stringMatching(/^\d{1,3}$/), { nil: undefined }), fc.integer({ min: -2, max: 40 }), (int, frac, offset) => {
+        const typed = frac === undefined ? String(int) : `${int}.${frac}`;
+        const grouped = groupDigits(typed);
+        const at = ungroupedOffset(grouped, offset);
+        const clamped = Math.max(0, Math.min(offset, grouped.length));
+        // The text before the caret is the same digits in both forms; the ends map to the ends.
+        expect(typed.slice(0, at)).toBe(grouped.slice(0, clamped).replace(/,/g, ''));
+        expect(ungroupedOffset(grouped, grouped.length)).toBe(typed.length);
+        expect(at).toBeGreaterThanOrEqual(0);
+        expect(at).toBeLessThanOrEqual(typed.length);
+        // Monotonic: a later caret never maps before an earlier one.
+        expect(ungroupedOffset(grouped, clamped + 1)).toBeGreaterThanOrEqual(at);
       }),
       RUNS,
     );

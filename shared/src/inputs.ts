@@ -55,6 +55,17 @@ export function groupDigits(value: string): string {
   return frac !== undefined ? `${grouped}.${frac}` : grouped;
 }
 
+/**
+ * FIX-NUM-1: a caret or selection end in the grouped text (as a number field shows it when not focused) mapped to the
+ * same place in the text as typed, which the field shows while focused: the grouping commas before it are dropped.
+ * Without it, focusing a field whose text is selected (Tab, a test's fill) lost the selection, so typing appended to
+ * the old number instead of replacing it, and deleting removed nothing.
+ */
+export function ungroupedOffset(grouped: string, offset: number): number {
+  const at = Math.max(0, Math.min(offset, grouped.length));
+  return grouped.slice(0, at).replace(/,/g, '').length;
+}
+
 const complete = (value: string) => value !== '' && value !== '.';
 
 /** Whole currency units, or null when empty / not a whole number / beyond the safe integer range. */
