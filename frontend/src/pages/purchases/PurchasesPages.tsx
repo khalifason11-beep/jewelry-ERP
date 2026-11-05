@@ -732,7 +732,8 @@ function PurchaseFixDialog({ purchaseId, fixing, currentReference, onClose }: { 
     >
       {piece ? (
         <Field label={t('New making cost')} help={t('Whole SDG; 0 is allowed while the order’s total stays above 0.')}>
-          <MoneyInput value={cost} onValueChange={setCost} placeholder="0" data-testid="purchase-fix-cost" />
+          {/* FIX-NUM-1: no "0" hint: an empty new cost is not 0, it is refused (Save stays grey); 0 is typed. */}
+          <MoneyInput value={cost} onValueChange={setCost} data-testid="purchase-fix-cost" />
         </Field>
       ) : (
         <Field label={t('New transfer reference')} hint={t('4 to 40 letters or digits, as on the bank’s receipt.')}>

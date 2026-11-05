@@ -1533,6 +1533,8 @@ async function main() {
       const piece = before.items[0];
       await page.goto(`${origin}/purchases/${po.id}`);
       await page.click(`[data-testid=purchase-fix-making-${piece.code}]`, { timeout: 15_000 });
+      await page.getByTestId('purchase-fix-cost').waitFor({ timeout: 15_000 });
+      check(!(await page.getAttribute('[data-testid=purchase-fix-cost]', 'placeholder')), 'FIX-NUM-1: the new making cost starts empty with no "0" hint (empty is refused, not 0)');
       await page.fill('[data-testid=purchase-fix-cost]', '12000');
       await page.fill('[data-testid=purchase-fix-dialog-reason]', 'المصنعية الصحيحة من فاتورة المورد');
       await page.fill('[data-testid=purchase-fix-dialog-password]', GM.password);
