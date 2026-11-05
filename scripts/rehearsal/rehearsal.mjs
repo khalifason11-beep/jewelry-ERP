@@ -1150,6 +1150,13 @@ async function main() {
     await page.goto(`${origin}/pos`);
     await page.getByTestId('pos-product').first().click();
     const disc = page.getByTestId('pos-discount').first();
+    // FIX-NUM-1 (owner Q2): a discount above the cap (3 %) is kept as typed, said under the field, and blocks the sale.
+    await disc.fill('99999999');
+    await page.waitForTimeout(200);
+    check(
+      (await disc.inputValue()) === '99999999' && (await page.getByText(/لا يزيد على/).count()) >= 1 && (await page.getByTestId('pos-complete').isDisabled()),
+      `FIX-NUM-1: a discount above the cap stays as typed ("${await disc.inputValue()}"), "At most …" is shown and "Complete sale" is disabled`,
+    );
     await disc.fill('1000');
     await page.getByTestId('price-change-reason').waitFor();
     check(await page.getByTestId('pos-complete').isDisabled(), 'cashier: a discounted line asks for the reason; "Complete sale" stays disabled without it');

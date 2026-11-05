@@ -22,7 +22,7 @@ import {
   Wheat,
   X,
 } from 'lucide-react';
-import { splitRemainder, validBankReference, type PaymentMethod } from '@jerp/shared';
+import { parseMoneyInput, splitRemainder, validBankReference, type PaymentMethod } from '@jerp/shared';
 import { ApiError, get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { grams, karatLabel, money, relative } from '../../lib/format';
@@ -38,6 +38,8 @@ import { useActionKeys } from '../../lib/idempotency';
 interface CartLine {
   item: ItemRow;
   discount: number;
+  /** FIX-NUM-1 (owner Q2): the discount as typed; `discount` is its number (0 when empty). */
+  discountText?: string;
 }
 /** PRC-1: a cart line's price (the cart only holds pieces that have one; see `add`). */
 const priceOfLine = (l: CartLine) => l.item.sellingPrice ?? 0;
@@ -142,6 +144,10 @@ export function PosPage() {
 
   const maxPct = me?.maxDiscountPercent ?? 0;
   const canDiscount = can('sales.discount') && maxPct > 0;
+  // FIX-NUM-1 (owner Q2): a discount above the role's cap is kept as typed, said under the field ("At most …") and
+  // blocks the sale until it is corrected; it is never replaced by the cap.
+  const maxDiscountOf = (l: CartLine) => Math.floor((priceOfLine(l) * maxPct) / 100);
+  const discountsOk = cart.every((l) => l.discount <= maxDiscountOf(l));
   const inCart = useMemo(() => new Set(cart.map((l) => l.item.id)), [cart]);
   const totals = useMemo(() => {
     const subtotal = cart.reduce((s, l) => s + priceOfLine(l), 0);
@@ -245,8 +251,8 @@ export function PosPage() {
           c.map((l) => {
             const f = fresh.get(l.item.id);
             if (!f) return l;
-            const max = Math.floor((f.listPrice * maxPct) / 100);
-            return { item: { ...l.item, sellingPrice: f.listPrice, pricePerGram: f.pricePerGram }, discount: Math.min(l.discount, max) };
+            // FIX-NUM-1 (owner Q2): the typed discount is kept; above the new cap it is said and blocks the sale.
+            return { ...l, item: { ...l.item, sellingPrice: f.listPrice, pricePerGram: f.pricePerGram } };
           }),
         );
         actionKeys.rotate('sale');
@@ -405,12 +411,12 @@ export function PosPage() {
                             {t('Discount')}
                             <MoneyInput
                               compact
-                              value={l.discount ? String(l.discount) : ''}
+                              value={l.discountText ?? (l.discount ? String(l.discount) : '')}
                               placeholder="0"
+                              max={maxDiscountOf(l)}
                               onValueChange={(text) => {
-                                const max = Math.floor((priceOfLine(l) * maxPct) / 100);
-                                const v = Math.max(0, Math.min(max, Number(text) || 0));
-                                setCart((c) => c.map((x) => (x.item.id === l.item.id ? { ...x, discount: v } : x)));
+                                const v = parseMoneyInput(text) ?? 0;
+                                setCart((c) => c.map((x) => (x.item.id === l.item.id ? { ...x, discount: v, discountText: text } : x)));
                               }}
                               className="w-32"
                               aria-label={t('Discount for {code}', { code: l.item.code })}
@@ -561,7 +567,7 @@ export function PosPage() {
               <dd className="text-2xl font-semibold tracking-tight num">{money(totals.total)}</dd>
             </div>
           </dl>
-          <Button variant="primary" size="lg" className="mt-3 w-full text-[15px]" disabled={!cart.length || !branchId || !hasadOk || !priceReasonOk || !bankRefOk || !splitOk} loading={complete.isPending} onClick={() => complete.mutate({})} data-testid="pos-complete">
+          <Button variant="primary" size="lg" className="mt-3 w-full text-[15px]" disabled={!cart.length || !branchId || !hasadOk || !priceReasonOk || !bankRefOk || !splitOk || !discountsOk} loading={complete.isPending} onClick={() => complete.mutate({})} data-testid="pos-complete">
             {t('Complete Sale')} <ArrowRight className="size-4 rtl:rotate-180" />
           </Button>
           {canTransfer && (

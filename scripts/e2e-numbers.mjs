@@ -273,6 +273,25 @@ async function sweepGeneralManager(page, world) {
   await sweep(page, 'Opening balance draft (a piece, broken scrap)');
 }
 
+/** Owner Q2 (FIX-NUM-1): the branch manager's cap is 5 % (set in Settings by the General Manager above). */
+async function posDiscount(page) {
+  section('POS: a discount above the cap is kept as typed, said, and blocks the sale (owner Q2)');
+  await page.goto(`${BASE}/pos`);
+  await page.getByTestId('pos-product').first().click({ timeout: 15_000 });
+  const disc = page.getByTestId('pos-discount').first();
+  await disc.waitFor({ timeout: 15_000 });
+  const complete = page.getByTestId('pos-complete');
+  check(!(await complete.isDisabled()), 'a cart line with no discount can be sold');
+  await replaceText(disc, '99999999');
+  await page.waitForTimeout(200);
+  const said = await page.getByText(/لا يزيد على/).count();
+  check((await disc.inputValue()) === '99999999' && said >= 1, `the typed discount stays (${await disc.inputValue()}) and "At most …" is shown under it`);
+  check(await complete.isDisabled(), '"Complete sale" is disabled while the discount is above the cap');
+  await replaceText(disc, '');
+  await page.waitForTimeout(200);
+  check((await disc.inputValue()) === '' && (await page.getByText(/لا يزيد على/).count()) === 0 && !(await complete.isDisabled()), 'cleared: no message, the sale can go on');
+}
+
 async function main() {
   const srv = await startEmptyServer({ env: { TWO_FACTOR_REQUIRED_ROLES_INITIAL: '' } });
   BASE = srv.base;
@@ -294,6 +313,8 @@ async function main() {
     globalThis.__page = gmPage;
     await signIn(gmPage, BASE, world.gm);
     await sweepGeneralManager(gmPage, world);
+    globalThis.__page = page;
+    await posDiscount(page);
   } catch (e) {
     await globalThis.__page?.screenshot({ path: '.ux-shots/e2e-numbers-failure.png' }).catch(() => {});
     throw e;
