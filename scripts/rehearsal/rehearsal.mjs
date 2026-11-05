@@ -783,6 +783,8 @@ async function main() {
     // General-Manager-only permissions never reach the branch manager (OPN-FIX adds opening.correct).
     const gmOnly = ['funding.manage', 'purchases.create', 'scrap.void', 'purchases.correct', 'opening.manage', 'opening.correct'];
     check(gmOnly.every((p) => !bmSelf.body.user.permissions.includes(p)), 'the branch manager holds none of the General-Manager-only permissions (opening.correct included)');
+    // OPN-4 (D-opn4-1, migration 0039): the branch manager enters the pieces of the own branch's opening.
+    check(bmSelf.body.user.permissions.includes('opening.enter'), 'OPN-4: the branch manager holds opening.enter (and still not opening.manage)');
     await signOut(page);
 
     await signIn(page, origin, CASHIER.username, temps[CASHIER.username]);
@@ -1541,6 +1543,7 @@ async function main() {
       await pathIs(page, ['/overview']);
       const gmPerms = (await apiGet(page, '/api/auth/me')).body.user.permissions;
       check(gmPerms.includes('opening.manage') && gmPerms.includes('opening.correct'), 'the General Manager holds opening.manage and opening.correct (migration 0032 on a production database)');
+      check(gmPerms.includes('opening.enter'), 'OPN-4: the General Manager holds opening.enter too (migration 0039)');
       check(
         gmPerms.includes('money_transfers.view') && gmPerms.includes('money_transfers.receive') && !gmPerms.includes('money_transfers.send'),
         'MNY-1: the General Manager holds money_transfers.view and .receive, never .send (migration 0038, D-mny1-2)',

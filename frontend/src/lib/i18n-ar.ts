@@ -2254,4 +2254,6 @@ export const AR: Record<string, string> = {
   'The money goes back to your drawer or bank. Wrong amount? Send the right amount afterwards.': 'يعود المبلغ إلى درجك أو بنكك. مبلغ خطأ؟ أرسل المبلغ الصحيح بعد ذلك.',
   'Keep it': 'إبقاء التحويل',
   "The Arabic name \"{value}\" arrived garbled: this console did not send Arabic letters. Leave it out and type it later in the app": "وصل الاسم العربي \"{value}\" مشوّهاً: هذه الطرفية لم ترسل حروفاً عربية. اتركه الآن واكتبه لاحقاً داخل النظام",
+  "Start and seal the opening balance": "بدء الرصيد الافتتاحي وختمه",
+  "Enter opening balance pieces": "إدخال قطع الرصيد الافتتاحي",
 };
