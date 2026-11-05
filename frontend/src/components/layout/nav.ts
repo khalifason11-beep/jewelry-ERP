@@ -81,8 +81,8 @@ export function navFor(can: Can): NavGroupDef[] {
         // PRC-1 (D-prc1-9): the three rates per gram, General Manager only.
         ...(can('settings.manage') ? [{ to: '/prices', label: tk('Prices'), icon: 'prices' as const }] : []),
         ...(can('catalog.create') ? [{ to: '/catalog', label: tk('Types & products'), icon: 'catalog' as const }] : []),
-        // OPN-1: the opening balance of each branch, General Manager only.
-        ...(can('opening.manage') ? [{ to: '/openings', label: tk('Opening balance'), icon: 'opening' as const }] : []),
+        // OPN-4 (D-opn4-1): the branch manager enters the pieces of the own branch (the page lists that branch only).
+        ...(can('opening.enter') ? [{ to: '/openings', label: tk('Opening balance'), icon: 'opening' as const }] : []),
       ],
     },
     { title: tk('Suppliers'), items: can('purchases.view') ? [{ to: '/purchases', label: tk('Supplier purchases'), icon: 'purchases' }] : [] },

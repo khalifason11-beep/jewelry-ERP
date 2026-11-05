@@ -57,3 +57,17 @@ export function withIdempotencyKeys<A extends { use(fn: (req: { set(name: string
     req.set('Idempotency-Key', randomUUID());
   });
 }
+
+/**
+ * OPN-4 (D-opn4-4): what the General Manager reviewed before sealing (the seal dialog sends the same two numbers from
+ * the opening's summary): the draft's line count and net weight now.
+ */
+export async function reviewedOf(exec: Pick<DatabaseHandle['db'], 'select'>, openingId: number): Promise<{ expectedLines: number; expectedNetWeightMg: number }> {
+  const { t } = await import('@jerp/database');
+  const { eq, sql } = await import('drizzle-orm');
+  const [r] = await exec
+    .select({ n: sql<number>`count(*)`.mapWith(Number), net: sql<number>`coalesce(sum(${t.openingLines.netWeightMg}), 0)`.mapWith(Number) })
+    .from(t.openingLines)
+    .where(eq(t.openingLines.openingId, openingId));
+  return { expectedLines: r.n, expectedNetWeightMg: r.net };
+}

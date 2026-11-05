@@ -29,7 +29,7 @@ import { stockWeight } from '../src/modules/stock/weight';
 import { addOpeningLine, createOpening, exportOpeningCsv, getOpening, importOpeningCsv, openingTemplateCsv, removeOpeningLine, sealOpening } from '../src/modules/openings/service';
 import { seedWorld } from './fixtures/world';
 import { DEMO_PASSWORDS } from './fixtures/world-data';
-import { openTestDatabase, withIdempotencyKeys } from './helpers';
+import { openTestDatabase, reviewedOf, withIdempotencyKeys } from './helpers';
 
 let handle: DatabaseHandle;
 let ctx: Ctx;
@@ -88,7 +88,8 @@ beforeAll(async () => {
 afterAll(async () => handle?.close());
 
 describe('an opening per branch, General Manager only', () => {
-  it('one per branch: a second → 409 OPENING_EXISTS; the branch manager and the cashier → 403', async () => {
+  // OPN-4 (D-opn4-1): the branch manager now reads the list (the own branch only); starting an opening stays 403.
+  it('one per branch: a second → 409 OPENING_EXISTS; starting one: the branch manager and the cashier → 403', async () => {
     const o = await createOpening(ctx, gm, { branchId: branch.KRT });
     expect(o.status).toBe('DRAFT');
     const e = await err(createOpening(ctx, gm, { branchId: branch.KRT }));
@@ -97,7 +98,9 @@ describe('an opening per branch, General Manager only', () => {
       const agent = withIdempotencyKeys(request.agent(app));
       const r = await agent.post('/api/auth/login').send({ username: user, password: DEMO_PASSWORDS[role] });
       agent.set('x-csrf-token', r.body.csrfToken);
-      expect((await agent.get('/api/openings')).status, role).toBe(403);
+      const listed = await agent.get('/api/openings');
+      if (role === 'CASHIER') expect(listed.status, role).toBe(403);
+      else expect([listed.status, listed.body.branches.map((b: { branchId: number }) => b.branchId)], role).toEqual([200, [branch.KRT]]);
       expect((await agent.post('/api/openings').send({ branchId: branch.PZU })).status, role).toBe(403);
     }
     const list = (await gmHttp.get('/api/openings')).body.branches as { branchId: number; opening: { status: string } | null }[];
@@ -229,7 +232,8 @@ describe('sealing', () => {
     const nb = await ctx.db.insert(t.branches).values({ code: 'OPNT', name: 'Opening test', nameAr: 'فرع اختبار الافتتاح', city: 'X' }).returning();
     empty = (await createOpening(ctx, gm, { branchId: nb[0].id })).id;
   });
-  const seal = (id: number, body: object = { confirmPassword: PW }) => gmHttp.post(`/api/openings/${id}/seal`).send(body);
+  // OPN-4 (D-opn4-4): the seal dialog sends what the General Manager reviewed; `body` may override it.
+  const seal = async (id: number, body: object = { confirmPassword: PW }) => gmHttp.post(`/api/openings/${id}/seal`).send({ ...(await reviewedOf(ctx.db, id)), ...body });
 
   it('refused: on FIXED_TAG (409), without the password, without a passkey (PASSKEY_REQUIRED), without a fresh one, an empty draft (422)', async () => {
     await passkey({ registered: true, confirmedAt: new Date() });
@@ -244,7 +248,7 @@ describe('sealing', () => {
     // The route's re-auth check sees a passkey without a fresh confirmation first (the service would say the same).
     const stale = await seal(bhr);
     expect([stale.status, stale.body.error.code]).toEqual([403, 'REAUTH_REQUIRED']);
-    expect((await err(sealOpening(ctx, gm, bhr, { confirmPassword: PW })))?.code).toBe('REAUTH_REQUIRED');
+    expect((await err(sealOpening(ctx, gm, bhr, { confirmPassword: PW, ...(await reviewedOf(ctx.db, bhr)) })))?.code).toBe('REAUTH_REQUIRED');
     await passkey({ registered: true, confirmedAt: new Date() });
     expect((await seal(bhr, { confirmPassword: 'wrong password' })).status).toBe(403);
     expect((await seal(empty)).body.error.code).toBe('OPENING_EMPTY');

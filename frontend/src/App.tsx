@@ -140,8 +140,8 @@ export function App() {
             <Route path="audit" element={<Guard perm="audit.view"><AuditPage /></Guard>} />
             <Route path="settings" element={<Guard perm="settings.manage"><SettingsPage /></Guard>} />
             <Route path="prices" element={<Guard perm="settings.manage"><PricesPage /></Guard>} />
-            <Route path="openings" element={<Guard perm="opening.manage"><OpeningsPage /></Guard>} />
-            <Route path="openings/:id" element={<Guard perm="opening.manage"><OpeningPage /></Guard>} />
+            <Route path="openings" element={<Guard perm="opening.enter"><OpeningsPage /></Guard>} />
+            <Route path="openings/:id" element={<Guard perm="opening.enter"><OpeningPage /></Guard>} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>

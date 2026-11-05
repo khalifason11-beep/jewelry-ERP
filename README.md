@@ -114,7 +114,7 @@ edited in the app.
 | Role | Scope | Works with |
 |---|---|---|
 | Cashier | Own branch | Point of sale (available pieces only, discount up to the role limit), own sales, own sessions. No cost, profit or supplier figure anywhere. |
-| Branch manager | Own branch | Everything the cashier does, plus: branch home, sales list, voids, reprints, inventory (price edits, damage/restock/return), types, products and suppliers, scrap purchases, supplier settlement with scrap, transfers, Cash (reconciliation, counts, Hasad settlement), money transfers (send, confirm, cancel), reports, users and sessions of the branch (read), audit. No cost or profit figures. |
+| Branch manager | Own branch | Everything the cashier does, plus: branch home, sales list, voids, reprints, inventory (price edits, damage/restock/return), types, products and suppliers, scrap purchases, supplier settlement with scrap, transfers, Cash (reconciliation, counts, Hasad settlement), money transfers (send, confirm, cancel), the pieces of the branch's opening balance while it is a draft (type, import, remove; the General Manager starts and seals it), reports, users and sessions of the branch (read), audit. No cost or profit figures. |
 | General Manager | All branches | Everything, plus three things only the General Manager can do: record supplier orders (`purchases.create`), see and manage funding (`funding.view`, `funding.manage`), and see cost and profit. Also manages users, settings, rates, branches and the second factor. |
 
 ## Money model

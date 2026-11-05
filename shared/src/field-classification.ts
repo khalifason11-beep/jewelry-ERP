@@ -180,6 +180,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     condition byKaratCondition openingId
     scrap scrapLines scrapCorrections scrapNow scrapWeightMg weightMgChange changes removedLineNo
     fromBranchNameAr toKind toBranchNameAr sourceAccount closedAt closedByName landedAccount landedBankReference cancelReason events actorName inTransit
+    byUser enteredByName enteredByNameAr enteredAt
     openingCorrections conditionBefore conditionAfter karatBefore karatAfter grossWeightMgBefore grossWeightMgAfter
     netWeightMgBefore netWeightMgAfter before after sellingPriceBefore sellingPriceAfter valuationChange stockWeightChangeMg
     stockCountChange now sold

@@ -60,8 +60,12 @@ export const PERMISSIONS = {
   // MIS-1: correcting a mistake (reason and password asked again). General Manager only.
   'scrap.void': 'Void a scrap purchase made by mistake (reason and password; money, piece or pool weight reversed)',
   'purchases.correct': "Correct a supplier order's piece making cost or transfer reference (reason and password)",
-  // OPN-1: the opening balance of a branch (once per branch, sealed with the password and a passkey). General Manager only.
-  'opening.manage': 'Enter, import, review and seal the opening balance of a branch (once per branch)',
+  // OPN-1: the opening balance of a branch (once per branch, sealed with the password and a passkey). General Manager only:
+  // starting it, the seal and its broken scrap (OPN-4, D-opn4-1: the pieces are entered with `opening.enter`).
+  'opening.manage': 'Start and seal the opening balance of a branch (once per branch); its broken scrap',
+  // OPN-4 (D-opn4-1, D-opn4-2): the draft pieces of the own branch's opening (view, template, add, remove, CSV import,
+  // export). The branch manager of the branch helps the General Manager; never while sealed.
+  'opening.enter': 'Enter the pieces of the opening balance of the own branch (draft only)',
   // OPN-FIX: correct or void a piece of a sealed opening (reason, password and passkey). General Manager only.
   'opening.correct': 'Correct or void a piece of a sealed opening balance (reason, password and passkey)',
   // MNY-1 (D-mny1-2): money transfers. The branch manager sends, confirms and cancels for the own branch; the General
@@ -103,6 +107,8 @@ const BRANCH_MANAGER: Permission[] = [
   // MKC-1 (client fact 5, Q9): creating a supplier order is General-Manager-only (no 'purchases.create' here).
   // CAT-0: a branch manager creates types, products and suppliers while recording stock; only the GM deactivates.
   'catalog.create',
+  // OPN-4 (D-opn4-1): the draft pieces of the own branch's opening balance; the seal stays with the General Manager.
+  'opening.enter',
   'dashboard.branch',
   'reports.view',
   // Expected cash and the daily reconciliation of the own branch (Phase 2b).

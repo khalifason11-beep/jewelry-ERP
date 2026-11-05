@@ -105,7 +105,7 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/categories', 'none', { all: ['catalog.create'], idempotent: true }),
   // CAT-1: rename a type (General Manager); description suggestions for the stock forms.
   r('POST', '/categories/:id/rename', 'none', { all: ['catalog.manage'] }),
-  r('GET', '/catalog/descriptions', 'none', { any: ['purchases.create', 'scrap.buy', 'scrap.buy_sellable', 'catalog.create', 'opening.manage'] }),
+  r('GET', '/catalog/descriptions', 'none', { any: ['purchases.create', 'scrap.buy', 'scrap.buy_sellable', 'catalog.create', 'opening.manage', 'opening.enter'] }),
   r('POST', '/categories/:id/deactivate', 'none', { all: ['catalog.manage'] }),
   r('POST', '/categories/:id/reactivate', 'none', { all: ['catalog.manage'] }),
   r('POST', '/products', 'none', { all: ['catalog.create'], idempotent: true }),
@@ -169,14 +169,16 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/scrap-purchases/:id/void', 'branch', { all: ['scrap.void'], reauth: true, idempotent: true, idempotencyInTx: true }),
   // OPN-1: the opening balance of a branch, General Manager only (D-opn1-1..5). The import's body is the CSV file
   // (text/csv, 1 MB on that route only); sealing asks the password in the body and a fresh passkey, always.
-  r('GET', '/openings', 'global', { all: ['opening.manage'] }),
+  // OPN-4 (D-opn4-1, D-opn4-2): the draft pieces with `opening.enter`, confined to the own branch (the services answer 404
+  // for another branch's opening); starting an opening and the seal stay General Manager only (`opening.manage`).
+  r('GET', '/openings', 'branch', { all: ['opening.enter'] }),
   r('POST', '/openings', 'global', { all: ['opening.manage'], idempotent: true, idempotencyInTx: true }),
-  r('GET', '/openings/template.csv', 'global', { all: ['opening.manage'] }),
-  r('GET', '/openings/:id', 'global', { all: ['opening.manage'] }),
-  r('GET', '/openings/:id/export', 'global', { all: ['opening.manage'] }),
-  r('POST', '/openings/:id/lines', 'global', { all: ['opening.manage'], idempotent: true, idempotencyInTx: true }),
-  r('POST', '/openings/:id/lines/:lineId/remove', 'global', { all: ['opening.manage'], idempotent: true, idempotencyInTx: true }),
-  r('POST', '/openings/:id/import', 'global', { all: ['opening.manage'], idempotent: true, idempotencyInTx: true }),
+  r('GET', '/openings/template.csv', 'none', { all: ['opening.enter'] }),
+  r('GET', '/openings/:id', 'branch', { all: ['opening.enter'] }),
+  r('GET', '/openings/:id/export', 'branch', { all: ['opening.enter'] }),
+  r('POST', '/openings/:id/lines', 'branch', { all: ['opening.enter'], idempotent: true, idempotencyInTx: true }),
+  r('POST', '/openings/:id/lines/:lineId/remove', 'branch', { all: ['opening.enter'], idempotent: true, idempotencyInTx: true }),
+  r('POST', '/openings/:id/import', 'branch', { all: ['opening.enter'], idempotent: true, idempotencyInTx: true }),
   r('POST', '/openings/:id/seal', 'global', { all: ['opening.manage'], reauth: true, idempotent: true, idempotencyInTx: true }),
   // OPN-FIX (D-opnfix-1…5): correct or void a piece of a sealed opening (reason, password and a fresh passkey); the
   // preview is read-only (no write, no Idempotency-Key).

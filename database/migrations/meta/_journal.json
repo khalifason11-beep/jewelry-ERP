@@ -274,6 +274,13 @@
       "when": 1793370513506,
       "tag": "0038_mny1_money_transfers",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1793370514506,
+      "tag": "0039_opn4_opening_enter",
+      "breakpoints": true
     }
   ]
 }

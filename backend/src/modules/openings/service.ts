@@ -1,5 +1,11 @@
-// OPN-1 (plan docs/plans/OPN-1.md §4–§5, D-opn1-1..5): the opening balance of a branch. General Manager only
-// (`opening.manage`); one opening per branch (UNIQUE branch_id), DRAFT → SEALED.
+// OPN-1 (plan docs/plans/OPN-1.md §4–§5, D-opn1-1..5): the opening balance of a branch; one opening per branch (UNIQUE
+// branch_id), DRAFT → SEALED. OPN-4 (D-opn4-1, D-opn4-2): its draft pieces are entered with `opening.enter` (the branch
+// manager of the branch, and the General Manager); starting it and the seal stay `opening.manage` (General Manager).
+//
+//   * Branch scope (D-opn4-2): a user without `scope.all_branches` sees and changes only the opening of the own branch;
+//     another branch's opening answers 404, as a missing one. Checked before the row lock and again under it.
+//   * The seal (D-opn4-4) carries the line count and net weight the General Manager reviewed; a draft that changed since
+//     is 409 OPENING_CHANGED_SINCE_REVIEW, so nothing typed by someone else after the review is sealed unseen.
 //
 //   * A draft is not stock: its lines are entered by keyboard or imported from a CSV file, reviewed (count and weight by
 //     karat and by type, the lines paged and searchable) and exported, and can be removed while it is a draft.
@@ -20,7 +26,7 @@ import { and, asc, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
 import { t, type Executor } from '@jerp/database';
 import { ap, CsvSyntaxError, normalizeName, normalizeDigits, parseIntegerInput, parseWeightInput, readCsv, writeCsv, type GoldRateKind } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
-import { requirePerm } from '../../authz';
+import { isGlobal, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
 import { AppError, badRequest, notFound } from '../../core/errors';
 import { nextItemCodes } from '../../core/numbering';
@@ -95,10 +101,21 @@ async function lockOpening(tx: Executor, id: number) {
   const [b] = await tx.select({ id: t.branches.id, code: t.branches.code, name: t.branches.name, nameAr: t.branches.nameAr }).from(t.branches).where(eq(t.branches.id, o.branchId));
   return { opening: o, branch: b };
 }
-async function lockDraft(tx: Executor, id: number) {
+async function lockDraft(tx: Executor, id: number, actor?: Actor) {
   const r = await lockOpening(tx, id);
+  // D-opn4-2: under the lock too (the branch of an opening never changes; this keeps the rule next to the write).
+  if (actor && !canSeeOpening(actor, r.opening.branchId)) throw notFound('Opening');
   if (r.opening.status !== 'DRAFT') throw sealedError(r.branch.code);
   return r;
+}
+
+/** D-opn4-2: a global user sees every opening; a branch-bound user only the own branch's. */
+const canSeeOpening = (actor: Actor, branchId: number) => isGlobal(actor) || (actor.branchId != null && actor.branchId === branchId);
+
+/** D-opn4-2: the opening exists and the actor may see it, else 404 "Opening not found" (another branch's is not revealed). */
+async function assertSeesOpening(exec: Executor, actor: Actor, id: number) {
+  const [o] = await exec.select({ branchId: t.openings.branchId }).from(t.openings).where(eq(t.openings.id, id));
+  if (!o || !canSeeOpening(actor, o.branchId)) throw notFound('Opening');
 }
 
 /** The weights of a line: net above 0, gross at least net (integer mg). */
@@ -166,8 +183,22 @@ async function summaryOf(exec: Executor, openingId: number) {
     .where(eq(t.openingLines.openingId, openingId))
     .groupBy(t.openingLines.categoryId, t.categories.name, t.categories.nameAr)
     .orderBy(asc(t.categories.nameAr));
+  // OPN-4 (D-opn4-3): who entered what (the line's author: typed, or the person who imported the file).
+  const byUser = await exec
+    .select({
+      userId: t.openingLines.createdBy,
+      name: t.users.fullName,
+      nameAr: t.users.fullNameAr,
+      count: sql<number>`count(*)`.mapWith(Number),
+      netWeightMg: sql<number>`coalesce(sum(${t.openingLines.netWeightMg}), 0)`.mapWith(Number),
+    })
+    .from(t.openingLines)
+    .innerJoin(t.users, eq(t.users.id, t.openingLines.createdBy))
+    .where(eq(t.openingLines.openingId, openingId))
+    .groupBy(t.openingLines.createdBy, t.users.fullName, t.users.fullNameAr)
+    .orderBy(asc(t.openingLines.createdBy));
   const total = byKarat.reduce((s, k) => ({ count: s.count + k.count, grossWeightMg: s.grossWeightMg + k.grossWeightMg, netWeightMg: s.netWeightMg + k.netWeightMg }), { count: 0, grossWeightMg: 0, netWeightMg: 0 });
-  return { total, byKarat, byKaratCondition, byType };
+  return { total, byKarat, byKaratCondition, byType, byUser };
 }
 
 /**
@@ -202,8 +233,12 @@ async function nowOf(exec: Executor, openingId: number) {
 
 /** `GET /openings`: every active branch with its opening (none, DRAFT or SEALED). */
 export async function listOpenings(ctx: Ctx, actor: Actor) {
-  requirePerm(actor, 'opening.manage');
-  const branches = await ctx.db.select({ id: t.branches.id, code: t.branches.code, name: t.branches.name, nameAr: t.branches.nameAr }).from(t.branches).where(eq(t.branches.isActive, true)).orderBy(asc(t.branches.id));
+  requirePerm(actor, 'opening.enter');
+  // D-opn4-2: a branch-bound user sees the own branch only.
+  const global = isGlobal(actor);
+  if (!global && actor.branchId == null) return { branches: [] };
+  const branchWhere = global ? eq(t.branches.isActive, true) : and(eq(t.branches.isActive, true), eq(t.branches.id, actor.branchId!));
+  const branches = await ctx.db.select({ id: t.branches.id, code: t.branches.code, name: t.branches.name, nameAr: t.branches.nameAr }).from(t.branches).where(branchWhere).orderBy(asc(t.branches.id));
   const openings = await ctx.db
     .select({
       id: t.openings.id,
@@ -216,7 +251,8 @@ export async function listOpenings(ctx: Ctx, actor: Actor) {
       // OPN-3: the broken scrap entered (or sealed) in it.
       scrapWeightMg: sql<number>`(select coalesce(sum(sl.weight_mg), 0) from opening_scrap_lines sl where sl.opening_id = "openings"."id")`.mapWith(Number),
     })
-    .from(t.openings);
+    .from(t.openings)
+    .where(global ? undefined : eq(t.openings.branchId, actor.branchId!));
   const byBranch = new Map(openings.map((o) => [o.branchId, o]));
   return { branches: branches.map((b) => ({ branchId: b.id, branchCode: b.code, branchName: b.name, branchNameAr: b.nameAr, opening: byBranch.get(b.id) ?? null })) };
 }
@@ -245,13 +281,13 @@ const lineSorts: Record<OpeningLineSortKey, SortSpec> = { lineNo: { by: t.openin
 
 /** `GET /openings/:id`: the opening, its summary (count and weights by karat and by type) and one page of its lines. */
 export async function getOpening(ctx: Ctx, actor: Actor, id: number, q: PageRequest<OpeningLineSortKey> & { q?: string; karat?: number; categoryId?: number } = {}) {
-  requirePerm(actor, 'opening.manage');
+  requirePerm(actor, 'opening.enter');
   const [o] = await ctx.db
     .select({ opening: t.openings, branchCode: t.branches.code, branchName: t.branches.name, branchNameAr: t.branches.nameAr })
     .from(t.openings)
     .innerJoin(t.branches, eq(t.branches.id, t.openings.branchId))
     .where(eq(t.openings.id, id));
-  if (!o) throw notFound('Opening');
+  if (!o || !canSeeOpening(actor, o.opening.branchId)) throw notFound('Opening');
   const where: SQL[] = [eq(t.openingLines.openingId, id)];
   if (q.karat != null) where.push(eq(t.openingLines.karat, q.karat));
   if (q.categoryId != null) where.push(eq(t.openingLines.categoryId, q.categoryId));
@@ -278,9 +314,14 @@ export async function getOpening(ctx: Ctx, actor: Actor, id: number, q: PageRequ
         barcode: t.jewelryItems.barcode,
         // OPN-FIX: the piece's status now (a voided or sold piece shows so).
         itemStatus: t.jewelryItems.status,
+        // OPN-4 (D-opn4-3): who entered the line, and when (the source above says how: typed or imported).
+        enteredByName: t.users.fullName,
+        enteredByNameAr: t.users.fullNameAr,
+        enteredAt: t.openingLines.createdAt,
       })
       .from(t.openingLines)
       .innerJoin(t.categories, eq(t.categories.id, t.openingLines.categoryId))
+      .innerJoin(t.users, eq(t.users.id, t.openingLines.createdBy))
       .leftJoin(t.jewelryItems, eq(t.jewelryItems.id, t.openingLines.itemId));
   const lines = await runPaged(actor, q, {
     sorts: lineSorts,
@@ -342,10 +383,11 @@ async function checkLine(ctx: Ctx, exec: Executor, l: OpeningLineInput) {
 
 /** `POST /openings/:id/lines`: one piece typed in (draft only). */
 export async function addOpeningLine(ctx: Ctx, actor: Actor, id: number, input: OpeningLineInput, opts: { idem?: TxIdempotency } = {}) {
-  requirePerm(actor, 'opening.manage');
+  requirePerm(actor, 'opening.enter');
+  await assertSeesOpening(ctx.db, actor, id);
   return ctx.db.transaction(async (tx) => {
     await opts.idem?.claim(tx);
-    const { branch } = await lockDraft(tx, id);
+    const { branch } = await lockDraft(tx, id, actor);
     const { description } = await checkLine(ctx, tx, input);
     const lineNo = await nextLineNo(tx, id);
     const [line] = await tx
@@ -368,10 +410,12 @@ export async function addOpeningLine(ctx: Ctx, actor: Actor, id: number, input: 
 
 /** `POST /openings/:id/lines/:lineId/remove`: a draft line out (draft only; audited with what it held). */
 export async function removeOpeningLine(ctx: Ctx, actor: Actor, id: number, lineId: number, opts: { idem?: TxIdempotency } = {}) {
-  requirePerm(actor, 'opening.manage');
+  requirePerm(actor, 'opening.enter');
+  await assertSeesOpening(ctx.db, actor, id);
   return ctx.db.transaction(async (tx) => {
     await opts.idem?.claim(tx);
-    const { branch } = await lockDraft(tx, id);
+    // Q-a (owner): any line of the draft, whoever typed it (the draft is not stock; the removal is audited).
+    const { branch } = await lockDraft(tx, id, actor);
     const [line] = await tx.select().from(t.openingLines).where(and(eq(t.openingLines.id, lineId), eq(t.openingLines.openingId, id)));
     if (!line) throw notFound('Opening line');
     await tx.delete(t.openingLines).where(eq(t.openingLines.id, lineId));
@@ -477,13 +521,14 @@ export async function parseOpeningCsv(ctx: Ctx, exec: Executor, bytes: Buffer): 
 
 /** `POST /openings/:id/import`: a CSV file into the draft, all rows or none; the same file again changes nothing. */
 export async function importOpeningCsv(ctx: Ctx, actor: Actor, id: number, input: { fileName: string; bytes: Buffer }, opts: { idem?: TxIdempotency } = {}) {
-  requirePerm(actor, 'opening.manage');
+  requirePerm(actor, 'opening.enter');
+  await assertSeesOpening(ctx.db, actor, id);
   if (input.bytes.length > OPENING_IMPORT_MAX_BYTES) throw new AppError(413, 'PAYLOAD_TOO_LARGE', 'Request is too large');
   const sha256 = createHash('sha256').update(input.bytes).digest('hex');
   const fileName = input.fileName.trim().slice(0, 200) || 'opening.csv';
   return ctx.db.transaction(async (tx) => {
     await opts.idem?.claim(tx);
-    const { branch } = await lockDraft(tx, id);
+    const { branch } = await lockDraft(tx, id, actor);
     const [same] = await tx.select().from(t.openingImports).where(and(eq(t.openingImports.openingId, id), eq(t.openingImports.sha256, sha256)));
     if (same) {
       // The same file again: the first import's result, nothing written.
@@ -542,9 +587,9 @@ export function openingTemplateCsv(): string {
  * with their system codes and barcodes first (D-opn1-1: to write the codes on the tags until labels exist).
  */
 export async function exportOpeningCsv(ctx: Ctx, actor: Actor, id: number) {
-  requirePerm(actor, 'opening.manage');
-  const [o] = await ctx.db.select({ status: t.openings.status, branchCode: t.branches.code }).from(t.openings).innerJoin(t.branches, eq(t.branches.id, t.openings.branchId)).where(eq(t.openings.id, id));
-  if (!o) throw notFound('Opening');
+  requirePerm(actor, 'opening.enter');
+  const [o] = await ctx.db.select({ status: t.openings.status, branchId: t.openings.branchId, branchCode: t.branches.code }).from(t.openings).innerJoin(t.branches, eq(t.branches.id, t.openings.branchId)).where(eq(t.openings.id, id));
+  if (!o || !canSeeOpening(actor, o.branchId)) throw notFound('Opening');
   const rowsAll = await ctx.db
     .select({
       code: t.jewelryItems.code,
@@ -592,7 +637,22 @@ export async function exportOpeningCsv(ctx: Ctx, actor: Actor, id: number) {
 }
 
 /** `POST /openings/:id/seal`: every line becomes a piece of unknown cost; then the opening is closed for good. */
-export async function sealOpening(ctx: Ctx, actor: Actor, id: number, input: { confirmPassword?: string }, opts: { at?: Date; idem?: TxIdempotency } = {}) {
+/**
+ * D-opn4-4 (owner Q-d): the draft must still be what the General Manager reviewed: as many lines and the same net
+ * weight. Both numbers are required whenever the draft has pieces. A different draft is 409 OPENING_CHANGED_SINCE_REVIEW
+ * with the numbers now, so the dialog shows them and the General Manager reviews again.
+ */
+function assertReviewed(input: { expectedLines?: number; expectedNetWeightMg?: number }, now: { lines: number; netWeightMg: number }) {
+  if (now.lines === 0) return;
+  if (input.expectedLines == null || input.expectedNetWeightMg == null) {
+    throw badRequest('Review the opening before sealing: send the number of pieces and the net weight you reviewed');
+  }
+  if (input.expectedLines !== now.lines || input.expectedNetWeightMg !== now.netWeightMg) {
+    throw new AppError(409, 'OPENING_CHANGED_SINCE_REVIEW', 'The opening changed since you reviewed it: it now has {lines} piece(s), {weightMg} mg net. Review it again, then seal', { lines: now.lines, weightMg: now.netWeightMg }, { lines: now.lines, netWeightMg: now.netWeightMg });
+  }
+}
+
+export async function sealOpening(ctx: Ctx, actor: Actor, id: number, input: { confirmPassword?: string; expectedLines?: number; expectedNetWeightMg?: number }, opts: { at?: Date; idem?: TxIdempotency } = {}) {
   requirePerm(actor, 'opening.manage');
   const settings = await ctx.settings.get();
   // OPN-3: the piece rules below apply only to an opening with pieces (one with broken scrap only may be sealed, Q5).
@@ -602,6 +662,9 @@ export async function sealOpening(ctx: Ctx, actor: Actor, id: number, input: { c
   if (pieceLines > 0 && settings.pricing.mode !== 'RATE_COMPUTED') {
     throw new AppError(409, 'OPENING_NEEDS_COMPUTED_PRICES', 'Switch on computed prices (price per gram) before sealing: opening pieces have no tag price');
   }
+  // D-opn4-4: before the password, so a stale review never spends a password attempt; checked again under the lock.
+  const [{ net: pieceNet }] = await ctx.db.select({ net: sql<number>`coalesce(sum(${t.openingLines.netWeightMg}), 0)`.mapWith(Number) }).from(t.openingLines).where(eq(t.openingLines.openingId, id));
+  assertReviewed(input, { lines: pieceLines, netWeightMg: pieceNet });
   if (!input.confirmPassword) throw new AppError(403, 'CONFIRM_PASSWORD_REQUIRED', 'Enter your password to confirm');
   // D-opn1-5: always a fresh passkey too; a General Manager without one registers it first.
   const f = await freshFactors(ctx, ctx.db, actor.sessionId, actor.userId);
@@ -620,6 +683,8 @@ export async function sealOpening(ctx: Ctx, actor: Actor, id: number, input: { c
       .where(eq(t.openingLines.openingId, id))
       .orderBy(sql`${t.openingLines.importId} IS NULL`, asc(t.openingLines.importId), asc(t.openingLines.lineNo));
     if (!lines.length && !(await scrapLineCount(tx, id))) throw new AppError(422, 'OPENING_EMPTY', 'The opening has no pieces and no broken scrap: enter them first');
+    // D-opn4-4, under the lock: a line typed by someone else after the review is never sealed unseen.
+    assertReviewed(input, { lines: lines.length, netWeightMg: lines.reduce((sum, l) => sum + l.netWeightMg, 0) });
     if (lines.length && settings.pricing.mode !== 'RATE_COMPUTED') {
       throw new AppError(409, 'OPENING_NEEDS_COMPUTED_PRICES', 'Switch on computed prices (price per gram) before sealing: opening pieces have no tag price');
     }
