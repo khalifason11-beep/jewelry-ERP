@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ImageUp, Printer, Save, Trash2 } from 'lucide-react';
-import { PAYMENT_METHODS, parseDecimalInput, parseIntegerInput, settingValue, type InvoiceFormat, type SettingKey, type SystemSettings } from '@jerp/shared';
+import { PAYMENT_METHODS, SETTING_KEYS, parseDecimalInput, parseIntegerInput, settingValue, withSetting, type InvoiceFormat, type SettingKey, type SystemSettings } from '@jerp/shared';
 import { del, get, put, upload } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useBranding } from '../../lib/branding';
@@ -38,8 +38,15 @@ function SettingsForm() {
   const [draft, setDraft] = useState<SystemSettings | null>(null);
   const [reason, setReason] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  // FIX-NUM-1 (D-fixnum-4): a new server copy (after a card is saved) replaces only the settings that changed on the
+  // server; what is typed, or cleared, in the other cards stays as it is.
+  const serverSeen = useRef<SystemSettings | null>(null);
   useEffect(() => {
-    if (s.data) setDraft(s.data.settings);
+    if (!s.data) return;
+    const next = s.data.settings;
+    const before = serverSeen.current;
+    serverSeen.current = next;
+    setDraft((d) => (d && before ? keepUnsaved(d, before, next) : next));
   }, [s.data]);
 
   const refreshAll = () => qc.invalidateQueries();
@@ -465,6 +472,12 @@ interface SettingNumberProps {
   /** An amount in the currency (shown with the currency label). */
   money?: boolean;
   unit?: string;
+}
+
+/** The new server copy, with the draft's value kept for every setting the server did not change (D-fixnum-4). */
+function keepUnsaved(draft: SystemSettings, before: SystemSettings, next: SystemSettings): SystemSettings {
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  return SETTING_KEYS.reduce((acc, k) => (same(settingValue(before, k), settingValue(next, k)) ? withSetting(acc, k, settingValue(draft, k)) : acc), next);
 }
 
 /**

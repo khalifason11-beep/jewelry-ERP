@@ -9,11 +9,14 @@
 //     user typed in or cleared is never refilled by the other one; the amounts sent are the ones on the screen; the
 //     mismatch message and the Buy rule are unchanged; all in cash = nothing to type, all by transfer = one entry;
 //     44 px fields on a narrow screen.
+//   * The sweep (D-fixnum-3): on the main pages and dialogs with number fields, as the branch manager and the General
+//     Manager, every visible number or phone field can be typed in, cleared to empty and typed in again, and stays
+//     empty while another field is edited (nothing comes back on its own).
 //
 //   node scripts/e2e-numbers.mjs
 
 import { apiClient, buildSalesWorld, loadModule, startEmptyServer } from './lib/e2e-world.mjs';
-import { eventually, signIn } from './lib/e2e-ui.mjs';
+import { confirmIfAsked, eventually, signIn } from './lib/e2e-ui.mjs';
 
 const { chromium } = loadModule('playwright');
 
@@ -141,6 +144,135 @@ async function typeOver(page) {
   check((await val(page, 'scrap-cash-part')) === '', 'select all and delete: empty');
 }
 
+const NUMBER_FIELDS = 'input[inputmode=numeric], input[inputmode=decimal], input[inputmode=tel]';
+/** Every visible, editable number field inside `scope`, as a locator per field (by test id, else by position). */
+async function numberFields(page, scope) {
+  const all = page.locator(scope).locator(NUMBER_FIELDS);
+  const out = [];
+  for (let i = 0; i < (await all.count()); i++) {
+    const f = all.nth(i);
+    if (!(await f.isVisible()) || !(await f.isEditable())) continue;
+    const id = await f.getAttribute('data-testid');
+    out.push({ name: id ?? (await f.getAttribute('aria-label')) ?? `#${i + 1}`, at: id ? page.locator(scope).locator(`[data-testid="${id}"]`).first() : f });
+  }
+  return out;
+}
+async function replaceText(f, text) {
+  await f.click();
+  await f.press('Control+A');
+  if (text) await f.pressSequentially(text);
+  else await f.press('Backspace');
+}
+/** D-fixnum-3: type, clear, edit another field, type again; nothing comes back on its own. */
+async function sweep(page, label, scope = 'main') {
+  const fields = await numberFields(page, scope);
+  const bad = [];
+  for (const [i, f] of fields.entries()) {
+    const other = fields[(i + 1) % fields.length];
+    await replaceText(f.at, '7');
+    const typed = await f.at.inputValue();
+    await replaceText(f.at, '');
+    const cleared = await f.at.inputValue();
+    let after = cleared;
+    if (other !== f) {
+      await replaceText(other.at, '3');
+      await page.waitForTimeout(150);
+      after = await f.at.inputValue();
+      await replaceText(other.at, '');
+    }
+    await replaceText(f.at, '5');
+    const again = await f.at.inputValue();
+    await replaceText(f.at, '');
+    if (typed !== '7' || cleared !== '' || after !== '' || again !== '5') bad.push(`${f.name} (typed "${typed}", cleared "${cleared}", after another edit "${after}", again "${again}")`);
+  }
+  check(fields.length > 0 && bad.length === 0, `${label}: ${fields.length} number field(s) typed in, cleared, left empty while another is edited, typed in again${bad.length ? `; FAILED: ${bad.join('; ')}` : ''}`);
+}
+async function openDialog(page, trigger, password) {
+  await page.click(trigger);
+  await page.locator('[role=dialog]').first().waitFor({ timeout: 15_000 });
+  if (password && (await page.locator('#reauth-form').count())) {
+    await page.fill('[data-testid=reauth-password]', password);
+    await page.click('[data-testid=reauth-confirm]');
+    await page.waitForTimeout(400);
+  }
+}
+
+async function sweepBranchManager(page, world) {
+  section('The sweep (D-fixnum-3): the branch manager');
+  await page.goto(`${BASE}/scrap`);
+  await page.getByTestId('scrap-karat-any').waitFor({ timeout: 15_000 });
+  await page.fill('[data-testid=scrap-karat-any]', '21');
+  await page.fill('[data-testid=scrap-net]', '1');
+  await sweep(page, 'Scrap purchase (broken scrap)');
+  await page.goto(`${BASE}/pos`);
+  await page.getByTestId('pos-product').first().click({ timeout: 15_000 });
+  await page.click('[data-testid=pos-split-on]', { timeout: 15_000 });
+  await page.getByTestId('split-first-amount').waitFor();
+  await sweep(page, `Point of sale (split payment${(await page.getByTestId('pos-discount').count()) ? ', discount' : ''})`);
+  await page.goto(`${BASE}/cash`);
+  await page.getByTestId('cash-count-amount').waitFor({ timeout: 15_000 });
+  await sweep(page, 'Cash (the count)');
+  await page.goto(`${BASE}/money-transfers`);
+  await openDialog(page, '[data-testid=mt-send]', world.bm.password);
+  await sweep(page, 'Money transfers: send', '[role=dialog]');
+  await page.keyboard.press('Escape');
+  const item = (await (await page.request.get(`${BASE}/api/inventory/items?branchId=${world.branchId}`)).json()).rows[0];
+  await page.goto(`${BASE}/inventory/${item.id}`);
+  const change = page.getByRole('button', { name: 'تغيير السعر' });
+  if (await change.count()) {
+    await change.click();
+    await page.locator('[role=dialog]').first().waitFor({ timeout: 15_000 });
+    await sweep(page, 'Piece: change price', '[role=dialog]');
+    await page.keyboard.press('Escape');
+  }
+}
+
+async function sweepGeneralManager(page, world) {
+  section('The sweep (D-fixnum-3): the General Manager');
+  await page.goto(`${BASE}/settings`);
+  await page.locator('main').locator(NUMBER_FIELDS).first().waitFor({ timeout: 15_000 });
+  // D-fixnum-4: saving one card keeps what is typed, or cleared, in another card.
+  const tolerance = page.locator('[data-testid=count-tolerance] input');
+  const staleHours = page.locator('[data-testid=supplier-debt-days] input');
+  await replaceText(tolerance, '777');
+  await replaceText(staleHours, '');
+  await replaceText(page.locator('[data-testid=max-discount-BRANCH_MANAGER] input'), '5');
+  const saved = page.waitForResponse((r) => r.request().method() === 'PUT' && new URL(r.url()).pathname === '/api/settings' && r.ok(), { timeout: 20_000 });
+  await page.click('[data-testid=save-sales]');
+  await confirmIfAsked(page, world.gm.password);
+  const res = await saved;
+  await page.waitForTimeout(800);
+  check(
+    res.ok() && (await tolerance.inputValue()) === '777' && (await staleHours.inputValue()) === '',
+    `saving the Sales card (${res.status()}) keeps another card's unsaved number (777) and its cleared field ("${await tolerance.inputValue()}", "${await staleHours.inputValue()}")`,
+  );
+  await page.reload();
+  await page.locator('main').locator(NUMBER_FIELDS).first().waitFor({ timeout: 15_000 });
+  await sweep(page, 'Settings');
+  await page.goto(`${BASE}/prices`);
+  await page.getByTestId('rates-new').waitFor({ timeout: 15_000 });
+  await sweep(page, 'Prices (rates, rounding, guard)');
+  await page.goto(`${BASE}/purchases`);
+  await openDialog(page, '[data-testid=new-purchase]', world.gm.password);
+  await sweep(page, 'New supplier purchase (the piece lines)', '[role=dialog]');
+  await page.keyboard.press('Escape');
+  await page.goto(`${BASE}/cash`);
+  await page.getByTestId('funding-advance').click({ timeout: 15_000 });
+  await page.locator('#reauth-form, [data-testid=funding-amount]').first().waitFor({ timeout: 15_000 });
+  if (await page.locator('#reauth-form').count()) {
+    await page.fill('[data-testid=reauth-password]', world.gm.password);
+    await page.click('[data-testid=reauth-confirm]');
+  }
+  await page.getByTestId('funding-amount').waitFor({ timeout: 15_000 });
+  await sweep(page, 'Funding: advance', '[role=dialog]');
+  await page.keyboard.press('Escape');
+  await page.goto(`${BASE}/openings`);
+  await page.getByTestId('opening-start-TST').click({ timeout: 15_000 });
+  await page.waitForURL((u) => /\/openings\/\d+$/.test(u.pathname), { timeout: 15_000 });
+  await page.getByTestId('opening-gross').waitFor({ timeout: 15_000 });
+  await sweep(page, 'Opening balance draft (a piece, broken scrap)');
+}
+
 async function main() {
   const srv = await startEmptyServer({ env: { TWO_FACTOR_REQUIRED_ROLES_INITIAL: '' } });
   BASE = srv.base;
@@ -156,6 +288,12 @@ async function main() {
     await typeOver(page);
     await scrapPayment(page, bmApi);
     await narrow(browser, world);
+    await sweepBranchManager(page, world);
+    const gmCtx = await browser.newContext({ viewport: { width: 1366, height: 768 }, locale: 'ar' });
+    const gmPage = await gmCtx.newPage();
+    globalThis.__page = gmPage;
+    await signIn(gmPage, BASE, world.gm);
+    await sweepGeneralManager(gmPage, world);
   } catch (e) {
     await globalThis.__page?.screenshot({ path: '.ux-shots/e2e-numbers-failure.png' }).catch(() => {});
     throw e;

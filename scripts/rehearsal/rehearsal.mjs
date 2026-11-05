@@ -1125,10 +1125,17 @@ async function main() {
     const caps0 = (await apiGet(page, '/api/settings')).body.settings.sales.maxDiscountPercentByRole;
     check(Object.values(caps0).every((v) => v === 0) && (await page.locator('[data-testid=max-discount-CASHIER] input').inputValue()) === '0', 'a new installation gives no discounts: every role\'s cap is 0 (Settings › Sales)');
     await page.fill('[data-testid=max-discount-CASHIER] input', '3');
+    // FIX-NUM-1 (D-fixnum-4): a number typed in another card and not saved stays when the Sales card is saved.
+    await page.fill('[data-testid=count-tolerance] input', '777');
     await page.click('[data-testid=save-sales]');
     await confirmIfAsked(page, GM.password);
     await waitFor(async () => (await apiGet(page, '/api/settings')).body.settings.sales.maxDiscountPercentByRole.CASHIER === 3, 'the cashier discount cap', 15_000);
     ok('the General Manager sets a cashier discount cap of 3 % in Settings › Sales');
+    await page.waitForTimeout(500);
+    check(
+      (await page.locator('[data-testid=count-tolerance] input').inputValue()) === '777' && (await apiGet(page, '/api/settings')).body.settings.cash.countDifferenceTolerance !== 777,
+      `FIX-NUM-1: saving the Sales card keeps the unsaved count tolerance typed in another card (777), and does not save it ("${await page.locator('[data-testid=count-tolerance] input').inputValue()}")`,
+    );
     await signOut(page);
     const PRICE_REASON = 'خصم متفق عليه مع العميل (REH-1)';
     await signIn(page, origin, CASHIER.username, CASHIER.password);
