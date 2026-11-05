@@ -1,7 +1,8 @@
 # FIX-NUM-1: number fields that can always be cleared and typed over
 
-Status: **in progress** (owner's task of 2026-11-05; no stop for approval was asked; a payment-semantics finding would
-stop the work and be asked).
+Status: **built** (owner's task of 2026-11-05). The audit found no fix that would change what an amount means; two
+behaviours were left as they are and asked (`docs/acceptance/FIX-NUM-1.md` §D, Q1 and Q2). The audit also fixed
+Settings (D-fixnum-4, c3) and a misleading "0" hint (c4).
 
 **Owner's report.** On the scrap purchase from a customer (`frontend/src/pages/scrap/ScrapPage.tsx`, the payment part:
 "Paid from the drawer" and "Paid by bank transfer"), a number sits in an amount field and cannot be deleted: it comes

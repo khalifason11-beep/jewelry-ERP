@@ -631,6 +631,18 @@ Owner request and decisions of 2026-10-30. Plan `docs/plans/OPN-3.md` (§0 lists
 | D-opn3-3 | The seal | The same seal (`POST /openings/:id/seal`, password + passkey once, one transaction): after the pieces, every scrap line becomes one OPENING movement in the branch's pool (`ref_type` opening_scrap_line), under the pool lock (opening row → pricing → numbering → pool). An opening with broken scrap only may be sealed (Q5): the computed-prices and rate checks apply only when there are pieces; empty → 422 `OPENING_EMPTY`. No money, no cost. | owner |
 | D-opn3-4 | Correcting the broken scrap after the seal | `POST /openings/:id/scrap-corrections` (`opening.correct`, General Manager only): a reason, the password in the request and a fresh passkey, as OPN-FIX. One change, or two at different karats (a karat move) in one transaction; each an append-only `opening_scrap_corrections` row and an OPENING_CORRECTION movement. A decrease is refused beyond what the opening put in for that karat (409 `OPENING_SCRAP_CORRECTION_TOO_LARGE`, checked first) and below the pool's balance (409 `SCRAP_POOL_SHORT`); a correction of a draft is 409 `OPENING_NOT_SEALED`. No time limit (Q6). | owner |
 
+## FIX-NUM-1: number fields that can always be cleared and typed over
+
+Owner's task of 2026-11-05 (the scrap payment field that "comes back"). Plan `docs/plans/FIX-NUM-1.md`; the audit in
+`docs/acceptance/FIX-NUM-1.md`.
+
+| ID | Question | Decision | By |
+|---|---|---|---|
+| D-fixnum-1 | The scrap purchase's two payment parts | Both fields hold only what was typed (`''` at first) and never change each other. **One meaning of empty: the rest of the amount** (cash empty = amount − bank, bank empty = amount − cash, both empty = all in cash). The rest is the empty field's grey placeholder and is exactly what is sent; the hint under both reads "Empty: the rest of the amount". Unchanged: cash + bank = amount (the mismatch message and the Buy rule), the API, the drawer-shortfall refusal, the bank-reference rule. The only new combination, a bank part with the cash field empty, used to be refused by the mismatch and now pays the rest from the drawer. | owner's task; built |
+| D-fixnum-2 | A number field swapping "150,000" for "150000" on focus | The swap is made in the focus handler, with the caret or selection kept on the same digits (`ungroupedOffset`, `shared/src/inputs.ts`, property-tested). Before, it happened on the next render and dropped the selection: Tab into "100,000" and type 7 gave "1000007". A browser test that uses Playwright's `fill` on a field shown grouped clicks it first (`fill` selects before it focuses, which no person does). | built (a defect of the shared field, found while reproducing) |
+| D-fixnum-3 | Guarding the class | `scripts/e2e-numbers.mjs` (in `verify --full` and the CI smoke job) sweeps the main pages and dialogs: every visible number or phone field can be typed in, cleared, left empty while another field is edited, and typed in again. The rule is in `CLAUDE.md` (Testing rules). | built |
+| D-fixnum-4 | Settings after a card is saved | A new server copy replaces only the settings that changed on the server; what is typed, or cleared, in the other cards stays. | built |
+
 ## MNY-1: money transfers between branches and to the General Manager
 
 Owner decisions and approval of 2026-10-30. Plan `docs/plans/MNY-1.md` (§0 the decisions, §11 the answers).
