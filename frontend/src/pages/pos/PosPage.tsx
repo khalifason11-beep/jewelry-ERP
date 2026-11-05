@@ -348,7 +348,7 @@ export function PosPage() {
                 {items.data.openingDraft && (
                   <p className="mt-2 text-center text-[13px] text-ink-700" data-testid="pos-opening-draft">
                     {t('The opening balance of this branch is not sealed yet.')}{' '}
-                    {can('opening.manage') && <Link to="/openings" className="font-medium text-gold-700 hover:underline" data-testid="pos-opening-link">{t('Open the opening balance')}</Link>}
+                    {can('opening.enter') && <Link to="/openings" className="font-medium text-gold-700 hover:underline" data-testid="pos-opening-link">{t('Open the opening balance')}</Link>}
                   </p>
                 )}
               </div>

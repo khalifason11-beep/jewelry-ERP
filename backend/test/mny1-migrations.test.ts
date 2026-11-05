@@ -51,7 +51,10 @@ describe('migration 0038 (MNY-1) on a database at 0037 with money in the ledger'
       expect(after.entries).toEqual(before.entries);
       expect(after.balances).toEqual(before.balances);
       const isMoney = (g: Record<string, unknown>) => String(g.permission_code).startsWith('money_transfers.');
-      expect(after.grants.filter((g) => !isMoney(g))).toEqual(before.grants);
+      // The database is migrated to the head: the grants of later migrations are checked by their own tests
+      // (0039 OPN-4 opening.enter: opn4-migrations.test.ts).
+      const later = new Set(['opening.enter']);
+      expect(after.grants.filter((g) => !isMoney(g) && !later.has(String(g.permission_code)))).toEqual(before.grants);
       expect(after.grants.filter(isMoney).map((g) => `${g.code} ${g.permission_code}`)).toEqual([
         'BRANCH_MANAGER money_transfers.receive',
         'BRANCH_MANAGER money_transfers.send',

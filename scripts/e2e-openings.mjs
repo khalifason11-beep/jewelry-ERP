@@ -9,6 +9,10 @@
 //     the draft is SEALED, the lines show their codes, the pieces are in stock as "Opening balance" with an unknown
 //     cost, priced by their condition (OPN-2: a used piece at the used-piece rate), and a sale of one shows that its
 //     line is left out of the profit.
+//   * OPN-4: the branch manager of the branch. Before Start: the own branch, "the General Manager starts it", no Start
+//     button. In the draft: types a piece and imports a file, has no seal button and no broken-scrap entry. The General
+//     Manager sees "Entered by" per line and per person; a piece added while the seal dialog is open makes the seal
+//     refuse (the numbers reload, nothing sealed); the General Manager removes the branch manager's pieces again.
 //   * Types & products: renaming a type keeps the old name on a past sale.
 //
 //   node scripts/e2e-openings.mjs            checks
@@ -163,6 +167,74 @@ async function opening(page, gm, world) {
   return id;
 }
 
+async function bmBeforeStart(bmPage) {
+  section('OPN-4: the branch manager before Start');
+  await bmPage.goto(`${BASE}/openings`);
+  check(await eventually(async () => (await bmPage.getByTestId('opening-not-started-TST').count()) === 1), 'the sidebar item opens the list: the own branch, not started');
+  check(
+    (await bmPage.getByTestId('nav-openings').count()) === 1 && (await bmPage.getByTestId('opening-start-TST').count()) === 0 && /يبدأ المدير العام الرصيد الافتتاحي لفرعك/.test(await bmPage.getByTestId('opening-not-started-TST').innerText()),
+    'no Start button: "The General Manager starts the opening balance of your branch"',
+  );
+}
+
+async function bmEntry(page, bmPage, bmApi, world, id) {
+  section('OPN-4: the branch manager types and imports pieces; the General Manager sees who entered what');
+  await bmPage.goto(`${BASE}/openings/${id}`);
+  await bmPage.getByTestId('opening-gm-seals').waitFor({ timeout: 15_000 });
+  check(
+    (await bmPage.getByTestId('opening-seal').count()) === 0 && (await bmPage.getByTestId('opening-scrap-add').count()) === 0 && (await bmPage.getByTestId('opening-keyboard').count()) === 1,
+    'the branch manager has the entry form; no seal button, no broken-scrap entry ("The General Manager reviews and seals")',
+  );
+  await bmPage.selectOption('[data-testid=opening-kind-type]', String(world.openingTypeId));
+  await bmPage.selectOption('[data-testid=opening-kind-karat]', '21');
+  await bmPage.fill('[data-testid=opening-kind-description]', 'قطعة المدير');
+  await bmPage.selectOption('[data-testid=opening-condition]', 'NEW');
+  await bmPage.click('[data-testid=opening-gross]');
+  await bmPage.keyboard.type('2.200');
+  await bmPage.keyboard.press('Enter');
+  await bmPage.keyboard.type('2.000');
+  await bmPage.keyboard.press('Enter');
+  check(await eventually(async () => (await rowsOf(bmPage).count()) === 4), 'the branch manager types a piece (Enter adds it)');
+  const header = 'النوع / Type,الوصف / Description,العيار / Karat,الحالة / Condition,الوزن القائم (جم) / Gross weight (g),الوزن الصافي (جم) / Net weight (g)';
+  await bmPage.setInputFiles('[data-testid=opening-file]', { name: 'manager.csv', mimeType: 'text/csv', buffer: Buffer.from([header, `${world.openingTypeAr},ملف المدير,21,جديد,1.200,1`].join('\r\n')) });
+  await bmPage.click('[data-testid=opening-import]');
+  check(await eventually(async () => (await rowsOf(bmPage).count()) === 5), 'the branch manager imports a file of 1 row');
+
+  await page.goto(`${BASE}/openings/${id}`);
+  await page.getByTestId('opening-by-user').waitFor({ timeout: 15_000 });
+  check(
+    await eventually(async () => {
+      const by = (await page.getByTestId('opening-line-entered-by').allInnerTexts()).map((x) => x.trim());
+      return by.length === 5 && by.filter((x) => x === world.bm.fullName).length === 2 && by.filter((x) => x === world.gm.fullName).length === 3;
+    }),
+    `"Entered by" on each line: 3 by the General Manager, 2 by the branch manager`,
+  );
+  const perPerson = await page.getByTestId('opening-by-user').innerText();
+  check(perPerson.includes(world.bm.fullName) && perPerson.includes(world.gm.fullName), `the summary per person (${perPerson.replace(/\s+/g, ' ')})`);
+
+  // D-opn4-4: a piece added while the General Manager reviews in the seal dialog: the seal is refused, nothing sealed.
+  await page.click('[data-testid=opening-seal]');
+  await page.fill('[data-testid=opening-seal-password]', world.gm.password);
+  await page.click('[data-testid=opening-seal-passkey]');
+  await confirmIfAsked(page, world.gm.password);
+  const confirm = page.getByTestId('opening-seal-confirm');
+  check(await eventually(async () => !(await confirm.isDisabled())), 'the General Manager is ready to seal 5 pieces');
+  await bmApi.must('POST', `/openings/${id}/lines`, { categoryId: world.openingTypeId, description: 'قطعة متأخرة', karat: 21, condition: 'NEW', grossWeightMg: 1_100, netWeightMg: 1_000 }, { idempotent: true });
+  await confirm.click();
+  await confirmIfAsked(page, world.gm.password);
+  check(await eventually(async () => /تغيّر الرصيد الافتتاحي منذ مراجعتك/.test(await page.locator('body').innerText())), 'a piece added meanwhile: "The opening changed since you reviewed it"');
+  check((await bmApi.must('GET', `/openings/${id}`)).status === 'DRAFT', 'nothing is sealed');
+  check(await eventually(async () => /^6\D/.test((await page.getByTestId('opening-seal-summary').innerText()).trim())), `the dialog reloads its numbers (${(await page.getByTestId('opening-seal-summary').innerText()).replace(/\s+/g, ' ')})`);
+  await page.getByRole('button', { name: 'إلغاء', exact: true }).click();
+
+  // The General Manager removes the branch manager's 3 pieces (lines 5, 6 and 7): the sealing below is of the 3 pieces above.
+  for (const n of [5, 6, 7]) {
+    await page.click(`[data-testid=opening-remove-${n}]`);
+    await page.getByTestId(`opening-remove-${n}`).waitFor({ state: 'detached', timeout: 15_000 });
+  }
+  check(await eventually(async () => (await rowsOf(page).count()) === 3), "the General Manager removes the branch manager's pieces again");
+}
+
 async function seal(page, gm, cashierApi, world, id) {
   section('Sealing: summary, password and passkey; then the pieces are in stock with an unknown cost');
   await page.click('[data-testid=opening-seal]');
@@ -293,6 +365,8 @@ async function main() {
   Object.assign(world, { openingTypeId: type.id, openingTypeAr: type.nameAr });
   const cashierApi = await apiClient(BASE);
   await cashierApi.login(world.cashier.username, world.cashier.password);
+  const bmApi = await apiClient(BASE);
+  await bmApi.login(world.bm.username, world.bm.password);
   const browser = await chromium.launch();
   BROWSER = browser;
   try {
@@ -302,16 +376,24 @@ async function main() {
     await virtualAuthenticator(page);
     await signIn(page, BASE, world.gm);
     await registerPasskey(page, world);
+    const bmCtx = await browser.newContext({ viewport: { width: 1366, height: 768 }, locale: 'ar' });
+    const bmPage = await bmCtx.newPage();
+    globalThis.__bmPage = bmPage;
+    await signIn(bmPage, BASE, world.bm);
+    await bmBeforeStart(bmPage);
     const id = await opening(page, gm, world);
+    await bmEntry(page, bmPage, bmApi, world, id);
     await seal(page, gm, cashierApi, world, id);
     await rename(page, gm, world);
   } catch (e) {
     await globalThis.__page?.screenshot({ path: '.ux-shots/e2e-openings-failure.png' }).catch(() => {});
+    await globalThis.__bmPage?.screenshot({ path: '.ux-shots/e2e-openings-failure-bm.png' }).catch(() => {});
     throw e;
   } finally {
     await browser.close();
     await gm.dispose();
     await cashierApi.dispose();
+    await bmApi.dispose();
     await srv.stop();
   }
   console.log(failures ? `\nOPENINGS FAILED: ${failures} of ${step} checks.` : `\nAll ${step} opening checks passed.${SHOTS ? ` Screenshots in ${path.relative(ROOT, OUT)}/` : ''}`);

@@ -455,6 +455,35 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   `OPENING_NEEDS_COMPUTED_PRICES` (a condition or karat correction on FIXED_TAG), `CORRECTION_REASON_REQUIRED`,
   `CONFIRM_PASSWORD_REQUIRED`, `PASSKEY_REQUIRED`, `REAUTH_REQUIRED`.
 
+### OPN-4: the branch manager enters the pieces of the own branch's opening (migration 0039)
+
+- **0039** adds the permission `opening.enter` and grants it to the branch manager and the General Manager, by role
+  code (as 0026, 0032 and 0038 did). `opening.manage` stays General Manager only; its description now says what it keeps:
+  starting an opening, the seal, the broken scrap. Additive and idempotent; no opening, line or stock row changes. Only
+  the three system roles exist (no screen or API creates a role or edits grants), so no other role gains anything.
+- **Routes** moved to `opening.enter`, scope `branch` (D-opn4-2):
+  - `GET /api/openings` (a branch manager gets the own branch only);
+  - `GET /api/openings/:id` and `GET /api/openings/:id/export`;
+  - `POST /api/openings/:id/lines`, `POST /api/openings/:id/lines/:lineId/remove` and `POST /api/openings/:id/import`.
+
+  `GET /api/openings/template.csv` moved to `opening.enter`, scope `none` (a fixed header row). Another branch's opening
+  answers **404**. Unchanged and General Manager only: `POST /api/openings` (start), the seal, the three broken-scrap
+  routes and the corrections.
+- **The seal** (`POST /api/openings/:id/seal`) takes `expectedLines` and `expectedNetWeightMg`, the numbers the General
+  Manager reviewed. They are required whenever the draft has pieces (400 without them). A draft that changed since is
+  **409 `OPENING_CHANGED_SINCE_REVIEW`** (details: `lines`, `netWeightMg` now); nothing is sealed.
+- `GET /api/openings/:id`: each line gains `enteredByName`, `enteredByNameAr` and `enteredAt` (its author: typed, or the
+  person who imported the file); the summary gains `byUser` (pieces and net weight per person).
+- **After the deploy, on the server:** the normal `docs/runbooks/update-deploy.md`. Nothing is run by hand for the
+  permission:
+  1. the pre-update backup (`systemctl stop jerp`, `jerp_backup npm run backup`, `backup:verify` on the drill machine);
+  2. pull the release and build (`git fetch --tags`, `git checkout <tag>`, `npm ci --include=dev`, `npm run build`);
+  3. `jerp npm run migrate` (0039);
+  4. the preflight (`jerp node scripts/server/preflight.mjs`): `migrations: 40 of 40 applied`, every line PASS;
+  5. start the service again (`systemctl start jerp`; it was stopped for the backup) and wait for `/api/ready`.
+
+  A signed-in branch manager gets the permission on the next request.
+
 ### OPN-3: broken scrap in the opening balance (migration 0037)
 
 - **0037** adds `opening_scrap_lines` (the draft's broken scrap) and the append-only `opening_scrap_corrections`, and

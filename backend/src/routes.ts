@@ -729,7 +729,8 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     res.json(await scrap.poolView(ctx, actorOf(req), q));
   });
 
-  // ─────────── OPN-1: the opening balance of a branch (General Manager, `opening.manage`) ───────────
+  // ─────────── OPN-1: the opening balance of a branch. OPN-4: its draft pieces with `opening.enter` (the branch manager of
+  // the branch, and the General Manager); starting it and the seal with `opening.manage` (General Manager) ───────────
   const zOpeningLine = z
     .object({ categoryId: zId, description: z.string().max(1000).nullable().optional(), karat: zKarat, condition: z.enum(GOLD_RATE_KINDS), grossWeightMg: zWeightMg, netWeightMg: zWeightMg })
     .strict();
@@ -745,7 +746,7 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   });
   // Before /openings/:id, so "template.csv" is never read as an id.
   route('GET', '/openings/template.csv', async (req, res) => {
-    requirePerm(actorOf(req), 'opening.manage');
+    requirePerm(actorOf(req), 'opening.enter');
     csvFile(res, { fileName: 'opening-template.csv', text: openings.openingTemplateCsv() });
   });
   route('GET', '/openings/:id', async (req, res) => {
@@ -776,7 +777,13 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   });
   route('POST', '/openings/:id/seal', async (req, res) => {
     const id = parse(zId, req.params.id);
-    const body = parse(z.object({ confirmPassword: z.string().max(128).optional() }).strict(), req.body);
+    // D-opn4-4: the line count and net weight the General Manager reviewed (required when the draft has pieces).
+    const body = parse(
+      z
+        .object({ confirmPassword: z.string().max(128).optional(), expectedLines: z.number().int().min(0).max(1_000_000).optional(), expectedNetWeightMg: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional() })
+        .strict(),
+      req.body,
+    );
     res.json(await runIdempotent(ctx, req, res, (idem) => openings.sealOpening(ctx, actorOf(req), id, body, { idem })));
   });
 

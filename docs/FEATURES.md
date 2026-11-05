@@ -192,6 +192,12 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   never the General Manager) and `money_transfers.receive` (the branch manager: confirm a transfer to the own branch;
   the General Manager: only one addressed to him). Cashiers: none.
 - **Opening balance** (OPN-1, `opening.manage`, General Manager only): one per branch, DRAFT → SEALED.
+  - OPN-4 (D-opn4-1…4): `opening.enter` (the branch manager and the General Manager) enters the draft pieces: the
+    list, the draft, typing and removing lines, the CSV import and template, the export. A branch manager sees and changes
+    only the own branch's opening, only while it is a draft; another branch's answers 404. `opening.manage` (General
+    Manager) keeps starting an opening, the seal and the broken scrap; `opening.correct` the corrections. Each line says
+    who entered it and when, and the review counts pieces and net weight per person. The seal carries the numbers the
+    General Manager reviewed: a draft that changed since is refused (409 `OPENING_CHANGED_SINCE_REVIEW`).
   - The draft is not stock. Pieces are typed in (Enter moves to the next field) or imported from a CSV file (template
     in Arabic and English; comma or semicolon; one wrong row rejects the file with every problem by row and column; the
     same file twice changes nothing; at most 5,000 rows and 1 MB a file).

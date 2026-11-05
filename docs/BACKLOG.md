@@ -242,6 +242,16 @@ Corrections after the seal (General Manager, `opening.correct`): less, more or a
 put in or below the pool. **Not built:** a CSV for broken scrap (owner Q7); part B, a damaged piece into the pool (plan
 §12, waits for the client's answers).
 
+### OPN-4 — The Branch Manager enters the pieces of the own branch's opening balance · DONE · S · P0 (before real operation) · OPN-1
+**Done (plan `docs/plans/OPN-4.md`, owner approval of 2026-11-05 with answers Q-a…Q-f, D-opn4-1…4, migration 0039,
+`docs/acceptance/OPN-4.md`):** a new permission `opening.enter` (Branch Manager and General Manager): the Branch Manager
+sees the opening of the own branch only (another branch's answers 404), types, imports and removes pieces while it is a
+draft, and reads it after the seal. Starting, the seal (password and passkey), the broken scrap and every correction stay
+General-Manager-only. Each line shows who entered it, when and how (typed / from the file); the review shows pieces and
+net weight per person. The seal carries the count and net weight the General Manager reviewed; a draft that changed
+meanwhile is refused (409 `OPENING_CHANGED_SINCE_REVIEW`). **Not built:** a lock of the draft against further entry
+(owner Q-c, "not now"); an "Entered by" column in the draft export (D-opn4-3).
+
 ### LBL-1 — Barcode labels for physical pieces · DEFERRED (Q-9: labels later) · M · P3
 Print a label (code, karat, weight, Code128 or QR) for each piece, from the opening import and from every receipt. Needs the printer model and label size.
 

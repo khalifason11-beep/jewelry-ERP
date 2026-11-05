@@ -28,7 +28,7 @@ import { correctOpeningPiece } from '../../src/modules/openings/corrections';
 import { currentSellingRates, rateKey } from '../../src/modules/pricing/service';
 import { seedWorld } from '../fixtures/world';
 import { DEMO_PASSWORDS } from '../fixtures/world-data';
-import { openTestDatabase, PG_MODE } from '../helpers';
+import { openTestDatabase, PG_MODE, reviewedOf } from '../helpers';
 
 let handle: DatabaseHandle;
 let ctx: Ctx;
@@ -73,7 +73,7 @@ beforeAll(async () => {
   const type = await createCategory(ctx, gm, { nameAr: '[اختبار] قطعة سباق', name: '[Test] Race piece' });
   opening = (await createOpening(ctx, gm, { branchId: bhr })).id;
   for (let i = 0; i < ROUNDS * 3; i++) await addOpeningLine(ctx, gm, opening, { categoryId: type.id, description: `race ${i}`, karat: k, condition: 'NEW', grossWeightMg: 8_500, netWeightMg: 8_000 });
-  await sealOpening(ctx, gm, opening, { confirmPassword: PW });
+  await sealOpening(ctx, gm, opening, { confirmPassword: PW, ...(await reviewedOf(ctx.db, opening)) });
   pieces = (await ctx.db.select({ id: t.openingLines.itemId }).from(t.openingLines).where(eq(t.openingLines.openingId, opening)).orderBy(asc(t.openingLines.lineNo))).map((r) => r.id!);
 });
 afterAll(async () => handle?.close());

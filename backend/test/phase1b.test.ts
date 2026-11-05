@@ -322,6 +322,8 @@ type Req = { method?: string; path: string; query?: Record<string, string | numb
 interface Fixtures {
   krt: number; omd: number; krtItem: number; omdItem: number; krtSale: number; omdSale: number; krtPurchase: number; omdPurchase: number;
   omdTransferTo: number; omdUser: number; omdSessionKey: string; omdScrap: number;
+  /** OPN-4: a draft opening of Omdurman (the probes of its branch-scope routes). */
+  omdOpening: number;
 }
 const NONE = 999_999;
 
@@ -494,6 +496,13 @@ const CROSS: Record<string, (f: Fixtures) => Req> = {
   'GET /scrap-purchases': (f) => ({ path: '/scrap-purchases', query: { branchId: f.omd } }),
   'GET /funding': (f) => ({ path: '/funding', query: { branchId: f.omd } }),
   'GET /money-transfers': (f) => ({ path: '/money-transfers', query: { branchId: f.omd } }),
+  // OPN-4 (D-opn4-2): another branch's opening is not found (404), and the list shows the own branch only.
+  'GET /openings': () => ({ path: '/openings' }),
+  'GET /openings/:id': (f) => ({ path: `/openings/${f.omdOpening}` }),
+  'GET /openings/:id/export': (f) => ({ path: `/openings/${f.omdOpening}/export` }),
+  'POST /openings/:id/lines': (f) => ({ path: `/openings/${f.omdOpening}/lines`, body: { categoryId: 1, karat: 21, condition: 'NEW', grossWeightMg: 1_000, netWeightMg: 1_000 } }),
+  'POST /openings/:id/lines/:lineId/remove': (f) => ({ path: `/openings/${f.omdOpening}/lines/${NONE}/remove`, body: {} }),
+  'POST /openings/:id/import': (f) => ({ path: `/openings/${f.omdOpening}/import`, contentType: 'text/csv', body: 'Type,Karat\r\n' }),
   'GET /money-transfers/:id': () => ({ path: `/money-transfers/${NONE}` }),
   'POST /money-transfers': (f) => ({ path: '/money-transfers', body: { to: { branchId: f.omd }, account: 'CASH', amount: 1, reason: 'x' } }),
   'POST /money-transfers/:id/confirm': () => ({ path: `/money-transfers/${NONE}/confirm`, body: { account: 'CASH' } }),
@@ -530,6 +539,14 @@ function leaksBranch(body: unknown, omd: number): boolean {
   return Object.values(o).some((v) => leaksBranch(v, omd));
 }
 
+/** OPN-4: the draft opening of Omdurman (the fixture world's, else one made here by its General Manager). */
+async function omdDraftOpening(omd: number): Promise<number> {
+  const [o] = await ctx.db.select({ id: t.openings.id }).from(t.openings).where(eq(t.openings.branchId, omd));
+  if (o) return o.id;
+  const [gm] = await ctx.db.select({ id: t.users.id }).from(t.users).where(eq(t.users.username, 'general.manager'));
+  return (await ctx.db.insert(t.openings).values({ branchId: omd, createdBy: gm.id }).returning({ id: t.openings.id }))[0].id;
+}
+
 describe('route permission matrix (generated from shared/src/route-matrix.ts)', () => {
   beforeAll(async () => {
     const id = async (q: Promise<{ id: number }[]>) => (await q)[0].id;
@@ -549,6 +566,7 @@ describe('route permission matrix (generated from shared/src/route-matrix.ts)', 
       omdUser: await id(ctx.db.select({ id: t.users.id }).from(t.users).where(eq(t.users.branchId, omd)).limit(1)),
       omdSessionKey: omdSession.id.slice(0, 16),
       omdScrap: await id(ctx.db.select({ id: t.scrapPurchases.id }).from(t.scrapPurchases).where(eq(t.scrapPurchases.branchId, omd)).limit(1)),
+      omdOpening: await omdDraftOpening(omd),
     };
     for (const role of ROLES) {
       agents[role] = await login(ROLE_USER[role]);

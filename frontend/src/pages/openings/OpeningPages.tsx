@@ -17,6 +17,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { CheckCircle2, Download, FileUp, Fingerprint, Lock, Plus, Trash2 } from 'lucide-react';
 import { fetchAllPages, parseWeightInput, type Page } from '@jerp/shared';
 import { ApiError, api, errorText, get, postOnce } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { useActionKeys } from '../../lib/idempotency';
@@ -44,6 +45,8 @@ interface Summary {
   byType: { categoryId: number; categoryName: string | null; categoryNameAr: string; count: number; netWeightMg: number }[];
   /** OPN-3: the broken scrap entered (or sealed), by karat with its 24K equivalent. */
   scrap: ScrapTotals;
+  /** OPN-4 (D-opn4-3): who entered what: pieces and net weight per person. */
+  byUser: { userId: number; name: string; nameAr: string | null; count: number; netWeightMg: number }[];
 }
 interface Line {
   id: number;
@@ -58,6 +61,10 @@ interface Line {
   grossWeightMg: number;
   netWeightMg: number;
   source: 'KEYBOARD' | 'IMPORT';
+  /** OPN-4 (D-opn4-3): who entered the line (typed it, or imported the file) and when. */
+  enteredByName: string;
+  enteredByNameAr: string | null;
+  enteredAt: string;
   code: string | null;
   barcode: string | null;
   /** OPN-FIX: the piece's status now (sealed openings). */
@@ -100,6 +107,9 @@ const statusBadge = (status: 'DRAFT' | 'SEALED' | null, t: (k: string) => string
 
 export function OpeningsPage() {
   const { t, L } = useI18n();
+  const { can } = useAuth();
+  // OPN-4 (D-opn4-1): the General Manager starts an opening; a branch manager enters the pieces once it is started.
+  const canStart = can('opening.manage');
   const toast = useToast();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -146,8 +156,10 @@ export function OpeningsPage() {
               render: (r) =>
                 r.opening ? (
                   <Button size="sm" variant="ghost" onClick={() => navigate(`/openings/${r.opening!.id}`)} data-testid={`opening-open-${r.branchCode}`}>{t('Open')}</Button>
-                ) : (
+                ) : canStart ? (
                   <Button size="sm" variant="primary" loading={start.isPending && start.variables === r.branchId} onClick={() => start.mutate(r.branchId)} data-testid={`opening-start-${r.branchCode}`}>{t('Start')}</Button>
+                ) : (
+                  <span className="text-meta text-ink-3" data-testid={`opening-not-started-${r.branchCode}`}>{t('The General Manager starts the opening balance of your branch.')}</span>
                 ),
             },
           ]}
@@ -160,6 +172,7 @@ export function OpeningsPage() {
 export function OpeningPage() {
   const { id } = useParams();
   const { t, L } = useI18n();
+  const { can } = useAuth();
   const [page, setPage] = useState(1);
   const [q, setQ] = useState('');
   const dq = useDebounced(q.trim());
@@ -168,6 +181,8 @@ export function OpeningPage() {
   if (!opening.data) return <DetailPending query={opening} backTo="/openings" backLabel={t('Back to the opening balances')} notFoundTitle={t('This opening does not exist')} />;
   const o = opening.data;
   const draft = o.status === 'DRAFT';
+  // OPN-4 (D-opn4-1): the seal and the broken scrap are the General Manager's; a branch manager enters the pieces.
+  const manages = can('opening.manage');
   return (
     <div className="p-5 lg:p-6">
       <PageHeader
@@ -206,7 +221,7 @@ export function OpeningPage() {
       )}
       {draft && (
         <div className="mb-4">
-          <ScrapDraftCard openingId={o.id} lines={o.scrapLines} totals={o.summary.scrap} />
+          <ScrapDraftCard openingId={o.id} lines={o.scrapLines} totals={o.summary.scrap} readOnly={!manages} />
         </div>
       )}
       {!draft && o.scrapNow && (o.summary.scrap.lines > 0 || o.scrapCorrections.length > 0) && (
@@ -214,7 +229,12 @@ export function OpeningPage() {
           <ScrapSealedCard openingId={o.id} sealed={o.summary.scrap} now={o.scrapNow} corrections={o.scrapCorrections} />
         </div>
       )}
-      {draft && <SealPanel opening={o} />}
+      {draft && manages && <SealPanel opening={o} />}
+      {draft && !manages && (
+        <div className="mt-4" data-testid="opening-gm-seals">
+          <Alert tone="info">{t('The General Manager reviews and seals the opening balance.')}</Alert>
+        </div>
+      )}
       <div className="mt-4" data-testid="opening-lines">
       <Card padded={false}>
         <CardHeader title={t('Lines')} subtitle={t('{n} line(s)', { n: num(o.summary.total.count) })} />
@@ -259,7 +279,10 @@ export function OpeningPage() {
             { key: 'condition', header: t('Condition'), value: (r) => r.condition ?? '', render: (r) => (r.condition ? t(CONDITION_LABELS[r.condition]) : '—') },
             { key: 'gross', header: t('Gross weight'), align: 'end', value: (r) => r.grossWeightMg, render: (r) => grams(r.grossWeightMg) },
             { key: 'net', header: t('Net weight'), align: 'end', value: (r) => r.netWeightMg, render: (r) => grams(r.netWeightMg) },
-            { key: 'source', header: t('Entered by'), value: (r) => r.source, render: (r) => (r.source === 'IMPORT' ? t('IMPORT') : t('KEYBOARD')) },
+            // OPN-4 (D-opn4-3): "Entered by" is the person; "How" says typed or from the file (the source).
+            { key: 'enteredBy', header: t('Entered by'), value: (r) => L(r.enteredByName, r.enteredByNameAr), render: (r) => <span data-testid="opening-line-entered-by">{L(r.enteredByName, r.enteredByNameAr)}</span> },
+            { key: 'enteredAt', header: t('Entered at'), value: (r) => r.enteredAt, render: (r) => dateTime(r.enteredAt) },
+            { key: 'source', header: t('How'), value: (r) => r.source, render: (r) => (r.source === 'IMPORT' ? t('From the file') : t('Typed')) },
             ...(draft ? [{ key: 'remove', header: '', sortable: false, render: (r: Line) => <RemoveLine openingId={o.id} line={r} /> }] : []),
           ]}
         />
@@ -339,6 +362,24 @@ function SummaryCards({ summary }: { summary: Summary }) {
                 <td className="py-1 text-end num">{num(k.count)}</td>
                 <td className="py-1 text-end num">{grams(k.grossWeightMg)}</td>
                 <td className="py-1 text-end num">{grams(k.netWeightMg)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+      {/* OPN-4 (D-opn4-3): who entered what, so the General Manager sees it before sealing. */}
+      <Card className="lg:col-span-2">
+        <CardHeader title={t('Entered by')} subtitle={t('Pieces and net weight each person entered (typed, or imported from a file).')} />
+        <table className="w-full text-[13px]" data-testid="opening-by-user">
+          <thead className="text-ink-3">
+            <tr><th className="py-1 text-start font-medium">{t('Person')}</th><th className="py-1 text-end font-medium">{t('Pieces')}</th><th className="py-1 text-end font-medium">{t('Net weight')}</th></tr>
+          </thead>
+          <tbody>
+            {summary.byUser.map((u) => (
+              <tr key={u.userId} className="border-t border-line" data-testid={`opening-by-user-${u.userId}`}>
+                <td className="py-1">{L(u.name, u.nameAr)}</td>
+                <td className="py-1 text-end num">{num(u.count)}</td>
+                <td className="py-1 text-end num">{grams(u.netWeightMg)}</td>
               </tr>
             ))}
           </tbody>
@@ -424,7 +465,7 @@ function KeyboardEntry({ openingId }: { openingId: number }) {
   };
   return (
     <Card>
-      <CardHeader title={t('Type a piece')} help={t('Enter moves to the next field; on the last one it adds the piece.')} />
+      <CardHeader title={t('Type a piece')} help={t('Enter moves to the next field; on the last one it adds the piece. Each piece shows who entered it; the General Manager reviews and seals.')} />
       <div ref={box} onKeyDown={onKey} className="space-y-2" data-testid="opening-keyboard">
         <PieceKindFields value={kind} onChange={setKind} testId="opening-kind" />
         <div className="grid grid-cols-3 gap-2">
@@ -599,7 +640,12 @@ function SealDialog({ opening, onClose }: { opening: Opening; onClose: () => voi
     // UX-3: the typed password opens the window first, so the seal never asks for it a second time.
     mutationFn: async () => {
       await openWindowWith(password);
-      return postOnce<{ pieces: number; firstCode: string | null; lastCode: string | null; scrap: ScrapTotals }>(`/openings/${opening.id}/seal`, { confirmPassword: password }, keys.for('opening-seal'));
+      // OPN-4 (D-opn4-4): what this dialog shows is what the General Manager reviewed; a draft that changed is refused.
+      return postOnce<{ pieces: number; firstCode: string | null; lastCode: string | null; scrap: ScrapTotals }>(
+        `/openings/${opening.id}/seal`,
+        { confirmPassword: password, expectedLines: opening.summary.total.count, expectedNetWeightMg: opening.summary.total.netWeightMg },
+        keys.for('opening-seal'),
+      );
     },
     onSuccess: (r) => {
       keys.rotate('opening-seal');
@@ -610,6 +656,8 @@ function SealDialog({ opening, onClose }: { opening: Opening; onClose: () => voi
     onError: (e) => {
       keys.rotate('opening-seal');
       toast.fromError(e);
+      // Someone added or removed a piece since the review: the numbers above reload; review them, then seal again.
+      if (e instanceof ApiError && e.code === 'OPENING_CHANGED_SINCE_REVIEW') qc.invalidateQueries({ queryKey: ['opening'] });
     },
   });
   return (
