@@ -281,6 +281,14 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   karat('opening_scrap_corrections'),
   { name: 'ck_opening_scrap_corrections_weight_nonzero', table: 'opening_scrap_corrections', expr: 'weight_mg_change <> 0' },
   { name: 'ck_opening_scrap_corrections_reason', table: 'opening_scrap_corrections', expr: 'length(btrim(reason)) BETWEEN 3 AND 200' },
+  // ── WSL-1 (migration 0040): grains of broken scrap sold (1 grain = 100 mg); their one pool row is checked at commit
+  // (trigger sale_scrap_lines_pool).
+  karat('sale_scrap_lines'),
+  { name: 'ck_sale_scrap_lines_line_no', table: 'sale_scrap_lines', expr: 'line_no >= 1' },
+  { name: 'ck_sale_scrap_lines_grains_positive', table: 'sale_scrap_lines', expr: 'grains > 0' },
+  { name: 'ck_sale_scrap_lines_weight_is_grains', table: 'sale_scrap_lines', expr: 'weight_mg = grains * 100' },
+  { name: 'ck_sale_scrap_lines_rate_positive', table: 'sale_scrap_lines', expr: 'rate_per_gram > 0' },
+  { name: 'ck_sale_scrap_lines_price_positive', table: 'sale_scrap_lines', expr: 'price > 0' },
   // ── MNY-1 (migration 0038): a money transfer's receiver, amount, reason and bank reference; the shape of each step.
   { name: 'ck_money_transfers_receiver', table: 'money_transfers', expr: "(to_kind = 'BRANCH' AND to_branch_id IS NOT NULL AND to_branch_id <> from_branch_id) OR (to_kind = 'GM' AND to_branch_id IS NULL)" },
   { name: 'ck_money_transfers_amount_positive', table: 'money_transfers', expr: 'amount > 0' },

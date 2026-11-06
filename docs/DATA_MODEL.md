@@ -75,7 +75,8 @@
 | `supplier_settlements` | Append-only: a settlement visit, in which broken scrap (karat, weight, pure 24K) reduces `gold_owed_mg_pure24` |
 | `scrap_rates` | Append-only rate history per karat; the latest row is current |
 | `scrap_purchases` | Append-only: scrap bought from a customer (see below) |
-| `scrap_weight_entries` | Append-only movements of the broken-scrap pool, per branch and karat (SCRAP_PURCHASE, SUPPLIER_SETTLEMENT, REVERSAL; OPENING and OPENING_CORRECTION from the opening balance, OPN-3) |
+| `scrap_weight_entries` | Append-only movements of the broken-scrap pool, per branch and karat (SCRAP_PURCHASE, SUPPLIER_SETTLEMENT, REVERSAL; OPENING and OPENING_CORRECTION from the opening balance, OPN-3; SCRAP_SALE, grains sold at the POS, WSL-1) |
+| `sale_scrap_lines` | WSL-1, append-only: grains (حبات) of broken scrap sold on a sale, one row per karat (`line_no`, `karat`, `grains` > 0, `weight_mg` = grains × 100, `rate_per_gram`, `price` = the whole line's value). Each row has exactly one −weight `SCRAP_SALE` row in the pool (`ref_type` sale_scrap_line, checked at commit by `sale_scrap_lines_pool`); a void adds one +weight `REVERSAL` row. No cost: the line counts in `sales.unknown_cost_lines` |
 | `scrap_purchase_voids` | Append-only (MIS-1, migration 0025): the void of a scrap purchase, at most one per purchase (`purchase_id` UNIQUE), with `reason`, `voided_by`, `session_id`, `created_at` |
 | `purchase_corrections` | Append-only (MIS-1, migration 0025): corrections of a supplier order (see below) |
 
@@ -163,7 +164,7 @@ These tables are protected by triggers (`jerp_forbid_modification`, against UPDA
 PostgreSQL, the runtime role's privileges are also removed (`jerp_lock_append_only`):
 
 `audit_logs`, `backup_runs`, `cash_counts`, `gm_funding_events`, `gold_rates`, `money_transfer_events`,
-`inventory_movements`, `item_status_history`, `ledger_entries`, `opening_imports`, `opening_piece_corrections`, `opening_scrap_corrections`, `purchase_corrections`, `sale_payments`, `scrap_purchase_voids`,
+`inventory_movements`, `item_status_history`, `ledger_entries`, `opening_imports`, `opening_piece_corrections`, `opening_scrap_corrections`, `purchase_corrections`, `sale_payments`, `sale_scrap_lines`, `scrap_purchase_voids`,
 `scrap_purchases`, `scrap_rates`, `scrap_weight_entries`, `settings_history`, `supplier_settlements`.
 
 The start-up privilege report and the restore drill use the same list (`APPEND_ONLY_TABLES` in
@@ -235,6 +236,7 @@ a conditional update on the current status.
 | `0037_opn3_opening_scrap` | OPN-3: the tables `opening_scrap_lines` (draft broken scrap; trigger: nothing changes once the opening is sealed) and `opening_scrap_corrections` (append-only, a sealed opening of that branch only); the pool's event-type CHECK replaced with the wider list (OPENING, OPENING_CORRECTION; D-opn3-1). No existing row changes |
 | `0038_mny1_money_transfers` | MNY-1: the tables `money_transfers` (status-only updates along IN_TRANSIT → RECEIVED / CANCELLED; never deleted) and the append-only `money_transfer_events`; four ledger event types (the CHECK is replaced, D-mny1-1); the permissions `money_transfers.view`, `.send`, `.receive` (branch manager all three, General Manager view and receive, D-mny1-2). No existing row changes |
 | `0039_opn4_opening_enter` | OPN-4: the permission `opening.enter` (the draft pieces of the own branch's opening), granted to the branch manager and the General Manager; the description of `opening.manage` says what it keeps (start, seal, broken scrap). No opening, line or stock row changes |
+| `0040_wsl1_scrap_grains` | WSL-1: the append-only table `sale_scrap_lines` (grains sold at the POS: CHECKs on karat 1–24, grains > 0, weight = grains × 100, rate and price > 0; UNIQUE per sale on line number and on karat; a commit-time trigger requiring exactly one matching SCRAP_SALE pool row per line) and `SCRAP_SALE` added to `ck_scrap_weight_entries_event_type` (DROP then ADD, D-wsl1-1). No existing row changes |
 | `0031_opn2_tighten` | OPN-2: `rate_kind` becomes required (no default); CHECK `ck_jewelry_items_rate_kind_origin`: sellable scrap is USED, a supplier piece NEW (only an opening piece may be either). A row breaking either rule stops the upgrade with its count (none can exist after 0030) |
 | `0026_opn1_catalog_optional` | OPN-1 / CAT-1: `jewelry_items.category_id` and `description`; the product and the cost become optional (DROP NOT NULL; 0028 tightens again); sale-line name snapshots; `sales.unknown_cost_lines`; the tables `openings`, `opening_lines`, `opening_imports`; permission `opening.manage` (General Manager). Additive only |
 | `0024_prc1_computed_prices` | PRC-1: `gold_rates.kind` (NEW/USED, validated check, index), permission `scrap.buy_sellable` (every role), and `pricing.mode = FIXED_TAG` written only when pieces already exist (an upgraded installation keeps its tag prices). Additive only |

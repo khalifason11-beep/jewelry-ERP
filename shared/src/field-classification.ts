@@ -132,6 +132,8 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   },
   // PAY-1: how a sale was paid (method, amount, references), like the sale's own payment columns: SAFE.
   sale_payments: { safe: words('id sale_id line_no method amount ref_invoice ref_transaction created_at') },
+  // WSL-1: grains of broken scrap sold; no cost is recorded (prices only).
+  sale_scrap_lines: { safe: words('id sale_id line_no karat grains weight_mg rate_per_gram price created_at') },
 };
 
 /** Response field names that carry cost, acquisition cost, margin or profit. */
