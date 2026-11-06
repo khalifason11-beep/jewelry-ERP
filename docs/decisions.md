@@ -655,6 +655,18 @@ Owner's task of 2026-11-05 (the scrap payment field that "comes back"). Plan `do
 | D-fixnum-4 | Settings after a card is saved | A new server copy replaces only the settings that changed on the server; what is typed, or cleared, in the other cards stays. | built |
 | D-fixnum-5 | A POS discount above the role's cap (owner Q2) | The typed discount is kept (never replaced by the cap, also when the prices change), «At most …» is shown under the field, and «Complete sale» stays disabled until it is corrected. The API and its refusal are unchanged. Q1: changing the karat on the scrap form still empties the agreed rate (a rate belongs to a karat). | owner, 2026-11-05 |
 
+## WSL-1: grains (حبات) of broken scrap sold at the POS
+
+The owner's rules of 2026-11-06 (fast-track: the plan-approval stop waived). Plan `docs/plans/WSL-1.md`.
+
+| ID | Question | Decision | By |
+|---|---|---|---|
+| D-wsl1-1 | How a grain sale is stored | A new append-only table `sale_scrap_lines` (migration 0040), one row per karat of a sale: grains > 0, weight = grains × 100 mg, the rate and the whole line's price. Grains are no jewellery piece, so `sale_items` (whose `item_id` is NOT NULL) is not loosened. Each line has exactly one −weight `SCRAP_SALE` row in `scrap_weight_entries` (`ref_type` sale_scrap_line), checked at commit by the trigger `sale_scrap_lines_pool`; the pool's event-type CHECK is replaced with the wider list (`-- allow-destructive: D-wsl1-1`, as D-opn3-1; no row changes). | owner |
+| D-wsl1-2 | The unit and the price | 1 grain = 0.1 g = 100 mg; a whole number of grains. The line is priced at the karat's normal selling rate per gram (the NEW-piece rate in `gold_rates`, whatever the pricing mode) on its whole weight, `valueOfWeight` rounded once, never per grain (3 grains at 123,456/g = 37,037). No markup, no making charge, no grain rate, no discount on a grain line. No cost: the line counts as a line of unknown cost, so its revenue never enters a gross profit (sale, footers, reports, dashboards; the grouped profit report shows it under the type "Broken scrap", كسر مكسر). No rate for the karat → `NO_PRICE`. The cashier's price is checked as for pieces (409 `PRICES_CHANGED`). | owner |
+| D-wsl1-3 | The pool | The karat chosen for the sale is the pool reduced, in the sale's branch. In the sale's one transaction (idempotency key first): the pricing lock, then the branch's pool lock (`lockPool`), the karat's balance read again under it; more than it holds → 409 `SCRAP_POOL_SHORT`. The pool never goes below zero (two sales of the last grains at once: exactly one, tested on PostgreSQL); supplier settlements use what the grain sales left. | owner |
+| D-wsl1-4 | A void | The existing void (`sales.void`: branch manager and General Manager, reason, re-confirmation above the setting) puts the grains back: one +weight `REVERSAL` row per line, same karat, under the pool lock (taken before the drawer's, as a scrap purchase does). | owner |
+| D-wsl1-5 | Who and the screen | Everyone who may sell (`sales.create`: cashier, branch manager, General Manager); no new permission. New route `GET /pos/scrap-grains` (scope branch): the branch's karats with pool weight, their whole grains and rate. The POS shows one product per karat above the pieces ("كسر مكسر 21 — متاح X جم"); the cart line takes a whole number of grains (the kit's field) and shows grains, grams, the rate and the price; more than available is said in Arabic and blocks the sale. The receipts and the sale page print the grain line (grains = grams). | owner; screen choices built |
+
 ## MNY-1: money transfers between branches and to the General Manager
 
 Owner decisions and approval of 2026-10-30. Plan `docs/plans/MNY-1.md` (§0 the decisions, §11 the answers).

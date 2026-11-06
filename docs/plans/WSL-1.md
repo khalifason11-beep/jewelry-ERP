@@ -1,6 +1,6 @@
 # WSL-1: sell "grains" (حبات) from the broken-scrap pool at the POS
 
-Status: **fast-track** (the owner waived the plan-approval stop on 2026-11-06); built in small commits.
+Status: **built** (fast-track: the owner waived the plan-approval stop on 2026-11-06), c0–c4; decisions D-wsl1-1…5.
 
 ## Business rules (the owner's, unchanged)
 

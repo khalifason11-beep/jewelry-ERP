@@ -90,6 +90,10 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   - Paper sizes are A4, A5, or a thermal receipt.
   - The cashier prints once. Managers can reprint (`sales.reprint`); a reprint is marked "COPY n" and counted.
 - **Pieces can also be transferred from the cart**, not only sold (FIX-1).
+- **Grains (حبات) of broken scrap** (WSL-1): one product per karat with weight in the branch's broken-scrap pool
+  ("كسر مكسر 21 — متاح X جم"). The cashier types a whole number of grains (1 grain = 0.1 g); the line is priced at the
+  karat's selling rate per gram on its whole weight, rounded once; no discount, no cost (a line of unknown cost). More
+  than the pool holds is refused (`SCRAP_POOL_SHORT`); a void puts the grains back into the same karat's pool.
 - **Lists:**
   - The cashier sees their own sales (`sales.view_own`, "My activity").
   - Managers see the sales list (`sales.view`).
