@@ -38,5 +38,6 @@
   "0036_pay1_hasad_channel_only.sql": "91e931bc3930041e05e2c300f30ee5f990320971c2a3e2fbe195920b4da2e89f",
   "0037_opn3_opening_scrap.sql": "7a5f1b90248c3122d24038b578278e58b1ee43cb07f77bb2b41638814ba82ee7",
   "0038_mny1_money_transfers.sql": "6ea3a2f038ced3bdca124c7ebd7967a9b92441ef4a5cc6d3d63f8ae5a055e5c3",
-  "0039_opn4_opening_enter.sql": "d189fdb1f70fc8bb166838dba513be86f0e0e704e4d5cf464ca1a511eb98f517"
+  "0039_opn4_opening_enter.sql": "d189fdb1f70fc8bb166838dba513be86f0e0e704e4d5cf464ca1a511eb98f517",
+  "0040_wsl1_scrap_grains.sql": "cb378fc6291f7637e7f3b755dd20e025ffbc4183ed65a77e472af42743c4fddf"
 }

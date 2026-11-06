@@ -252,6 +252,14 @@ net weight per person. The seal carries the count and net weight the General Man
 meanwhile is refused (409 `OPENING_CHANGED_SINCE_REVIEW`). **Not built:** a lock of the draft against further entry
 (owner Q-c, "not now"); an "Entered by" column in the draft export (D-opn4-3).
 
+### WSL-1 — Grains (حبات) of broken scrap sold at the POS · DONE · M · P1
+**Done (fast-track, the owner waived the plan-approval stop; plan `docs/plans/WSL-1.md`, D-wsl1-1…5, migration 0040,
+`docs/acceptance/WSL-1.md`):** the POS sells broken scrap from the branch's pool by the grain (1 grain = 0.1 g, a
+whole number), one product per karat with pool weight; the karat chosen prices the line (its selling rate per gram,
+the whole weight rounded once) and is the pool reduced (one SCRAP_SALE movement per line, under the pool lock; never
+below zero); no cost; a void puts the grains back (REVERSAL). Supplier settlements use what is left. **Not built:**
+labels (LBL-1), photos (PHO-1), mixed-karat logic, cost tracking, a grain rate.
+
 ### LBL-1 — Barcode labels for physical pieces · DEFERRED (Q-9: labels later) · M · P3
 Print a label (code, karat, weight, Code128 or QR) for each piece, from the opening import and from every receipt. Needs the printer model and label size.
 

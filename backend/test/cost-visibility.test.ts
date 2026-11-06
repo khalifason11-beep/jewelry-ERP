@@ -175,6 +175,8 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /scrap-purchases': ['/scrap-purchases', '/scrap-purchases?kind=SELLABLE', '/scrap-purchases?status=VOIDED'],
       'GET /scrap-purchases/:id': scrapIds.map((id) => `/scrap-purchases/${id}`),
       'GET /scrap-pool': ['/scrap-pool', `/scrap-pool?branchId=${krt.id}`],
+      // A global user names the branch (as for POST /sales); a branch-bound user's own branch is used whatever is sent.
+      'GET /pos/scrap-grains': [`/pos/scrap-grains?branchId=${krt.id}`],
       'GET /transfers': ['/transfers'],
       'GET /dashboard/branch': [`/dashboard/branch?branchId=${krt.id}`],
       'GET /dashboard/company': ['/dashboard/company'],

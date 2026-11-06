@@ -34,6 +34,7 @@ import { Alert, Button, Dialog, Empty, ErrorState, Field, HelpTip, Input, ItemTh
 import { InvoiceDocument, type SaleDetail } from '../../components/InvoiceDocument';
 import { printSaleInvoice } from '../../print/actions';
 import { useActionKeys } from '../../lib/idempotency';
+import { GrainCards, GrainCartLine, grainLineOk, grainPriceOf, grainsOf, grainWeightOf, useScrapGrains, type GrainLine } from './ScrapGrains';
 
 interface CartLine {
   item: ItemRow;
@@ -47,6 +48,8 @@ interface HeldSale {
   id: string;
   at: string;
   lines: CartLine[];
+  /** WSL-1: the grain lines of the held cart. */
+  grains?: GrainLine[];
   customerName: string;
   customerPhone: string;
 }
@@ -85,6 +88,10 @@ export function PosPage() {
   });
 
   const [cart, setCart] = useState<CartLine[]>([]);
+  // WSL-1: grains of broken scrap, one line per karat (the grains as typed).
+  const [grainLines, setGrainLines] = useState<GrainLine[]>([]);
+  const [focusGrain, setFocusGrain] = useState<number | null>(null);
+  const grainOffers = useScrapGrains(branchId, can('sales.create'));
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [payment, setPayment] = useState<PaymentMethod>('CASH');
@@ -150,10 +157,19 @@ export function PosPage() {
   const discountsOk = cart.every((l) => l.discount <= maxDiscountOf(l));
   const inCart = useMemo(() => new Set(cart.map((l) => l.item.id)), [cart]);
   const totals = useMemo(() => {
-    const subtotal = cart.reduce((s, l) => s + priceOfLine(l), 0);
+    const subtotal = cart.reduce((s, l) => s + priceOfLine(l), 0) + grainLines.reduce((s, g) => s + grainPriceOf(g), 0);
     const discount = cart.reduce((s, l) => s + l.discount, 0);
-    return { subtotal, discount, total: subtotal - discount, weight: cart.reduce((s, l) => s + l.item.netWeightMg, 0) };
-  }, [cart]);
+    return { subtotal, discount, total: subtotal - discount, weight: cart.reduce((s, l) => s + l.item.netWeightMg, 0) + grainLines.reduce((s, g) => s + grainWeightOf(g), 0) };
+  }, [cart, grainLines]);
+  // WSL-1: every grain line has a whole number of grains above 0, no more than its pool holds.
+  const grainsOk = grainLines.every(grainLineOk);
+  const cartEmpty = !cart.length && !grainLines.length;
+  const addGrains = (o: { karat: number; weightMg: number; pricePerGram: number | null }) => {
+    if (o.pricePerGram == null) return;
+    setPricesUpdated(false);
+    setGrainLines((g) => (g.some((x) => x.karat === o.karat) ? g : [...g, { karat: o.karat, grainsText: '', pricePerGram: o.pricePerGram!, availableMg: o.weightMg }]));
+    setFocusGrain(o.karat);
+  };
   // SEC-2: a price change is any final line price that differs from the list price.
   const priceChanged = cart.some((l) => l.discount !== 0);
   const priceReasonOk = !priceChanged || priceReason.trim().length >= 3;
@@ -175,6 +191,7 @@ export function PosPage() {
   };
   const reset = () => {
     setCart([]);
+    setGrainLines([]);
     setCustomerName('');
     setCustomerPhone('');
     setPayment('CASH');
@@ -222,6 +239,8 @@ export function PosPage() {
         branchId,
         // PRC-1: the price shown for each piece; the server refuses (409) a price the cashier has not seen.
         items: cart.map((l) => ({ itemId: l.item.id, discount: l.discount, ...(l.item.sellingPrice != null ? { listPrice: l.item.sellingPrice } : {}) })),
+        // WSL-1: the grains and the price shown for each line (the server refuses, 409, a price not seen).
+        ...(grainLines.length ? { scrapLines: grainLines.map((g) => ({ karat: g.karat, grains: grainsOf(g) ?? 0, listPrice: grainPriceOf(g) })) } : {}),
         // PAY-1: one line of the whole total, or two lines (the first part and the rest), each with its references.
         payments: (split ? [{ method: payment, amount: Number(firstAmount) }, { method: second, amount: remainder ?? 0 }] : [{ method: payment, amount: totals.total }]).map((p) => ({ ...p, ...refsOf(p.method) })),
         customerName: customerName || undefined,
@@ -231,11 +250,12 @@ export function PosPage() {
       }, actionKeys.for('sale')),
     onSuccess: (sale) => {
       actionKeys.rotate('sale');
-      toast.success(`${t('Sale completed')} · ${sale.number}`, t('{total}: {n} item(s) sold', { total: money(sale.total), n: sale.items.length }));
+      toast.success(`${t('Sale completed')} · ${sale.number}`, t('{total}: {n} item(s) sold', { total: money(sale.total), n: sale.items.length + (sale.scrapLines?.length ?? 0) }));
       setInvoice(sale);
       if (me?.print.autoPrintAfterSale) void printInvoice(sale.id);
       reset();
       qc.invalidateQueries({ queryKey: ['pos-items'] });
+      qc.invalidateQueries({ queryKey: ['pos-scrap-grains'] });
       qc.invalidateQueries({ queryKey: ['my-sales'] });
     },
     onError: (e) => {
@@ -255,6 +275,10 @@ export function PosPage() {
             return { ...l, item: { ...l.item, sellingPrice: f.listPrice, pricePerGram: f.pricePerGram } };
           }),
         );
+        // WSL-1: the grain lines take the current rate (the grains typed stay as they are).
+        const freshGrains = new Map(((e.details as { scrapLines?: { karat: number; pricePerGram: number }[] } | undefined)?.scrapLines ?? []).map((g) => [g.karat, g.pricePerGram]));
+        setGrainLines((g) => g.map((x) => (freshGrains.has(x.karat) ? { ...x, pricePerGram: freshGrains.get(x.karat)! } : x)));
+        qc.invalidateQueries({ queryKey: ['pos-scrap-grains'] });
         actionKeys.rotate('sale');
         setPricesUpdated(true);
         qc.invalidateQueries({ queryKey: ['pos-items'] });
@@ -262,12 +286,18 @@ export function PosPage() {
       }
       toast.fromError(e, t('Sale not completed'));
       qc.invalidateQueries({ queryKey: ['pos-items'] });
+      // WSL-1: the pool changed meanwhile (SCRAP_POOL_SHORT): the lines take what is available now.
+      if (e instanceof ApiError && e.code === 'SCRAP_POOL_SHORT') {
+        const d = e.details as { karat?: number; balanceMg?: number } | undefined;
+        if (d?.karat != null) setGrainLines((g) => g.map((x) => (x.karat === d.karat ? { ...x, availableMg: d.balanceMg ?? 0 } : x)));
+        qc.invalidateQueries({ queryKey: ['pos-scrap-grains'] });
+      }
     },
   });
 
   const hold = () => {
-    if (!cart.length) return;
-    saveHeld([...held, { id: crypto.randomUUID?.() ?? String(Date.now()), at: new Date().toISOString(), lines: cart, customerName, customerPhone }]);
+    if (cartEmpty) return;
+    saveHeld([...held, { id: crypto.randomUUID?.() ?? String(Date.now()), at: new Date().toISOString(), lines: cart, grains: grainLines, customerName, customerPhone }]);
     reset();
     toast.info(t('Sale held'), t('Find it under “Held sales”.'));
   };
@@ -281,7 +311,7 @@ export function PosPage() {
         <div className="border-b border-line bg-white px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
             {isGlobal && (
-              <Select value={branchId ?? ''} onChange={(e) => { setBranchId(Number(e.target.value)); setCart([]); }} className="w-44" aria-label={t('Branch')} data-testid="pos-branch">
+              <Select value={branchId ?? ''} onChange={(e) => { setBranchId(Number(e.target.value)); setCart([]); setGrainLines([]); }} className="w-44" aria-label={t('Branch')} data-testid="pos-branch">
                 {branches.data?.map((b) => (
                   <option key={b.id} value={b.id}>{L(b.name, b.nameAr)}</option>
                 ))}
@@ -323,6 +353,10 @@ export function PosPage() {
         </div>
 
         <div className="scroll-thin min-h-0 flex-1 overflow-y-auto p-4">
+          {/* WSL-1: one product per karat with broken scrap in this branch's pool. */}
+          {!q && !category && (
+            <GrainCards offers={(grainOffers.data?.rows ?? []).filter((o) => karat === '' || o.karat === karat)} inCart={(k) => grainLines.some((g) => g.karat === k)} onAdd={addGrains} />
+          )}
           {/* UI-A2: before the branch is known (a global user, branches still loading) the POS never says "no pieces"
               (audit bug): it shows the skeleton, the branches' error, or asks for a branch. */}
           {!branchId && branches.data === undefined && branches.isError ? (
@@ -385,10 +419,19 @@ export function PosPage() {
         </div>
 
         <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
-          {cart.length === 0 ? (
+          {cartEmpty ? (
             <Empty icon={<ShoppingBag className="size-5" />} title={t('Cart is empty')} body={t('Scan or click a piece to add it.')} className="h-full" />
           ) : (
             <ul className="divide-y divide-line">
+              {grainLines.map((g) => (
+                <GrainCartLine
+                  key={`grains-${g.karat}`}
+                  line={g}
+                  autoFocus={focusGrain === g.karat}
+                  onChange={(text) => setGrainLines((all) => all.map((x) => (x.karat === g.karat ? { ...x, grainsText: text } : x)))}
+                  onRemove={() => setGrainLines((all) => all.filter((x) => x.karat !== g.karat))}
+                />
+              ))}
               {cart.map((l) => (
                 <li key={l.item.id} className="px-4 py-3">
                   <div className="flex gap-3">
@@ -567,7 +610,7 @@ export function PosPage() {
               <dd className="text-2xl font-semibold tracking-tight num">{money(totals.total)}</dd>
             </div>
           </dl>
-          <Button variant="primary" size="lg" className="mt-3 w-full text-[15px]" disabled={!cart.length || !branchId || !hasadOk || !priceReasonOk || !bankRefOk || !splitOk || !discountsOk} loading={complete.isPending} onClick={() => complete.mutate({})} data-testid="pos-complete">
+          <Button variant="primary" size="lg" className="mt-3 w-full text-[15px]" disabled={cartEmpty || !branchId || !hasadOk || !priceReasonOk || !bankRefOk || !splitOk || !discountsOk || !grainsOk} loading={complete.isPending} onClick={() => complete.mutate({})} data-testid="pos-complete">
             {t('Complete Sale')} <ArrowRight className="size-4 rtl:rotate-180" />
           </Button>
           {canTransfer && (
@@ -662,6 +705,7 @@ export function PosPage() {
                     icon={<PlayCircle className="size-4" />}
                     onClick={() => {
                       setCart(h.lines);
+                      setGrainLines(h.grains ?? []);
                       setCustomerName(h.customerName);
                       setCustomerPhone(h.customerPhone);
                       saveHeld(held.filter((x) => x.id !== h.id));

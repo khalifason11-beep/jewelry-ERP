@@ -871,6 +871,28 @@ export const scrapPurchaseVoids = pgTable('scrap_purchase_voids', {
 });
 
 /**
+ * WSL-1 (D-wsl1-1): grains (حبات) of broken scrap sold at the POS, one row per line of a sale (append-only). 1 grain
+ * = 100 mg; the price is the karat's selling rate × the line's weight, rounded once on the whole line; no cost (the
+ * line counts as a line of unknown cost). Each row has exactly one −weight SCRAP_SALE row in `scrap_weight_entries`
+ * (ref_type sale_scrap_line), and a void adds one +weight REVERSAL row; the line itself never changes.
+ */
+export const saleScrapLines = pgTable(
+  'sale_scrap_lines',
+  {
+    id: serial('id').primaryKey(),
+    saleId: integer('sale_id').notNull().references(() => sales.id),
+    lineNo: smallint('line_no').notNull(),
+    karat: smallint('karat').notNull(),
+    grains: integer('grains').notNull(),
+    weightMg: integer('weight_mg').notNull(),
+    ratePerGram: money('rate_per_gram').notNull(),
+    price: money('price').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('sale_scrap_lines_sale_line_uq').on(t.saleId, t.lineNo), uniqueIndex('sale_scrap_lines_sale_karat_uq').on(t.saleId, t.karat)],
+);
+
+/**
  * Broken-scrap WEIGHT pool per branch (append-only, like ledger_entries). Never a jewelry item.
  * Balance per branch and karat = SUM(weight_mg); the 24K equivalent is derived from the balances.
  */
@@ -880,7 +902,7 @@ export const scrapWeightEntries = pgTable(
     id: serial('id').primaryKey(),
     branchId: integer('branch_id').notNull().references(() => branches.id),
     karat: smallint('karat').notNull(),
-    /** Signed mg, never 0: + bought from a customer, − given to a supplier. */
+    /** Signed mg, never 0: + bought from a customer, − given to a supplier or sold as grains (WSL-1). */
     weightMg: integer('weight_mg').notNull(),
     eventType: text('event_type').notNull(),
     refType: text('ref_type').notNull(),

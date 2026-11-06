@@ -450,6 +450,7 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   // MIS-1: no password in the probe, so an allowed call stops at 403 CONFIRM_PASSWORD_REQUIRED and corrects nothing.
   'POST /purchases/:id/corrections': (f) => ({ path: `/purchases/${f.omdPurchase}/corrections`, body: { field: 'MAKING_CHARGE_REFERENCE', newValue: 'MATRIX PROBE 1', reason: 'matrix probe' } }),
   'GET /scrap-pool': () => ({ path: '/scrap-pool' }),
+  'GET /pos/scrap-grains': () => ({ path: '/pos/scrap-grains' }),
   'POST /purchases/:id/settlements': (f) => ({ path: `/purchases/${f.krtPurchase}/settlements`, body: {} }),
   'GET /dashboard/company': () => ({ path: '/dashboard/company' }),
   'GET /attention': () => ({ path: '/attention' }),
@@ -512,6 +513,7 @@ const CROSS: Record<string, (f: Fixtures) => Req> = {
   'POST /funding/:id/correct': () => ({ path: `/funding/${NONE}/correct`, body: { reason: 'cross-branch probe' } }),
   'POST /scrap-purchases': (f) => ({ path: '/scrap-purchases', body: { branchId: f.omd, kind: 'BROKEN', karat: 21, grossWeightMg: 1000, netWeightMg: 1000, paymentMethod: 'CASH' } }),
   'GET /scrap-pool': (f) => ({ path: '/scrap-pool', query: { branchId: f.omd } }),
+  'GET /pos/scrap-grains': (f) => ({ path: '/pos/scrap-grains', query: { branchId: f.omd } }),
   'GET /scrap-purchases/:id': (f) => ({ path: `/scrap-purchases/${f.omdScrap}` }),
   'POST /scrap-purchases/:id/void': (f) => ({ path: `/scrap-purchases/${f.omdScrap}/void`, body: { reason: 'cross-branch probe' } }),
   'POST /purchases/:id/corrections': (f) => ({ path: `/purchases/${f.omdPurchase}/corrections`, body: { field: 'MAKING_CHARGE_REFERENCE', newValue: 'CROSS PROBE 1', reason: 'cross-branch probe' } }),

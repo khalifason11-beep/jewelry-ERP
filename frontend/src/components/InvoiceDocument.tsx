@@ -43,6 +43,8 @@ export interface SaleDetail {
   paymentRefTransaction?: string | null;
   /** PAY-1: one line per method (amount, references). */
   payments?: PaymentLine[];
+  /** WSL-1: grains of broken scrap sold (no cost on these lines). */
+  scrapLines?: { id: number; lineNo: number; karat: number; grains: number; weightMg: number; ratePerGram: number; price: number }[];
   items: {
     id: number;
     itemId: number;
@@ -70,9 +72,10 @@ export interface SaleDetail {
 export function InvoiceDocument({ sale }: { sale: SaleDetail }) {
   const { t, L, lang } = useI18n();
   const branding = useBranding();
-  const weight = sale.items.reduce((s, i) => s + i.netWeightMg, 0);
-  // PRC-1: the per-gram column appears when a line was priced from a rate.
-  const perGram = sale.items.some((i) => i.priceRatePerGram != null);
+  const grains = sale.scrapLines ?? [];
+  const weight = sale.items.reduce((s, i) => s + i.netWeightMg, 0) + grains.reduce((s, g) => s + g.weightMg, 0);
+  // PRC-1: the per-gram column appears when a line was priced from a rate (a grain line always is, WSL-1).
+  const perGram = sale.items.some((i) => i.priceRatePerGram != null) || grains.length > 0;
   return (
     <div className="mx-auto max-w-[720px] bg-white text-[13px] text-ink-900">
       <div className="flex items-start justify-between border-b-2 border-ink-900 pb-4">
@@ -142,6 +145,21 @@ export function InvoiceDocument({ sale }: { sale: SaleDetail }) {
               <td className="py-2 text-end num">{money(i.listPrice, false)}</td>
               <td className="py-2 text-end num">{i.discount ? `−${money(i.discount, false)}` : '—'}</td>
               <td className="py-2 text-end font-medium num">{money(i.finalPrice, false)}</td>
+            </tr>
+          ))}
+          {/* WSL-1: a grain line: its grains and their grams, at the karat's rate. */}
+          {grains.map((g) => (
+            <tr key={`g${g.id}`} className="border-b border-ink-900/10" data-testid="invoice-grain-line">
+              <td className="py-2">
+                <div className="font-medium">{t('Broken scrap {karat}', { karat: g.karat })}</div>
+                <div className="text-[11px] text-ink-500 num">{t('{n} grain(s) = {weight}', { n: g.grains, weight: grams(g.weightMg) })}</div>
+              </td>
+              <td className="py-2">{karatLabel(g.karat)}</td>
+              <td className="py-2 text-end num">{grams(g.weightMg)}</td>
+              {perGram && <td className="py-2 text-end num">{money(g.ratePerGram, false)}</td>}
+              <td className="py-2 text-end num">{money(g.price, false)}</td>
+              <td className="py-2 text-end num">—</td>
+              <td className="py-2 text-end font-medium num">{money(g.price, false)}</td>
             </tr>
           ))}
         </tbody>

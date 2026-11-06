@@ -281,6 +281,13 @@
       "when": 1793370514506,
       "tag": "0039_opn4_opening_enter",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1793931511868,
+      "tag": "0040_wsl1_scrap_grains",
+      "breakpoints": true
     }
   ]
 }

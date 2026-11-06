@@ -546,7 +546,9 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
         .object({
           branchId: zIdBody.optional(),
           // PRC-1 (D-prc1-4): listPrice = the price the cashier saw; computed prices are checked against it (409).
-          items: z.array(z.object({ itemId: zIdBody, discount: zMoney.optional(), listPrice: zPositiveMoney.optional() }).strict()).min(1).max(50),
+          items: z.array(z.object({ itemId: zIdBody, discount: zMoney.optional(), listPrice: zPositiveMoney.optional() }).strict()).max(50),
+          // WSL-1 (D-wsl1-2): grains of broken scrap, one line per karat; the service refuses an empty cart.
+          scrapLines: z.array(z.object({ karat: z.number().int().min(1).max(24), grains: z.number().int().min(1).max(1_000_000), listPrice: zPositiveMoney }).strict()).max(24).optional(),
           // PAY-1 (D-pay1-1): one or two payment lines (one per method) summing exactly to the total…
           payments: z
             .array(z.object({ method: z.enum(PAYMENT_METHODS), amount: zPositiveMoney, refInvoice: zText(80).min(1).optional(), refTransaction: zText(80).min(1).optional() }).strict())
@@ -570,6 +572,10 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     );
     const sale = await runIdempotent(ctx, req, res, (idem) => sales.createSale(ctx, actorOf(req), body, { idem }));
     res.json(await sales.getSale(ctx, actorOf(req), sale.id));
+  });
+  route('GET', '/pos/scrap-grains', async (req, res) => {
+    const q = parse(z.object({ branchId: zOptId }).strict(), req.query);
+    res.json(await sales.scrapGrainsForPos(ctx, actorOf(req), q));
   });
   route('GET', '/sales', async (req, res) => {
     const q = parse(

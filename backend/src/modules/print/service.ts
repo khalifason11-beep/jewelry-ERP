@@ -81,6 +81,13 @@ export async function printSale(ctx: Ctx, actor: Actor, id: number): Promise<Pri
     .where(eq(t.saleItems.saleId, id))
     .orderBy(t.saleItems.id);
 
+  // WSL-1: the grains of broken scrap sold, after the pieces (no code: they are no piece).
+  const grainLines = await ctx.db
+    .select({ karat: t.saleScrapLines.karat, grains: t.saleScrapLines.grains, weightMg: t.saleScrapLines.weightMg, ratePerGram: t.saleScrapLines.ratePerGram, price: t.saleScrapLines.price })
+    .from(t.saleScrapLines)
+    .where(eq(t.saleScrapLines.saleId, id))
+    .orderBy(t.saleScrapLines.lineNo);
+
   const copy = await ctx.db.transaction(async (tx) => {
     // The original: the cashier who completed the sale, in that same session, once.
     const mayPrintOriginal = !row.originalPrintedAt && row.cashierId === actor.userId && !!actor.sessionId && row.sessionId === actor.sessionId;
@@ -129,7 +136,10 @@ export async function printSale(ctx: Ctx, actor: Actor, id: number): Promise<Pri
       total: row.total,
       paymentMethod: row.paymentMethod,
       payments,
-      lines,
+      lines: [
+        ...lines,
+        ...grainLines.map((g) => ({ code: '', name: 'Broken scrap', nameAr: 'كسر مكسر', karat: g.karat, netWeightMg: g.weightMg, listPrice: g.price, discount: 0, finalPrice: g.price, pricePerGram: g.ratePerGram, grains: g.grains })),
+      ],
     },
     copy,
   );

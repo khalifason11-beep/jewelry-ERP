@@ -132,6 +132,8 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   },
   // PAY-1: how a sale was paid (method, amount, references), like the sale's own payment columns: SAFE.
   sale_payments: { safe: words('id sale_id line_no method amount ref_invoice ref_transaction created_at') },
+  // WSL-1: grains of broken scrap sold; no cost is recorded (prices only).
+  sale_scrap_lines: { safe: words('id sale_id line_no karat grains weight_mg rate_per_gram price created_at') },
 };
 
 /** Response field names that carry cost, acquisition cost, margin or profit. */
@@ -176,6 +178,7 @@ export const COST_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
 export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
   words(`
     used pricing roundingStep rateKind priceMissing pricingMode
+    scrapLines grains price
     sealedAt lineCount importId duplicate fileName byType imports lineNo source pieces firstCode lastCode errors errorCount column
     condition byKaratCondition openingId
     scrap scrapLines scrapCorrections scrapNow scrapWeightMg weightMgChange changes removedLineNo

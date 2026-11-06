@@ -172,6 +172,8 @@ edited in the app.
   movement is logged. A piece comes from opening stock, a supplier, or sellable scrap bought from a customer.
 - **Broken scrap** is not an item. It is weight added to the branch's scrap pool, and it counts in the branch's total
   stock weight. It enters the pool when bought from a customer, or with the branch's sealed opening balance (OPN-3).
+  It leaves it to settle a supplier, or sold at the POS by the grain (حبات, WSL-1: 1 grain = 0.1 g, at the karat's
+  selling rate per gram, no cost).
 - **Supplier orders are gold for gold.** The supplier is owed the order's weight as pure 24K gold. A manager settles
   that debt with broken scrap from the pool only, in as many partial visits as needed.
 - Recording a new order for a supplier who is still owed gold triggers a warning (`SUPPLIER_GOLD_OWED`) with the

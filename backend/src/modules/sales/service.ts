@@ -1,4 +1,4 @@
-import { ap, goldValue, MAX_SALE_PAYMENTS, paymentsSum, roundMoney, salePaymentLabel, sumInt, validBankReference } from '@jerp/shared';
+import { ap, goldValue, grainLinePrice, grainsIn, grainsToMg, MAX_SALE_PAYMENTS, paymentsSum, roundMoney, salePaymentLabel, sumInt, validBankReference } from '@jerp/shared';
 import { and, desc, eq, gte, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { t } from '@jerp/database';
 import type { LedgerAccountKind, PaymentMethod, SalePaymentLine } from '@jerp/shared';
@@ -14,7 +14,8 @@ import { accountKindFor, lockDrawerFor, post, reverseRef, type LedgerLine } from
 import type { TxIdempotency } from '../../core/idempotency';
 import { allowedKarats } from '../../core/karats';
 import { maxIdOf, runPaged, sumOf, type PageRequest, type SortSpec } from '../../core/paging';
-import { currentSellingRates, lockPricingShared, priceOf, type CurrentRate, type Pricing } from '../pricing/service';
+import { currentSellingRates, lockPricingShared, priceOf, rateKey, type CurrentRate, type Pricing } from '../pricing/service';
+import { lockPool, poolBalances, postWeight } from '../scrap/service';
 
 export interface CreateSaleInput {
   branchId?: number;
@@ -23,6 +24,12 @@ export interface CreateSaleInput {
    * confirmation; any difference (a rate changed since) answers 409 PRICES_CHANGED with the new prices (D-prc1-4).
    */
   items: { itemId: number; discount?: number; listPrice?: number }[];
+  /**
+   * WSL-1 (D-wsl1-2): grains (حبات) of broken scrap from the branch's pool, one line per karat: a whole number of grains
+   * (1 grain = 100 mg) and `listPrice`, the price the cashier saw (the karat's selling rate × the line's weight, rounded
+   * once). A different price answers 409 PRICES_CHANGED; more than the pool holds, 409 SCRAP_POOL_SHORT. No discount.
+   */
+  scrapLines?: { karat: number; grains: number; listPrice: number }[];
   /**
    * PAY-1 (D-pay1-1): one or two payment lines, one per method, summing exactly to the total (422
    * PAYMENT_TOTAL_MISMATCH otherwise). Each line carries its own references (as below).
@@ -94,9 +101,15 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
   requirePerm(actor, 'sales.create');
   const branchId = branchScope(actor, input.branchId);
   if (branchId == null) throw badRequest('Select the branch the sale is made in');
-  if (!input.items.length) throw badRequest('The cart is empty');
+  const scrapIn = input.scrapLines ?? [];
+  if (!input.items.length && !scrapIn.length) throw badRequest('The cart is empty');
   const ids = input.items.map((i) => i.itemId);
   if (new Set(ids).size !== ids.length) throw badRequest('The same item appears twice in the cart');
+  for (const l of scrapIn) {
+    if (!Number.isInteger(l.karat) || l.karat < 1 || l.karat > 24) throw badRequest('A karat must be a whole number from 1 to 24');
+    if (!Number.isSafeInteger(l.grains) || l.grains <= 0) throw badRequest('Enter a whole number of grains above 0');
+  }
+  if (new Set(scrapIn.map((l) => l.karat)).size !== scrapIn.length) throw badRequest('The same karat of broken scrap appears twice in the cart');
 
   const settings = await ctx.settings.get();
   const payments = paymentLines(input, settings.sales.posPaymentMethods);
@@ -113,13 +126,13 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
     // PRC-1 (D-prc1-5): the shared pricing lock, before the rates are read: a rate change waits for this sale, or this
     // sale waits for the rate change and is priced at the new rate.
     await lockPricingShared(tx);
-    const rates = pricing.mode === 'RATE_COMPUTED' ? await currentSellingRates(tx) : new Map<string, CurrentRate>();
-    const locked = await lockItems(tx, ids);
+    const rates = pricing.mode === 'RATE_COMPUTED' || scrapIn.length ? await currentSellingRates(tx) : new Map<string, CurrentRate>();
+    const locked = ids.length ? await lockItems(tx, ids) : [];
     const byId = new Map(locked.map((i) => [i.id, i]));
     const [branch] = await tx.select().from(t.branches).where(eq(t.branches.id, branchId));
     // CAT-1 (D-cat0-3): the names as they are at the sale (product optional, the piece's own type, its description), so a
     // later rename never rewrites the invoice. The English product name is optional (CAT-0): fall back to Arabic.
-    const names = await tx
+    const names = !ids.length ? [] : await tx
       .select({ itemId: t.jewelryItems.id, productName: t.products.name, productNameAr: t.products.nameAr, categoryName: t.categories.name, categoryNameAr: t.categories.nameAr })
       .from(t.jewelryItems)
       .leftJoin(t.products, eq(t.products.id, t.jewelryItems.productId))
@@ -146,12 +159,33 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       }
       return { line, item, listPrice: price.sellingPrice, ratePerGram: price.pricePerGram };
     });
+    // WSL-1 (D-wsl1-2): a grain line is priced at its karat's selling rate (the NEW-piece rate, whatever the pricing
+    // mode) on the whole line's weight, rounded once. No rate: refused, as a piece without one.
+    const scrapPriced = scrapIn.map((line) => {
+      const rate = rates.get(rateKey(line.karat, 'NEW'))?.pricePerGram ?? null;
+      if (rate == null) throw new AppError(400, 'NO_PRICE', 'No selling rate for {karat}K: broken scrap of this karat cannot be sold until the General Manager sets it', { karat: line.karat });
+      const weightMg = grainsToMg(line.grains);
+      return { line, weightMg, ratePerGram: rate, price: grainLinePrice(line.grains, rate) };
+    });
     // PRC-1 (D-prc1-4): never charge a price the cashier has not seen. A difference from the price shown (or no price
     // sent) refuses the whole sale with every line's current price; the POS shows them and the cashier confirms again.
-    if (pricing.mode === 'RATE_COMPUTED' && priced.some((p) => p.line.listPrice !== p.listPrice)) {
+    // WSL-1: a grain line always carries the price shown, whatever the pricing mode.
+    if ((pricing.mode === 'RATE_COMPUTED' && priced.some((p) => p.line.listPrice !== p.listPrice)) || scrapPriced.some((p) => p.line.listPrice !== p.price)) {
       throw new AppError(409, 'PRICES_CHANGED', 'Rates changed: the prices were updated. Check the cart and confirm again.', {}, {
         lines: priced.map((p) => ({ itemId: p.item.id, code: p.item.code, listPrice: p.listPrice, pricePerGram: p.ratePerGram })),
+        scrapLines: scrapPriced.map((p) => ({ karat: p.line.karat, grains: p.line.grains, listPrice: p.price, pricePerGram: p.ratePerGram })),
       });
+    }
+    // WSL-1 (D-wsl1-3): the branch's pool, under its lock (as a settlement or a scrap purchase): the balance of each
+    // karat is read again here and must hold the line's weight. The pool never goes below zero.
+    if (scrapPriced.length) {
+      await lockPool(tx, branchId);
+      for (const p of scrapPriced) {
+        const balance = (await poolBalances(tx, branchId, p.line.karat))[0]?.weightMg ?? 0;
+        if (balance < p.weightMg) {
+          throw new AppError(409, 'SCRAP_POOL_SHORT', 'The {karat}K scrap pool of this branch holds {balanceMg} mg; this sale takes {weightMg} mg out of it', { karat: p.line.karat, balanceMg: balance, weightMg: p.weightMg }, { karat: p.line.karat, balanceMg: balance, neededMg: p.weightMg });
+        }
+      }
     }
     const lines = priced.map(({ line, item, listPrice, ratePerGram }) => {
       const discount = roundMoney(line.discount ?? 0);
@@ -170,7 +204,7 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
     }
     if (priceChangeReason.length > PRICE_CHANGE_REASON_MAX) throw badRequest('The reason for the price change is too long');
 
-    const subtotal = sumInt(lines.map((l) => l.listPrice));
+    const subtotal = sumInt([...lines.map((l) => l.listPrice), ...scrapPriced.map((p) => p.price)]);
     const discountTotal = lines.reduce((s, l) => s + l.discount, 0);
     const total = subtotal - discountTotal;
     // PAY-1: the payment lines sum EXACTLY to the total (the single-method shape is one line of the whole total).
@@ -203,7 +237,8 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
     // OPN-1 (§6): a piece of unknown cost (an opening piece) sells with NULL cost and profit; the sale's cost total
     // sums the known lines only and counts the others. Never 0.
     const costTotal = lines.reduce((s, l) => s + (l.item.acquisitionCost ?? 0), 0);
-    const unknownCostLines = lines.filter((l) => l.item.acquisitionCost == null).length;
+    // WSL-1: a grain line has no cost (D-wsl1-2): it counts as a line of unknown cost, so no profit is ever made up.
+    const unknownCostLines = lines.filter((l) => l.item.acquisitionCost == null).length + scrapPriced.length;
     const number = await nextNumber(tx, branch.code, 'INV');
 
     const [sale] = await tx
@@ -254,6 +289,18 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       await changeStatus(tx, { item: l.item, to: 'SOLD', from: ['AVAILABLE'], userId: actor.userId, ref, at });
       await recordMovement(tx, { item: l.item, type: 'SALE', branchId, ref, userId: actor.userId, at });
     }
+    // WSL-1 (D-wsl1-3): each grain line, then exactly one −weight SCRAP_SALE movement of the pool linked to it.
+    for (const [i, p] of scrapPriced.entries()) {
+      const [row] = await tx
+        .insert(t.saleScrapLines)
+        .values({ saleId: sale.id, lineNo: i + 1, karat: p.line.karat, grains: p.line.grains, weightMg: p.weightMg, ratePerGram: p.ratePerGram, price: p.price, createdAt: at })
+        .returning({ id: t.saleScrapLines.id });
+      await postWeight(
+        tx,
+        { branchId, karat: p.line.karat, weightMg: -p.weightMg, eventType: 'SCRAP_SALE', ref: { refType: 'sale_scrap_line', refId: row.id, refNumber: number }, at },
+        { actor, idempotencyKey: opts.idem?.key },
+      );
+    }
 
     await writeAudit(tx, actor, {
       action: 'SALE_CREATED',
@@ -262,9 +309,10 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
       branchId,
       at,
       key: 'Sale {number}: {n} item(s), total {total} ({payment})',
-      params: { number, n: lines.length, total: ap.money(total), payment: paid.length === 1 ? ap.enum(paid[0].method) : ap.list(paid.map((p) => ap.enum(p.method))) },
+      params: { number, n: lines.length + scrapPriced.length, total: ap.money(total), payment: paid.length === 1 ? ap.enum(paid[0].method) : ap.list(paid.map((p) => ap.enum(p.method))) },
       metadata: {
         items: lines.map((l) => l.item.code),
+        ...(scrapPriced.length ? { scrapLines: scrapPriced.map((p) => ({ karat: p.line.karat, grains: p.line.grains, weightMg: p.weightMg, ratePerGram: p.ratePerGram, price: p.price })) } : {}),
         total,
         discountTotal,
         payments: paid.map((p) => ({ method: p.method, amount: p.amount, ...(p.refInvoice ? { refInvoice: p.refInvoice } : {}), ...(p.refTransaction ? { refTransaction: p.refTransaction } : {}) })),
@@ -298,6 +346,24 @@ export async function createSale(ctx: Ctx, actor: Actor, input: CreateSaleInput,
     await opts.idem?.complete(tx, created);
     return created;
   });
+}
+
+/**
+ * WSL-1 (D-wsl1-5): what the POS offers as grains in the branch: one row per karat that has weight in the broken-scrap
+ * pool, with the whole grains it holds and the karat's selling rate (null = no rate: shown, not sellable). Everyone who
+ * may sell may read it, for the own branch only.
+ */
+export async function scrapGrainsForPos(ctx: Ctx, actor: Actor, q: { branchId?: number }) {
+  requirePerm(actor, 'sales.create');
+  const branchId = branchScope(actor, q.branchId);
+  if (branchId == null) throw badRequest('Select the branch the sale is made in');
+  const [balances, rates] = await Promise.all([poolBalances(ctx.db, branchId), currentSellingRates(ctx.db)]);
+  return {
+    branchId,
+    rows: balances
+      .filter((b) => b.weightMg > 0)
+      .map((b) => ({ karat: b.karat, weightMg: b.weightMg, grains: grainsIn(b.weightMg), pricePerGram: rates.get(rateKey(b.karat, 'NEW'))?.pricePerGram ?? null })),
+  };
 }
 
 export interface SaleQuery {
@@ -456,8 +522,15 @@ export async function salesReportAggregates(ctx: Ctx, actor: Actor, q: SaleQuery
       .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
       .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
       .where(done);
+    const [grains] = await db
+      .select(grainLineTotals)
+      .from(t.saleScrapLines)
+      .innerJoin(t.sales, eq(t.sales.id, t.saleScrapLines.saleId))
+      .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+      .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+      .where(done);
     const totals: Record<string, number | null> = { itemCount: lines.itemCount, weightMg: lines.weightMg, discountTotal: money.discountTotal, total: money.total };
-    if (can(actor, 'profit.view')) Object.assign(totals, profitTotals(money.total, money.costTotal, lines));
+    if (can(actor, 'profit.view')) Object.assign(totals, profitTotals(money.total, money.costTotal, lines, grains));
     return { rowCount: n, totals, byChannel: new Map(channels.map((c) => [c.method, c.total])), splitCount: money.splitCount };
   }, { isolationLevel: 'repeatable read', accessMode: 'read only' });
 }
@@ -474,10 +547,19 @@ const saleLineTotals = {
  * OPN-1 (§6): cost and gross profit over the lines of KNOWN cost, with the count of lines left out. Gross profit is
  * NULL when no line has a known cost (an empty result keeps 0).
  */
-function profitTotals(total: number, costTotal: number, lines: { itemCount: number; unknownCostLines: number; unknownRevenue: number }) {
-  const noneKnown = lines.itemCount > 0 && lines.unknownCostLines === lines.itemCount;
-  return { costTotal, grossProfit: noneKnown ? null : total - lines.unknownRevenue - costTotal, unknownCostLines: lines.unknownCostLines };
+function profitTotals(total: number, costTotal: number, lines: { itemCount: number; unknownCostLines: number; unknownRevenue: number }, grains: { lines: number; revenue: number } = { lines: 0, revenue: 0 }) {
+  // WSL-1: grain lines have no cost: their revenue is left out of the profit and they count as lines of unknown cost.
+  const all = lines.itemCount + grains.lines;
+  const unknown = lines.unknownCostLines + grains.lines;
+  const noneKnown = all > 0 && unknown === all;
+  return { costTotal, grossProfit: noneKnown ? null : total - lines.unknownRevenue - grains.revenue - costTotal, unknownCostLines: unknown };
 }
+
+/** WSL-1: the grain lines of the completed sales behind a footer (count and revenue). */
+const grainLineTotals = {
+  lines: sql<number>`count(*)`.mapWith(Number),
+  revenue: sumOf(t.saleScrapLines.price),
+};
 
 export const SALE_SORT_KEYS = ['date', 'number', 'branch', 'cashier', 'total', 'grossProfit'] as const;
 export type SaleSortKey = (typeof SALE_SORT_KEYS)[number];
@@ -553,8 +635,15 @@ export async function pageSales(ctx: Ctx, actor: Actor, q: SaleQuery & PageReque
         .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
         .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
         .where(done);
+      const [grains] = await ctx.db
+        .select(grainLineTotals)
+        .from(t.saleScrapLines)
+        .innerJoin(t.sales, eq(t.sales.id, t.saleScrapLines.saleId))
+        .innerJoin(t.branches, eq(t.branches.id, t.sales.branchId))
+        .innerJoin(t.users, eq(t.users.id, t.sales.cashierId))
+        .where(done);
       const out: Record<string, number | null> = { sales: s.count, itemCount: lines.itemCount, weightMg: lines.weightMg, total: s.total };
-      return can(actor, 'profit.view') ? { ...out, ...profitTotals(s.total, s.costTotal, lines) } : out;
+      return can(actor, 'profit.view') ? { ...out, ...profitTotals(s.total, s.costTotal, lines, grains) } : out;
     },
   });
 }
@@ -616,6 +705,13 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
     .leftJoin(t.purchaseItems, eq(t.purchaseItems.itemId, t.jewelryItems.id))
     .where(eq(t.saleItems.saleId, id));
 
+  // WSL-1: the grains sold on the sale (no cost: nothing GM-only on these lines).
+  const scrapLines = await ctx.db
+    .select({ id: t.saleScrapLines.id, lineNo: t.saleScrapLines.lineNo, karat: t.saleScrapLines.karat, grains: t.saleScrapLines.grains, weightMg: t.saleScrapLines.weightMg, ratePerGram: t.saleScrapLines.ratePerGram, price: t.saleScrapLines.price })
+    .from(t.saleScrapLines)
+    .where(eq(t.saleScrapLines.saleId, id))
+    .orderBy(t.saleScrapLines.lineNo);
+
   let voidedByName: string | null = null;
   if (sale.sale.voidedBy) {
     const [u] = await ctx.db.select({ n: t.users.fullName }).from(t.users).where(eq(t.users.id, sale.sale.voidedBy));
@@ -642,6 +738,7 @@ export async function getSale(ctx: Ctx, actor: Actor, id: number) {
     cashierNameAr: sale.cashierNameAr,
     cashierUsername: sale.cashierUsername,
     voidedByName,
+    scrapLines,
     items: items.map((i) => {
       if (showProfit) return i;
       const { unitCost: _u, acquisitionCost: _a, profit: _pr, purchaseCost: _p, makingCost: _m, otherCost: _o, ...rest } = i;
@@ -682,8 +779,12 @@ export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: strin
     const lines = await tx.select().from(t.saleItems).where(eq(t.saleItems.saleId, id));
     // PAY-1: the sale's payment lines (append-only; never changed by a void).
     const payments = await salePaymentsOf(tx, [sale.id]).then((m) => m.get(sale.id) ?? []);
-    const items = await lockItems(tx, lines.map((l) => l.itemId));
+    const items = lines.length ? await lockItems(tx, lines.map((l) => l.itemId)) : [];
     const ref = { refType: 'sale', refId: sale.id, refNumber: sale.number };
+    // WSL-1 (D-wsl1-4): the grains go back into the pool of their karat, under the pool's lock (before the drawer's, as a
+    // scrap purchase takes them): one +weight REVERSAL per grain line.
+    const scrapLines = await tx.select().from(t.saleScrapLines).where(eq(t.saleScrapLines.saleId, id)).orderBy(t.saleScrapLines.lineNo);
+    if (scrapLines.length) await lockPool(tx, sale.branchId);
     // CSH-2 (Q7): a cash refund leaves the drawer, so the drawer must hold it (BLOCK, under its lock). The refund is the
     // sale's own CASH entries (a sale recorded before the ledger: its cash payment line).
     const [{ cashRefund }] = rows<{ cashRefund: string | number }>(
@@ -696,6 +797,13 @@ export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: strin
     for (const item of items) {
       await changeStatus(tx, { item, to: 'AVAILABLE', from: ['SOLD'], userId: actor.userId, ref, note: `Sale cancelled: ${reason}`, at });
       await recordMovement(tx, { item, type: 'RETURN', branchId: sale.branchId, ref, userId: actor.userId, note: reason, at });
+    }
+    for (const l of scrapLines) {
+      await postWeight(
+        tx,
+        { branchId: sale.branchId, karat: l.karat, weightMg: l.weightMg, eventType: 'REVERSAL', ref: { refType: 'sale_scrap_line', refId: l.id, refNumber: sale.number }, note: `Sale cancelled: ${reason}`, at },
+        { actor, idempotencyKey: opts.idem?.key },
+      );
     }
     await tx
       .update(t.sales)
@@ -712,6 +820,7 @@ export async function voidSale(ctx: Ctx, actor: Actor, id: number, reason: strin
       metadata: {
         reason,
         items: items.map((i) => i.code),
+        ...(scrapLines.length ? { scrapLines: scrapLines.map((l) => ({ karat: l.karat, grains: l.grains, weightMg: l.weightMg })) } : {}),
         payments: payments.map((p) => ({ method: p.method, amount: p.amount })),
         ...(bankReferenceOf(payments) ? { bankReference: bankReferenceOf(payments) } : {}),
         ...(opts.reauth ? { reauthenticated: true, reauthAboveAmount: opts.reauth.threshold } : {}),
