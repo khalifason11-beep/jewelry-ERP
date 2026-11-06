@@ -206,9 +206,11 @@ async function sweepBranchManager(page, world) {
   await sweep(page, 'Scrap purchase (broken scrap)');
   await page.goto(`${BASE}/pos`);
   await page.getByTestId('pos-product').first().click({ timeout: 15_000 });
+  // WSL-1: a grain line of broken scrap (the world holds 21K broken scrap) joins the sweep with its grains field.
+  if (await page.getByTestId('pos-grains-21').count()) await page.click('[data-testid=pos-grains-21]');
   await page.click('[data-testid=pos-split-on]', { timeout: 15_000 });
   await page.getByTestId('split-first-amount').waitFor();
-  await sweep(page, `Point of sale (split payment${(await page.getByTestId('pos-discount').count()) ? ', discount' : ''})`);
+  await sweep(page, `Point of sale (split payment${(await page.getByTestId('pos-discount').count()) ? ', discount' : ''}${(await page.getByTestId('pos-grains-qty-21').count()) ? ', grains' : ''})`);
   await page.goto(`${BASE}/cash`);
   await page.getByTestId('cash-count-amount').waitFor({ timeout: 15_000 });
   await sweep(page, 'Cash (the count)');

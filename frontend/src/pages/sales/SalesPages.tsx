@@ -293,6 +293,28 @@ export function SaleDetailPage() {
                     )}
                   </tr>
                 ))}
+                {/* WSL-1: grains of broken scrap: no piece, no cost (a line of unknown cost). */}
+                {(s.scrapLines ?? []).map((g) => (
+                  <tr key={`g${g.id}`} data-testid="sale-grain-line">
+                    <td className="px-5 py-2.5">
+                      <div className="font-medium text-ink-900">{t('Broken scrap {karat}', { karat: g.karat })}</div>
+                      <div className="text-[11px] text-ink-500 num">{karatLabel(g.karat)} · {t('{n} grain(s) = {weight}', { n: g.grains, weight: grams(g.weightMg) })}</div>
+                    </td>
+                    <td className="px-3 py-2.5 text-end num">{grams(g.weightMg)}</td>
+                    <td className="px-3 py-2.5 text-end num">{money(g.ratePerGram, false)}</td>
+                    <td className="px-3 py-2.5 text-end num">{money(g.price, false)}</td>
+                    <td className="px-3 py-2.5 text-end num">—</td>
+                    <td className="px-3 py-2.5 text-end font-medium num">{money(g.price, false)}</td>
+                    {profit && (
+                      <>
+                        <td className="px-3 py-2.5 text-end text-ink-600 num">—</td>
+                        <td className="px-3 py-2.5 text-end text-ink-600 num">—</td>
+                        <td className="px-3 py-2.5 text-end num">—</td>
+                        <td className="px-5 py-2.5 text-end num">—</td>
+                      </>
+                    )}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

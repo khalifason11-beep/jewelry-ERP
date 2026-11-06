@@ -145,9 +145,16 @@ export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: P
             <div key={i} className="pd-line">
               <div className="pd-strong">{L(l.name, l.nameAr)}</div>
               <div className="pd-row pd-muted">
-                <span>
+                {/* WSL-1: a grain line has no code: its grains and their grams. */}
+                {l.grains != null ? (
+                  <span data-testid="print-grain-line">
+                    <span className="pd-nowrap">{karatLabel(l.karat)}</span> · <span className="pd-num">{t('{n} grain(s) = {weight}', { n: l.grains, weight: grams(l.netWeightMg) })}</span>
+                  </span>
+                ) : (
+                  <span>
                     <span className="pd-mono">{l.code}</span> · <span className="pd-nowrap">{karatLabel(l.karat)}</span> · <span className="pd-num">{grams(l.netWeightMg)}</span>
-                </span>
+                  </span>
+                )}
                 <Amount value={l.listPrice} currency={false} />
               </div>
               {/* PRC-1: the rate per gram the piece was sold at (computed prices; none on a fixed-price line). */}
@@ -177,7 +184,14 @@ export function InvoicePrint({ doc, layout }: { doc: InvoicePrintData; layout: P
                 <td>
                   <span className="pd-mono">{l.code}</span>
                 </td>
-                <td>{L(l.name, l.nameAr)}</td>
+                <td>
+                  {L(l.name, l.nameAr)}
+                  {l.grains != null && (
+                    <div className="pd-muted" data-testid="print-grain-line">
+                      <span className="pd-num">{t('{n} grain(s) = {weight}', { n: l.grains, weight: grams(l.netWeightMg) })}</span>
+                    </div>
+                  )}
+                </td>
                 <td className="pd-nowrap">{karatLabel(l.karat)}</td>
                 <td className="pd-end">
                   <span className="pd-num">{grams(l.netWeightMg)}</span>
