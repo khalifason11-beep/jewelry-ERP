@@ -791,6 +791,12 @@ export const AR: Record<string, string> = {
   "Select the branch the sale is made in": "اختر الفرع الذي تتم فيه عملية البيع",
   "The cart is empty": "السلة فارغة",
   "The same item appears twice in the cart": "القطعة نفسها مكررة في السلة",
+  // WSL-1: grains of broken scrap at the POS
+  "A karat must be a whole number from 1 to 24": "العيار رقم صحيح من 1 إلى 24",
+  "Enter a whole number of grains above 0": "أدخل عدد حبات صحيحاً أكبر من 0",
+  "The same karat of broken scrap appears twice in the cart": "كسر العيار نفسه مكرر في السلة",
+  "No selling rate for {karat}K: broken scrap of this karat cannot be sold until the General Manager sets it": "لا يوجد سعر بيع لعيار {karat}: لا يمكن بيع كسر هذا العيار حتى يحدده المدير العام",
+  "The {karat}K scrap pool of this branch holds {balanceMg} mg; this sale takes {weightMg} mg out of it": "رصيد كسر عيار {karat} في هذا الفرع {balanceMg} ملغم؛ وهذا البيع يُخرج منه {weightMg} ملغم",
   "You are not allowed to give discounts": "غير مسموح لك بمنح خصومات",
   "Item {code} does not belong to this branch": "القطعة {code} لا تتبع هذا الفرع",
   "Item {code} is {status} and cannot be sold": "القطعة {code} حالتها {status} ولا يمكن بيعها",

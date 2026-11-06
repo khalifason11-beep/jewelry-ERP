@@ -48,7 +48,7 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
 
   // UI-B (D-ui-21): grouped queries only. The pieces and weight sold come from one join of the period's sales with
   // their lines (it used to be a sub-query per sale, 16 s on 60,000 sales).
-  const [branchesR, salesR, linesR, purchR, invR] = await Promise.all([
+  const [branchesR, salesR, linesR, purchR, invR, grainsR] = await Promise.all([
     exec.execute(sql`SELECT id FROM branches WHERE is_active ${bFilter('id')} ORDER BY id`),
     exec.execute(sql`
       SELECT s.branch_id,
@@ -81,6 +81,12 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
       FROM jewelry_items
       WHERE true ${bFilter('branch_id')}
       GROUP BY branch_id`),
+    // WSL-1: grains sold have no cost: their revenue is left out of the profit; they count as lines of unknown cost.
+    exec.execute(sql`
+      SELECT s.branch_id, count(*) AS lines, coalesce(sum(l.price),0) AS revenue
+      FROM sales s JOIN sale_scrap_lines l ON l.sale_id = s.id
+      WHERE s.status = 'COMPLETED' AND s.created_at >= ${iso(p.start)} AND s.created_at < ${iso(p.end)} ${bFilter('s.branch_id')}
+      GROUP BY s.branch_id`),
   ]);
 
   const out = new Map<number, BranchMetrics>();
@@ -110,10 +116,17 @@ export async function branchMetrics(exec: Executor, p: Period, branchId: number 
     m.availableItems = num(r.available); m.availableWeightMg = num(r.weight);
     m.inventoryCost = num(r.cost); m.unknownCostPieces = num(r.unknown_pieces); m.inventoryRetail = num(r.retail);
   }
+  const grainLines = new Map<number, number>();
+  for (const r of rows<Record<string, unknown>>(grainsR)) {
+    const m = get(r.branch_id); if (!m) continue;
+    grainLines.set(m.branchId, num(r.lines));
+    m.unknownCostLines += num(r.lines); m.knownCostRevenue -= num(r.revenue);
+  }
   for (const m of out.values()) {
     // knownCostRevenue held −(revenue of the unknown lines) until the sales row was read.
     m.knownCostRevenue += m.revenue;
-    m.grossProfit = m.itemsSold > 0 && m.unknownCostLines === m.itemsSold ? null : m.knownCostRevenue - m.costOfSales;
+    const all = m.itemsSold + (grainLines.get(m.branchId) ?? 0);
+    m.grossProfit = all > 0 && m.unknownCostLines === all ? null : m.knownCostRevenue - m.costOfSales;
   }
   return out;
 }

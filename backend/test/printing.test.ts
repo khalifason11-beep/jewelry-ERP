@@ -75,7 +75,7 @@ describe('print data builder', () => {
     const d = buildInvoicePrintData(SAMPLE);
     expect(d).toMatchObject({ kind: 'INVOICE', number: 'KRT-S-000123', netWeightMg: 5_250, total: 950_000, payments: [{ method: 'HASAD', amount: 950_000, invoiceRef: 'HSD-INV-1', transactionRef: 'HTX-1' }], copy: null });
     // PRC-1: a tag-priced line prints no rate per gram (null); a computed line prints the rate it was charged at.
-    expect(d.lines[0]).toEqual({ code: 'R21-0001', name: SAMPLE.lines[0].name, nameAr: 'خاتم', karat: 21, netWeightMg: 5_250, listPrice: 1_000_000, discount: 50_000, finalPrice: 950_000, pricePerGram: null });
+    expect(d.lines[0]).toEqual({ code: 'R21-0001', name: SAMPLE.lines[0].name, nameAr: 'خاتم', karat: 21, netWeightMg: 5_250, listPrice: 1_000_000, discount: 50_000, finalPrice: 950_000, pricePerGram: null, grains: null });
     expect(buildInvoicePrintData({ ...SAMPLE, lines: [{ ...SAMPLE.lines[0], pricePerGram: 190_000 }] }).lines[0].pricePerGram).toBe(190_000);
     const split = buildInvoicePrintData({ ...SAMPLE, paymentMethod: 'SPLIT', payments: [{ method: 'CASH', amount: 450_000, refInvoice: null, refTransaction: null }, { method: 'BANK_TRANSFER', amount: 500_000, refInvoice: null, refTransaction: 'TRF-1' }] });
     expect(split.payments).toEqual([{ method: 'CASH', amount: 450_000, invoiceRef: null, transactionRef: null }, { method: 'BANK_TRANSFER', amount: 500_000, invoiceRef: null, transactionRef: 'TRF-1' }]);

@@ -341,7 +341,12 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
                  coalesce(sum(si.discount),0) AS discounts, coalesce(sum(si.unit_cost),0) AS cost,
                  sum(si.profit) AS profit, count(*) FILTER (WHERE si.unit_cost IS NULL) AS unknown_lines,
                  coalesce(sum(si.final_price) FILTER (WHERE si.unit_cost IS NOT NULL),0) AS known_revenue
-          FROM sale_items si JOIN sales s ON s.id = si.sale_id
+          FROM (
+            SELECT sale_id, category_name, category_name_ar, karat, final_price, discount, unit_cost, profit FROM sale_items
+            UNION ALL
+            -- WSL-1: grains of broken scrap sold, a line of their karat under the type "Broken scrap", of unknown cost.
+            SELECT sale_id, 'Broken scrap', 'كسر مكسر', karat, price, 0, NULL, NULL FROM sale_scrap_lines
+          ) si JOIN sales s ON s.id = si.sale_id
           JOIN users u ON u.id = s.cashier_id
           WHERE s.status = 'COMPLETED' AND s.created_at >= ${iso(period.start)} AND s.created_at < ${iso(period.end)}
           ${scope != null ? sql`AND s.branch_id = ${scope}` : sql``}

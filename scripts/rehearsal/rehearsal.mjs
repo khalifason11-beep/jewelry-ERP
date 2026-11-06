@@ -1296,6 +1296,31 @@ async function main() {
       );
     }
 
+    section('WSL-1: grains (حبات) of broken scrap sold at the POS (API)');
+    {
+      // The branch manager buys 1.250 g of 21K broken scrap (bank transfer: no drawer needed), then sells grains of it.
+      const buy = await apiSend(page, 'POST', '/api/scrap-purchases', { kind: 'BROKEN', karat: 21, grossWeightMg: 1_250, netWeightMg: 1_250, paymentMethod: 'BANK_TRANSFER', bankReference: 'WSL-REH-1' });
+      check(buy.status === 200, `the branch manager buys 1.250 g of 21K broken scrap for the grains (${buy.status})`);
+      const offer = async () => (await apiGet(page, '/api/pos/scrap-grains')).body.rows.find((r) => r.karat === 21);
+      const o1 = await offer();
+      check(o1 && o1.weightMg >= 1_250 && o1.grains === Math.floor(o1.weightMg / 100) && o1.pricePerGram > 0, `GET /api/pos/scrap-grains: 21K holds ${o1?.weightMg} mg = ${o1?.grains} grains at ${o1?.pricePerGram} per gram`);
+      // A price the cashier did not see is refused with the current one (whole line: 3 grains = 300 mg).
+      const seen = await apiSend(page, 'POST', '/api/sales', { items: [], scrapLines: [{ karat: 21, grains: 3, listPrice: 1 }], paymentMethod: 'CASH' });
+      const price = seen.body?.error?.details?.scrapLines?.[0]?.listPrice;
+      check(seen.status === 409 && seen.body.error.code === 'PRICES_CHANGED' && price === Math.round((300 * o1.pricePerGram) / 1000), `a grain line at a price not shown: 409 PRICES_CHANGED with the price of 3 grains (${price})`);
+      const sold = await apiSend(page, 'POST', '/api/sales', { items: [], scrapLines: [{ karat: 21, grains: 3, listPrice: price }], paymentMethod: 'CASH' });
+      const o2 = await offer();
+      check(
+        sold.status === 200 && sold.body.total === price && sold.body.scrapLines?.[0]?.grains === 3 && sold.body.scrapLines[0].weightMg === 300 && o2.weightMg === o1.weightMg - 300,
+        `sale ${sold.body?.number}: 3 grains of 21K (0.300 g) for ${price}; the 21K pool is 300 mg lower (${o1.weightMg} → ${o2.weightMg})`,
+      );
+      const short = await apiSend(page, 'POST', '/api/sales', { items: [], scrapLines: [{ karat: 21, grains: o2.grains + 1, listPrice: Math.round(((o2.grains + 1) * 100 * o2.pricePerGram) / 1000) }], paymentMethod: 'CASH' });
+      check(short.status === 409 && short.body.error.code === 'SCRAP_POOL_SHORT' && (await offer()).weightMg === o2.weightMg, `one grain more than the pool holds (${o2.grains + 1}): 409 SCRAP_POOL_SHORT, nothing taken`);
+      check((await apiSend(page, 'POST', '/api/auth/reauth', { password: BM.password })).status === 200, 'branch manager: password confirmed again for the cancellation');
+      const back = await apiSend(page, 'POST', `/api/sales/${sold.body.id}/void`, { reason: 'إرجاع الحبات (WSL-1)' });
+      check(back.status === 200 && (await offer()).weightMg === o1.weightMg, 'the grain sale is cancelled: the 300 mg are back in the 21K pool');
+    }
+
     section('PAY-1: Hasad is a sales channel only: the branch never expects Hasad money');
     {
       const digits = (x) => Number(String(x).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[^0-9]/g, ''));

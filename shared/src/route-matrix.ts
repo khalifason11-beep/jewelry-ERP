@@ -150,6 +150,8 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('POST', '/sales', 'branch', { all: ['sales.create'], idempotent: true, idempotencyInTx: true }),
   r('GET', '/sales', 'branch', { any: ['sales.view', 'sales.view_own'] }),
   r('GET', '/sales/:id', 'branch', { any: ['sales.view', 'sales.view_own'] }),
+  // WSL-1: the grains the POS offers (the branch's broken-scrap pool per karat, with the selling rate).
+  r('GET', '/pos/scrap-grains', 'branch', { all: ['sales.create'] }),
   // Printing (D-print-5): the service decides original (cashier, same session, once) vs reprint (sales.reprint).
   r('POST', '/sales/:id/print', 'branch', { any: ['sales.view', 'sales.view_own'] }),
   r('POST', '/sales/:id/void', 'branch', { all: ['sales.void'], reauthWhen: 'the total is above sales.voidReauthAboveAmount (default 0: every void, D-sec2-1)', idempotent: true, idempotencyInTx: true }),

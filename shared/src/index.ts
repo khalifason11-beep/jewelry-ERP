@@ -1,6 +1,7 @@
 export * from './enums';
 export * from './permissions';
 export * from './money';
+export * from './grains';
 export * from './units';
 export * from './settings';
 export * from './audit';

@@ -455,6 +455,28 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   `OPENING_NEEDS_COMPUTED_PRICES` (a condition or karat correction on FIXED_TAG), `CORRECTION_REASON_REQUIRED`,
   `CONFIRM_PASSWORD_REQUIRED`, `PASSKEY_REQUIRED`, `REAUTH_REQUIRED`.
 
+### WSL-1: grains (حبات) of broken scrap sold at the POS (migration 0040)
+
+- **0040** adds the append-only table `sale_scrap_lines` (one row per karat of a sale: grains > 0, weight = grains ×
+  100 mg, the rate and the whole line's price; a commit-time trigger requires exactly one matching `SCRAP_SALE` row in
+  the pool per line) and replaces the pool's event-type CHECK with the wider list (`SCRAP_SALE`, D-wsl1-1). Additive;
+  no existing row changes. **41 migrations** (0000–0040).
+- **`POST /api/sales`** takes `scrapLines: [{ karat, grains, listPrice }]` (at most 24, one per karat) next to `items`;
+  either may be empty, not both. Refusals: more than the branch's pool of that karat holds → **409 `SCRAP_POOL_SHORT`**
+  (details `karat`, `balanceMg`, `neededMg`); a price other than the current one → 409 `PRICES_CHANGED` (details
+  `scrapLines` with the current prices); no selling rate for the karat → 400 `NO_PRICE`. No new permission
+  (`sales.create`); an Idempotency-Key retry deducts once.
+- **`POST /api/sales/:id/void`** (unchanged rules, `sales.void`) also puts the grains back: one `REVERSAL` row per line.
+- **`GET /api/sales/:id`** gains `scrapLines` (karat, grains, weightMg, ratePerGram, price); the printed invoice prints a
+  grain line with its grains and grams.
+- **New route `GET /api/pos/scrap-grains`** (`sales.create`, scope branch): the branch's karats with pool weight, the
+  whole grains each holds and the karat's selling rate (null without one).
+- Profit: a grain line has no cost; it counts as a line of unknown cost, and its revenue is left out of every gross
+  profit (sale, list footers, reports, dashboards).
+- **After the deploy, on the server:** the normal `docs/runbooks/update-deploy.md`: the pre-update backup, pull and
+  build, `jerp npm run migrate` (0040), the preflight (`migrations: 41 of 41 applied`, every line PASS), start again.
+  Nothing is run by hand.
+
 ### OPN-4: the branch manager enters the pieces of the own branch's opening (migration 0039)
 
 - **0039** adds the permission `opening.enter` and grants it to the branch manager and the General Manager, by role
