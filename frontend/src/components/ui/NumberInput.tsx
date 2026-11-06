@@ -17,6 +17,7 @@ import {
   sanitizeNumber,
   sanitizePhone,
   sanitizeReference,
+  ungroupedOffset,
   type InputCheck,
   type InputRefusal,
 } from '@jerp/shared';
@@ -97,6 +98,16 @@ const NumberCore = forwardRef<HTMLInputElement, CoreProps>(function NumberCore(
             paddingRight: !rtl && pad ? pad : compact ? '0.625rem' : undefined,
           }}
           onFocus={(e) => {
+            // FIX-NUM-1 (D-fixnum-2): focusing swaps the grouped text ("150,000") for the typed one ("150000"). It is
+            // swapped here, at once, with the caret or selection kept on the same digits: left to the next render, the
+            // swap dropped the selection, so a number selected by Tab was appended to instead of replaced.
+            const el = e.currentTarget;
+            if (el.value !== value) {
+              const start = ungroupedOffset(el.value, el.selectionStart ?? el.value.length);
+              const end = ungroupedOffset(el.value, el.selectionEnd ?? el.value.length);
+              el.value = value;
+              el.setSelectionRange(start, end);
+            }
             setFocused(true);
             onFocus?.(e);
           }}

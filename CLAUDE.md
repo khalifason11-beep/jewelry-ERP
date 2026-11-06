@@ -29,6 +29,10 @@ Multi-branch jewelry retail ERP, pre-production. Read `README.md`, `docs/BACKLOG
   test that needs a date or an hour fixes it; the fixture world is built for a given instant.
 - Every fixture or test query that picks rows (to sell, transfer, sample or compare) has an `ORDER BY`. PostgreSQL
   returns unordered rows in heap order, which changes between runs (FIX-5: the same instant built different worlds).
+- A number field holds only what the user typed (FIX-NUM-1). A derived or default number is the field's grey
+  placeholder, never its value; no handler or effect writes into another field the user can type in; "empty" has one
+  meaning on a form, said in its hint; `Number('')` is never read as 0 by accident (use the `parse…Input` helpers). A
+  new number field is added to the sweep in `scripts/e2e-numbers.mjs`.
 - A test that needs cash funds its own drawer (its own branch, or a recorded advance it makes itself); it never relies
   on what the fixture world left in a drawer.
 

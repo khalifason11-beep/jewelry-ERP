@@ -962,8 +962,30 @@ async function main() {
     await page.click('[data-testid=scrap-kind-BROKEN]');
     await page.fill('[data-testid=scrap-karat-any]', '21');
     await page.fill('[data-testid=scrap-net]', '2');
-    await page.fill('[data-testid=scrap-cash-part]', '120000');
-    check((await page.inputValue('[data-testid=scrap-bank-part]')) === '70,000', 'the scrap form fills the bank part with the rest of the amount (190,000 − 120,000 = 70,000)');
+    await page.fill('[data-testid=scrap-cash-part]', '100000');
+    // FIX-NUM-1 (D-fixnum-2): Tab into a grouped number ("100,000") selects it; what is typed replaces it.
+    await page.click('[data-testid=scrap-bank-part]');
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.type('120000');
+    check((await page.inputValue('[data-testid=scrap-cash-part]')) === '120000', `FIX-NUM-1: Tab into the shown "100,000" and type 120000: the field holds 120000 ("${await page.inputValue('[data-testid=scrap-cash-part]')}")`);
+    // FIX-NUM-1 (D-fixnum-1): an empty part is the rest of the amount, shown as the grey hint and never written into the
+    // field; neither field refills the other. (A field shown grouped is clicked before `fill`, as a person would.)
+    const bankHint = () => page.getAttribute('[data-testid=scrap-bank-part]', 'placeholder');
+    const retypeScrap = async (id, text) => {
+      await page.click(`[data-testid=${id}]`);
+      await page.fill(`[data-testid=${id}]`, text);
+    };
+    check((await page.inputValue('[data-testid=scrap-bank-part]')) === '' && (await bankHint()) === '70,000', 'the scrap form hints the rest of the amount in the empty bank part (190,000 − 120,000 = 70,000)');
+    await retypeScrap('scrap-bank-part', '50000');
+    await page.getByTestId('scrap-parts-mismatch').waitFor({ timeout: 15_000 });
+    await retypeScrap('scrap-cash-part', '130000');
+    check((await page.inputValue('[data-testid=scrap-bank-part]')) === '50,000' && (await page.getByTestId('scrap-parts-mismatch').count()) === 1, 'FIX-NUM-1: editing the cash part keeps the typed bank part (50,000); the parts that do not add up are said');
+    await retypeScrap('scrap-bank-part', '');
+    await retypeScrap('scrap-cash-part', '120000');
+    check(
+      (await page.inputValue('[data-testid=scrap-bank-part]')) === '' && (await bankHint()) === '70,000' && (await page.getByTestId('scrap-parts-mismatch').count()) === 0,
+      `FIX-NUM-1: a cleared bank part stays empty after another cash edit, nothing comes back ("${await page.inputValue('[data-testid=scrap-bank-part]')}", hint ${await bankHint()})`,
+    );
     check(await page.getByTestId('scrap-buy').isDisabled(), 'a bank part without its transfer reference cannot be saved');
     await page.fill('[data-testid=scrap-bank-ref]', 'reh scr ٢');
     const scrapBefore = (await apiGet(page, '/api/scrap-purchases')).body.total;
@@ -1106,10 +1128,17 @@ async function main() {
     const caps0 = (await apiGet(page, '/api/settings')).body.settings.sales.maxDiscountPercentByRole;
     check(Object.values(caps0).every((v) => v === 0) && (await page.locator('[data-testid=max-discount-CASHIER] input').inputValue()) === '0', 'a new installation gives no discounts: every role\'s cap is 0 (Settings › Sales)');
     await page.fill('[data-testid=max-discount-CASHIER] input', '3');
+    // FIX-NUM-1 (D-fixnum-4): a number typed in another card and not saved stays when the Sales card is saved.
+    await page.fill('[data-testid=count-tolerance] input', '777');
     await page.click('[data-testid=save-sales]');
     await confirmIfAsked(page, GM.password);
     await waitFor(async () => (await apiGet(page, '/api/settings')).body.settings.sales.maxDiscountPercentByRole.CASHIER === 3, 'the cashier discount cap', 15_000);
     ok('the General Manager sets a cashier discount cap of 3 % in Settings › Sales');
+    await page.waitForTimeout(500);
+    check(
+      (await page.locator('[data-testid=count-tolerance] input').inputValue()) === '777' && (await apiGet(page, '/api/settings')).body.settings.cash.countDifferenceTolerance !== 777,
+      `FIX-NUM-1: saving the Sales card keeps the unsaved count tolerance typed in another card (777), and does not save it ("${await page.locator('[data-testid=count-tolerance] input').inputValue()}")`,
+    );
     await signOut(page);
     const PRICE_REASON = 'خصم متفق عليه مع العميل (REH-1)';
     await signIn(page, origin, CASHIER.username, CASHIER.password);
@@ -1124,6 +1153,13 @@ async function main() {
     await page.goto(`${origin}/pos`);
     await page.getByTestId('pos-product').first().click();
     const disc = page.getByTestId('pos-discount').first();
+    // FIX-NUM-1 (owner Q2): a discount above the cap (3 %) is kept as typed, said under the field, and blocks the sale.
+    await disc.fill('99999999');
+    await page.waitForTimeout(200);
+    check(
+      (await disc.inputValue()) === '99999999' && (await page.getByText(/لا يزيد على/).count()) >= 1 && (await page.getByTestId('pos-complete').isDisabled()),
+      `FIX-NUM-1: a discount above the cap stays as typed ("${await disc.inputValue()}"), "At most …" is shown and "Complete sale" is disabled`,
+    );
     await disc.fill('1000');
     await page.getByTestId('price-change-reason').waitFor();
     check(await page.getByTestId('pos-complete').isDisabled(), 'cashier: a discounted line asks for the reason; "Complete sale" stays disabled without it');
@@ -1507,6 +1543,8 @@ async function main() {
       const piece = before.items[0];
       await page.goto(`${origin}/purchases/${po.id}`);
       await page.click(`[data-testid=purchase-fix-making-${piece.code}]`, { timeout: 15_000 });
+      await page.getByTestId('purchase-fix-cost').waitFor({ timeout: 15_000 });
+      check(!(await page.getAttribute('[data-testid=purchase-fix-cost]', 'placeholder')), 'FIX-NUM-1: the new making cost starts empty with no "0" hint (empty is refused, not 0)');
       await page.fill('[data-testid=purchase-fix-cost]', '12000');
       await page.fill('[data-testid=purchase-fix-dialog-reason]', 'المصنعية الصحيحة من فاتورة المورد');
       await page.fill('[data-testid=purchase-fix-dialog-password]', GM.password);

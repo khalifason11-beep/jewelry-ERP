@@ -113,6 +113,8 @@ async function correctOrder(page, gm, world) {
   await fix.click();
   await page.getByTestId('purchase-fix-dialog').waitFor();
   check(await page.getByTestId('purchase-fix-dialog-confirm').isDisabled(), 'Save is grey until the new cost, a reason and the password are given');
+  // FIX-NUM-1: the empty field shows no "0": empty is not 0 here (it keeps Save grey); 0 is typed.
+  check((await page.inputValue('[data-testid=purchase-fix-cost]')) === '' && !(await page.getAttribute('[data-testid=purchase-fix-cost]', 'placeholder')), 'the new cost starts empty, with no "0" hint');
   await retype(page, 'purchase-fix-cost', '25000');
   await page.fill('[data-testid=purchase-fix-dialog-reason]', 'اختبار: كُتبت المصنعية خطأً');
   await page.fill('[data-testid=purchase-fix-dialog-password]', world.gm.password);

@@ -642,6 +642,19 @@ Owner approval of 2026-11-05 (answers Q-a yes, Q-b yes, Q-c not now, Q-d yes, Q-
 | D-opn4-3 | Who entered what | "Entered by" is the line's author (`opening_lines.created_by`, kept since OPN-1, never NULL; no migration). Each line returns `enteredByName`, `enteredByNameAr` and `enteredAt`; the source column is renamed "How" (Typed / From the file); the summary gains `byUser` (pieces and net weight per person), shown on the review. **Deviation from plan §2.3:** the draft CSV export does **not** gain an "Entered by" column: the importer refuses unknown columns, so the export would no longer import again (D-opn1-2's round trip). The author is on the screen and in the audit log. | owner; deviation built, for the owner to confirm |
 | D-opn4-4 | The seal checks what the General Manager reviewed | `POST /openings/:id/seal` carries `expectedLines` and `expectedNetWeightMg`, the numbers the seal dialog showed; both are required whenever the draft has pieces (Q-d; missing → 400). They are compared before the password check and again under the seal's row lock; a different draft answers 409 `OPENING_CHANGED_SINCE_REVIEW` with the current numbers, nothing is sealed, and the dialog reloads them. The seal's ledger, stock and money logic and its re-authentication are unchanged. | owner |
 
+## FIX-NUM-1: number fields that can always be cleared and typed over
+
+Owner's task of 2026-11-05 (the scrap payment field that "comes back"). Plan `docs/plans/FIX-NUM-1.md`; the audit in
+`docs/acceptance/FIX-NUM-1.md`.
+
+| ID | Question | Decision | By |
+|---|---|---|---|
+| D-fixnum-1 | The scrap purchase's two payment parts | Both fields hold only what was typed (`''` at first) and never change each other. **One meaning of empty: the rest of the amount** (cash empty = amount − bank, bank empty = amount − cash, both empty = all in cash). The rest is the empty field's grey placeholder and is exactly what is sent; the hint under both reads "Empty: the rest of the amount". Unchanged: cash + bank = amount (the mismatch message and the Buy rule), the API, the drawer-shortfall refusal, the bank-reference rule. The only new combination, a bank part with the cash field empty, used to be refused by the mismatch and now pays the rest from the drawer. | owner's task; built |
+| D-fixnum-2 | A number field swapping "150,000" for "150000" on focus | The swap is made in the focus handler, with the caret or selection kept on the same digits (`ungroupedOffset`, `shared/src/inputs.ts`, property-tested). Before, it happened on the next render and dropped the selection: Tab into "100,000" and type 7 gave "1000007". A browser test that uses Playwright's `fill` on a field shown grouped clicks it first (`fill` selects before it focuses, which no person does). | built (a defect of the shared field, found while reproducing) |
+| D-fixnum-3 | Guarding the class | `scripts/e2e-numbers.mjs` (in `verify --full` and the CI smoke job) sweeps the main pages and dialogs: every visible number or phone field can be typed in, cleared, left empty while another field is edited, and typed in again. The rule is in `CLAUDE.md` (Testing rules). | built |
+| D-fixnum-4 | Settings after a card is saved | A new server copy replaces only the settings that changed on the server; what is typed, or cleared, in the other cards stays. | built |
+| D-fixnum-5 | A POS discount above the role's cap (owner Q2) | The typed discount is kept (never replaced by the cap, also when the prices change), «At most …» is shown under the field, and «Complete sale» stays disabled until it is corrected. The API and its refusal are unchanged. Q1: changing the karat on the scrap form still empties the agreed rate (a rate belongs to a karat). | owner, 2026-11-05 |
+
 ## MNY-1: money transfers between branches and to the General Manager
 
 Owner decisions and approval of 2026-10-30. Plan `docs/plans/MNY-1.md` (§0 the decisions, §11 the answers).

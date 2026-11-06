@@ -136,6 +136,15 @@ In the invoice summary a negative discount renders as "32,000−" while the line
 
 ## D. Build
 
+### FIX-NUM-1 — Number fields that can always be cleared and typed over · DONE · S · P0
+**Done (plan `docs/plans/FIX-NUM-1.md`, D-fixnum-1…5, `docs/acceptance/FIX-NUM-1.md` with the audit table):** the
+owner's report (a scrap payment amount that cannot be deleted) was two defects: the shared number field lost the
+selection on focus (Tab and type appended: "1000007"), and the scrap form wrote the rest into the bank field and reset
+it on every cash edit. Both fixed; on the scrap form an empty part is the rest of the amount, shown as a grey hint. The
+audit of every number field also fixed Settings (saving a card undid unsaved numbers in the others) and a misleading
+"0" hint; `scripts/e2e-numbers.mjs` sweeps every number field. Owner's answers: Q1 kept (changing the karat empties the
+agreed scrap rate); Q2 changed (a POS discount above the cap stays as typed, is said and blocks the sale, D-fixnum-5).
+
 ### CAT-0 — Minimal "create product" · DONE · S/M · P0
 **Why:** today only the demo seed creates products, so an empty production database cannot receive stock (SPEC §4). REM-3 deletes the seed; this must exist first.
 **Requirements:** create a product with name, karat and type (category); General Manager and branch manager; also inline in the supplier purchase and scrap purchase forms. Audited; karat limited by `allowedKarats` for sellable pieces. No invented names are shipped.

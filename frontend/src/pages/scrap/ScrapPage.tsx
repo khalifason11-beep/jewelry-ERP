@@ -5,7 +5,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Recycle, Scale } from 'lucide-react';
-import { parseIntegerInput, parseWeightInput, validBankReference, valueOfWeight, type ScrapKind, type ScrapPaymentMethod } from '@jerp/shared';
+import { parseIntegerInput, parseMoneyInput, parseWeightInput, validBankReference, valueOfWeight, type ScrapKind, type ScrapPaymentMethod } from '@jerp/shared';
 import { ApiError, errorText, get, postOnce } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { dateTime, grams, karatLabel, money } from '../../lib/format';
@@ -310,9 +310,10 @@ function BuyForm({ branchId }: { branchId: number }) {
   const [gross, setGross] = useState('');
   const [net, setNet] = useState('');
   const [agreed, setAgreed] = useState('');
-  // CSH-2: the cash part is typed (empty = all in cash); the bank part fills itself with the rest unless edited.
+  // CSH-2, FIX-NUM-1 (D-fixnum-1): the two parts as typed. An empty part is the rest of the amount (both empty: all
+  // in cash); the rest is shown as the field's grey hint, never written into it, and neither field changes the other.
   const [cashPart, setCashPart] = useState('');
-  const [bankPart, setBankPart] = useState<string | null>(null);
+  const [bankPart, setBankPart] = useState('');
   const [bankRef, setBankRef] = useState('');
   // CSH-2 (Q7): the drawer's refusal (the shortfall and what to do) stays on the form until the payment changes.
   const [drawerShort, setDrawerShort] = useState<string | null>(null);
@@ -336,8 +337,10 @@ function BuyForm({ branchId }: { branchId: number }) {
   const tolerance = rates.data?.tolerancePct ?? 0;
   const beyond = rate > 0 && deviationPct > tolerance;
   const needsGm = beyond && !!rates.data?.requireGmApproval && !can('scrap.override');
-  const cash = cashPart === '' ? amount : Math.max(0, Math.floor(Number(cashPart)));
-  const bank = bankPart == null ? Math.max(0, amount - cash) : Math.max(0, Math.floor(Number(bankPart)));
+  const cashTyped = parseMoneyInput(cashPart);
+  const bankTyped = parseMoneyInput(bankPart);
+  const cash = cashTyped ?? Math.max(0, amount - (bankTyped ?? 0));
+  const bank = bankTyped ?? Math.max(0, amount - cash);
   const partsOk = amount > 0 && cash + bank === amount;
   const refOk = bank === 0 || !!validBankReference(bankRef);
   const piecesProducts = useMemo(() => products.data?.filter((p) => p.karat === karat) ?? [], [products.data, karat]);
@@ -357,7 +360,7 @@ function BuyForm({ branchId }: { branchId: number }) {
     setCustomerIdRef('');
     setNote('');
     setCashPart('');
-    setBankPart(null);
+    setBankPart('');
     setBankRef('');
     setDrawerShort(null);
   };
@@ -533,16 +536,16 @@ function BuyForm({ branchId }: { branchId: number }) {
         </div>
         </details>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="scrap-payment">
-          <Field label={t('Paid from the drawer')} hint={t('Leave empty to pay it all in cash')}>
+          <Field label={t('Paid from the drawer')} hint={t('Empty: the rest of the amount')}>
             <MoneyInput
               value={cashPart}
-              placeholder={amount ? String(amount) : ''}
-              onValueChange={(v) => { setCashPart(v); setBankPart(null); setDrawerShort(null); }}
+              placeholder={amount ? String(cash) : ''}
+              onValueChange={(v) => { setCashPart(v); setDrawerShort(null); }}
               data-testid="scrap-cash-part"
             />
           </Field>
-          <Field label={t('Paid by bank transfer')} hint={bankPart == null ? t('The rest of the amount') : undefined}>
-            <MoneyInput value={bankPart ?? String(bank)} onValueChange={(v) => { setBankPart(v); setDrawerShort(null); }} data-testid="scrap-bank-part" />
+          <Field label={t('Paid by bank transfer')} hint={t('Empty: the rest of the amount')}>
+            <MoneyInput value={bankPart} placeholder={amount ? String(bank) : ''} onValueChange={(v) => { setBankPart(v); setDrawerShort(null); }} data-testid="scrap-bank-part" />
           </Field>
           {bank > 0 && (
             <Field label={t('Bank transfer reference')} hint={bankRef && !refOk ? t('4 to 40 letters or digits') : undefined}>

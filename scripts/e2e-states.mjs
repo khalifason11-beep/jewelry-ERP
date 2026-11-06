@@ -369,10 +369,11 @@ async function main() {
     ok('the list shows the split purchase in its "Paid by" column');
     await page.fill('[data-testid=scrap-karat-any]', '21');
     await page.fill('[data-testid=scrap-net]', '1');
-    check((await page.getByTestId('scrap-bank-ref').count()) === 0 && (await page.inputValue('[data-testid=scrap-bank-part]')) === '0', 'empty cash part: all in cash, bank part 0, no reference asked');
+    // FIX-NUM-1 (D-fixnum-1): an empty part is the rest of the amount, shown as the grey hint, not as typed text.
+    check((await page.getByTestId('scrap-bank-ref').count()) === 0 && (await page.inputValue('[data-testid=scrap-bank-part]')) === '' && (await page.getAttribute('[data-testid=scrap-bank-part]', 'placeholder')) === '0', 'both parts empty: all in cash, the bank part hints 0, no reference asked');
     await page.fill('[data-testid=scrap-cash-part]', '100000');
     await page.getByTestId('scrap-bank-ref').waitFor();
-    check((await page.inputValue('[data-testid=scrap-bank-part]')) === '50,000' && (await page.getByTestId('scrap-buy').isDisabled()), 'a cash part fills the bank part with the rest and asks for the reference');
+    check((await page.inputValue('[data-testid=scrap-bank-part]')) === '' && (await page.getAttribute('[data-testid=scrap-bank-part]', 'placeholder')) === '50,000' && (await page.getByTestId('scrap-buy').isDisabled()), 'a cash part: the empty bank part hints the rest and the reference is asked');
     await page.fill('[data-testid=scrap-bank-part]', '40000');
     await page.getByTestId('scrap-parts-mismatch').waitFor();
     ok('parts that do not add up to the amount are said inline');
