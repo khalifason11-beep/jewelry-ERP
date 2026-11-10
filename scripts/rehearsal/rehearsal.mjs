@@ -1139,6 +1139,24 @@ async function main() {
       (await page.locator('[data-testid=count-tolerance] input').inputValue()) === '777' && (await apiGet(page, '/api/settings')).body.settings.cash.countDifferenceTolerance !== 777,
       `FIX-NUM-1: saving the Sales card keeps the unsaved count tolerance typed in another card (777), and does not save it ("${await page.locator('[data-testid=count-tolerance] input').inputValue()}")`,
     );
+    // LBL-1 (D-lbl1-2): the piece label's size is empty on a new installation; a size too small for a scannable
+    // barcode is said on the screen and refused by the server (409 LABEL_TOO_SMALL); 40 × 12 mm is saved.
+    const printSettings = async () => (await apiGet(page, '/api/settings')).body.settings.print;
+    const ps0 = await printSettings();
+    check(ps0.labelWidthMm === null && ps0.labelHeightMm === null && ps0.labelMarginMm === 1, 'LBL-1: the label size is not set on a new installation (width and height empty, margin 1 mm)');
+    await page.getByTestId('label-settings').scrollIntoViewIfNeeded();
+    await page.fill('[data-testid=label-width] input', '25');
+    await page.fill('[data-testid=label-height] input', '12');
+    await page.getByTestId('label-too-small').waitFor({ timeout: 15_000 });
+    const tooSmall = await apiSend(page, 'PUT', '/api/settings', { changes: { 'print.labelWidthMm': 25, 'print.labelHeightMm': 12 } });
+    check(tooSmall.status === 409 && tooSmall.body?.error?.code === 'LABEL_TOO_SMALL' && tooSmall.body.error.details?.minWidthMm === 32.3, `LBL-1: 25 × 12 mm is too small for the 12-digit barcode: said on the screen, refused (409, at least ${tooSmall.body?.error?.details?.minWidthMm} mm wide)`);
+    await page.click('[data-testid=label-width] input');
+    await page.fill('[data-testid=label-width] input', '40');
+    await page.getByTestId('label-bars').waitFor({ timeout: 15_000 });
+    await page.click('[data-testid=save-labels]');
+    await confirmIfAsked(page, GM.password);
+    await waitFor(async () => (await printSettings()).labelWidthMm === 40, 'the label size', 15_000);
+    check((await printSettings()).labelHeightMm === 12, 'LBL-1: the General Manager saves the label size 40 × 12 mm (Settings › Piece labels)');
     await signOut(page);
     const PRICE_REASON = 'خصم متفق عليه مع العميل (REH-1)';
     await signIn(page, origin, CASHIER.username, CASHIER.password);

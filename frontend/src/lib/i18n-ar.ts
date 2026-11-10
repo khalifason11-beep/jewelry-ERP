@@ -791,6 +791,17 @@ export const AR: Record<string, string> = {
   "Select the branch the sale is made in": "اختر الفرع الذي تتم فيه عملية البيع",
   "The cart is empty": "السلة فارغة",
   "The same item appears twice in the cart": "القطعة نفسها مكررة في السلة",
+  // LBL-1: piece labels
+  "Piece labels": "ملصقات القطع",
+  "The size of the barcode label stuck on each piece, as on the label roll. Printing labels is refused until it is set.": "مقاس ملصق الباركود الذي يُلصق على كل قطعة، كما هو على لفة الملصقات. لا تُطبع الملصقات قبل تحديده.",
+  "mm": "مم",
+  "Label width": "عرض الملصق",
+  "Label height": "ارتفاع الملصق",
+  "Inner margin": "الهامش الداخلي",
+  "Smallest label for the pieces’ barcode: {width} × {height} mm (bars of {dots} printer dots, 0.5 mm steps).": "أصغر ملصق لباركود القطع: {width} × {height} مم (أنحف خط {dots} نقطة طابعة، بخطوات 0.5 مم).",
+  "Sizes are set in steps of 0.5 mm.": "المقاسات بخطوات 0.5 مم.",
+  "This label is too small for a scannable barcode: it needs at least {minWidth} × {minHeight} mm": "الملصق أصغر من أن يُقرأ باركوده: يلزم على الأقل {minWidth} × {minHeight} مم",
+  "On this label the narrowest bar is {dots} printer dots ({mm} mm).": "أنحف خط على هذا الملصق {dots} نقطة طابعة ({mm} مم).",
   // WSL-1: grains of broken scrap at the POS
   "Broken scrap {karat}": "كسر مكسر {karat}",
   "{n} grain(s) = {weight}": "{n} حبة = {weight}",

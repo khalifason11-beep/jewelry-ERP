@@ -5,6 +5,8 @@
 import { desc, eq, inArray, sql } from 'drizzle-orm';
 import { t, type DB, type Executor } from '@jerp/database';
 import {
+  LABEL_DEFAULT_BARCODE_DIGITS,
+  labelLayout,
   DEFAULT_SETTINGS,
   SETTING_KEYS,
   SETTINGS_REGISTRY,
@@ -16,7 +18,8 @@ import {
   type SettingKey,
   type SystemSettings,
 } from '@jerp/shared';
-import { badRequest, conflict, forbidden } from '../../core/errors';
+import { AppError, badRequest, conflict, forbidden } from '../../core/errors';
+import { rows } from '../../core/sql';
 import { log } from '../../core/logger';
 
 /**
@@ -119,6 +122,16 @@ export class SettingsStore {
     for (const [key, value] of Object.entries(parsed)) next = withSetting(next, key as SettingKey, value);
     const problem = crossFieldProblem(next);
     if (problem) throw badRequest('Invalid value for {field}', { field: problem.key });
+    // LBL-1 (D-lbl1-2): a label size must hold a scannable barcode of the longest piece barcode in stock (12 digits
+    // until there is none), with bars of at least two printer dots; the same rule is checked again at print time.
+    if (keys.some((k) => k.startsWith('print.label')) && next.print.labelWidthMm != null && next.print.labelHeightMm != null) {
+      const [row] = rows<{ n: number | string | null }>(await exec.execute(sql`SELECT max(length(barcode)) AS n FROM jewelry_items`));
+      const digits = Math.max(LABEL_DEFAULT_BARCODE_DIGITS, Number(row?.n ?? 0));
+      const layout = labelLayout({ widthMm: next.print.labelWidthMm, heightMm: next.print.labelHeightMm, marginMm: next.print.labelMarginMm }, '6'.repeat(digits));
+      if (!layout.ok) {
+        throw new AppError(409, 'LABEL_TOO_SMALL', 'This label is too small for a scannable barcode: it needs at least {minWidth} × {minHeight} mm', { minWidth: layout.minWidthMm, minHeight: layout.minHeightMm }, { minWidthMm: layout.minWidthMm, minHeightMm: layout.minHeightMm, digits });
+      }
+    }
 
     const changed: SettingChange[] = [];
     for (const [k, value] of Object.entries(parsed)) {
