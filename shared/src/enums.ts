@@ -312,6 +312,8 @@ export const REPORT_KEYS = [
   'branch-performance',
   'user-activity',
   'audit',
+  // LBL-1: every piece label printed (opening.enter: General Manager, branch manager of the own branch).
+  'label-prints',
 ] as const;
 export type ReportKey = (typeof REPORT_KEYS)[number];
 

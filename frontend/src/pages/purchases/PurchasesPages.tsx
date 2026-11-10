@@ -21,6 +21,7 @@ import { NewProductPanel, ProductPicker } from '../../components/ProductPicker';
 import { PieceKindFields, descriptionTooLong, emptyKind, kindBody, type PieceKindValue } from '../../components/PieceKind';
 import { CorrectionDialog, type Confirmation } from '../../components/CorrectionDialog';
 import { openWindowWith } from '../../lib/reauth';
+import { PrintLabelsButton } from '../inventory/PieceLabels';
 
 interface Settlement {
   id: number;
@@ -503,12 +504,19 @@ export function PurchaseDetailPage() {
   if (!q.data) return <DetailPending query={q} backTo="/purchases" backLabel={t('Back to purchases')} notFoundTitle={t('This purchase does not exist')} />;
   const p = q.data!;
   const canFix = can('purchases.correct') && showCost;
+  const canPrintLabels = can('opening.enter');
   return (
     <div className="p-5 lg:p-6">
       <PageHeader
         breadcrumbs={<Crumbs items={[...(isGlobal ? [{ label: t('Company'), to: '/overview' }, { label: p.branchName, to: `/branches/${p.branchId}` }] : []), { label: t('Purchases'), to: '/purchases' }, { label: p.number }]} />}
         title={<span>{t('Purchase')} <Mono className="text-xl">{p.number}</Mono></span>}
         subtitle={t('{when} · {branch} · received by {user}', { when: dateTime(p.createdAt, lang), branch: t(p.branchName), user: p.createdByName })}
+        actions={
+          // LBL-1 (D-lbl1-5): the labels of every piece of this order (branch manager of the branch, General Manager).
+          canPrintLabels && p.items.length > 0 ? (
+            <PrintLabelsButton document={{ type: 'PURCHASE', id: p.id, count: p.items.length }} source="PURCHASE" label={t('Print labels of these pieces')} testId="purchase-labels-print" />
+          ) : undefined
+        }
       />
       <Card className="mb-5">
         <KeyValue

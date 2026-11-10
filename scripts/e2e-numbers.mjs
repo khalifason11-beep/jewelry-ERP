@@ -227,6 +227,11 @@ async function sweepBranchManager(page, world) {
     await sweep(page, 'Piece: change price', '[role=dialog]');
     await page.keyboard.press('Escape');
   }
+  // LBL-1: the copies of a piece's label (the branch manager prints labels).
+  await page.getByTestId('piece-label-print').click({ timeout: 15_000 });
+  await page.getByTestId('label-copies').waitFor({ timeout: 15_000 });
+  await sweep(page, 'Piece: print label (copies)', '[role=dialog]');
+  await page.keyboard.press('Escape');
 }
 
 async function sweepGeneralManager(page, world) {

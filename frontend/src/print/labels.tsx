@@ -101,8 +101,9 @@ const layoutOf = (size: { widthMm: number; heightMm: number }) => ({ format: 'LA
  * Ask the server for the labels (it checks who may print, the scope and the size, and records the print: first or
  * reprint), then print them. Throws the server's refusal (shown by the caller); resolves to what was recorded.
  */
-export async function printPieceLabels(pieces: { itemId: number; copies: number }[], source: LabelPrintSource, key: string): Promise<LabelPrintResult & { shown: boolean }> {
-  const r = await postOnce<LabelPrintResult>('/labels/print', { pieces, source }, key);
+export type LabelRequest = { pieces: { itemId: number; copies: number }[] } | { document: { type: 'PURCHASE' | 'OPENING'; id: number }; copies: number };
+export async function printPieceLabels(request: LabelRequest, source: LabelPrintSource, key: string): Promise<LabelPrintResult & { shown: boolean }> {
+  const r = await postOnce<LabelPrintResult>('/labels/print', { ...request, source }, key);
   const shown = await printDocument({ layout: layoutOf(r.size), content: <LabelSheet labels={r.labels} size={r.size} /> });
   return { ...r, shown };
 }

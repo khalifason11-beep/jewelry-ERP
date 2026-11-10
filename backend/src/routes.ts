@@ -579,7 +579,10 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     const body = parse(
       z
         .object({
-          pieces: z.array(z.object({ itemId: zIdBody, copies: z.number().int().min(1).max(LABEL_MAX_COPIES_ONE) }).strict()).min(1).max(200),
+          pieces: z.array(z.object({ itemId: zIdBody, copies: z.number().int().min(1).max(LABEL_MAX_COPIES_ONE) }).strict()).min(1).max(200).optional(),
+          // D-lbl1-5: every piece of a supplier order or a sealed opening (resolved and scope-checked by the service).
+          document: z.object({ type: z.enum(['PURCHASE', 'OPENING']), id: zIdBody }).strict().optional(),
+          copies: z.number().int().min(1).max(LABEL_MAX_COPIES_ONE).optional(),
           source: z.enum(LABEL_PRINT_SOURCES),
         })
         .strict(),

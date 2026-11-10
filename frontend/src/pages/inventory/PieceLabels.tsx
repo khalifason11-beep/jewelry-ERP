@@ -35,7 +35,22 @@ export function useCanPrintLabels() {
  * Print labels of some pieces: one dialog with the copies (one field for every piece; empty = 1), then the server
  * records the print and the labels are printed. `pieces` of one piece allow up to 20 copies, a batch up to 5 each.
  */
-export function PrintLabelsButton({ pieces, source, label, testId, variant }: { pieces: { id: number; code: string }[]; source: LabelPrintSource; label?: string; testId: string; variant?: 'primary' }) {
+export function PrintLabelsButton({
+  pieces = [],
+  document,
+  source,
+  label,
+  testId,
+  variant,
+}: {
+  pieces?: { id: number; code: string }[];
+  /** Every piece of a supplier order or a sealed opening (the server finds them), with their count. */
+  document?: { type: 'PURCHASE' | 'OPENING'; id: number; count: number };
+  source: LabelPrintSource;
+  label?: string;
+  testId: string;
+  variant?: 'primary';
+}) {
   const { t } = useI18n();
   const toast = useToast();
   const qc = useQueryClient();
@@ -43,15 +58,17 @@ export function PrintLabelsButton({ pieces, source, label, testId, variant }: { 
   const [open, setOpen] = useState(false);
   const [copiesText, setCopiesText] = useState('');
   const [busy, setBusy] = useState(false);
-  const max = pieces.length === 1 ? LABEL_MAX_COPIES_ONE : LABEL_MAX_COPIES_BATCH;
+  const count = document ? document.count : pieces.length;
+  const max = count === 1 ? LABEL_MAX_COPIES_ONE : LABEL_MAX_COPIES_BATCH;
   const copies = copiesText === '' ? 1 : parseIntegerInput(copiesText);
   const copiesOk = copies != null && copies >= 1 && copies <= max;
-  const scope = `labels-${source}-${pieces.map((p) => p.id).join(',')}`;
+  const scope = document ? `labels-${document.type}-${document.id}` : `labels-${source}-${pieces.map((p) => p.id).join(',')}`;
   const print = async () => {
     if (!copiesOk) return;
     setBusy(true);
     try {
-      const r = await printPieceLabels(pieces.map((p) => ({ itemId: p.id, copies: copies! })), source, keys.for(scope));
+      const request = document ? { document: { type: document.type, id: document.id }, copies: copies! } : { pieces: pieces.map((p) => ({ itemId: p.id, copies: copies! })) };
+      const r = await printPieceLabels(request, source, keys.for(scope));
       keys.rotate(scope);
       const reprints = r.labels.filter((l) => l.kind === 'REPRINT').length;
       toast.success(t('{n} label(s) sent to the printer', { n: r.labels.reduce((s, l) => s + l.copies, 0) }), reprints ? t('{n} piece(s) already had a label: recorded as a reprint.', { n: reprints }) : undefined);
@@ -67,13 +84,13 @@ export function PrintLabelsButton({ pieces, source, label, testId, variant }: { 
   };
   return (
     <>
-      <Button variant={variant} icon={<Tag className="size-4" />} disabled={!pieces.length} onClick={() => setOpen(true)} data-testid={testId}>
+      <Button variant={variant} icon={<Tag className="size-4" />} disabled={!count} onClick={() => setOpen(true)} data-testid={testId}>
         {label ?? t('Print label')}
       </Button>
       <Dialog
         open={open}
         onClose={() => setOpen(false)}
-        title={pieces.length === 1 ? t('Print the label of {code}', { code: pieces[0].code }) : t('Print the labels of {n} pieces', { n: pieces.length })}
+        title={!document && pieces.length === 1 ? t('Print the label of {code}', { code: pieces[0].code }) : t('Print the labels of {n} pieces', { n: count })}
         subtitle={t('Every print is recorded: who, when, how many, and whether it is a reprint.')}
         footer={
           <>
@@ -84,7 +101,7 @@ export function PrintLabelsButton({ pieces, source, label, testId, variant }: { 
           </>
         }
       >
-        <Field label={pieces.length === 1 ? t('Copies') : t('Copies of each piece')} hint={t('Empty: 1. At most {max}.', { max })}>
+        <Field label={count === 1 ? t('Copies') : t('Copies of each piece')} hint={t('Empty: 1. At most {max}.', { max })}>
           <IntegerInput value={copiesText} onValueChange={setCopiesText} min={1} max={max} placeholder="1" data-testid="label-copies" />
         </Field>
       </Dialog>

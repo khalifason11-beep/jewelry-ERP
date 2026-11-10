@@ -44,6 +44,18 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
   );
   const sum = (k: string) => totals?.[k] ?? 0;
   const cost = can('profit.view');
+  // LBL-1 (D-lbl1-5): tick pieces (across pages, at most 200) and print their labels in one go.
+  const canPrintLabels = useCanPrintLabels();
+  const [picked, setPicked] = useState<Map<number, string>>(new Map());
+  const toggle = (r: ItemRow, on: boolean) =>
+    setPicked((m) => {
+      const n = new Map(m);
+      if (on && n.size < 200) n.set(r.id, r.code);
+      else n.delete(r.id);
+      return n;
+    });
+  const pageIds = rows.map((r) => r.id);
+  const allOnPage = pageIds.length > 0 && pageIds.every((id) => picked.has(id));
   // UI-A2: an error is shown as an error (never as "no items"), and "nothing in stock" differs from "filters hide it".
   const filtered = !!(karat || category || origin || rateKind || dq || status !== initialStatus);
   const clearFilters = () => {
@@ -76,6 +88,21 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
         <>
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Code, barcode or product…')} className="h-8 w-56 text-[13px]" />
           {toolbarExtra}
+          {canPrintLabels && (
+            <span className="inline-flex items-center gap-2" data-testid="label-selection">
+              <PrintLabelsButton
+                pieces={[...picked].map(([id, code]) => ({ id, code }))}
+                source="STOCK_LIST"
+                label={t('Print labels ({n})', { n: picked.size })}
+                testId="stock-labels-print"
+              />
+              {picked.size > 0 && (
+                <Button size="sm" variant="ghost" onClick={() => setPicked(new Map())} data-testid="stock-labels-clear">
+                  {t('Clear selection')}
+                </Button>
+              )}
+            </span>
+          )}
           <Select value={status} onChange={(e) => setStatus(e.target.value)} className="h-8 w-40 text-[13px]" aria-label={t('Status')}>
             <option value="">{t('All statuses')}</option>
             {ITEM_STATUSES.map((s) => <option key={s} value={s}>{t(s)}</option>)}
@@ -104,6 +131,36 @@ export function InventoryTable({ branchId, initialStatus = 'AVAILABLE', toolbarE
         </>
       }
       columns={[
+        ...(canPrintLabels
+          ? [
+              {
+                key: 'pick',
+                header: (
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-ink-900"
+                    checked={allOnPage}
+                    onChange={(e) => rows.forEach((r) => toggle(r, e.target.checked))}
+                    aria-label={t('Select the pieces on this page')}
+                    data-testid="stock-labels-page"
+                  />
+                ),
+                sortable: false,
+                noCsv: true,
+                render: (r: ItemRow) => (
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-ink-900"
+                    checked={picked.has(r.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => toggle(r, e.target.checked)}
+                    aria-label={t('Select {code} for a label', { code: r.code })}
+                    data-testid={`stock-label-pick-${r.id}`}
+                  />
+                ),
+              },
+            ]
+          : []),
         { key: 'code', header: t('Item ID'), render: (r) => <Mono className="font-semibold text-ink-900">{r.code}</Mono> },
         { key: 'barcode', header: t('Barcode'), render: (r) => <Mono className="text-ink-500">{r.barcode}</Mono> },
         { key: 'productName', header: t('Product'), value: (r) => r.productName, render: (r) => L(r.productName, r.productNameAr) },

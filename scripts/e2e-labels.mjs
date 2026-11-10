@@ -11,6 +11,8 @@
 //     piece's 12-digit barcode in whole 2-dot modules, the digits under them are the same value; the history shows the
 //     first print, a second print is a reprint; the value printed, scanned at the POS, adds exactly that piece; the
 //     cashier has no print button; the General Manager prints a sample label at the saved size.
+//   * Batches (D-lbl1-5): two pieces ticked in the stock list print one label each; the supplier order's "Print labels
+//     of these pieces" prints every piece of the order × copies; the General Manager's report lists every print.
 //
 //   node scripts/e2e-labels.mjs
 
@@ -163,6 +165,46 @@ async function sample(browser) {
   await ctx.close();
 }
 
+async function batches(browser, world, bm, pieces) {
+  section('Batches: the stock list, the supplier order; the report');
+  const ctx = await browser.newContext({ viewport: { width: 1366, height: 768 }, locale: 'ar' });
+  await ctx.addInitScript(printStub);
+  const page = await ctx.newPage();
+  globalThis.__page = page;
+  await signIn(page, BASE, world.bm);
+  await page.goto(`${BASE}/inventory`);
+  await page.getByTestId(`stock-label-pick-${pieces[1].id}`).click({ timeout: 15_000 });
+  await page.getByTestId(`stock-label-pick-${pieces[2].id}`).click();
+  check(/\(2\)/.test(await page.getByTestId('stock-labels-print').innerText()), 'two pieces ticked in the stock list: "Print labels (2)"');
+  await page.getByTestId('stock-labels-print').click();
+  await page.getByTestId('label-print-confirm').click();
+  check(await eventually(async () => (await page.evaluate(() => window.__prints)) === 1), 'printed');
+  const values = await page.locator('#print-root [data-testid=label]').evaluateAll((els) => els.map((e) => e.getAttribute('data-barcode')));
+  check(values.join(',') === [pieces[1].barcode, pieces[2].barcode].join(','), `one label each, in order (${values.join(', ')})`);
+  const [po] = (await bm.must('GET', `/purchases?branchId=${world.branchId}&pageSize=5`)).rows;
+  const detail = await bm.must('GET', `/purchases/${po.id}`);
+  await page.goto(`${BASE}/purchases/${po.id}`);
+  await page.getByTestId('purchase-labels-print').click({ timeout: 15_000 });
+  await page.fill('[data-testid=label-copies]', '2');
+  await page.getByTestId('label-print-confirm').click();
+  check(await eventually(async () => (await page.evaluate(() => window.__prints)) === 1), 'the supplier order: "Print labels of these pieces"');
+  const orderLabels = await page.locator('#print-root [data-testid=label]').count();
+  check(orderLabels === detail.items.length * 2, `every piece of the order × 2 copies (${orderLabels} labels for ${detail.items.length} pieces)`);
+  await ctx.close();
+
+  const gmCtx = await browser.newContext({ viewport: { width: 1366, height: 768 }, locale: 'ar' });
+  const gmPage = await gmCtx.newPage();
+  globalThis.__page = gmPage;
+  await signIn(gmPage, BASE, PEOPLE.gm);
+  await gmPage.goto(`${BASE}/reports/label-prints`);
+  await gmPage.getByTestId('export-csv').waitFor({ timeout: 15_000 });
+  // The rows load after the page's frame (the button is there first): wait for a printed piece's row.
+  await gmPage.locator('main').getByText(pieces[0].code).first().waitFor({ timeout: 15_000 });
+  const text = await gmPage.locator('main').innerText();
+  check(text.includes(pieces[0].code) && /إعادة طباعة/.test(text) && text.includes(world.bm.fullName), `the General Manager’s report lists the prints (who, the piece, reprints), with "Export CSV" [${text.includes(pieces[0].code)} ${/إعادة طباعة/.test(text)} ${text.includes(world.bm.fullName)}]`);
+  await gmCtx.close();
+}
+
 async function main() {
   const srv = await startEmptyServer({ env: { TWO_FACTOR_REQUIRED_ROLES_INITIAL: '' } });
   BASE = srv.base;
@@ -183,6 +225,7 @@ async function main() {
     const printed = await labels(browser, world, bm, gm, pieces[0]);
     await cashierAndScan(browser, world, pieces[0], printed);
     await sample(browser);
+    await batches(browser, world, bm, pieces);
     await gm.dispose();
   } catch (e) {
     await globalThis.__page?.screenshot({ path: '.ux-shots/e2e-labels-failure.png' }).catch(() => {});

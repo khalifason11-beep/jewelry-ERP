@@ -171,3 +171,52 @@ describe('printing labels', () => {
     expect(await rowsOf(pieces.KRT[6].id)).toEqual([]);
   });
 });
+
+describe('printing a whole document; the report (D-lbl1-5)', () => {
+  it('every piece of a supplier order, or of a sealed opening, in one print; scope; a draft opening refused', async () => {
+    const [krt] = await ctx.db.select().from(t.branches).where(eq(t.branches.code, 'KRT'));
+    const [po] = await ctx.db.select().from(t.purchases).where(eq(t.purchases.branchId, krt.id)).orderBy(asc(t.purchases.id)).limit(1);
+    // The order's pieces still in KRT (a piece transferred since is labelled where it is now).
+    const poItems = (
+      await ctx.db
+        .select({ itemId: t.purchaseItems.itemId })
+        .from(t.purchaseItems)
+        .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.purchaseItems.itemId))
+        .where(and(eq(t.purchaseItems.purchaseId, po.id), eq(t.jewelryItems.branchId, krt.id)))
+        .orderBy(asc(t.purchaseItems.id))
+    ).map((r) => r.itemId);
+    const r = await printLabels(ctx, actors.bmKrt, { document: { type: 'PURCHASE', id: po.id }, copies: 2, source: 'PURCHASE' });
+    expect(r.labels.map((l) => l.itemId)).toEqual(poItems);
+    expect(r.labels.every((l) => l.copies === 2 && /^\d{12}$/.test(l.barcode))).toBe(true);
+    const rows = await ctx.db.select().from(t.labelPrints).where(eq(t.labelPrints.batchId, r.batchId));
+    expect(rows.length).toBe(poItems.length);
+    expect(rows.every((x) => x.source === 'PURCHASE')).toBe(true);
+    // Another branch's order: not found for its branch manager; the cashier: refused; copies above 5 for a batch.
+    expect(await code(printLabels(ctx, actors.bmOmd, { document: { type: 'PURCHASE', id: po.id }, copies: 1, source: 'PURCHASE' }))).toBe('NOT_FOUND');
+    expect(await code(printLabels(ctx, actors.cashierKrt, { document: { type: 'PURCHASE', id: po.id }, copies: 1, source: 'PURCHASE' }))).toBe('FORBIDDEN');
+    if (poItems.length > 1) expect(await code(printLabels(ctx, actors.bmKrt, { document: { type: 'PURCHASE', id: po.id }, copies: 6, source: 'PURCHASE' }))).toBe('BAD_REQUEST');
+    // Both a list and a document, or neither: refused.
+    expect(await code(printLabels(ctx, actors.bmKrt, { pieces: [{ itemId: poItems[0], copies: 1 }], document: { type: 'PURCHASE', id: po.id }, source: 'PURCHASE' }))).toBe('BAD_REQUEST');
+    expect(await code(printLabels(ctx, actors.bmKrt, { source: 'PURCHASE' }))).toBe('BAD_REQUEST');
+    // An opening: refused while it is a draft; a missing one is not found.
+    const [draft] = await ctx.db.insert(t.openings).values({ branchId: krt.id, createdBy: actors.gm.userId }).returning();
+    expect(await code(printLabels(ctx, actors.bmKrt, { document: { type: 'OPENING', id: draft.id }, copies: 1, source: 'OPENING' }))).toBe('OPENING_NOT_SEALED');
+    expect(await code(printLabels(ctx, actors.bmKrt, { document: { type: 'OPENING', id: 999_999 }, copies: 1, source: 'OPENING' }))).toBe('NOT_FOUND');
+  });
+
+  it('the report: every print with who, when, copies, first or reprint; a branch manager sees the own branch only', async () => {
+    const { runReport } = await import('../src/modules/reports/service');
+    const all = await runReport(ctx, actors.gm, 'label-prints', { from: '2000-01-01', to: '2100-01-01' });
+    const krt = await runReport(ctx, actors.bmKrt, 'label-prints', { from: '2000-01-01', to: '2100-01-01' });
+    const total = await ctx.db.select().from(t.labelPrints);
+    expect(all.rows.length).toBe(total.length);
+    expect(krt.rows.length).toBeGreaterThan(0);
+    expect(krt.rows.length).toBeLessThan(all.rows.length);
+    expect(new Set(krt.rows.map((r) => r.branchName)).size).toBe(1);
+    expect(all.rows[0]).toMatchObject({ itemCode: expect.any(String), barcode: expect.stringMatching(/^\d{12,13}$/), printedByName: expect.any(String), kind: expect.stringMatching(/^(FIRST|REPRINT)$/) });
+    expect((all.totals as Record<string, number>).copies).toBe(total.reduce((s, x) => s + x.copies, 0));
+    const reprints = await runReport(ctx, actors.gm, 'label-prints', { from: '2000-01-01', to: '2100-01-01', status: 'REPRINT' });
+    expect(reprints.rows.every((r) => r.kind === 'REPRINT')).toBe(true);
+    expect(await code(runReport(ctx, actors.cashierKrt, 'label-prints', { from: '2000-01-01', to: '2100-01-01' }))).toBe('FORBIDDEN');
+  });
+});

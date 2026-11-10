@@ -473,6 +473,11 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
     the labels (code, barcode, copies, FIRST or REPRINT) and the size. **409 `LABEL_SIZE_NOT_SET`** until the General
     Manager sets the size; 409 `LABEL_TOO_SMALL` when a piece's barcode does not fit.
   - `GET /api/inventory/items/:id/label-prints`: the piece's print history.
+  - `POST /api/labels/print` also takes `{ document: { type: PURCHASE | OPENING, id }, copies }`: every piece of a
+    supplier order or of a sealed opening (409 `OPENING_NOT_SEALED` for a draft), at most 2,000 at once; for a branch
+    manager, the pieces in the branch now.
+  - The report `GET /api/reports/label-prints` ("Label prints": who, when, the piece, copies, first or reprint; the
+    General Manager every branch, a branch manager the own branch), exported as CSV like every report.
 - **The POS scan (F1):** on Enter the POS looks the scanned value up exactly (barcode or code) in the branch; an
   unknown code says «لا توجد قطعة بهذا الرمز» and adds nothing.
 

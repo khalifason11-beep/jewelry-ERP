@@ -13,6 +13,7 @@ import {
   TrendingUp,
   Truck,
   Users,
+  Tag,
   type LucideIcon,
 } from 'lucide-react';
 import { fetchAllPages, type Page, type Permission } from '@jerp/shared';
@@ -37,6 +38,7 @@ const REPORTS: { key: string; title: string; desc: string; icon: LucideIcon; per
   { key: 'branch-performance', title: tk('Branch Performance'), desc: tk('Branches side by side'), icon: Building2 },
   { key: 'user-activity', title: tk('User Activity'), desc: tk('Sign-ins, transactions and actions per user'), icon: Users, perm: 'users.view' },
   { key: 'audit', title: tk('Audit Log'), desc: tk('Every important action, filterable'), icon: ScrollText, perm: 'audit.view' },
+  { key: 'label-prints', title: tk('Label prints'), desc: tk('Every piece label printed: who, when, first or reprint'), icon: Tag, perm: 'opening.enter' },
   { key: 'inventory-ledger', title: tk('Inventory Ledger'), desc: tk('Line-by-line stock movements with references'), icon: BarChart3, perm: 'inventory.view' },
 ];
 

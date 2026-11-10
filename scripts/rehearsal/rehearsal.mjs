@@ -2159,6 +2159,16 @@ async function main() {
       const after = await apiGet(bmB.p, `/api/openings/${ob}`);
       const late = await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: 'متأخر', karat: 21, condition: 'NEW', grossWeightMg: 1_100, netWeightMg: 1_000 });
       check(after.status === 200 && after.body.status === 'SEALED' && late.status === 409 && late.body.error.code === 'OPENING_SEALED', 'OPN-4: the branch manager reads the sealed opening; nothing can be added (409 OPENING_SEALED)');
+      // LBL-1 (D-lbl1-5): the labels of every piece of the sealed opening, by its branch manager; branch A's manager
+      // cannot (404); the General Manager's report lists the prints.
+      const opLabels = await apiSend(bmB.p, 'POST', '/api/labels/print', { document: { type: 'OPENING', id: ob }, copies: 1, source: 'OPENING' });
+      check(opLabels.status === 200 && opLabels.body.labels.length === 6 && opLabels.body.labels.every((l) => l.kind === 'FIRST' && /^\d{12}$/.test(l.barcode)), `LBL-1: branch manager B prints the labels of the opening's 6 pieces in one go (${opLabels.status})`);
+      check((await apiSend(bmA.p, 'POST', '/api/labels/print', { document: { type: 'OPENING', id: ob }, copies: 1, source: 'OPENING' })).status === 404, "LBL-1: branch A's manager cannot print branch B's opening (404)");
+      await bmB.p.goto(`${origin}/openings/${ob}`);
+      await bmB.p.getByTestId('opening-labels-print').waitFor({ timeout: 15_000 });
+      ok('LBL-1 (screen): the sealed opening has "Print labels of these pieces"');
+      const lr = (await apiGet(page, `/api/reports/label-prints?from=2000-01-01&to=2100-01-01`)).body;
+      check(lr.rows?.filter((r) => r.source === 'OPENING').length === 6 && lr.rows.some((r) => r.kind === 'REPRINT'), `LBL-1: the General Manager's report "Label prints" lists every print (${lr.rows?.length} rows, first and reprints)`);
       for (const s of [bmA, bmB]) await s.c.close();
       await signOut(page);
     }
