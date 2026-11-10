@@ -793,6 +793,7 @@ export const AR: Record<string, string> = {
   "The same item appears twice in the cart": "القطعة نفسها مكررة في السلة",
   // LBL-1: piece labels
   "Piece labels": "ملصقات القطع",
+  "No piece with this code: {code}": "لا توجد قطعة بهذا الرمز: {code}",
   "The size of the barcode label stuck on each piece, as on the label roll. Printing labels is refused until it is set.": "مقاس ملصق الباركود الذي يُلصق على كل قطعة، كما هو على لفة الملصقات. لا تُطبع الملصقات قبل تحديده.",
   "mm": "مم",
   "Label width": "عرض الملصق",

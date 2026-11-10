@@ -1161,6 +1161,23 @@ async function main() {
     const PRICE_REASON = 'خصم متفق عليه مع العميل (REH-1)';
     await signIn(page, origin, CASHIER.username, CASHIER.password);
     await pathIs(page, ['/pos']);
+    // LBL-1 (F1, D-lbl1-4): a scan (the barcode's digits and Enter, typed with no delay, faster than the search
+    // refreshes) adds exactly the scanned piece; an unknown code says so and adds nothing.
+    {
+      const [p1] = (await apiGet(page, '/api/inventory/items?status=AVAILABLE&sort=code&pageSize=1')).body.rows;
+      const search = page.getByRole('textbox', { name: 'البحث عن القطع' });
+      await page.getByTestId('pos-product').first().waitFor({ timeout: 15_000 });
+      await search.click();
+      await page.keyboard.type(p1.barcode, { delay: 0 });
+      await page.keyboard.press('Enter');
+      await waitFor(async () => (await page.locator('aside ul > li .font-mono').count()) === 1, 'the scanned piece in the cart', 15_000);
+      check((await page.locator('aside ul > li .font-mono').first().innerText()).startsWith(p1.code), `LBL-1: scanning ${p1.barcode} at the POS adds exactly ${p1.code}`);
+      await page.keyboard.type('999999999999', { delay: 0 });
+      await page.keyboard.press('Enter');
+      await page.getByText(/لا توجد قطعة بهذا الرمز/).first().waitFor({ timeout: 15_000 });
+      check((await page.locator('aside ul > li .font-mono').count()) === 1, 'LBL-1: an unknown code says «لا توجد قطعة بهذا الرمز» and adds nothing');
+      await page.reload();
+    }
     // PRC-1 (D-prc1-8): the cashier buys a sellable piece only: no broken-scrap choice, no pool, no list, no price field.
     await page.goto(`${origin}/scrap`);
     await page.getByTestId('scrap-karat').waitFor({ timeout: 15_000 });

@@ -148,4 +148,5 @@ jobs:
       - run: node scripts/e2e-openings.mjs
       - run: node scripts/e2e-numbers.mjs
       - run: node scripts/e2e-grains.mjs
+      - run: node scripts/e2e-labels.mjs
       - run: node scripts/capture-ui-kit.mjs
