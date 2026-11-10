@@ -18,6 +18,7 @@ import { DataTable } from '../../components/ui/DataTable';
 import { BranchSelect } from '../../components/Filters';
 import { Crumbs } from '../sales/SalesPages';
 import { OpeningCorrectionButton, OpeningCorrectionsCard, type OpeningCorrectionRow } from './OpeningCorrection';
+import { LabelPrintsCard, PrintLabelsButton, useCanPrintLabels } from './PieceLabels';
 
 /** Table column → the inventory list's server sort key (BE-7). */
 const ITEM_SORT_KEYS = { code: 'code', karat: 'karat', netWeightMg: 'weight', totalCost: 'cost', sellingPrice: 'price' };
@@ -188,6 +189,7 @@ export function ItemDetailPage() {
   const id = Number(useParams().id);
   const { t, L, lang } = useI18n();
   const { can, isGlobal, me } = useAuth();
+  const canPrintLabels = useCanPrintLabels();
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['item', id], queryFn: () => get<ItemDetail>(`/inventory/items/${id}`) });
@@ -237,6 +239,8 @@ export function ItemDetailPage() {
               <Button icon={<PackageX className="size-4" />} onClick={() => setAdjust('MARK_DAMAGED')}>{t('Mark damaged')}</Button>
             )}
             {q.data?.openingId != null && <OpeningCorrectionButton item={i} openingId={q.data.openingId} />}
+            {/* LBL-1: the piece's barcode label (branch manager of the branch, General Manager); every print recorded. */}
+            {canPrintLabels && <PrintLabelsButton pieces={[{ id: i.id, code: i.code }]} source="PIECE" testId="piece-label-print" />}
             {can('inventory.adjust') && i.status === 'DAMAGED' && (
               <Button icon={<RotateCcw className="size-4" />} onClick={() => setAdjust('RESTOCK')}>{t('Restock')}</Button>
             )}
@@ -311,6 +315,7 @@ export function ItemDetailPage() {
         </div>
         <div className="space-y-5">
           <OpeningCorrectionsCard rows={q.data?.openingCorrections ?? []} />
+          {canPrintLabels && <LabelPrintsCard itemId={i.id} />}
           <Card padded={false}>
             <CardHeader title={t('Lifecycle')} />
             {history.length === 0 ? (

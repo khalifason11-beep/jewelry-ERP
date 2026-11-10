@@ -1389,6 +1389,14 @@ async function main() {
       check(Array.isArray(hist) && hist.length === 2 && hist[0].kind === 'REPRINT' && hist[1].kind === 'FIRST' && hist[1].copies === 2 && !!hist[0].printedByName, `the piece's print history: who, when, copies, first or reprint (${hist.length} rows)`);
       const big = await apiSend(page, 'POST', '/api/labels/print', { pieces: [{ itemId: lp.id, copies: 21 }], source: 'PIECE' });
       check(big.status === 400 && (await apiGet(page, `/api/inventory/items/${lp.id}/label-prints`)).body.length === 2, 'more than 20 copies is refused (400); nothing recorded');
+      // (screen) The piece page: "Print label" and the print history, the newest marked as a reprint.
+      await page.goto(`${origin}/inventory/${lp.id}`);
+      await page.getByTestId('label-prints').waitFor({ timeout: 15_000 });
+      await waitFor(async () => (await page.getByTestId('label-print-row').count()) === 2, 'the print history', 15_000);
+      check(
+        (await page.getByTestId('piece-label-print').count()) === 1 && (await page.getByTestId('label-print-row').first().getAttribute('data-kind')) === 'REPRINT',
+        '(screen) the piece page has "Print label" and its print history, the newest print marked as a reprint',
+      );
     }
 
     section('PAY-1: Hasad is a sales channel only: the branch never expects Hasad money');

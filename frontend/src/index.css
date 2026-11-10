@@ -179,6 +179,9 @@
   }
 }
 
+/* LBL-1: piece labels, one per page (no blank page after the last one). */
+.lbl:not(:last-child) { break-after: page; page-break-after: always; }
+
 /* Printed documents: black on white, sizes in pt/mm (thermal heads have no grey). */
 .pd { font-size: 10pt; line-height: 1.35; color: #000; overflow-wrap: anywhere; word-break: break-word; }
 .pd * { color: #000; }

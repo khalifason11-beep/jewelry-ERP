@@ -32,6 +32,7 @@ import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { printDocument } from '../../lib/print';
 import { CalibrationPrint } from '../../print/documents';
+import { printSampleLabel } from '../../print/labels';
 import { errorText as apiErrorText } from '../../lib/api';
 import { Alert, Button, Card, CardHeader, DecimalInput, ErrorState, Field, Input, IntegerInput, MoneyInput, PageHeader, Select, SkeletonRows, Textarea } from '../../components/ui';
 
@@ -392,7 +393,24 @@ function SettingsForm() {
           <CardHeader
             title={t('Piece labels')}
             help={t('The size of the barcode label stuck on each piece, as on the label roll. Printing labels is refused until it is set.')}
-            actions={saveBtn(['print.labelWidthMm', 'print.labelHeightMm', 'print.labelMarginMm'], 'save-labels')}
+            actions={
+              <>
+                {/* LBL-1: a sample label at the SAVED size, to set the printer driver's paper, darkness and gap. */}
+                <Button
+                  size="sm"
+                  icon={<Printer className="size-4" />}
+                  disabled={s.data?.settings.print.labelWidthMm == null || s.data?.settings.print.labelHeightMm == null}
+                  onClick={() => {
+                    const p = s.data!.settings.print;
+                    void printSampleLabel({ widthMm: p.labelWidthMm!, heightMm: p.labelHeightMm!, marginMm: p.labelMarginMm });
+                  }}
+                  data-testid="label-sample"
+                >
+                  {t('Print a sample label')}
+                </Button>
+                {saveBtn(['print.labelWidthMm', 'print.labelHeightMm', 'print.labelMarginMm'], 'save-labels')}
+              </>
+            }
           />
           <LabelSizeFields
             size={{ widthMm: draft.print.labelWidthMm, heightMm: draft.print.labelHeightMm, marginMm: draft.print.labelMarginMm }}
