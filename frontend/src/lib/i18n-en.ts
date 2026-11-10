@@ -117,6 +117,7 @@ export const EN: Record<string, string> = {
   MONEY_TRANSFER_SENT: 'Money sent',
   MONEY_TRANSFER_RECEIVED: 'Money transfer received',
   MONEY_TRANSFER_CANCELLED: 'Money transfer cancelled',
+  LABELS_PRINTED: 'Labels printed',
   OPENING_CORRECTION: 'Opening balance correction',
   ITEM_TYPE_RENAMED: 'Item type renamed',
   SEALED: 'Sealed',

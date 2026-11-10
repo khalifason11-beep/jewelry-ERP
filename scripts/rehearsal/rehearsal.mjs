@@ -1375,6 +1375,22 @@ async function main() {
       check((await apiSend(page, 'POST', `/api/sales/${ui.id}/void`, { reason: 'إرجاع الحبات (WSL-1)' })).status === 200 && (await offer()).weightMg === o1.weightMg, 'that sale is cancelled too: the pool is back where it was');
     }
 
+    section('LBL-1: piece labels: every print recorded, first or reprint (API)');
+    {
+      const [lp] = (await apiGet(page, '/api/inventory/items?status=AVAILABLE&sort=code&pageSize=1')).body.rows;
+      const first = await apiSend(page, 'POST', '/api/labels/print', { pieces: [{ itemId: lp.id, copies: 2 }], source: 'PIECE' });
+      check(
+        first.status === 200 && first.body.labels?.[0]?.kind === 'FIRST' && first.body.labels[0].barcode === lp.barcode && /^\d{12}$/.test(lp.barcode) && first.body.size?.widthMm === 40,
+        `the branch manager prints 2 labels of ${lp.code}: its 12-digit barcode ${lp.barcode} at 40 × 12 mm, recorded as its FIRST label`,
+      );
+      const again = await apiSend(page, 'POST', '/api/labels/print', { pieces: [{ itemId: lp.id, copies: 1 }], source: 'STOCK_LIST' });
+      check(again.status === 200 && again.body.labels?.[0]?.kind === 'REPRINT', 'printing it again is recorded as a REPRINT');
+      const hist = (await apiGet(page, `/api/inventory/items/${lp.id}/label-prints`)).body;
+      check(Array.isArray(hist) && hist.length === 2 && hist[0].kind === 'REPRINT' && hist[1].kind === 'FIRST' && hist[1].copies === 2 && !!hist[0].printedByName, `the piece's print history: who, when, copies, first or reprint (${hist.length} rows)`);
+      const big = await apiSend(page, 'POST', '/api/labels/print', { pieces: [{ itemId: lp.id, copies: 21 }], source: 'PIECE' });
+      check(big.status === 400 && (await apiGet(page, `/api/inventory/items/${lp.id}/label-prints`)).body.length === 2, 'more than 20 copies is refused (400); nothing recorded');
+    }
+
     section('PAY-1: Hasad is a sales channel only: the branch never expects Hasad money');
     {
       const digits = (x) => Number(String(x).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[^0-9]/g, ''));

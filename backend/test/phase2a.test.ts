@@ -100,6 +100,8 @@ describe('idempotency keys', () => {
         'POST /money-transfers',
         'POST /money-transfers/:id/confirm',
         'POST /money-transfers/:id/cancel',
+        // LBL-1: a label print is recorded (key claimed inside the transaction).
+        'POST /labels/print',
       ].sort(),
     );
     // Only mutating routes can be idempotent.

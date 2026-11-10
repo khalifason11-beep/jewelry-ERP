@@ -464,6 +464,17 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   2 printer dots at 203 DPI plus 10-module quiet zones) is refused **409 `LABEL_TOO_SMALL`** (details `minWidthMm`,
   `minHeightMm`, `digits`). A 12-digit barcode needs at least 30.3 mm of printable width (32.3 mm with the 1 mm
   margins) and 8 mm of printable height (10 mm with the margins). **Check the real label roll before buying it.**
+- **Migration 0041** adds the append-only table `label_prints` (every label printed: who, when, which piece, copies,
+  FIRST or REPRINT). Additive. **42 migrations** (0000–0041); the preflight shows `migrations: 42 of 42 applied`.
+- **New routes** (permission `opening.enter`: the branch manager of the branch and the General Manager; never the
+  cashier; a branch manager gets 404 for another branch's piece):
+  - `POST /api/labels/print` (Idempotency-Key): `{ pieces: [{ itemId, copies }], source }` with copies 1–20 for one
+    piece, 1–5 per piece in a batch, `source` PIECE / STOCK_LIST / PURCHASE / OPENING. It records the print and answers
+    the labels (code, barcode, copies, FIRST or REPRINT) and the size. **409 `LABEL_SIZE_NOT_SET`** until the General
+    Manager sets the size; 409 `LABEL_TOO_SMALL` when a piece's barcode does not fit.
+  - `GET /api/inventory/items/:id/label-prints`: the piece's print history.
+- **The POS scan (F1):** on Enter the POS looks the scanned value up exactly (barcode or code) in the branch; an
+  unknown code says «لا توجد قطعة بهذا الرمز» and adds nothing.
 
 ### WSL-1: grains (حبات) of broken scrap sold at the POS (migration 0040)
 

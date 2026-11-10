@@ -164,6 +164,7 @@ describe('2. every GET route, every role: no unclassified field, no COST field f
       'GET /users': ['/users'],
       'GET /inventory/items': ['/inventory/items', `/inventory/items?branchId=${krt.id}&status=SOLD`, '/inventory/items?origin=SCRAP'],
       'GET /inventory/items/:id': [`/inventory/items/${soldItem.id}`, `/inventory/items/${availItem.id}`],
+      'GET /inventory/items/:id/label-prints': [`/inventory/items/${availItem.id}/label-prints`],
       'GET /sales': ['/sales', '/sales?mine=true'],
       'GET /sales/:id': [`/sales/${ownSale.id}`, ...(voided ? [`/sales/${voided.id}`] : [])],
       'GET /purchases': ['/purchases'],

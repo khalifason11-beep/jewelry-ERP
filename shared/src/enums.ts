@@ -155,6 +155,11 @@ export type PurchaseCorrectionField = (typeof PURCHASE_CORRECTION_FIELDS)[number
 export const OPENING_STATUSES = ['DRAFT', 'SEALED'] as const;
 export type OpeningStatus = (typeof OPENING_STATUSES)[number];
 /** OPN-1: how a draft line was entered. */
+// LBL-1 (D-lbl1-3): a label print is the piece's first or a reprint; where it was asked for.
+export const LABEL_PRINT_KINDS = ['FIRST', 'REPRINT'] as const;
+export type LabelPrintKind = (typeof LABEL_PRINT_KINDS)[number];
+export const LABEL_PRINT_SOURCES = ['PIECE', 'STOCK_LIST', 'PURCHASE', 'OPENING'] as const;
+export type LabelPrintSource = (typeof LABEL_PRINT_SOURCES)[number];
 export const OPENING_LINE_SOURCES = ['KEYBOARD', 'IMPORT'] as const;
 export type OpeningLineSource = (typeof OPENING_LINE_SOURCES)[number];
 
@@ -249,6 +254,8 @@ export const AUDIT_ACTIONS = [
   'MONEY_TRANSFER_SENT',
   'MONEY_TRANSFER_RECEIVED',
   'MONEY_TRANSFER_CANCELLED',
+  // LBL-1: barcode labels of pieces (each print also has its rows in label_prints)
+  'LABELS_PRINTED',
   'ITEM_TYPE_RENAMED',
   'USER_CREATED',
   'USER_UPDATED',
