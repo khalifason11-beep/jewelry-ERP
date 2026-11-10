@@ -1,6 +1,8 @@
 # LBL-1: print barcode labels for pieces
 
-Status: **plan, waiting for the owner's approval.** No code is written before it.
+Status: **approved 2026-11-11 and built** (c0–c6; decisions D-lbl1-1…5 hold the owner's answers). Deviations: the labels
+print through the app's one print module instead of a separate `/labels/print` page; the supplier order and the opening
+print by document (the server resolves the pieces), so no `barcode` field was added to the order's lines.
 
 **Owner's decisions (2026-11-11), taken as given:**
 - Code128 only (the SuperLead 1600 is a 1D scanner); no QR.
