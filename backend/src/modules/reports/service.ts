@@ -415,6 +415,40 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
         filters: { dateRange: true, branch: true, user: false },
       };
     }
+    case 'label-prints': {
+      // LBL-1 (D-lbl1-3): who printed which piece's label, when, how many, first or reprint (customer returns, label
+      // swaps). The people who print labels (opening.enter); a branch manager sees the own branch.
+      requirePerm(actor, 'opening.enter');
+      const r = await ctx.db.execute(sql`
+        SELECT lp.id, lp.created_at, lp.item_id, i.code, i.barcode, b.name AS branch_name, u.full_name, lp.copies, lp.kind, lp.source, lp.batch_id
+        FROM label_prints lp JOIN jewelry_items i ON i.id = lp.item_id JOIN branches b ON b.id = lp.branch_id JOIN users u ON u.id = lp.printed_by
+        WHERE lp.created_at >= ${iso(period.start)} AND lp.created_at < ${iso(period.end)}
+          ${scope != null ? sql`AND lp.branch_id = ${scope}` : sql``} ${q.userId ? sql`AND lp.printed_by = ${q.userId}` : sql``}
+          ${q.status === 'FIRST' || q.status === 'REPRINT' ? sql`AND lp.kind = ${q.status}` : sql``}
+        ORDER BY lp.id DESC`);
+      const data = rows<Record<string, unknown>>(r).map((x) => ({
+        at: x.created_at, itemId: num(x.item_id), itemCode: x.code, barcode: x.barcode, branchName: x.branch_name, printedByName: x.full_name,
+        copies: num(x.copies), kind: x.kind, source: x.source,
+      }));
+      return {
+        key: 'label-prints',
+        title: 'Label prints',
+        description: 'Every piece label printed: who, when, how many, first label or reprint.',
+        columns: [
+          c('at', 'Time', 'datetime'),
+          c('itemCode', 'Item', 'code', '/inventory/:itemId'),
+          c('barcode', 'Barcode', 'code'),
+          c('branchName', 'Branch'),
+          c('printedByName', 'Printed by'),
+          c('copies', 'Copies', 'number'),
+          c('kind', 'Print', 'status'),
+          c('source', 'From', 'status'),
+        ],
+        rows: data,
+        totals: totalsOf(data, ['copies']),
+        filters: { dateRange: true, branch: true, user: true, status: ['FIRST', 'REPRINT'] },
+      };
+    }
     case 'user-activity': {
       requirePerm(actor, 'users.view');
       const r = await ctx.db.execute(sql`

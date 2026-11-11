@@ -28,6 +28,7 @@ import { PieceKindFields, descriptionTooLong, emptyKind, type PieceKindValue } f
 import { confirmWithPasskey, openWindowWith } from '../../lib/reauth';
 import { OpeningCorrectionsCard, type OpeningCorrectionRow } from '../inventory/OpeningCorrection';
 import { piecesPure24, scrapLine, ScrapDraftCard, ScrapSealedCard, type ScrapCorrection, type ScrapLine, type ScrapTotals } from './OpeningScrap';
+import { PrintLabelsButton } from '../inventory/PieceLabels';
 
 type Condition = 'NEW' | 'USED';
 interface OpeningRow {
@@ -203,6 +204,10 @@ export function OpeningPage() {
             <a href={`/api/openings/${o.id}/export`} download className="inline-flex" data-testid="opening-export">
               <Button icon={<Download className="size-4" />}>{draft ? t('Export the draft (CSV)') : t('Export the pieces with their codes (CSV)')}</Button>
             </a>
+            {/* LBL-1 (D-lbl1-5): the labels of every piece of the sealed opening, in its order. */}
+            {!draft && o.summary.total.count > 0 && (
+              <PrintLabelsButton document={{ type: 'OPENING', id: o.id, count: o.summary.total.count }} source="OPENING" label={t('Print labels of these pieces')} testId="opening-labels-print" />
+            )}
           </>
         }
       />

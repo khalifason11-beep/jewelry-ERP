@@ -183,7 +183,8 @@ export function PosPage() {
     // PRC-1: a piece without a price (no selling rate for its karat yet) is never sold, never at 0.
     if (item.sellingPrice == null) return toast.error(t('{code} has no price', { code: item.code }), t('No selling rate is set for this karat yet. The General Manager sets it on the Prices screen.'));
     setPricesUpdated(false);
-    setCart((c) => [...c, { item, discount: 0 }]);
+    // Two fast scans of the same piece add it once.
+    setCart((c) => (c.some((l) => l.item.id === item.id) ? c : [...c, { item, discount: 0 }]));
   };
   const remove = (id: number) => {
     setPricesUpdated(false);
@@ -206,16 +207,23 @@ export function PosPage() {
     setPricesUpdated(false);
   };
 
-  // Barcode scanners type the code and press Enter.
-  const onSearchKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  // Barcode scanners type the code and press Enter. LBL-1 (F1, D-lbl1-4): a scanner types 12 digits and Enter in about
+  // 50 ms, before the search shown on the screen refreshes, so the value scanned is looked up exactly here (its barcode
+  // or its code, in this branch) and never matched against the rows of an earlier search. Not found: said; nothing added.
+  const onSearchKey = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter') return;
-    const term = q.trim().toLowerCase();
-    const exact = items.data?.rows.find((i) => i.barcode === term || i.code.toLowerCase() === term);
-    const only = items.data?.rows.length === 1 ? items.data.rows[0] : undefined;
-    const hit = exact ?? only;
-    if (hit) {
-      add(hit);
-      setQ('');
+    e.preventDefault();
+    const term = q.trim();
+    if (!term || !branchId) return;
+    setQ('');
+    try {
+      const found = await get<Page<ItemRow>>('/inventory/items', { branchId, q: term, status: 'AVAILABLE,RESERVED', pageSize: PAGE_SIZE_MAX });
+      const lower = term.toLowerCase();
+      const hit = found.rows.find((i) => i.barcode === term || i.code.toLowerCase() === lower);
+      if (hit) add(hit);
+      else toast.error(t('No piece with this code: {code}', { code: term }));
+    } catch (err) {
+      toast.fromError(err);
     }
   };
 

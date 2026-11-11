@@ -260,8 +260,16 @@ the whole weight rounded once) and is the pool reduced (one SCRAP_SALE movement 
 below zero); no cost; a void puts the grains back (REVERSAL). Supplier settlements use what is left. **Not built:**
 labels (LBL-1), photos (PHO-1), mixed-karat logic, cost tracking, a grain rate.
 
-### LBL-1 — Barcode labels for physical pieces · DEFERRED (Q-9: labels later) · M · P3
-Print a label (code, karat, weight, Code128 or QR) for each piece, from the opening import and from every receipt. Needs the printer model and label size.
+### LBL-1 — Barcode labels for physical pieces · DONE · M · P1
+**Done (plan `docs/plans/LBL-1.md`, owner decisions of 2026-11-11, D-lbl1-1…5, migration 0041,
+`docs/acceptance/LBL-1.md`):** Code128 labels of the piece's 12-digit barcode with the same digits under the bars
+(nothing else), printed from the browser at the General Manager's label size (refused until set; refused when too
+small to scan: bars of at least 2 dots at 203 DPI), one label per page, from the piece page, the stock list (ticked
+pieces), the supplier order and the sealed opening, with a sample label for calibration. Only the branch manager of the
+branch and the General Manager (`opening.enter`). Every print is recorded (append-only `label_prints`: who, when, which
+piece, copies, first or reprint), shown on the piece page and in the report "Label prints". The POS scan now looks the
+scanned value up exactly (F1). **Open:** the real label size (a GM setting; check the roll: a 12-digit label needs at
+least 32.3 mm with 1 mm margins). **Left to HW-1:** silent printing, the driver, the real printer and scanner test.
 
 ### CSH-2 — The General Manager's funding of a branch, split payment on scrap, negative balances · DONE · M · P0
 **Done (plan `docs/plans/CSH-2.md`, decisions D-csh-1…9, `docs/acceptance/CSH-2.md`):** GM_ADVANCE / GM_REPAYMENT per branch into or out of the drawer or the bank, with "owed to the General Manager" derived from an `OWED_TO_GM` ledger account (migration 0020), corrections by reversal, GM only (Cash page); counter scrap purchases paid part cash, part bank transfer (migration 0021); CASH outflows blocked below zero, BANK below zero raises attention A17; the first step "Fund the branch". **Open with the client (Q11):** is the General Manager's funding a loan to be repaid or capital? Until answered, opening money recorded as an advance is a debt of the branch to him.

@@ -288,6 +288,13 @@
       "when": 1793931511868,
       "tag": "0040_wsl1_scrap_grains",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794350170252,
+      "tag": "0041_lbl1_label_prints",
+      "breakpoints": true
     }
   ]
 }

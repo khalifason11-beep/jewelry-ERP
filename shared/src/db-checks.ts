@@ -33,6 +33,8 @@ import {
   SCRAP_KINDS,
   SCRAP_PAYMENT_METHODS,
   SCRAP_WEIGHT_EVENT_TYPES,
+  LABEL_PRINT_KINDS,
+  LABEL_PRINT_SOURCES,
   PURCHASE_CORRECTION_FIELDS,
   OPENING_LINE_SOURCES,
   OPENING_CORRECTION_KINDS,
@@ -100,6 +102,9 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   e('scrap_purchases', 'kind', SCRAP_KINDS),
   e('scrap_purchases', 'payment_method', SCRAP_PAYMENT_METHODS),
   e('scrap_weight_entries', 'event_type', SCRAP_WEIGHT_EVENT_TYPES),
+  // ── LBL-1 (migration 0041)
+  e('label_prints', 'kind', LABEL_PRINT_KINDS),
+  e('label_prints', 'source', LABEL_PRINT_SOURCES),
   e('purchases', 'making_charge_paid_from', MAKING_CHARGE_PAYERS, true),
   // ── CSH-2: GM funding (migration 0020)
   e('gm_funding_events', 'kind', GM_FUNDING_KINDS),
@@ -281,6 +286,8 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   karat('opening_scrap_corrections'),
   { name: 'ck_opening_scrap_corrections_weight_nonzero', table: 'opening_scrap_corrections', expr: 'weight_mg_change <> 0' },
   { name: 'ck_opening_scrap_corrections_reason', table: 'opening_scrap_corrections', expr: 'length(btrim(reason)) BETWEEN 3 AND 200' },
+  // ── LBL-1 (migration 0041): one label print row per piece and print request.
+  { name: 'ck_label_prints_copies', table: 'label_prints', expr: 'copies BETWEEN 1 AND 20' },
   // ── WSL-1 (migration 0040): grains of broken scrap sold (1 grain = 100 mg); their one pool row is checked at commit
   // (trigger sale_scrap_lines_pool).
   karat('sale_scrap_lines'),

@@ -6,6 +6,7 @@
 // the API accepts changes keyed by the dotted names below (e.g. "security.idleMinutes").
 
 import { z } from 'zod';
+import { LABEL_DEFAULT_MARGIN_MM, LABEL_MAX_HEIGHT_MM, LABEL_MAX_MARGIN_MM, LABEL_MAX_WIDTH_MM, onLabelStep } from './labels';
 import { INVOICE_FORMATS, PAYMENT_METHODS, PRICING_SETTING_MODES, TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, type InvoiceFormat, type PaymentMethod, type PricingSettingMode, type TwoFactorRole, type WebauthnUv } from './enums';
 
 export type GoldRateScope = 'GLOBAL' | 'BRANCH';
@@ -125,6 +126,13 @@ export interface SystemSettings {
     receiptWidthMm: number;
     /** Open the print dialog by itself right after a sale is completed. */
     autoPrintAfterSale: boolean;
+    /**
+     * LBL-1 (D-lbl1-2): the piece label's size in mm (0.5 mm steps), null until the General Manager sets it (printing
+     * is refused until then; no client default in code), and its inner margin.
+     */
+    labelWidthMm: number | null;
+    labelHeightMm: number | null;
+    labelMarginMm: number;
   };
   backup: {
     /** Warn when the last successful backup is older than this (hours). */
@@ -207,6 +215,9 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     invoiceFormat: 'A4',
     receiptWidthMm: 72,
     autoPrintAfterSale: false,
+    labelWidthMm: null,
+    labelHeightMm: null,
+    labelMarginMm: LABEL_DEFAULT_MARGIN_MM,
   },
   backup: {
     maxAgeHours: 26,
@@ -217,6 +228,7 @@ export const DEFAULT_SETTINGS: SystemSettings = {
 // ───────────────────────────── registry ─────────────────────────────
 
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
+const labelMm = (min: number, max: number) => z.number().min(min).max(max).refine(onLabelStep, { message: 'In steps of 0.5 mm' });
 const text = (min: number, max: number) => z.string().trim().min(min).max(max);
 /** One line of plain text: no markup characters (< >), no line breaks or other control characters. */
 const plainLine = (max: number) =>
@@ -312,6 +324,11 @@ export const SETTINGS_REGISTRY = {
   'print.invoiceFormat': { schema: z.enum(INVOICE_FORMATS) },
   'print.receiptWidthMm': { schema: int(48, 80) },
   'print.autoPrintAfterSale': { schema: z.boolean() },
+  // LBL-1: the label size within the printer class's limits, in 0.5 mm steps; the scannable-size rule is checked on
+  // save against the longest barcode in stock (409 LABEL_TOO_SMALL) and again at print time.
+  'print.labelWidthMm': { schema: labelMm(10, LABEL_MAX_WIDTH_MM).nullable() },
+  'print.labelHeightMm': { schema: labelMm(5, LABEL_MAX_HEIGHT_MM).nullable() },
+  'print.labelMarginMm': { schema: labelMm(0, LABEL_MAX_MARGIN_MM) },
   'backup.maxAgeHours': { schema: int(1, 24 * 14) },
   'backup.maxVerifyAgeDays': { schema: int(1, 90) },
 } satisfies Record<string, SettingDef>;

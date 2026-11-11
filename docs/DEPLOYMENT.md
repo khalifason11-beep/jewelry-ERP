@@ -455,6 +455,32 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   `OPENING_NEEDS_COMPUTED_PRICES` (a condition or karat correction on FIXED_TAG), `CORRECTION_REASON_REQUIRED`,
   `CONFIRM_PASSWORD_REQUIRED`, `PASSKEY_REQUIRED`, `REAUTH_REQUIRED`.
 
+### LBL-1: barcode labels of pieces
+
+- **Settings › Piece labels** (General Manager, audited like every setting): `print.labelWidthMm` and
+  `print.labelHeightMm` (null until set: printing labels is refused until both are), `print.labelMarginMm` (default
+  1 mm). Steps of 0.5 mm; the width at most 48 mm (the printer class, `LABEL_MAX_WIDTH_MM` in `shared/src/labels.ts`).
+- A size that cannot hold a scannable barcode of the longest piece barcode in stock (12 digits today: bars of at least
+  2 printer dots at 203 DPI plus 10-module quiet zones) is refused **409 `LABEL_TOO_SMALL`** (details `minWidthMm`,
+  `minHeightMm`, `digits`). A 12-digit barcode needs at least 30.3 mm of printable width (32.3 mm with the 1 mm
+  margins) and 8 mm of printable height (10 mm with the margins). **Check the real label roll before buying it.**
+- **Migration 0041** adds the append-only table `label_prints` (every label printed: who, when, which piece, copies,
+  FIRST or REPRINT). Additive. **42 migrations** (0000–0041); the preflight shows `migrations: 42 of 42 applied`.
+- **New routes** (permission `opening.enter`: the branch manager of the branch and the General Manager; never the
+  cashier; a branch manager gets 404 for another branch's piece):
+  - `POST /api/labels/print` (Idempotency-Key): `{ pieces: [{ itemId, copies }], source }` with copies 1–20 for one
+    piece, 1–5 per piece in a batch, `source` PIECE / STOCK_LIST / PURCHASE / OPENING. It records the print and answers
+    the labels (code, barcode, copies, FIRST or REPRINT) and the size. **409 `LABEL_SIZE_NOT_SET`** until the General
+    Manager sets the size; 409 `LABEL_TOO_SMALL` when a piece's barcode does not fit.
+  - `GET /api/inventory/items/:id/label-prints`: the piece's print history.
+  - `POST /api/labels/print` also takes `{ document: { type: PURCHASE | OPENING, id }, copies }`: every piece of a
+    supplier order or of a sealed opening (409 `OPENING_NOT_SEALED` for a draft), at most 2,000 at once; for a branch
+    manager, the pieces in the branch now.
+  - The report `GET /api/reports/label-prints` ("Label prints": who, when, the piece, copies, first or reprint; the
+    General Manager every branch, a branch manager the own branch), exported as CSV like every report.
+- **The POS scan (F1):** on Enter the POS looks the scanned value up exactly (barcode or code) in the branch; an
+  unknown code says «لا توجد قطعة بهذا الرمز» and adds nothing.
+
 ### WSL-1: grains (حبات) of broken scrap sold at the POS (migration 0040)
 
 - **0040** adds the append-only table `sale_scrap_lines` (one row per karat of a sale: grains > 0, weight = grains ×

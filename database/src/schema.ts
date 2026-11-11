@@ -871,6 +871,35 @@ export const scrapPurchaseVoids = pgTable('scrap_purchase_voids', {
 });
 
 /**
+ * LBL-1 (D-lbl1-3): every barcode label printed for a piece (append-only, never edited or deleted), written in the same
+ * transaction as the print request that hands out the label: who, when, which piece, how many copies, and whether it
+ * is the piece's first label or a reprint (a label of that piece was printed before). At most one FIRST per piece.
+ */
+export const labelPrints = pgTable(
+  'label_prints',
+  {
+    id: serial('id').primaryKey(),
+    itemId: integer('item_id').notNull().references(() => jewelryItems.id),
+    /** The piece's branch at the print (a later transfer does not move it). */
+    branchId: integer('branch_id').notNull().references(() => branches.id),
+    copies: smallint('copies').notNull(),
+    kind: text('kind').notNull(),
+    source: text('source').notNull(),
+    /** One print request (a batch of pieces). */
+    batchId: text('batch_id').notNull(),
+    printedBy: integer('printed_by').notNull().references(() => users.id),
+    sessionId: text('session_id'),
+    idempotencyKey: text('idempotency_key'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('label_prints_item_idx').on(t.itemId, t.id),
+    index('label_prints_branch_at_idx').on(t.branchId, t.createdAt),
+    uniqueIndex('label_prints_first_uq').on(t.itemId).where(sql`kind = 'FIRST'`),
+  ],
+);
+
+/**
  * WSL-1 (D-wsl1-1): grains (حبات) of broken scrap sold at the POS, one row per line of a sale (append-only). 1 grain
  * = 100 mg; the price is the karat's selling rate × the line's weight, rounded once on the whole line; no cost (the
  * line counts as a line of unknown cost). Each row has exactly one −weight SCRAP_SALE row in `scrap_weight_entries`

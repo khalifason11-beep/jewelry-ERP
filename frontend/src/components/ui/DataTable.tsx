@@ -29,6 +29,8 @@ export interface Column<T> {
   /** Footer cell (totals). */
   footer?: ReactNode;
   csvHeader?: string;
+  /** A control column (e.g. a selection tick, LBL-1): left out of the CSV export. */
+  noCsv?: boolean;
 }
 
 export function DataTable<T>({
@@ -132,8 +134,9 @@ export function DataTable<T>({
       const s = v == null ? '' : v instanceof Date ? v.toISOString() : String(v);
       return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
     };
-    const header = columns.map((c) => esc(c.csvHeader ?? (typeof c.header === 'string' ? c.header : c.key))).join(',');
-    const body = all.map((r) => columns.map((c) => esc(valueOf(c, r))).join(',')).join('\n');
+    const exported = columns.filter((c) => !c.noCsv);
+    const header = exported.map((c) => esc(c.csvHeader ?? (typeof c.header === 'string' ? c.header : c.key))).join(',');
+    const body = all.map((r) => exported.map((c) => esc(valueOf(c, r))).join(',')).join('\n');
     const blob = new Blob([`﻿${header}\n${body}`], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);

@@ -44,6 +44,7 @@ if (full) {
     ['e2e openings', process.execPath, ['scripts/e2e-openings.mjs']],
     ['e2e numbers', process.execPath, ['scripts/e2e-numbers.mjs']],
     ['e2e grains', process.execPath, ['scripts/e2e-grains.mjs']],
+    ['e2e labels', process.execPath, ['scripts/e2e-labels.mjs']],
     // --no-shots: the checks only, so the committed screenshots in docs/ux/ui-kit are not rewritten.
     ['UI kit', process.execPath, ['scripts/capture-ui-kit.mjs', '--no-shots']],
     ['perf (homes)', process.execPath, ['scripts/perf-homes.mjs'], { REHEARSAL_ADMIN_URL: adminUrl }, noAdmin],

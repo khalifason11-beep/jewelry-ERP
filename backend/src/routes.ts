@@ -9,7 +9,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { and, eq } from 'drizzle-orm';
 import { t } from '@jerp/database';
-import { GOLD_RATE_KINDS, MONEY_TRANSFER_STATUSES, OPENING_CORRECTION_KINDS, TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, PAYMENT_METHODS, SCRAP_KINDS, PURCHASE_CORRECTION_FIELDS, CHANGE_REASON_MAX, ap, isSettingKey, type RouteRule } from '@jerp/shared';
+import { LABEL_MAX_COPIES_ONE, LABEL_PRINT_SOURCES, GOLD_RATE_KINDS, MONEY_TRANSFER_STATUSES, OPENING_CORRECTION_KINDS, TWO_FACTOR_ROLES, WEBAUTHN_UV_VALUES, CASH_OR_BANK, ITEM_ORIGINS, PAYMENT_METHODS, SCRAP_KINDS, PURCHASE_CORRECTION_FIELDS, CHANGE_REASON_MAX, ap, isSettingKey, type RouteRule } from '@jerp/shared';
 import type { Config } from './config';
 import type { Ctx } from './core/context';
 import { actorOf, parse, zId, zOptId, zDay } from './core/http';
@@ -24,6 +24,7 @@ import * as sessions from './modules/sessions/service';
 import * as users from './modules/users/service';
 import * as inventory from './modules/inventory/service';
 import * as sales from './modules/sales/service';
+import * as labels from './modules/labels/service';
 import * as printing from './modules/print/service';
 import * as purchases from './modules/purchases/service';
 import * as catalog from './modules/catalog/service';
@@ -573,6 +574,23 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
     const sale = await runIdempotent(ctx, req, res, (idem) => sales.createSale(ctx, actorOf(req), body, { idem }));
     res.json(await sales.getSale(ctx, actorOf(req), sale.id));
   });
+  // ─────────── LBL-1: piece labels ───────────
+  route('POST', '/labels/print', async (req, res) => {
+    const body = parse(
+      z
+        .object({
+          pieces: z.array(z.object({ itemId: zIdBody, copies: z.number().int().min(1).max(LABEL_MAX_COPIES_ONE) }).strict()).min(1).max(200).optional(),
+          // D-lbl1-5: every piece of a supplier order or a sealed opening (resolved and scope-checked by the service).
+          document: z.object({ type: z.enum(['PURCHASE', 'OPENING']), id: zIdBody }).strict().optional(),
+          copies: z.number().int().min(1).max(LABEL_MAX_COPIES_ONE).optional(),
+          source: z.enum(LABEL_PRINT_SOURCES),
+        })
+        .strict(),
+      req.body,
+    );
+    res.json(await runIdempotent(ctx, req, res, (idem) => labels.printLabels(ctx, actorOf(req), body, { idem })));
+  });
+  route('GET', '/inventory/items/:id/label-prints', async (req, res) => res.json(await labels.labelPrintsOf(ctx, actorOf(req), parse(zId, req.params.id))));
   route('GET', '/pos/scrap-grains', async (req, res) => {
     const q = parse(z.object({ branchId: zOptId }).strict(), req.query);
     res.json(await sales.scrapGrainsForPos(ctx, actorOf(req), q));

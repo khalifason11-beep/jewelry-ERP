@@ -1139,10 +1139,45 @@ async function main() {
       (await page.locator('[data-testid=count-tolerance] input').inputValue()) === '777' && (await apiGet(page, '/api/settings')).body.settings.cash.countDifferenceTolerance !== 777,
       `FIX-NUM-1: saving the Sales card keeps the unsaved count tolerance typed in another card (777), and does not save it ("${await page.locator('[data-testid=count-tolerance] input').inputValue()}")`,
     );
+    // LBL-1 (D-lbl1-2): the piece label's size is empty on a new installation; a size too small for a scannable
+    // barcode is said on the screen and refused by the server (409 LABEL_TOO_SMALL); 40 × 12 mm is saved.
+    const printSettings = async () => (await apiGet(page, '/api/settings')).body.settings.print;
+    const ps0 = await printSettings();
+    check(ps0.labelWidthMm === null && ps0.labelHeightMm === null && ps0.labelMarginMm === 1, 'LBL-1: the label size is not set on a new installation (width and height empty, margin 1 mm)');
+    await page.getByTestId('label-settings').scrollIntoViewIfNeeded();
+    await page.fill('[data-testid=label-width] input', '25');
+    await page.fill('[data-testid=label-height] input', '12');
+    await page.getByTestId('label-too-small').waitFor({ timeout: 15_000 });
+    const tooSmall = await apiSend(page, 'PUT', '/api/settings', { changes: { 'print.labelWidthMm': 25, 'print.labelHeightMm': 12 } });
+    check(tooSmall.status === 409 && tooSmall.body?.error?.code === 'LABEL_TOO_SMALL' && tooSmall.body.error.details?.minWidthMm === 32.3, `LBL-1: 25 × 12 mm is too small for the 12-digit barcode: said on the screen, refused (409, at least ${tooSmall.body?.error?.details?.minWidthMm} mm wide)`);
+    await page.click('[data-testid=label-width] input');
+    await page.fill('[data-testid=label-width] input', '40');
+    await page.getByTestId('label-bars').waitFor({ timeout: 15_000 });
+    await page.click('[data-testid=save-labels]');
+    await confirmIfAsked(page, GM.password);
+    await waitFor(async () => (await printSettings()).labelWidthMm === 40, 'the label size', 15_000);
+    check((await printSettings()).labelHeightMm === 12, 'LBL-1: the General Manager saves the label size 40 × 12 mm (Settings › Piece labels)');
     await signOut(page);
     const PRICE_REASON = 'خصم متفق عليه مع العميل (REH-1)';
     await signIn(page, origin, CASHIER.username, CASHIER.password);
     await pathIs(page, ['/pos']);
+    // LBL-1 (F1, D-lbl1-4): a scan (the barcode's digits and Enter, typed with no delay, faster than the search
+    // refreshes) adds exactly the scanned piece; an unknown code says so and adds nothing.
+    {
+      const [p1] = (await apiGet(page, '/api/inventory/items?status=AVAILABLE&sort=code&pageSize=1')).body.rows;
+      const search = page.getByRole('textbox', { name: 'البحث عن القطع' });
+      await page.getByTestId('pos-product').first().waitFor({ timeout: 15_000 });
+      await search.click();
+      await page.keyboard.type(p1.barcode, { delay: 0 });
+      await page.keyboard.press('Enter');
+      await waitFor(async () => (await page.locator('aside ul > li .font-mono').count()) === 1, 'the scanned piece in the cart', 15_000);
+      check((await page.locator('aside ul > li .font-mono').first().innerText()).startsWith(p1.code), `LBL-1: scanning ${p1.barcode} at the POS adds exactly ${p1.code}`);
+      await page.keyboard.type('999999999999', { delay: 0 });
+      await page.keyboard.press('Enter');
+      await page.getByText(/لا توجد قطعة بهذا الرمز/).first().waitFor({ timeout: 15_000 });
+      check((await page.locator('aside ul > li .font-mono').count()) === 1, 'LBL-1: an unknown code says «لا توجد قطعة بهذا الرمز» and adds nothing');
+      await page.reload();
+    }
     // PRC-1 (D-prc1-8): the cashier buys a sellable piece only: no broken-scrap choice, no pool, no list, no price field.
     await page.goto(`${origin}/scrap`);
     await page.getByTestId('scrap-karat').waitFor({ timeout: 15_000 });
@@ -1338,6 +1373,30 @@ async function main() {
       check(ui.scrapLines?.[0]?.grains === 2 && (await offer()).weightMg === o1.weightMg - 200, `(screen) sale ${ui.number}: 2 grains sold from the POS; the receipt shows the grain line; the pool is 200 mg lower`);
       await page.keyboard.press('Escape');
       check((await apiSend(page, 'POST', `/api/sales/${ui.id}/void`, { reason: 'إرجاع الحبات (WSL-1)' })).status === 200 && (await offer()).weightMg === o1.weightMg, 'that sale is cancelled too: the pool is back where it was');
+    }
+
+    section('LBL-1: piece labels: every print recorded, first or reprint (API)');
+    {
+      const [lp] = (await apiGet(page, '/api/inventory/items?status=AVAILABLE&sort=code&pageSize=1')).body.rows;
+      const first = await apiSend(page, 'POST', '/api/labels/print', { pieces: [{ itemId: lp.id, copies: 2 }], source: 'PIECE' });
+      check(
+        first.status === 200 && first.body.labels?.[0]?.kind === 'FIRST' && first.body.labels[0].barcode === lp.barcode && /^\d{12}$/.test(lp.barcode) && first.body.size?.widthMm === 40,
+        `the branch manager prints 2 labels of ${lp.code}: its 12-digit barcode ${lp.barcode} at 40 × 12 mm, recorded as its FIRST label`,
+      );
+      const again = await apiSend(page, 'POST', '/api/labels/print', { pieces: [{ itemId: lp.id, copies: 1 }], source: 'STOCK_LIST' });
+      check(again.status === 200 && again.body.labels?.[0]?.kind === 'REPRINT', 'printing it again is recorded as a REPRINT');
+      const hist = (await apiGet(page, `/api/inventory/items/${lp.id}/label-prints`)).body;
+      check(Array.isArray(hist) && hist.length === 2 && hist[0].kind === 'REPRINT' && hist[1].kind === 'FIRST' && hist[1].copies === 2 && !!hist[0].printedByName, `the piece's print history: who, when, copies, first or reprint (${hist.length} rows)`);
+      const big = await apiSend(page, 'POST', '/api/labels/print', { pieces: [{ itemId: lp.id, copies: 21 }], source: 'PIECE' });
+      check(big.status === 400 && (await apiGet(page, `/api/inventory/items/${lp.id}/label-prints`)).body.length === 2, 'more than 20 copies is refused (400); nothing recorded');
+      // (screen) The piece page: "Print label" and the print history, the newest marked as a reprint.
+      await page.goto(`${origin}/inventory/${lp.id}`);
+      await page.getByTestId('label-prints').waitFor({ timeout: 15_000 });
+      await waitFor(async () => (await page.getByTestId('label-print-row').count()) === 2, 'the print history', 15_000);
+      check(
+        (await page.getByTestId('piece-label-print').count()) === 1 && (await page.getByTestId('label-print-row').first().getAttribute('data-kind')) === 'REPRINT',
+        '(screen) the piece page has "Print label" and its print history, the newest print marked as a reprint',
+      );
     }
 
     section('PAY-1: Hasad is a sales channel only: the branch never expects Hasad money');
@@ -2100,6 +2159,16 @@ async function main() {
       const after = await apiGet(bmB.p, `/api/openings/${ob}`);
       const late = await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: 'متأخر', karat: 21, condition: 'NEW', grossWeightMg: 1_100, netWeightMg: 1_000 });
       check(after.status === 200 && after.body.status === 'SEALED' && late.status === 409 && late.body.error.code === 'OPENING_SEALED', 'OPN-4: the branch manager reads the sealed opening; nothing can be added (409 OPENING_SEALED)');
+      // LBL-1 (D-lbl1-5): the labels of every piece of the sealed opening, by its branch manager; branch A's manager
+      // cannot (404); the General Manager's report lists the prints.
+      const opLabels = await apiSend(bmB.p, 'POST', '/api/labels/print', { document: { type: 'OPENING', id: ob }, copies: 1, source: 'OPENING' });
+      check(opLabels.status === 200 && opLabels.body.labels.length === 6 && opLabels.body.labels.every((l) => l.kind === 'FIRST' && /^\d{12}$/.test(l.barcode)), `LBL-1: branch manager B prints the labels of the opening's 6 pieces in one go (${opLabels.status})`);
+      check((await apiSend(bmA.p, 'POST', '/api/labels/print', { document: { type: 'OPENING', id: ob }, copies: 1, source: 'OPENING' })).status === 404, "LBL-1: branch A's manager cannot print branch B's opening (404)");
+      await bmB.p.goto(`${origin}/openings/${ob}`);
+      await bmB.p.getByTestId('opening-labels-print').waitFor({ timeout: 15_000 });
+      ok('LBL-1 (screen): the sealed opening has "Print labels of these pieces"');
+      const lr = (await apiGet(page, `/api/reports/label-prints?from=2000-01-01&to=2100-01-01`)).body;
+      check(lr.rows?.filter((r) => r.source === 'OPENING').length === 6 && lr.rows.some((r) => r.kind === 'REPRINT'), `LBL-1: the General Manager's report "Label prints" lists every print (${lr.rows?.length} rows, first and reprints)`);
       for (const s of [bmA, bmB]) await s.c.close();
       await signOut(page);
     }

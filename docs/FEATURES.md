@@ -90,6 +90,12 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   - Paper sizes are A4, A5, or a thermal receipt.
   - The cashier prints once. Managers can reprint (`sales.reprint`); a reprint is marked "COPY n" and counted.
 - **Pieces can also be transferred from the cart**, not only sold (FIX-1).
+- **Scanning** (LBL-1, F1): a scanned code (barcode, or the J-code) is looked up exactly on Enter; an unknown code says
+  «لا توجد قطعة بهذا الرمز» and adds nothing.
+- **Piece labels** (LBL-1, `opening.enter`: branch manager of the branch, General Manager): a Code128 label of the
+  piece's 12-digit barcode with the digits under it, from the piece page, the stock list (ticked pieces), the supplier
+  order and the sealed opening, at the General Manager's label size (Settings › Piece labels, with a sample label).
+  Every print is recorded (first or reprint), shown on the piece page and in the report "Label prints".
 - **Grains (حبات) of broken scrap** (WSL-1): one product per karat with weight in the branch's broken-scrap pool
   ("كسر مكسر 21 — متاح X جم"). The cashier types a whole number of grains (1 grain = 0.1 g); the line is priced at the
   karat's selling rate per gram on its whole weight, rounded once; no discount, no cost (a line of unknown cost). More

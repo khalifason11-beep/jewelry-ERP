@@ -1,8 +1,29 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ImageUp, Printer, Save, Trash2 } from 'lucide-react';
-import { PAYMENT_METHODS, SETTING_KEYS, parseDecimalInput, parseIntegerInput, settingValue, withSetting, type InvoiceFormat, type SettingKey, type SystemSettings } from '@jerp/shared';
+import {
+  LABEL_DEFAULT_BARCODE_DIGITS,
+  LABEL_DEFAULT_MARGIN_MM,
+  LABEL_MAX_HEIGHT_MM,
+  LABEL_MAX_MARGIN_MM,
+  LABEL_MAX_WIDTH_MM,
+  LABEL_MIN_MODULE_DOTS,
+  PAYMENT_METHODS,
+  SETTING_KEYS,
+  labelLayout,
+  minLabelHeightMm,
+  minLabelWidthMm,
+  onLabelStep,
+  parseDecimalInput,
+  parseIntegerInput,
+  settingValue,
+  withSetting,
+  type InvoiceFormat,
+  type LabelSize,
+  type SettingKey,
+  type SystemSettings,
+} from '@jerp/shared';
 import { del, get, put, upload } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useBranding } from '../../lib/branding';
@@ -11,6 +32,7 @@ import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
 import { printDocument } from '../../lib/print';
 import { CalibrationPrint } from '../../print/documents';
+import { printSampleLabel } from '../../print/labels';
 import { errorText as apiErrorText } from '../../lib/api';
 import { Alert, Button, Card, CardHeader, DecimalInput, ErrorState, Field, Input, IntegerInput, MoneyInput, PageHeader, Select, SkeletonRows, Textarea } from '../../components/ui';
 
@@ -365,6 +387,39 @@ function SettingsForm() {
           </div>
         </Card>
 
+        {/* LBL-1 (D-lbl1-2): the piece label's size (0.5 mm steps), empty until the General Manager sets it. */}
+        <div data-testid="label-settings">
+        <Card padded={false}>
+          <CardHeader
+            title={t('Piece labels')}
+            help={t('The size of the barcode label stuck on each piece, as on the label roll. Printing labels is refused until it is set.')}
+            actions={
+              <>
+                {/* LBL-1: a sample label at the SAVED size, to set the printer driver's paper, darkness and gap. */}
+                <Button
+                  size="sm"
+                  icon={<Printer className="size-4" />}
+                  disabled={s.data?.settings.print.labelWidthMm == null || s.data?.settings.print.labelHeightMm == null}
+                  onClick={() => {
+                    const p = s.data!.settings.print;
+                    void printSampleLabel({ widthMm: p.labelWidthMm!, heightMm: p.labelHeightMm!, marginMm: p.labelMarginMm });
+                  }}
+                  data-testid="label-sample"
+                >
+                  {t('Print a sample label')}
+                </Button>
+                {saveBtn(['print.labelWidthMm', 'print.labelHeightMm', 'print.labelMarginMm'], 'save-labels')}
+              </>
+            }
+          />
+          <LabelSizeFields
+            size={{ widthMm: draft.print.labelWidthMm, heightMm: draft.print.labelHeightMm, marginMm: draft.print.labelMarginMm }}
+            field={(key, value, onChange) => numberInput(value ?? Number.NaN, onChange, { min: key === 'margin' ? 0 : key === 'width' ? 10 : 5, max: key === 'margin' ? LABEL_MAX_MARGIN_MM : key === 'width' ? LABEL_MAX_WIDTH_MM : LABEL_MAX_HEIGHT_MM, decimals: 1, unit: t('mm') })}
+            onChange={(patch) => set('print', patch)}
+          />
+        </Card>
+        </div>
+
         <span id="second-factor" className="-mb-5 block scroll-mt-4" />
         <SecondFactorCard />
       </div>
@@ -461,6 +516,62 @@ function SecondFactorCard() {
         {error && <div className="lg:col-span-2"><Alert tone="danger">{error}</Alert></div>}
       </div>
     </Card>
+  );
+}
+
+/**
+ * LBL-1: width, height and margin of the label, and what they give: the smallest label that holds the pieces' 12-digit
+ * barcode with bars of two printer dots, and the bars of the size set (or why it is too small).
+ */
+function LabelSizeFields({
+  size,
+  field,
+  onChange,
+}: {
+  size: LabelSize;
+  field: (key: 'width' | 'height' | 'margin', value: number | null, onChange: (n: number) => void) => ReactNode;
+  onChange: (patch: Partial<SystemSettings['print']>) => void;
+}) {
+  const { t } = useI18n();
+  const mm = (n: number) => (Number.isFinite(n) ? n : null);
+  const margin = Number.isFinite(size.marginMm) ? size.marginMm : LABEL_DEFAULT_MARGIN_MM;
+  const sample = '6'.repeat(LABEL_DEFAULT_BARCODE_DIGITS);
+  const layout = size.widthMm != null && size.heightMm != null && Number.isFinite(size.widthMm) && Number.isFinite(size.heightMm) ? labelLayout({ ...size, marginMm: margin }, sample) : null;
+  const offStep = [size.widthMm, size.heightMm, size.marginMm].some((v) => v != null && Number.isFinite(v) && !onLabelStep(v));
+  return (
+    <div className="grid gap-3 p-5 sm:grid-cols-3">
+      <Field label={t('Label width')}>
+        <span className="block" data-testid="label-width">{field('width', size.widthMm, (n) => onChange({ labelWidthMm: mm(n) }))}</span>
+      </Field>
+      <Field label={t('Label height')}>
+        <span className="block" data-testid="label-height">{field('height', size.heightMm, (n) => onChange({ labelHeightMm: mm(n) }))}</span>
+      </Field>
+      <Field label={t('Inner margin')}>
+        <span className="block" data-testid="label-margin">{field('margin', size.marginMm, (n) => onChange({ labelMarginMm: n }))}</span>
+      </Field>
+      <p className="text-[12.5px] text-ink-600 sm:col-span-3" data-testid="label-min-size">
+        {t('Smallest label for the pieces’ barcode: {width} × {height} mm (bars of {dots} printer dots, 0.5 mm steps).', {
+          width: minLabelWidthMm(LABEL_DEFAULT_BARCODE_DIGITS, margin),
+          height: minLabelHeightMm(margin),
+          dots: LABEL_MIN_MODULE_DOTS,
+        })}
+      </p>
+      {offStep && (
+        <div className="sm:col-span-3">
+          <Alert tone="danger">{t('Sizes are set in steps of 0.5 mm.')}</Alert>
+        </div>
+      )}
+      {layout && !layout.ok && (
+        <div className="sm:col-span-3" data-testid="label-too-small">
+          <Alert tone="danger">{t('This label is too small for a scannable barcode: it needs at least {minWidth} × {minHeight} mm', { minWidth: layout.minWidthMm, minHeight: layout.minHeightMm })}</Alert>
+        </div>
+      )}
+      {layout?.ok && (
+        <p className="text-[12.5px] text-ink-600 sm:col-span-3" data-testid="label-bars">
+          {t('On this label the narrowest bar is {dots} printer dots ({mm} mm).', { dots: layout.moduleDots, mm: layout.moduleMm.toFixed(2) })}
+        </p>
+      )}
+    </div>
   );
 }
 

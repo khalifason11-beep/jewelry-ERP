@@ -88,9 +88,12 @@ export interface InvoicePrintData {
 }
 
 export interface PrintLayout {
-  format: InvoiceFormat;
+  /** LBL-1: LABEL = piece labels, one label per page at the label's exact size. */
+  format: InvoiceFormat | 'LABEL';
   /** RECEIPT: printable width in mm (48–80). */
   receiptWidthMm: number;
+  /** LABEL: the label's size in mm (the General Manager's setting). */
+  label?: { widthMm: number; heightMm: number };
 }
 
 /** Throws if any key at any depth is a cost / profit / gold-debt field. */
@@ -157,6 +160,8 @@ export function buildInvoicePrintData(sale: PrintableSale, copy: { n: number; pr
  * the rendered receipt and passes its height here (D-print-3).
  */
 export function pageRule(layout: PrintLayout, contentHeightMm?: number): string {
+  // LBL-1: one label per page, the label's exact size, no margin (the label keeps its own inner margin).
+  if (layout.format === 'LABEL' && layout.label) return `@page { size: ${layout.label.widthMm}mm ${layout.label.heightMm}mm; margin: 0; }`;
   if (layout.format === 'RECEIPT') {
     const h = Math.max(20, Math.ceil(contentHeightMm ?? 200));
     return `@page { size: ${layout.receiptWidthMm}mm ${h}mm; margin: 0; }`;
@@ -166,6 +171,7 @@ export function pageRule(layout: PrintLayout, contentHeightMm?: number): string 
 
 /** Content width in mm for a layout (A4 210−20, A5 148−20). */
 export function contentWidthMm(layout: PrintLayout): number {
+  if (layout.format === 'LABEL' && layout.label) return layout.label.widthMm;
   if (layout.format === 'RECEIPT') return layout.receiptWidthMm;
   return layout.format === 'A4' ? 190 : 128;
 }
