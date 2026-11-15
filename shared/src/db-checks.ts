@@ -293,6 +293,8 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   // ── LBL-2 (migration 0042): an opening line's reserved code and barcode come together; a draft print's copies.
   { name: 'ck_opening_lines_reserved_pair', table: 'opening_lines', expr: '(reserved_code IS NULL) = (reserved_barcode IS NULL)' },
   { name: 'ck_opening_label_prints_copies', table: 'opening_label_prints', expr: 'copies BETWEEN 1 AND 20' },
+  // ── LBL-2 (migration 0044): every opening line has its piece (sealed) or its reserved code (draft).
+  { name: 'ck_opening_lines_code_or_piece', table: 'opening_lines', expr: 'item_id IS NOT NULL OR reserved_code IS NOT NULL' },
   // ── WSL-1 (migration 0040): grains of broken scrap sold (1 grain = 100 mg); their one pool row is checked at commit
   // (trigger sale_scrap_lines_pool).
   karat('sale_scrap_lines'),

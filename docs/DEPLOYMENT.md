@@ -469,7 +469,9 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   import answer the codes given (`code`, `barcode`; `firstCode`, `lastCode`).
 - error codes: `OPENING_CODES_MISSING` (409: a line of the draft has no code; cannot happen after 0043) and
   `OPENING_CODE_TAKEN` (409: a reserved code is already a piece; the counter makes it impossible). Nothing is sealed.
-- **44 migrations** (0000–0043); the preflight shows `migrations: 44 of 44 applied`.
+- **0044** (the tightening) adds the rule that every opening line has its piece or its code
+  (`ck_opening_lines_code_or_piece`, validated at once; nothing can break it after 0043).
+- **45 migrations** (0000–0044); the preflight shows `migrations: 45 of 45 applied`.
 
 ### LBL-1: barcode labels of pieces
 

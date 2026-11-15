@@ -309,6 +309,13 @@
       "when": 1794740552590,
       "tag": "0043_lbl2_backfill_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794741091439,
+      "tag": "0044_lbl2_codes_required",
+      "breakpoints": true
     }
   ]
 }

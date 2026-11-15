@@ -5,7 +5,9 @@
 //   * the sealed opening's lines, the pieces and everything else are not touched;
 //   * a block crossing 999,999 keeps every digit (13-digit barcode), as core/numbering.ts;
 //   * no counter row yet: the block starts at 1001;
-//   * the rules added by 0042: a code once set never changes; code and barcode together; unique.
+//   * the rules added by 0042: a code once set never changes; code and barcode together; unique;
+//   * 0044 (the tightening): every line has its piece or its code; a line without either stops the upgrade with the
+//     rule's name, and once applied such a line is refused.
 
 import { describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
@@ -100,6 +102,24 @@ describe('migrations 0042–0043 (LBL-2) on a database at 0041 with a draft and 
       expect(await nextItemCode(fresh.db as never)).toEqual({ code: 'J-1006', barcode: '628100001006' });
     } finally {
       await fresh.close();
+    }
+  }, 120_000);
+
+  it('0044: a draft line without a code stops the upgrade; once applied, a line without its piece or its code is refused', async () => {
+    const h = await openAt(43);
+    try {
+      const s = await seed(h, 3_000); // lines added after 0043 ran, as old code would: no code
+      const stopped = await h.migrate().then(() => 'migrated', (e: Error) => String(e.message ?? e) + String((e as { cause?: Error }).cause?.message ?? ''));
+      expect(stopped).toMatch(/ck_opening_lines_code_or_piece/);
+      await run(h, `UPDATE opening_lines SET reserved_code = 'J-' || (3000 + line_no), reserved_barcode = '628100' || lpad((3000 + line_no)::text, 6, '0') WHERE opening_id = ${s.draft}`);
+      await h.migrate();
+      expect(await one(h, `SELECT convalidated FROM pg_constraint WHERE conname = 'ck_opening_lines_code_or_piece'`)).toEqual({ convalidated: true });
+      expect(await refused(h, `INSERT INTO opening_lines (opening_id, line_no, category_id, karat, gross_weight_mg, net_weight_mg, source, condition, created_by)
+        SELECT opening_id, 9, category_id, karat, gross_weight_mg, net_weight_mg, source, condition, created_by FROM opening_lines WHERE opening_id = ${s.draft} AND line_no = 1`)).toBe(true);
+      // The sealed opening's line (its piece, no code) is fine.
+      expect(await one(h, `SELECT count(*)::int AS n FROM opening_lines WHERE opening_id = ${s.sealed} AND reserved_code IS NULL AND item_id IS NOT NULL`)).toEqual({ n: 1 });
+    } finally {
+      await h.close();
     }
   }, 120_000);
 });
