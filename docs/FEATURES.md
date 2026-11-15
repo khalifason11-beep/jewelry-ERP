@@ -96,6 +96,10 @@ Permission codes are given in `code` form; the full catalogue and the grants of 
   piece's 12-digit barcode with the digits under it, from the piece page, the stock list (ticked pieces), the supplier
   order and the sealed opening, at the General Manager's label size (Settings › Piece labels, with a sample label).
   Every print is recorded (first or reprint), shown on the piece page and in the report "Label prints".
+- **Labels before the opening's seal** (LBL-2, `opening.enter`): every opening line gets its piece code when it is
+  added (entry order; an imported file one block); «طباعة الملصق» on each draft line (1–20 copies, the same label). The
+  print is recorded and, at the seal, moved to the piece's history. A printed line is removed only after the Arabic
+  warning; removed codes are never reused and are listed for the reviewer; the seal shows «طُبعت ملصقات n من m قطعة».
 - **Grains (حبات) of broken scrap** (WSL-1): one product per karat with weight in the branch's broken-scrap pool
   ("كسر مكسر 21 — متاح X جم"). The cashier types a whole number of grains (1 grain = 0.1 g); the line is priced at the
   karat's selling rate per gram on its whole weight, rounded once; no discount, no cost (a line of unknown cost). More

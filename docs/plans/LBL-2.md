@@ -1,7 +1,16 @@
 # LBL-2: print a piece's label while the opening balance is still a draft
 
-Status: **plan only, waiting for the owner's approval.** No code, no migration, no deployment before it. This item
-changes how piece codes and barcodes are given out, so every rule below marked **[OPEN]** is a question, not a decision.
+Status: **approved by the owner on 2026-11-15, phase 1 only; phase 1 built** (decisions D-lbl2-1…5 in
+`docs/decisions.md`, acceptance `docs/acceptance/LBL-2.md`). The owner's answers to §13: Q1 a printed line may be
+removed by the branch manager (own branch) and the General Manager after an explicit confirmation (409
+`OPENING_LINE_LABEL_PRINTED` without it), audited; Q2 the removed codes are listed; Q3 no «طباعة كل ما لم يُطبع»
+(phase 2 not built); Q4 a branch manager reprints without approval, recorded; Q5 the seal is not refused, the count is
+shown; Q6 the draft openings of the update get their codes at the update (0043); Q7 accepted. **Deviations from the
+plan:** a draft print after the seal answers the existing 409 `OPENING_SEALED` (not a new `OPENING_NOT_DRAFT`); the
+route is one line at a time, `POST /openings/:id/lines/:lineId/label` (phase 1 has no multi-select); the draft CSV export
+has no code column (it must import again; the sealed export and the screen show the codes); `label_prints.draft_print_id`
+has no foreign key (the runtime role cannot lock an append-only table, D-mis1-3): the trigger checks it.
+The text below is the plan as approved.
 
 **The owner's need (2026-11-15).** The owner wants each piece's label printed as soon as its line is added to the
 opening balance, while the opening is still a DRAFT. The piece is then tagged on the spot, not days later after the

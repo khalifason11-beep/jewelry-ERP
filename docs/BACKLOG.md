@@ -271,6 +271,17 @@ piece, copies, first or reprint), shown on the piece page and in the report "Lab
 scanned value up exactly (F1). **Open:** the real label size (a GM setting; check the roll: a 12-digit label needs at
 least 32.3 mm with 1 mm margins). **Left to HW-1:** silent printing, the driver, the real printer and scanner test.
 
+### LBL-2 — A piece's label printed while the opening balance is a draft · PHASE 1 DONE · M · P1
+**Done (plan `docs/plans/LBL-2.md`, owner approval and answers of 2026-11-15, D-lbl2-1…5, migrations 0042–0044,
+`docs/acceptance/LBL-2.md`):** an opening line gets its piece code and barcode when it is added (a typed line the next
+number, an imported file one block in file order; codes follow entry order, superseding D-opn1-1's sheet order); the
+seal makes each piece with exactly that code. «طباعة الملصق» on each draft line (1–20 copies, LBL-1's label), every
+print recorded (append-only `opening_label_prints`, first or reprint) and copied at the seal into the piece's history.
+A printed line is removed only after an explicit confirmation; removed codes are never used again and are listed as
+the gaps; the seal shows how many lines are printed and is not refused for the others. The draft openings of the update
+got their codes in line order (0043). **Not built (owner decision):** phase 2, multi-select printing and «طباعة كل ما لم
+يُطبع». **Left to HW-1:** silent printing.
+
 ### CSH-2 — The General Manager's funding of a branch, split payment on scrap, negative balances · DONE · M · P0
 **Done (plan `docs/plans/CSH-2.md`, decisions D-csh-1…9, `docs/acceptance/CSH-2.md`):** GM_ADVANCE / GM_REPAYMENT per branch into or out of the drawer or the bank, with "owed to the General Manager" derived from an `OWED_TO_GM` ledger account (migration 0020), corrections by reversal, GM only (Cash page); counter scrap purchases paid part cash, part bank transfer (migration 0021); CASH outflows blocked below zero, BANK below zero raises attention A17; the first step "Fund the branch". **Open with the client (Q11):** is the General Manager's funding a loan to be repaid or capital? Until answered, opening money recorded as an advance is a debt of the branch to him.
 
