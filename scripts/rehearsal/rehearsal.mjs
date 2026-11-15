@@ -2105,6 +2105,12 @@ async function main() {
       const typed = [];
       for (const [i, mg] of [[1, 2_100], [2, 3_300], [3, 4_400]]) typed.push(await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: `فرع ب ${i}`, karat: 21, condition: 'NEW', grossWeightMg: mg + 100, netWeightMg: mg }));
       check(typed.every((r) => r.status === 200), `OPN-4: the branch manager of branch B types 3 pieces into its draft (${typed.map((r) => r.status).join(', ')}); no password asked`);
+      // LBL-2 (D-lbl2-1): each line gets its piece code when it is added, in the order of entry.
+      const typedNums = typed.map((r) => Number(r.body.code?.slice(2)));
+      check(
+        typed.every((r) => /^J-\d+$/.test(r.body.code) && r.body.barcode === `628100${r.body.code.slice(2).padStart(6, '0')}`) && typedNums.every((n, i) => i === 0 || n > typedNums[i - 1]),
+        `LBL-2: each typed line got its piece code when it was added, rising in entry order (${typed.map((r) => r.body.code).join(', ')})`,
+      );
       // (screen) The draft page of the branch manager: the entry form, no seal button, the broken scrap read-only.
       await bmB.p.goto(`${origin}/openings/${ob}`);
       await bmB.p.getByTestId('opening-gm-seals').waitFor({ timeout: 15_000 });
@@ -2115,6 +2121,10 @@ async function main() {
       const file = '﻿' + ['النوع;الوصف;العيار;الحالة;الوزن القائم;الوزن الصافي', 'خواتم الافتتاح;ملف ب 1;21;جديد;1.600;1.500', 'خواتم الافتتاح;ملف ب 2;21;مستعمل;2.600;2.500'].join('\r\n') + '\r\n';
       const imported = await postCsv(bmB.p, `/api/openings/${ob}/import?fileName=branch-b.csv`, file);
       check(imported.status === 200 && imported.body.rowCount === 2, `OPN-4: the branch manager imports a file of 2 pieces (${imported.status})`);
+      check(
+        Number(imported.body.lastCode?.slice(2)) === Number(imported.body.firstCode?.slice(2)) + 1 && Number(imported.body.firstCode?.slice(2)) > typedNums[2],
+        `LBL-2: the imported file took one block of codes in file order, after the typed lines (${imported.body.firstCode} to ${imported.body.lastCode})`,
+      );
       // Branch scope (D-opn4-2): the manager of branch A cannot read or change branch B's opening; nothing GM-only.
       const crossRead = await apiGet(bmA.p, `/api/openings/${ob}`);
       const crossWrite = await apiSend(bmA.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: 'cross', karat: 21, condition: 'NEW', grossWeightMg: 1_100, netWeightMg: 1_000 });
@@ -2142,6 +2152,12 @@ async function main() {
         enteredBy.length === 5 && enteredBy.every((x) => x.trim() === 'Rehearsal Manager B') && perPerson.includes('Rehearsal Manager B') && (await page.getByTestId('opening-seal').count()) === 1,
         `OPN-4 (screen): the General Manager sees "Entered by" on every line and per person (${perPerson.replace(/\s+/g, ' ')}), and the seal button`,
       );
+      const draftCodes = review.lines.rows.map((l) => l.code);
+      const shownCodes = (await page.getByTestId('opening-line-code').allInnerTexts()).map((x) => x.trim());
+      check(
+        draftCodes.every((c) => /^J-\d+$/.test(c)) && new Set(draftCodes).size === 5 && shownCodes.length === 5 && shownCodes.every((c) => draftCodes.includes(c)),
+        `LBL-2 (screen): every draft line shows its piece code before the seal (${shownCodes.join(', ')})`,
+      );
       // The seal (D-opn4-4): a piece typed after the review makes the reviewed numbers stale: refused, nothing sealed.
       const reviewed = { expectedLines: review.summary.total.count, expectedNetWeightMg: review.summary.total.netWeightMg };
       check((await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: 'بعد المراجعة', karat: 21, condition: 'NEW', grossWeightMg: 5_100, netWeightMg: 5_000 })).status === 200, 'OPN-4: the branch manager types one more piece after the review');
@@ -2155,6 +2171,12 @@ async function main() {
       const now = (await apiGet(page, `/api/openings/${ob}`)).body.summary.total;
       const sealed = await apiSend(page, 'POST', `/api/openings/${ob}/seal`, { confirmPassword: GM.password, expectedLines: now.count, expectedNetWeightMg: now.netWeightMg });
       check(sealed.status === 200 && sealed.body.pieces === 6, `OPN-4: the seal with the numbers reviewed now: ${sealed.body?.pieces} pieces into branch B's stock (${sealed.status})`);
+      const sealedLines = (await apiGet(page, `/api/openings/${ob}?pageSize=50`)).body.lines.rows;
+      const sealedItems = (await apiGet(page, `/api/inventory/items?branchId=${branchB}&origin=OPENING&pageSize=50`)).body.rows;
+      check(
+        draftCodes.every((c) => sealedLines.some((l) => l.code === c && l.itemId)) && draftCodes.every((c) => sealedItems.some((i) => i.code === c)),
+        `LBL-2: the seal made every piece with exactly the code its line showed before (${draftCodes.join(', ')} are now pieces of branch B)`,
+      );
       // Sealed: readable by its branch manager (Q-f), read-only for everyone.
       const after = await apiGet(bmB.p, `/api/openings/${ob}`);
       const late = await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: 'متأخر', karat: 21, condition: 'NEW', grossWeightMg: 1_100, netWeightMg: 1_000 });

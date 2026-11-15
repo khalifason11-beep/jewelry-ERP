@@ -511,10 +511,23 @@ export const openingLines = pgTable(
      */
     importId: integer('import_id'),
     itemId: integer('item_id').unique().references(() => jewelryItems.id),
+    /**
+     * LBL-2 (D-lbl2-1): the piece code and barcode given to the line when it is added (typed, or a block for an imported
+     * file, in file order), so its label can be printed before the seal; the seal makes the piece with exactly these.
+     * Never changed once set (trigger `jerp_opening_line_check`); a removed line's number is never used again. NULL only
+     * on the lines of an opening sealed before LBL-2 (their piece carries the code).
+     */
+    reservedCode: text('reserved_code'),
+    reservedBarcode: text('reserved_barcode'),
     createdBy: integer('created_by').notNull().references(() => users.id),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex('opening_lines_no_uq').on(t.openingId, t.lineNo), index('opening_lines_karat_idx').on(t.openingId, t.karat)],
+  (t) => [
+    uniqueIndex('opening_lines_no_uq').on(t.openingId, t.lineNo),
+    index('opening_lines_karat_idx').on(t.openingId, t.karat),
+    uniqueIndex('opening_lines_reserved_code_uq').on(t.reservedCode),
+    uniqueIndex('opening_lines_reserved_barcode_uq').on(t.reservedBarcode),
+  ],
 );
 
 /**
@@ -890,12 +903,54 @@ export const labelPrints = pgTable(
     printedBy: integer('printed_by').notNull().references(() => users.id),
     sessionId: text('session_id'),
     idempotencyKey: text('idempotency_key'),
+    /**
+     * LBL-2 (D-lbl2-3): the print made before the seal that this row copies (the seal copies every draft print of the
+     * piece, in order, with its date and person). No foreign key: `opening_label_prints` is append-only and the runtime
+     * role may not take the key check's lock on it (D-mis1-3); the trigger `jerp_label_print_check` checks it instead.
+     */
+    draftPrintId: integer('draft_print_id'),
     createdAt: createdAt(),
   },
   (t) => [
     index('label_prints_item_idx').on(t.itemId, t.id),
     index('label_prints_branch_at_idx').on(t.branchId, t.createdAt),
     uniqueIndex('label_prints_first_uq').on(t.itemId).where(sql`kind = 'FIRST'`),
+    uniqueIndex('label_prints_draft_print_uq').on(t.draftPrintId),
+  ],
+);
+
+/**
+ * LBL-2 (D-lbl2-3): every label printed for a line of a DRAFT opening (its piece does not exist yet), append-only: who,
+ * when, which line and reserved code, how many copies, FIRST or REPRINT. At the seal each row is copied into
+ * `label_prints` for the piece made with that code; a removed line's prints stay here. The trigger
+ * `jerp_opening_label_print_check` keeps the row on a line of that draft opening with that reserved code, in its branch;
+ * FIRST only for a code never printed, REPRINT only after one (at most one FIRST per code).
+ */
+export const openingLabelPrints = pgTable(
+  'opening_label_prints',
+  {
+    id: serial('id').primaryKey(),
+    openingId: integer('opening_id').notNull().references(() => openings.id),
+    /** No foreign key: a printed line may still be removed from the draft; the record outlives it. */
+    openingLineId: integer('opening_line_id').notNull(),
+    lineNo: integer('line_no').notNull(),
+    code: text('code').notNull(),
+    barcode: text('barcode').notNull(),
+    branchId: integer('branch_id').notNull().references(() => branches.id),
+    copies: smallint('copies').notNull(),
+    kind: text('kind').notNull(),
+    batchId: text('batch_id').notNull(),
+    printedBy: integer('printed_by').notNull().references(() => users.id),
+    sessionId: text('session_id'),
+    idempotencyKey: text('idempotency_key'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('opening_label_prints_opening_idx').on(t.openingId, t.id),
+    index('opening_label_prints_line_idx').on(t.openingLineId, t.id),
+    index('opening_label_prints_code_idx').on(t.code, t.id),
+    index('opening_label_prints_branch_at_idx').on(t.branchId, t.createdAt),
+    uniqueIndex('opening_label_prints_first_uq').on(t.code).where(sql`kind = 'FIRST'`),
   ],
 );
 

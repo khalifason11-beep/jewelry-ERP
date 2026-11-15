@@ -105,6 +105,8 @@ export const DB_ENUM_CHECKS: readonly EnumCheck[] = [
   // ── LBL-1 (migration 0041)
   e('label_prints', 'kind', LABEL_PRINT_KINDS),
   e('label_prints', 'source', LABEL_PRINT_SOURCES),
+  // ── LBL-2 (migration 0042): labels printed for the lines of a draft opening.
+  e('opening_label_prints', 'kind', LABEL_PRINT_KINDS),
   e('purchases', 'making_charge_paid_from', MAKING_CHARGE_PAYERS, true),
   // ── CSH-2: GM funding (migration 0020)
   e('gm_funding_events', 'kind', GM_FUNDING_KINDS),
@@ -288,6 +290,9 @@ export const DB_EXPR_CHECKS: readonly ExprCheck[] = [
   { name: 'ck_opening_scrap_corrections_reason', table: 'opening_scrap_corrections', expr: 'length(btrim(reason)) BETWEEN 3 AND 200' },
   // ── LBL-1 (migration 0041): one label print row per piece and print request.
   { name: 'ck_label_prints_copies', table: 'label_prints', expr: 'copies BETWEEN 1 AND 20' },
+  // ── LBL-2 (migration 0042): an opening line's reserved code and barcode come together; a draft print's copies.
+  { name: 'ck_opening_lines_reserved_pair', table: 'opening_lines', expr: '(reserved_code IS NULL) = (reserved_barcode IS NULL)' },
+  { name: 'ck_opening_label_prints_copies', table: 'opening_label_prints', expr: 'copies BETWEEN 1 AND 20' },
   // ── WSL-1 (migration 0040): grains of broken scrap sold (1 grain = 100 mg); their one pool row is checked at commit
   // (trigger sale_scrap_lines_pool).
   karat('sale_scrap_lines'),

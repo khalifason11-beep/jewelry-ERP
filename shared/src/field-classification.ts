@@ -118,7 +118,7 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
     safe: words('id purchase_id purchase_item_id field reason confirmed_duplicate corrected_by session_id created_at'),
   },  // OPN-1: the opening balance. Weights, karats, names and who/when: SAFE (who sees it is decided by `opening.manage`).
   openings: { safe: words('id branch_id status created_by created_at sealed_by sealed_at session_id') },
-  opening_lines: { safe: words('id opening_id line_no category_id description karat gross_weight_mg net_weight_mg source import_id item_id created_by created_at condition') },
+  opening_lines: { safe: words('id opening_id line_no category_id description karat gross_weight_mg net_weight_mg source import_id item_id created_by created_at condition reserved_code reserved_barcode') },
   opening_imports: { safe: words('id opening_id file_name sha256 row_count created_by created_at') },
   // MNY-1: money transfers between branches (company money moving inside the company: SAFE, no cost).
   money_transfers: { safe: words('id number from_branch_id to_kind to_branch_id source_account amount reason bank_reference status created_by created_at session_id idempotency_key') },
@@ -135,7 +135,9 @@ export const COLUMN_CLASSES: Record<string, TableClasses> = {
   // WSL-1: grains of broken scrap sold; no cost is recorded (prices only).
   sale_scrap_lines: { safe: words('id sale_id line_no karat grains weight_mg rate_per_gram price created_at') },
   // LBL-1: who printed which piece's label, when, how many (no cost).
-  label_prints: { safe: words('id item_id branch_id copies kind source batch_id printed_by session_id idempotency_key created_at') },
+  label_prints: { safe: words('id item_id branch_id copies kind source batch_id printed_by session_id idempotency_key created_at draft_print_id') },
+  // LBL-2: labels printed for the lines of a draft opening (no cost).
+  opening_label_prints: { safe: words('id opening_id opening_line_id line_no code barcode branch_id copies kind batch_id printed_by session_id idempotency_key created_at') },
 };
 
 /** Response field names that carry cost, acquisition cost, margin or profit. */

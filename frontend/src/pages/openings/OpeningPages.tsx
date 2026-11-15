@@ -263,21 +263,19 @@ export function OpeningPage() {
           searchPlaceholder={t('Search type, description or code')}
           columns={[
             { key: 'lineNo', header: '#', render: (r) => <Mono>{r.lineNo}</Mono> },
-            ...(draft
-              ? []
-              : [
-                  {
-                    key: 'code',
-                    header: t('Code'),
-                    // OPN-FIX: a piece that is no longer in stock says so (voided after a correction, sold…).
-                    render: (r: Line) => (
-                      <span className="inline-flex items-center gap-1.5">
-                        <Mono>{r.code ?? '—'}</Mono>
-                        {r.itemStatus && r.itemStatus !== 'AVAILABLE' && <StatusBadge status={r.itemStatus} />}
-                      </span>
-                    ),
-                  },
-                ]),
+            {
+              key: 'code',
+              header: t('Code'),
+              value: (r: Line) => r.code ?? '',
+              // LBL-2 (D-lbl2-1): a draft line shows the code given to its piece when it was added (the seal keeps it).
+              // OPN-FIX: a sealed piece that is no longer in stock says so (voided after a correction, sold…).
+              render: (r: Line) => (
+                <span className="inline-flex items-center gap-1.5" data-testid="opening-line-code">
+                  <Mono>{r.code ?? '—'}</Mono>
+                  {r.itemStatus && r.itemStatus !== 'AVAILABLE' && <StatusBadge status={r.itemStatus} />}
+                </span>
+              ),
+            },
             { key: 'type', header: t('Type'), value: (r) => L(r.categoryName, r.categoryNameAr), render: (r) => L(r.categoryName, r.categoryNameAr) },
             { key: 'description', header: t('Description'), value: (r) => r.description ?? '', render: (r) => r.description ?? '—' },
             { key: 'karat', header: t('Karat'), value: (r) => r.karat, render: (r) => karatLabel(r.karat) },
@@ -615,7 +613,7 @@ function SealPanel({ opening }: { opening: Opening }) {
         )}
         <li>{t('Enter the broken scrap too: it goes into the branch scrap stock and can settle suppliers.')}</li>
         <li>{t('Review the draft: the totals above against the paper count, and the lines below (or the CSV export).')}</li>
-        <li>{t('After sealing nothing can be added or changed here; each piece gets its code in the order of the sheet.')}</li>
+        <li>{t('After sealing nothing can be added or changed here; each piece keeps the code shown on its line.')}</li>
       </ul>
       <Button variant="primary" icon={<Lock className="size-4" />} disabled={!pieces && !scrap} onClick={() => setOpen(true)} data-testid="opening-seal">
         {t('Seal the opening balance')}
