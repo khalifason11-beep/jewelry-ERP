@@ -15,6 +15,14 @@
 //     refuse (the numbers reload, nothing sealed); the General Manager removes the branch manager's pieces again.
 //   * Types & products: renaming a type keeps the old name on a past sale.
 //
+//   * LBL-2 (D-lbl2-1…5): every draft line shows the code given when it was added (the imported file: one block in file
+//     order); the branch manager prints a draft line's label from its line (the print page holds jsbarcode's own
+//     Code128 of the line's barcode × copies) and the line shows it printed; removing a printed line shows the Arabic
+//     warning (cancel keeps it, confirm removes it) and its code is listed among the removed codes; the seal dialog shows
+//     how many lines are printed and the gaps; after the seal the cashier scans the label printed before it and exactly
+//     that piece is added; the piece page shows the print made before the seal. The draft page at tablet width (1024 px,
+//     RTL) has no sideways page scroll.
+//
 //   node scripts/e2e-openings.mjs            checks
 //   node scripts/e2e-openings.mjs --shots    also the owner's screenshots in docs/acceptance/OPN-1/ (1366×768, Arabic)
 
@@ -66,6 +74,68 @@ async function confirmIfAsked(page, password) {
 }
 
 const rowsOf = (page) => page.getByTestId('opening-lines').locator('tbody tr');
+const printStub = () => {
+  window.__prints = 0;
+  window.print = () => {
+    window.__prints += 1;
+  };
+};
+const jsBars = (value) => {
+  const JsBarcode = loadModule('jsbarcode');
+  const o = {};
+  JsBarcode(o, value, { format: 'CODE128' });
+  return o.encodings.map((e) => e.data).join('');
+};
+/** What a USB scanner does at the POS: the whole value and Enter, typed with no delay. */
+async function scan(page, value) {
+  const box = page.getByRole('textbox', { name: 'البحث عن القطع' });
+  await box.click();
+  await page.keyboard.type(value, { delay: 0 });
+  await page.keyboard.press('Enter');
+}
+
+/** LBL-2: the codes of a draft, the label of a draft line, the removal of a printed line. Returns the printed line. */
+async function draftLabels(page, bmPage, bmApi, gm, world, id) {
+  section('LBL-2: codes when a line is added; a draft line’s label before the seal; a printed line’s removal');
+  const draft = await gm.must('GET', `/openings/${id}`);
+  const imported = draft.lines.rows.filter((l) => l.source === 'IMPORT' && l.description !== 'ملف المدير').map((l) => Number(l.code.slice(2)));
+  check(draft.lines.rows.every((l) => /^J-\d+$/.test(l.code)) && imported.length === 3 && imported.every((n, i) => i === 0 || n === imported[i - 1] + 1), `every draft line has its code; the imported file took one block in file order (${draft.lines.rows.map((l) => l.code).join(', ')})`);
+  await bmPage.goto(`${BASE}/openings/${id}`);
+  await bmPage.getByTestId('opening-lines').waitFor({ timeout: 15_000 });
+  const shown = (await bmPage.getByTestId('opening-line-code').allInnerTexts()).map((x) => x.trim());
+  check(shown.length === 3 && shown.every((c) => draft.lines.rows.some((l) => l.code === c)), `the branch manager's draft page shows each line's code (${shown.join(', ')})`);
+  const target = draft.lines.rows[0];
+  check((await bmPage.getByTestId(`opening-line-label-${target.lineNo}`).getAttribute('data-prints')) === '0' && /لم يُطبع/.test(await bmPage.getByTestId(`opening-line-label-${target.lineNo}`).innerText()), `line ${target.lineNo} says «لم يُطبع»`);
+  await bmPage.click(`[data-testid=opening-line-label-print-${target.lineNo}]`);
+  await bmPage.fill('[data-testid=label-copies]', '2');
+  await bmPage.click('[data-testid=label-print-confirm]');
+  check(await eventually(async () => (await bmPage.evaluate(() => window.__prints)) === 1), 'the branch manager prints the line’s label: the print dialog opens once');
+  const values = await bmPage.locator('#print-root [data-testid=label]').evaluateAll((els) => els.map((e) => e.getAttribute('data-barcode')));
+  const bars = await bmPage.locator('#print-root [data-testid=label] svg').first().getAttribute('data-bars');
+  check(values.length === 2 && values.every((v) => v === target.barcode) && /^\d{12}$/.test(target.barcode) && bars === jsBars(target.barcode), `2 labels of the line's 12-digit barcode ${target.barcode}, jsbarcode's own Code128`);
+  check(await eventually(async () => (await bmPage.getByTestId(`opening-line-label-${target.lineNo}`).getAttribute('data-prints')) === '1'), 'the line now shows «طُبع ×1»');
+  // A printed line's removal: the warning; cancel keeps it; confirm removes it; its code is listed as a gap.
+  const extra = await bmApi.must('POST', `/openings/${id}/lines`, { categoryId: world.openingTypeId, description: 'سيُحذف بعد الطباعة', karat: 21, condition: 'NEW', grossWeightMg: 1_100, netWeightMg: 1_000 }, { idempotent: true });
+  await bmApi.must('POST', `/openings/${id}/lines/${extra.id}/label`, { copies: 1 }, { idempotent: true });
+  await bmPage.reload();
+  await bmPage.click(`[data-testid=opening-remove-${extra.lineNo}]`);
+  await bmPage.getByTestId('opening-remove-warning').waitFor({ timeout: 15_000 });
+  const warning = await bmPage.getByTestId('opening-remove-warning').innerText();
+  check(/طُبع ملصق هذه القطعة/.test(warning) && warning.includes(extra.code) && /انزع الملصق عن القطعة وأتلفه/.test(warning), `removing a printed line warns in Arabic first (${warning.replace(/\s+/g, ' ')})`);
+  await bmPage.click('[data-testid=opening-remove-cancel]');
+  check((await rowsOf(bmPage).count()) === 4, 'cancel keeps the line');
+  await bmPage.click(`[data-testid=opening-remove-${extra.lineNo}]`);
+  await bmPage.click('[data-testid=opening-remove-confirm]');
+  check(await eventually(async () => (await rowsOf(bmPage).count()) === 3), 'confirm removes it');
+  check(await eventually(async () => (await bmPage.locator(`[data-testid=opening-removed-code][data-code="${extra.code}"]`).getAttribute('data-printed').catch(() => null)) === 'true'), `its code ${extra.code} is listed among the removed codes, label printed`);
+  // Tablet width, RTL: no sideways page scroll.
+  await bmPage.setViewportSize({ width: 1024, height: 768 });
+  await bmPage.waitForTimeout(300);
+  const overflow = await bmPage.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth, document.documentElement.dir]);
+  check(overflow[0] <= overflow[1] && overflow[2] === 'rtl', `the draft page at 1024 px (RTL) has no sideways page scroll (${overflow.join(' / ')})`);
+  await bmPage.setViewportSize({ width: 1366, height: 768 });
+  return target;
+}
 
 async function registerPasskey(page, world) {
   section('The General Manager registers a passkey (sealing needs one)');
@@ -235,13 +305,16 @@ async function bmEntry(page, bmPage, bmApi, world, id) {
   check(await eventually(async () => (await rowsOf(page).count()) === 3), "the General Manager removes the branch manager's pieces again");
 }
 
-async function seal(page, gm, cashierApi, world, id) {
+async function seal(page, gm, cashierApi, world, id, printed) {
   section('Sealing: summary, password and passkey; then the pieces are in stock with an unknown cost');
   await page.click('[data-testid=opening-seal]');
   const confirm = page.getByTestId('opening-seal-confirm');
   check(await confirm.isDisabled(), 'Seal is grey with no password and no passkey');
   const sealSummary = await page.getByTestId('opening-seal-summary').innerText();
   check(sealSummary.includes('12.500') && sealSummary.includes('مستعمل') && sealSummary.includes('5.500'), `the dialog shows the count and weight by karat and condition (${sealSummary.replace(/\s+/g, ' ')})`);
+  // LBL-2 (owner Q5, Q2): how many lines are printed (the seal is not refused for the others) and the gaps.
+  const sealLabels = await page.getByTestId('opening-seal-labels').innerText();
+  check(/1 من 3/.test(sealLabels) && /رموز الأسطر المحذوفة/.test(await page.getByTestId('opening-seal-gaps').innerText()), `the dialog shows the labels printed (${sealLabels.trim()}) and the codes of the removed lines`);
   const sealScrap = await page.getByTestId('opening-seal-scrap').innerText();
   check(sealScrap.includes('13.500') && sealScrap.includes('10.500') && sealScrap.includes('3.000'), `OPN-3: the dialog shows the broken scrap by karat (${sealScrap.replace(/\s+/g, ' ')}) and the total gold`);
   const poolBefore = (await gm.must('GET', `/scrap-pool?branchId=${world.branchId}`)).weightMg;
@@ -256,6 +329,10 @@ async function seal(page, gm, cashierApi, world, id) {
   check(await eventually(async () => (await gm.must('GET', `/openings/${id}`)).status === 'SEALED', 15_000), 'the opening is SEALED');
   await page.reload();
   check(await eventually(async () => /J-\d+/.test(await rowsOf(page).first().innerText())), 'the lines show their system codes');
+  // LBL-2: before anything is sold, the label printed before the seal scans to exactly its piece.
+  await scanAfterSeal(page, world, gm, printed);
+  await page.goto(`${BASE}/openings/${id}`);
+  await page.getByTestId('opening-lines').waitFor({ timeout: 15_000 });
   check((await page.getByTestId('opening-keyboard').count()) === 0 && (await page.getByTestId('opening-seal').count()) === 0, 'nothing can be added any more (no entry, no seal)');
   // OPN-3: the scrap is in the branch's pool once; the sealed page shows it and has no entry form any more.
   check((await gm.must('GET', `/scrap-pool?branchId=${world.branchId}`)).weightMg - poolBefore === 13_500, 'OPN-3: the seal put the 13.500 g of broken scrap into the branch pool');
@@ -340,6 +417,27 @@ async function seal(page, gm, cashierApi, world, id) {
   check(await eventually(async () => (await page.getByTestId('sale-unknown-cost').count()) === 1), 'the sale page says the line is not counted');
 }
 
+/** LBL-2: after the seal, the label printed before it scans to exactly that piece; the piece page shows the print. */
+async function scanAfterSeal(page, world, gm, printed) {
+  section('LBL-2: after the seal, the label printed before it finds exactly that piece');
+  const items = (await gm.must('GET', `/inventory/items?branchId=${world.branchId}&origin=OPENING`)).rows;
+  const piece = items.find((i) => i.code === printed.code);
+  check(piece && piece.barcode === printed.barcode, `the seal made the piece ${printed.code} with the barcode printed before it`);
+  const ctx = await BROWSER.newContext({ viewport: { width: 1366, height: 768 }, locale: 'ar' });
+  const cpage = await ctx.newPage();
+  globalThis.__cPage = cpage;
+  await signIn(cpage, BASE, world.cashier);
+  await cpage.goto(`${BASE}/pos`);
+  await cpage.getByTestId('pos-product').first().waitFor({ timeout: 15_000 });
+  await scan(cpage, printed.barcode);
+  const cart = () => cpage.locator('aside ul > li .font-mono').allInnerTexts().then((xs) => xs.map((x) => x.split('·')[0].trim()));
+  check(await eventually(async () => (await cart()).join(',') === printed.code), `the cashier scans the label printed before the seal: exactly ${printed.code} is added`);
+  await ctx.close();
+  await page.goto(`${BASE}/inventory/${piece.id}`);
+  check(await eventually(async () => (await page.getByTestId('label-print-row').count()) === 1), 'the piece page shows the label printed before the seal');
+  check((await page.getByTestId('label-print-row').first().getAttribute('data-kind')) === 'FIRST' && (await page.getByTestId('label-prints').innerText()).includes(world.bm.fullName), 'as its first label, by the branch manager');
+}
+
 async function rename(page, gm, world) {
   section('Types & products: rename a type; a past sale keeps the old name');
   await page.goto(`${BASE}/catalog`);
@@ -361,6 +459,8 @@ async function main() {
   const gm = await apiClient(BASE);
   await gm.login(world.gm.username, world.gm.password);
   await gm.reauth(world.gm.password);
+  // LBL-2: the label size (before the General Manager registers a passkey below: then a setting needs it too).
+  await gm.must('PUT', '/settings', { changes: { 'print.labelWidthMm': 40, 'print.labelHeightMm': 12 } });
   const type = await gm.must('POST', '/categories', { nameAr: '[اختبار] خاتم افتتاحي' }, { idempotent: true });
   Object.assign(world, { openingTypeId: type.id, openingTypeAr: type.nameAr });
   const cashierApi = await apiClient(BASE);
@@ -377,13 +477,18 @@ async function main() {
     await signIn(page, BASE, world.gm);
     await registerPasskey(page, world);
     const bmCtx = await browser.newContext({ viewport: { width: 1366, height: 768 }, locale: 'ar' });
+    await bmCtx.addInitScript(printStub);
     const bmPage = await bmCtx.newPage();
     globalThis.__bmPage = bmPage;
     await signIn(bmPage, BASE, world.bm);
     await bmBeforeStart(bmPage);
     const id = await opening(page, gm, world);
     await bmEntry(page, bmPage, bmApi, world, id);
-    await seal(page, gm, cashierApi, world, id);
+    const printed = await draftLabels(page, bmPage, bmApi, gm, world, id);
+    await page.goto(`${BASE}/openings/${id}`);
+    await page.getByTestId('opening-seal').waitFor({ timeout: 15_000 });
+    check(await eventually(async () => /1 من 3/.test(await page.getByTestId('opening-labels-printed').innerText())), 'LBL-2: the checklist before the seal says labels are printed for 1 of the 3 pieces');
+    await seal(page, gm, cashierApi, world, id, printed);
     await rename(page, gm, world);
   } catch (e) {
     await globalThis.__page?.screenshot({ path: '.ux-shots/e2e-openings-failure.png' }).catch(() => {});

@@ -234,7 +234,7 @@ async function sweepBranchManager(page, world) {
   await page.keyboard.press('Escape');
 }
 
-async function sweepGeneralManager(page, world) {
+async function sweepGeneralManager(page, world, bmApi) {
   section('The sweep (D-fixnum-3): the General Manager');
   await page.goto(`${BASE}/settings`);
   await page.locator('main').locator(NUMBER_FIELDS).first().waitFor({ timeout: 15_000 });
@@ -278,6 +278,15 @@ async function sweepGeneralManager(page, world) {
   await page.waitForURL((u) => /\/openings\/\d+$/.test(u.pathname), { timeout: 15_000 });
   await page.getByTestId('opening-gross').waitFor({ timeout: 15_000 });
   await sweep(page, 'Opening balance draft (a piece, broken scrap)');
+  // LBL-2: the copies of a draft line's label (printed before the seal).
+  const openingId = Number(new URL(page.url()).pathname.split('/').pop());
+  const [type] = await bmApi.must('GET', '/categories');
+  await bmApi.must('POST', `/openings/${openingId}/lines`, { categoryId: type.id, karat: 21, condition: 'NEW', grossWeightMg: 1_100, netWeightMg: 1_000 }, { idempotent: true });
+  await page.reload();
+  await page.getByTestId('opening-line-label-print-1').click({ timeout: 15_000 });
+  await page.getByTestId('label-copies').waitFor({ timeout: 15_000 });
+  await sweep(page, 'Opening draft line: print label (copies)', '[role=dialog]');
+  await page.keyboard.press('Escape');
 }
 
 /** Owner Q2 (FIX-NUM-1): the branch manager's cap is 5 % (set in Settings by the General Manager above). */
@@ -319,7 +328,7 @@ async function main() {
     const gmPage = await gmCtx.newPage();
     globalThis.__page = gmPage;
     await signIn(gmPage, BASE, world.gm);
-    await sweepGeneralManager(gmPage, world);
+    await sweepGeneralManager(gmPage, world, bmApi);
     globalThis.__page = page;
     await posDiscount(page);
   } catch (e) {

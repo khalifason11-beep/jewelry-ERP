@@ -2191,6 +2191,16 @@ async function main() {
         confirmed.status === 200 && gaps.removedCodes.some((r) => r.code === extra.code && r.labelPrinted) && gaps.summary.labels.printed === 1,
         `LBL-2: with the confirmation the branch manager removes it; the General Manager sees ${extra.code} among the removed codes (label printed) and 1 line printed`,
       );
+      // (screen) The branch manager's draft page: the line printed twice, «طباعة الملصق» on each line; the removed code.
+      await bmB.p.goto(`${origin}/openings/${ob}`);
+      await bmB.p.getByTestId(`opening-line-label-${firstLine.lineNo}`).waitFor({ timeout: 15_000 });
+      check(
+        (await bmB.p.getByTestId(`opening-line-label-${firstLine.lineNo}`).getAttribute('data-prints')) === '2' &&
+          /طُبع ×2/.test(await bmB.p.getByTestId(`opening-line-label-${firstLine.lineNo}`).innerText()) &&
+          (await bmB.p.locator('[data-testid^=opening-line-label-print-]').count()) === 6 &&
+          (await bmB.p.locator(`[data-testid=opening-removed-code][data-code="${extra.code}"]`).count()) === 1,
+        `LBL-2 (screen): the branch manager's draft shows «طُبع ×2» on line ${firstLine.lineNo}, «طباعة الملصق» on each of the 6 lines, and ${extra.code} among the removed codes`,
+      );
       const now = (await apiGet(page, `/api/openings/${ob}`)).body.summary.total;
       const sealed = await apiSend(page, 'POST', `/api/openings/${ob}/seal`, { confirmPassword: GM.password, expectedLines: now.count, expectedNetWeightMg: now.netWeightMg });
       check(sealed.status === 200 && sealed.body.pieces === 6, `OPN-4: the seal with the numbers reviewed now: ${sealed.body?.pieces} pieces into branch B's stock (${sealed.status})`);
