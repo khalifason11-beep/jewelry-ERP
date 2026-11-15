@@ -87,6 +87,8 @@ describe('idempotency keys', () => {
         'POST /openings',
         'POST /openings/:id/lines',
         'POST /openings/:id/lines/:lineId/remove',
+        // LBL-2: a draft line's label is recorded (key claimed inside the transaction).
+        'POST /openings/:id/lines/:lineId/label',
         'POST /openings/:id/import',
         'POST /openings/:id/seal',
         // OPN-FIX: a correction or void of a sealed opening's piece (key claimed inside the transaction).

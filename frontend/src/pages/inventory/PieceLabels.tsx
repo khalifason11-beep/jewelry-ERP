@@ -12,7 +12,7 @@ import { dateTime } from '../../lib/format';
 import { useActionKeys } from '../../lib/idempotency';
 import { useI18n } from '../../lib/i18n';
 import { useToast } from '../../lib/toast';
-import { printPieceLabels } from '../../print/labels';
+import { printOpeningLineLabel, printPieceLabels } from '../../print/labels';
 import { Badge, Button, Card, CardHeader, Dialog, Field, IntegerInput } from '../../components/ui';
 
 export interface LabelPrintRow {
@@ -106,6 +106,74 @@ export function PrintLabelsButton({
         </Field>
       </Dialog>
     </>
+  );
+}
+
+/**
+ * LBL-2 (D-lbl2-3): the label of a DRAFT opening line, before the seal: whether it was printed («لم يُطبع» / «طُبع ×n»)
+ * and «طباعة الملصق» (1–20 copies; empty = 1). The server records the print (first or reprint) for the line's code.
+ */
+export function DraftLineLabel({ openingId, line }: { openingId: number; line: { id: number; lineNo: number; code: string | null; labelPrints: number; lastPrintedAt: string | null } }) {
+  const { t, lang } = useI18n();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const keys = useActionKeys();
+  const [open, setOpen] = useState(false);
+  const [copiesText, setCopiesText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const copies = copiesText === '' ? 1 : parseIntegerInput(copiesText);
+  const copiesOk = copies != null && copies >= 1 && copies <= LABEL_MAX_COPIES_ONE;
+  const scope = `opening-line-label-${line.id}`;
+  const print = async () => {
+    if (!copiesOk) return;
+    setBusy(true);
+    try {
+      const r = await printOpeningLineLabel(openingId, line.id, copies!, keys.for(scope));
+      keys.rotate(scope);
+      toast.success(t('{n} label(s) sent to the printer', { n: r.labels[0].copies }), r.labels[0].kind === 'REPRINT' ? t('This line already had a label: recorded as a reprint.') : undefined);
+      setOpen(false);
+      setCopiesText('');
+      qc.invalidateQueries({ queryKey: ['opening'] });
+    } catch (e) {
+      keys.rotate(scope);
+      toast.fromError(e, t('Labels not printed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className="inline-flex items-center gap-2 whitespace-nowrap" data-testid={`opening-line-label-${line.lineNo}`} data-prints={line.labelPrints}>
+      {line.labelPrints > 0 ? (
+        <span title={line.lastPrintedAt ? dateTime(line.lastPrintedAt, lang) : undefined} data-testid="opening-line-printed">
+          <Badge tone="ok">{t('Printed ×{n}', { n: line.labelPrints })}</Badge>
+        </span>
+      ) : (
+        <span data-testid="opening-line-not-printed">
+          <Badge>{t('Not printed')}</Badge>
+        </span>
+      )}
+      <Button size="sm" icon={<Tag className="size-4" />} disabled={!line.code} onClick={() => setOpen(true)} data-testid={`opening-line-label-print-${line.lineNo}`}>
+        {t('Print label')}
+      </Button>
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={t('Print the label of {code}', { code: line.code ?? '' })}
+        subtitle={t('Every print is recorded: who, when, how many, and whether it is a reprint.')}
+        footer={
+          <>
+            <Button onClick={() => setOpen(false)}>{t('Cancel')}</Button>
+            <Button variant="primary" icon={<Tag className="size-4" />} disabled={!copiesOk} loading={busy} onClick={() => void print()} data-testid="label-print-confirm">
+              {t('Print')}
+            </Button>
+          </>
+        }
+      >
+        <Field label={t('Copies')} hint={t('Empty: 1. At most {max}.', { max: LABEL_MAX_COPIES_ONE })}>
+          <IntegerInput value={copiesText} onValueChange={setCopiesText} min={1} max={LABEL_MAX_COPIES_ONE} placeholder="1" data-testid="label-copies" />
+        </Field>
+      </Dialog>
+    </span>
   );
 }
 

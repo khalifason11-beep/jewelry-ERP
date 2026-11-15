@@ -2105,6 +2105,12 @@ async function main() {
       const typed = [];
       for (const [i, mg] of [[1, 2_100], [2, 3_300], [3, 4_400]]) typed.push(await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: `فرع ب ${i}`, karat: 21, condition: 'NEW', grossWeightMg: mg + 100, netWeightMg: mg }));
       check(typed.every((r) => r.status === 200), `OPN-4: the branch manager of branch B types 3 pieces into its draft (${typed.map((r) => r.status).join(', ')}); no password asked`);
+      // LBL-2 (D-lbl2-1): each line gets its piece code when it is added, in the order of entry.
+      const typedNums = typed.map((r) => Number(r.body.code?.slice(2)));
+      check(
+        typed.every((r) => /^J-\d+$/.test(r.body.code) && r.body.barcode === `628100${r.body.code.slice(2).padStart(6, '0')}`) && typedNums.every((n, i) => i === 0 || n > typedNums[i - 1]),
+        `LBL-2: each typed line got its piece code when it was added, rising in entry order (${typed.map((r) => r.body.code).join(', ')})`,
+      );
       // (screen) The draft page of the branch manager: the entry form, no seal button, the broken scrap read-only.
       await bmB.p.goto(`${origin}/openings/${ob}`);
       await bmB.p.getByTestId('opening-gm-seals').waitFor({ timeout: 15_000 });
@@ -2115,6 +2121,10 @@ async function main() {
       const file = '﻿' + ['النوع;الوصف;العيار;الحالة;الوزن القائم;الوزن الصافي', 'خواتم الافتتاح;ملف ب 1;21;جديد;1.600;1.500', 'خواتم الافتتاح;ملف ب 2;21;مستعمل;2.600;2.500'].join('\r\n') + '\r\n';
       const imported = await postCsv(bmB.p, `/api/openings/${ob}/import?fileName=branch-b.csv`, file);
       check(imported.status === 200 && imported.body.rowCount === 2, `OPN-4: the branch manager imports a file of 2 pieces (${imported.status})`);
+      check(
+        Number(imported.body.lastCode?.slice(2)) === Number(imported.body.firstCode?.slice(2)) + 1 && Number(imported.body.firstCode?.slice(2)) > typedNums[2],
+        `LBL-2: the imported file took one block of codes in file order, after the typed lines (${imported.body.firstCode} to ${imported.body.lastCode})`,
+      );
       // Branch scope (D-opn4-2): the manager of branch A cannot read or change branch B's opening; nothing GM-only.
       const crossRead = await apiGet(bmA.p, `/api/openings/${ob}`);
       const crossWrite = await apiSend(bmA.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: 'cross', karat: 21, condition: 'NEW', grossWeightMg: 1_100, netWeightMg: 1_000 });
@@ -2142,6 +2152,12 @@ async function main() {
         enteredBy.length === 5 && enteredBy.every((x) => x.trim() === 'Rehearsal Manager B') && perPerson.includes('Rehearsal Manager B') && (await page.getByTestId('opening-seal').count()) === 1,
         `OPN-4 (screen): the General Manager sees "Entered by" on every line and per person (${perPerson.replace(/\s+/g, ' ')}), and the seal button`,
       );
+      const draftCodes = review.lines.rows.map((l) => l.code);
+      const shownCodes = (await page.getByTestId('opening-line-code').allInnerTexts()).map((x) => x.trim());
+      check(
+        draftCodes.every((c) => /^J-\d+$/.test(c)) && new Set(draftCodes).size === 5 && shownCodes.length === 5 && shownCodes.every((c) => draftCodes.includes(c)),
+        `LBL-2 (screen): every draft line shows its piece code before the seal (${shownCodes.join(', ')})`,
+      );
       // The seal (D-opn4-4): a piece typed after the review makes the reviewed numbers stale: refused, nothing sealed.
       const reviewed = { expectedLines: review.summary.total.count, expectedNetWeightMg: review.summary.total.netWeightMg };
       check((await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: 'بعد المراجعة', karat: 21, condition: 'NEW', grossWeightMg: 5_100, netWeightMg: 5_000 })).status === 200, 'OPN-4: the branch manager types one more piece after the review');
@@ -2152,9 +2168,48 @@ async function main() {
       const stale = await apiSend(page, 'POST', `/api/openings/${ob}/seal`, { confirmPassword: GM.password, ...reviewed });
       check(stale.status === 409 && stale.body.error.code === 'OPENING_CHANGED_SINCE_REVIEW' && stale.body.error.details.lines === 6, `OPN-4: the seal with the numbers reviewed before that piece is refused (409 OPENING_CHANGED_SINCE_REVIEW, now ${stale.body?.error?.details?.lines} pieces)`);
       check((await apiGet(page, `/api/openings/${ob}`)).body.status === 'DRAFT', 'OPN-4: nothing was sealed');
+      // LBL-2 (D-lbl2-3): a draft line's label, printed before the seal by the branch manager: FIRST, then a reprint
+      // without approval (owner Q4); branch A's manager gets 404; the label size and the 12-digit barcode are LBL-1's.
+      const firstLine = typed[0].body;
+      const lp1 = await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines/${firstLine.id}/label`, { copies: 2 });
+      check(
+        lp1.status === 200 && lp1.body.labels[0].kind === 'FIRST' && lp1.body.labels[0].barcode === firstLine.barcode && /^\d{12}$/.test(firstLine.barcode) && lp1.body.size?.widthMm === 40,
+        `LBL-2: branch manager B prints the label of draft line ${firstLine.lineNo} before the seal: its reserved barcode ${firstLine.barcode}, recorded as its FIRST label`,
+      );
+      const lp2 = await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines/${firstLine.id}/label`, { copies: 1 });
+      check(lp2.status === 200 && lp2.body.labels[0].kind === 'REPRINT', 'LBL-2: printing it again needs no approval and is recorded as a REPRINT');
+      check((await apiSend(bmA.p, 'POST', `/api/openings/${ob}/lines/${firstLine.id}/label`, { copies: 1 })).status === 404, "LBL-2: branch A's manager cannot print a line of branch B's draft (404)");
+      check((await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines/${firstLine.id}/label`, { copies: 21 })).status === 400, 'LBL-2: more than 20 copies of a line is refused (400)');
+      // A printed line is removed only after the confirmation (owner Q1); its code is listed as a gap (owner Q2).
+      const extra = (await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: 'سيُحذف', karat: 21, condition: 'NEW', grossWeightMg: 1_100, netWeightMg: 1_000 })).body;
+      await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines/${extra.id}/label`, { copies: 1 });
+      const noConfirm = await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines/${extra.id}/remove`, {});
+      check(noConfirm.status === 409 && noConfirm.body.error.code === 'OPENING_LINE_LABEL_PRINTED' && noConfirm.body.error.details.code === extra.code, `LBL-2: removing a printed line without the confirmation is refused (409 OPENING_LINE_LABEL_PRINTED, code ${extra.code})`);
+      const confirmed = await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines/${extra.id}/remove`, { confirmLabelPrinted: true });
+      const gaps = (await apiGet(page, `/api/openings/${ob}`)).body;
+      check(
+        confirmed.status === 200 && gaps.removedCodes.some((r) => r.code === extra.code && r.labelPrinted) && gaps.summary.labels.printed === 1,
+        `LBL-2: with the confirmation the branch manager removes it; the General Manager sees ${extra.code} among the removed codes (label printed) and 1 line printed`,
+      );
+      // (screen) The branch manager's draft page: the line printed twice, «طباعة الملصق» on each line; the removed code.
+      await bmB.p.goto(`${origin}/openings/${ob}`);
+      await bmB.p.getByTestId(`opening-line-label-${firstLine.lineNo}`).waitFor({ timeout: 15_000 });
+      check(
+        (await bmB.p.getByTestId(`opening-line-label-${firstLine.lineNo}`).getAttribute('data-prints')) === '2' &&
+          /طُبع ×2/.test(await bmB.p.getByTestId(`opening-line-label-${firstLine.lineNo}`).innerText()) &&
+          (await bmB.p.locator('[data-testid^=opening-line-label-print-]').count()) === 6 &&
+          (await bmB.p.locator(`[data-testid=opening-removed-code][data-code="${extra.code}"]`).count()) === 1,
+        `LBL-2 (screen): the branch manager's draft shows «طُبع ×2» on line ${firstLine.lineNo}, «طباعة الملصق» on each of the 6 lines, and ${extra.code} among the removed codes`,
+      );
       const now = (await apiGet(page, `/api/openings/${ob}`)).body.summary.total;
       const sealed = await apiSend(page, 'POST', `/api/openings/${ob}/seal`, { confirmPassword: GM.password, expectedLines: now.count, expectedNetWeightMg: now.netWeightMg });
       check(sealed.status === 200 && sealed.body.pieces === 6, `OPN-4: the seal with the numbers reviewed now: ${sealed.body?.pieces} pieces into branch B's stock (${sealed.status})`);
+      const sealedLines = (await apiGet(page, `/api/openings/${ob}?pageSize=50`)).body.lines.rows;
+      const sealedItems = (await apiGet(page, `/api/inventory/items?branchId=${branchB}&origin=OPENING&pageSize=50`)).body.rows;
+      check(
+        draftCodes.every((c) => sealedLines.some((l) => l.code === c && l.itemId)) && draftCodes.every((c) => sealedItems.some((i) => i.code === c)),
+        `LBL-2: the seal made every piece with exactly the code its line showed before (${draftCodes.join(', ')} are now pieces of branch B)`,
+      );
       // Sealed: readable by its branch manager (Q-f), read-only for everyone.
       const after = await apiGet(bmB.p, `/api/openings/${ob}`);
       const late = await apiSend(bmB.p, 'POST', `/api/openings/${ob}/lines`, { categoryId: ringType.id, description: 'متأخر', karat: 21, condition: 'NEW', grossWeightMg: 1_100, netWeightMg: 1_000 });
@@ -2162,13 +2217,24 @@ async function main() {
       // LBL-1 (D-lbl1-5): the labels of every piece of the sealed opening, by its branch manager; branch A's manager
       // cannot (404); the General Manager's report lists the prints.
       const opLabels = await apiSend(bmB.p, 'POST', '/api/labels/print', { document: { type: 'OPENING', id: ob }, copies: 1, source: 'OPENING' });
-      check(opLabels.status === 200 && opLabels.body.labels.length === 6 && opLabels.body.labels.every((l) => l.kind === 'FIRST' && /^\d{12}$/.test(l.barcode)), `LBL-1: branch manager B prints the labels of the opening's 6 pieces in one go (${opLabels.status})`);
+      // LBL-2: the line printed before the seal is a reprint now; the other five get their first label.
+      check(
+        opLabels.status === 200 && opLabels.body.labels.length === 6 && opLabels.body.labels.every((l) => /^\d{12}$/.test(l.barcode) && l.kind === (l.code === firstLine.code ? 'REPRINT' : 'FIRST')),
+        `LBL-1: branch manager B prints the labels of the opening's 6 pieces in one go (${opLabels.status}); the one printed before the seal is a reprint`,
+      );
+      const pieceOfFirst = sealedItems.find((i) => i.code === firstLine.code);
+      const histFirst = (await apiGet(bmB.p, `/api/inventory/items/${pieceOfFirst.id}/label-prints`)).body;
+      check(
+        histFirst.length === 3 && histFirst.map((h) => h.kind).join(',') === 'REPRINT,REPRINT,FIRST' && histFirst.slice(1).every((h) => h.source === 'OPENING' && h.printedByName === 'Rehearsal Manager B'),
+        `LBL-2: the piece page history of ${firstLine.code} shows the two labels printed before the seal (who, when) and the one after`,
+      );
       check((await apiSend(bmA.p, 'POST', '/api/labels/print', { document: { type: 'OPENING', id: ob }, copies: 1, source: 'OPENING' })).status === 404, "LBL-1: branch A's manager cannot print branch B's opening (404)");
       await bmB.p.goto(`${origin}/openings/${ob}`);
       await bmB.p.getByTestId('opening-labels-print').waitFor({ timeout: 15_000 });
       ok('LBL-1 (screen): the sealed opening has "Print labels of these pieces"');
       const lr = (await apiGet(page, `/api/reports/label-prints?from=2000-01-01&to=2100-01-01`)).body;
-      check(lr.rows?.filter((r) => r.source === 'OPENING').length === 6 && lr.rows.some((r) => r.kind === 'REPRINT'), `LBL-1: the General Manager's report "Label prints" lists every print (${lr.rows?.length} rows, first and reprints)`);
+      check(lr.rows?.filter((r) => r.source === 'OPENING').length === 8 && lr.rows.some((r) => r.kind === 'REPRINT'), `LBL-1: the General Manager's report "Label prints" lists every print (${lr.rows?.length} rows, first and reprints; the 2 printed before the seal once each)`);
+      check(lr.rows.filter((r) => r.source === 'OPENING_DRAFT').map((r) => r.itemCode).join() === extra.code, `LBL-2: the report keeps the label printed for the removed line ${extra.code} (before the seal)`);
       for (const s of [bmA, bmB]) await s.c.close();
       await signOut(page);
     }

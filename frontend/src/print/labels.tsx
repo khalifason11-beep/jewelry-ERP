@@ -108,6 +108,21 @@ export async function printPieceLabels(request: LabelRequest, source: LabelPrint
   return { ...r, shown };
 }
 
+/**
+ * LBL-2 (D-lbl2-3): the label of a DRAFT opening line, before the seal: the server checks who may print, the scope and
+ * the size, and records the print (first or reprint) for the line's reserved code; then the same label is printed.
+ */
+export interface DraftLabelPrintResult {
+  batchId: string;
+  size: { widthMm: number; heightMm: number; marginMm: number };
+  labels: { lineId: number; lineNo: number; code: string; barcode: string; copies: number; kind: 'FIRST' | 'REPRINT' }[];
+}
+export async function printOpeningLineLabel(openingId: number, lineId: number, copies: number, key: string): Promise<DraftLabelPrintResult & { shown: boolean }> {
+  const r = await postOnce<DraftLabelPrintResult>(`/openings/${openingId}/lines/${lineId}/label`, { copies }, key);
+  const shown = await printDocument({ layout: layoutOf(r.size), content: <LabelSheet labels={r.labels} size={r.size} /> });
+  return { ...r, shown };
+}
+
 /** A sample label (Settings): a fixed 12-digit value no piece has, at the saved size, to calibrate the printer. */
 export const SAMPLE_LABEL_VALUE = '000000000000';
 export function printSampleLabel(size: { widthMm: number; heightMm: number; marginMm: number }) {

@@ -455,6 +455,38 @@ neither change history rows nor disable, drop or bypass the triggers, nor grant 
   `OPENING_NEEDS_COMPUTED_PRICES` (a condition or karat correction on FIXED_TAG), `CORRECTION_REASON_REQUIRED`,
   `CONFIRM_PASSWORD_REQUIRED`, `PASSKEY_REQUIRED`, `REAUTH_REQUIRED`.
 
+### LBL-2: a piece's label printed before the opening is sealed (migrations 0042–0044)
+
+- **0042** (additive) adds the piece code reserved on each opening line (`opening_lines.reserved_code`,
+  `reserved_barcode`) and the append-only table `opening_label_prints`. **0043** (the backfill) gives the lines of the
+  draft openings that exist at the update their codes, from the same counter as every piece, in line order: the next
+  supplier order's first code moves on by that many. Sealed openings are not touched.
+- **Codes follow the order of entry (D-lbl2-1, supersedes D-opn1-1):** a typed line takes the next code when it is
+  added; an imported file takes one consecutive block in file order (a refused file takes none). The seal makes each
+  piece with exactly its line's code. A removed line's code is never used again, so one opening's codes are no longer
+  one unbroken range.
+- `GET /api/openings/:id`: each draft line now carries its `code` and `barcode`; `POST /api/openings/:id/lines` and the
+  import answer the codes given (`code`, `barcode`; `firstCode`, `lastCode`).
+- error codes: `OPENING_CODES_MISSING` (409: a line of the draft has no code; cannot happen after 0043) and
+  `OPENING_CODE_TAKEN` (409: a reserved code is already a piece; the counter makes it impossible). Nothing is sealed.
+- **New route** (permission `opening.enter`: the branch manager of the branch and the General Manager; never the
+  cashier; another branch's opening is 404): `POST /api/openings/:id/lines/:lineId/label` (Idempotency-Key)
+  `{ copies }` (1–20): the label of one DRAFT line, LBL-1's label (the size setting, Code128 of the line's 12-digit
+  barcode), recorded in `opening_label_prints` (FIRST, then REPRINT; a reprint needs no approval) with an audit entry
+  `LABELS_PRINTED`. 409 `LABEL_SIZE_NOT_SET` / `LABEL_TOO_SMALL` as LBL-1; 409 `OPENING_SEALED` once sealed.
+- **The seal copies** every label printed before it into the piece's history (`label_prints.draft_print_id`, the
+  original date and person; the answer's `labelsCopied`). The first print after the seal is a reprint.
+- `POST /api/openings/:id/lines/:lineId/remove` takes `{ confirmLabelPrinted }`: a line whose label was printed is
+  refused without it, **409 `OPENING_LINE_LABEL_PRINTED`** (details `code`, `labelPrints`); with it the line is removed
+  and the audit records the prints. `GET /api/openings/:id` adds per line `labelPrints`, `lastPrintedAt`, and
+  `summary.labels` (`lines`, `printed`) and `removedCodes` (the removed lines' codes: the gaps, with who, when and
+  whether a label was printed).
+- The report «طباعة الملصقات» also lists the labels printed before a seal that are not a piece's history yet
+  (`source` OPENING_DRAFT: the draft is not sealed, or the line was removed).
+- **0044** (the tightening) adds the rule that every opening line has its piece or its code
+  (`ck_opening_lines_code_or_piece`, validated at once; nothing can break it after 0043).
+- **45 migrations** (0000–0044); the preflight shows `migrations: 45 of 45 applied`.
+
 ### LBL-1: barcode labels of pieces
 
 - **Settings › Piece labels** (General Manager, audited like every setting): `print.labelWidthMm` and

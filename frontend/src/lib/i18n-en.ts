@@ -122,6 +122,7 @@ export const EN: Record<string, string> = {
   REPRINT: 'Reprint',
   PIECE: 'Piece page',
   STOCK_LIST: 'Stock list',
+  OPENING_DRAFT: 'Opening draft (before the seal)',
   OPENING_CORRECTION: 'Opening balance correction',
   ITEM_TYPE_RENAMED: 'Item type renamed',
   SEALED: 'Sealed',

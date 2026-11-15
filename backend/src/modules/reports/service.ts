@@ -418,16 +418,28 @@ export async function runReport(ctx: Ctx, actor: Actor, key: string, q: ReportQu
     case 'label-prints': {
       // LBL-1 (D-lbl1-3): who printed which piece's label, when, how many, first or reprint (customer returns, label
       // swaps). The people who print labels (opening.enter); a branch manager sees the own branch.
+      // LBL-2 (D-lbl2-3): with the labels printed for draft opening lines that are not a piece's history (yet): the draft
+      // is not sealed, or the line was removed. Once sealed, a draft print is listed once, as the piece's (OPENING).
       requirePerm(actor, 'opening.enter');
+      const kindFilter = (col: string) => (q.status === 'FIRST' || q.status === 'REPRINT' ? sql`AND ${sql.raw(col)} = ${q.status}` : sql``);
       const r = await ctx.db.execute(sql`
-        SELECT lp.id, lp.created_at, lp.item_id, i.code, i.barcode, b.name AS branch_name, u.full_name, lp.copies, lp.kind, lp.source, lp.batch_id
-        FROM label_prints lp JOIN jewelry_items i ON i.id = lp.item_id JOIN branches b ON b.id = lp.branch_id JOIN users u ON u.id = lp.printed_by
-        WHERE lp.created_at >= ${iso(period.start)} AND lp.created_at < ${iso(period.end)}
-          ${scope != null ? sql`AND lp.branch_id = ${scope}` : sql``} ${q.userId ? sql`AND lp.printed_by = ${q.userId}` : sql``}
-          ${q.status === 'FIRST' || q.status === 'REPRINT' ? sql`AND lp.kind = ${q.status}` : sql``}
-        ORDER BY lp.id DESC`);
+        SELECT * FROM (
+          SELECT lp.id AS row_id, 0 AS src, lp.created_at, lp.item_id, i.code, i.barcode, b.name AS branch_name, u.full_name, lp.copies, lp.kind, lp.source, lp.batch_id
+          FROM label_prints lp JOIN jewelry_items i ON i.id = lp.item_id JOIN branches b ON b.id = lp.branch_id JOIN users u ON u.id = lp.printed_by
+          WHERE lp.created_at >= ${iso(period.start)} AND lp.created_at < ${iso(period.end)}
+            ${scope != null ? sql`AND lp.branch_id = ${scope}` : sql``} ${q.userId ? sql`AND lp.printed_by = ${q.userId}` : sql``}
+            ${kindFilter('lp.kind')}
+          UNION ALL
+          SELECT d.id AS row_id, 1 AS src, d.created_at, NULL AS item_id, d.code, d.barcode, b.name AS branch_name, u.full_name, d.copies, d.kind, 'OPENING_DRAFT' AS source, d.batch_id
+          FROM opening_label_prints d JOIN branches b ON b.id = d.branch_id JOIN users u ON u.id = d.printed_by
+          WHERE d.created_at >= ${iso(period.start)} AND d.created_at < ${iso(period.end)}
+            AND NOT EXISTS (SELECT 1 FROM label_prints c WHERE c.draft_print_id = d.id)
+            ${scope != null ? sql`AND d.branch_id = ${scope}` : sql``} ${q.userId ? sql`AND d.printed_by = ${q.userId}` : sql``}
+            ${kindFilter('d.kind')}
+        ) x
+        ORDER BY x.created_at DESC, x.src DESC, x.row_id DESC`);
       const data = rows<Record<string, unknown>>(r).map((x) => ({
-        at: x.created_at, itemId: num(x.item_id), itemCode: x.code, barcode: x.barcode, branchName: x.branch_name, printedByName: x.full_name,
+        at: x.created_at, itemId: x.item_id == null ? null : num(x.item_id), itemCode: x.code, barcode: x.barcode, branchName: x.branch_name, printedByName: x.full_name,
         copies: num(x.copies), kind: x.kind, source: x.source,
       }));
       return {

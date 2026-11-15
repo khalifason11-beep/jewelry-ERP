@@ -51,6 +51,7 @@ import * as pricing from './modules/pricing/service';
 import * as openings from './modules/openings/service';
 import * as openingFix from './modules/openings/corrections';
 import * as openingScrap from './modules/openings/scrap';
+import * as openingLabels from './modules/openings/labels';
 import { runIdempotent } from './core/idempotency';
 import { log } from './core/logger';
 import { defineRoutes } from './core/guard';
@@ -786,7 +787,16 @@ export function apiRouter(ctx: Ctx, config: Config): Router & { registered: Rout
   route('POST', '/openings/:id/lines/:lineId/remove', async (req, res) => {
     const id = parse(zId, req.params.id);
     const lineId = parse(zId, req.params.lineId);
-    res.json(await runIdempotent(ctx, req, res, (idem) => openings.removeOpeningLine(ctx, actorOf(req), id, lineId, { idem })));
+    // LBL-2 (D-lbl2-4): a line whose label was printed needs `confirmLabelPrinted` (409 OPENING_LINE_LABEL_PRINTED).
+    const body = parse(z.object({ confirmLabelPrinted: z.boolean().optional() }).strict(), req.body ?? {});
+    res.json(await runIdempotent(ctx, req, res, (idem) => openings.removeOpeningLine(ctx, actorOf(req), id, lineId, body, { idem })));
+  });
+  // LBL-2 (D-lbl2-3): the label of one draft line, printed before the seal (copies 1–20), recorded.
+  route('POST', '/openings/:id/lines/:lineId/label', async (req, res) => {
+    const id = parse(zId, req.params.id);
+    const lineId = parse(zId, req.params.lineId);
+    const body = parse(z.object({ copies: z.number().int().min(1).max(LABEL_MAX_COPIES_ONE) }).strict(), req.body);
+    res.json(await runIdempotent(ctx, req, res, (idem) => openingLabels.printOpeningLineLabel(ctx, actorOf(req), id, lineId, body, { idem })));
   });
   // The CSV file is the raw body (text/csv), read by a parser on THIS route only (plan §5: at most 1 MB, 5,000 rows),
   // ahead of the access rule and the Idempotency-Key check, whose hash then covers the file's bytes. The global JSON

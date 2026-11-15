@@ -40,5 +40,8 @@
   "0038_mny1_money_transfers.sql": "6ea3a2f038ced3bdca124c7ebd7967a9b92441ef4a5cc6d3d63f8ae5a055e5c3",
   "0039_opn4_opening_enter.sql": "d189fdb1f70fc8bb166838dba513be86f0e0e704e4d5cf464ca1a511eb98f517",
   "0040_wsl1_scrap_grains.sql": "cb378fc6291f7637e7f3b755dd20e025ffbc4183ed65a77e472af42743c4fddf",
-  "0041_lbl1_label_prints.sql": "9f1d802cb25a410dddf20d753d376143cfc6e889115e07617a5befc1ec69430e"
+  "0041_lbl1_label_prints.sql": "9f1d802cb25a410dddf20d753d376143cfc6e889115e07617a5befc1ec69430e",
+  "0042_lbl2_reserved_codes.sql": "27c4100376f024e16bfb7aae04430d076acbe882bbe17e4f3782ba7f883f53fd",
+  "0043_lbl2_backfill_codes.sql": "8cfcbfbf20287b14f8c78e0a6e9f734cf286b7651471b61fa3c2d3828fb4cabf",
+  "0044_lbl2_codes_required.sql": "6d092dd2c87488c2465ea586ca9961c32b69d2d32c48a95f1854a6b56d7894cf"
 }

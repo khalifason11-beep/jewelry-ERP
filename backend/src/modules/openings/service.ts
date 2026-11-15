@@ -12,9 +12,13 @@
 //   * The importer (CSV only, D-opn1-2) checks the whole file first: one bad row (row number, column, reason) and nothing
 //     is written. The same file twice changes nothing (UNIQUE opening + SHA-256 of the bytes); the Idempotency-Key covers
 //     a retried request. Types are matched by their normalized name and never created.
+//   * LBL-2 (D-lbl2-1, supersedes D-opn1-1's "sheet order"): a line gets its piece code and barcode when it is added
+//     (core/numbering.ts, unchanged: one number for a typed line, one consecutive block in file order for an imported
+//     file; a refused file takes none), so its label can be printed before the seal. Codes follow the order of entry;
+//     a removed line's number is never used again.
 //   * Sealing (D-opn1-5): the password in the request and a fresh passkey, always (no passkey → 403 PASSKEY_REQUIRED);
-//     refused on a FIXED_TAG installation (D-opn1-4). In one transaction every line becomes a piece: the next system code
-//     and barcode in the sheet's order (D-opn1-1), origin OPENING, cost UNKNOWN (NULL, never 0), price from the
+//     refused on a FIXED_TAG installation (D-opn1-4). In one transaction every line becomes a piece with exactly the
+//     code and barcode reserved on the line (LBL-2), origin OPENING, cost UNKNOWN (NULL, never 0), price from the
 //     new-piece rate, an ADJUSTMENT +1 movement with a NULL cost value; no cash, no ledger entry. Then nothing changes:
 //     the service answers 409 OPENING_SEALED and the triggers of migration 0026 refuse it in the database too.
 //   * OPN-3 (D-opn3-*): the draft also holds broken scrap (weight per karat, ./scrap.ts); the seal posts it into the
@@ -22,14 +26,14 @@
 //     checks (computed prices, rates) apply only when there are pieces.
 
 import { createHash } from 'node:crypto';
-import { and, asc, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { t, type Executor } from '@jerp/database';
 import { ap, CsvSyntaxError, normalizeName, normalizeDigits, parseIntegerInput, parseWeightInput, readCsv, writeCsv, type GoldRateKind } from '@jerp/shared';
 import type { Actor, Ctx } from '../../core/context';
 import { isGlobal, requirePerm } from '../../authz';
 import { writeAudit } from '../../core/audit';
 import { AppError, badRequest, notFound } from '../../core/errors';
-import { nextItemCodes } from '../../core/numbering';
+import { nextItemCode, nextItemCodes } from '../../core/numbering';
 import { allowedKarats } from '../../core/karats';
 import type { TxIdempotency } from '../../core/idempotency';
 import { maxIdOf, runPaged, type PageRequest, type SortSpec } from '../../core/paging';
@@ -101,7 +105,7 @@ async function lockOpening(tx: Executor, id: number) {
   const [b] = await tx.select({ id: t.branches.id, code: t.branches.code, name: t.branches.name, nameAr: t.branches.nameAr }).from(t.branches).where(eq(t.branches.id, o.branchId));
   return { opening: o, branch: b };
 }
-async function lockDraft(tx: Executor, id: number, actor?: Actor) {
+export async function lockDraft(tx: Executor, id: number, actor?: Actor) {
   const r = await lockOpening(tx, id);
   // D-opn4-2: under the lock too (the branch of an opening never changes; this keeps the rule next to the write).
   if (actor && !canSeeOpening(actor, r.opening.branchId)) throw notFound('Opening');
@@ -113,7 +117,7 @@ async function lockDraft(tx: Executor, id: number, actor?: Actor) {
 const canSeeOpening = (actor: Actor, branchId: number) => isGlobal(actor) || (actor.branchId != null && actor.branchId === branchId);
 
 /** D-opn4-2: the opening exists and the actor may see it, else 404 "Opening not found" (another branch's is not revealed). */
-async function assertSeesOpening(exec: Executor, actor: Actor, id: number) {
+export async function assertSeesOpening(exec: Executor, actor: Actor, id: number) {
   const [o] = await exec.select({ branchId: t.openings.branchId }).from(t.openings).where(eq(t.openings.id, id));
   if (!o || !canSeeOpening(actor, o.branchId)) throw notFound('Opening');
 }
@@ -231,6 +235,37 @@ async function nowOf(exec: Executor, openingId: number) {
   return { total, byKaratCondition, voided: counts.voided, sold: counts.sold };
 }
 
+/** LBL-2 (owner Q5): how many lines have a label printed before the seal (the seal is not refused for the others). */
+async function labelSummaryOf(exec: Executor, openingId: number) {
+  const [r] = await exec
+    .select({
+      lines: sql<number>`count(*)`.mapWith(Number),
+      printed: sql<number>`count(*) FILTER (WHERE EXISTS (SELECT 1 FROM opening_label_prints olp WHERE olp.opening_line_id = opening_lines.id))`.mapWith(Number),
+    })
+    .from(t.openingLines)
+    .where(eq(t.openingLines.openingId, openingId));
+  return { lines: r.lines, printed: r.printed };
+}
+
+/**
+ * LBL-2 (D-lbl2-2, owner Q2): the codes of the lines removed from the draft (each removal is audited with the code it
+ * held), in code order, with who removed it, when, and whether its label had been printed. Lines removed before LBL-2
+ * had no code and are not listed.
+ */
+async function removedCodesOf(exec: Executor, openingId: number) {
+  const rows = await exec
+    .select({ metadata: t.auditLogs.metadata, at: t.auditLogs.at, byName: t.users.fullName, byNameAr: t.users.fullNameAr })
+    .from(t.auditLogs)
+    .leftJoin(t.users, eq(t.users.id, t.auditLogs.userId))
+    .where(and(eq(t.auditLogs.action, 'OPENING_LINE_REMOVED'), eq(t.auditLogs.entityType, 'opening'), eq(t.auditLogs.entityId, String(openingId))))
+    .orderBy(asc(t.auditLogs.id));
+  const removed = rows
+    .map((r) => ({ line: (r.metadata as { line?: { lineNo?: number; code?: string | null; labelPrints?: number } } | null)?.line, at: r.at, byName: r.byName, byNameAr: r.byNameAr }))
+    .filter((r) => r.line?.code)
+    .map((r) => ({ code: r.line!.code!, lineNo: r.line!.lineNo ?? null, labelPrinted: (r.line!.labelPrints ?? 0) > 0, removedAt: r.at, removedByName: r.byName, removedByNameAr: r.byNameAr }));
+  return removed.sort((a, b) => codeNumber(a.code) - codeNumber(b.code));
+}
+
 /** `GET /openings`: every active branch with its opening (none, DRAFT or SEALED). */
 export async function listOpenings(ctx: Ctx, actor: Actor) {
   requirePerm(actor, 'opening.enter');
@@ -293,7 +328,7 @@ export async function getOpening(ctx: Ctx, actor: Actor, id: number, q: PageRequ
   if (q.categoryId != null) where.push(eq(t.openingLines.categoryId, q.categoryId));
   if (q.q?.trim()) {
     const like = `%${q.q.trim()}%`;
-    where.push(or(ilike(t.openingLines.description, like), ilike(t.categories.nameAr, like), ilike(t.categories.name, like), ilike(t.jewelryItems.code, like))!);
+    where.push(or(ilike(t.openingLines.description, like), ilike(t.categories.nameAr, like), ilike(t.categories.name, like), ilike(t.jewelryItems.code, like), ilike(t.openingLines.reservedCode, like))!);
   }
   const base = () =>
     ctx.db
@@ -310,10 +345,14 @@ export async function getOpening(ctx: Ctx, actor: Actor, id: number, q: PageRequ
         source: t.openingLines.source,
         condition: t.openingLines.condition,
         itemId: t.openingLines.itemId,
-        code: t.jewelryItems.code,
-        barcode: t.jewelryItems.barcode,
+        // LBL-2: a draft line shows the code reserved for its piece; a sealed line its piece's (the same, since LBL-2).
+        code: sql<string | null>`coalesce(${t.jewelryItems.code}, ${t.openingLines.reservedCode})`,
+        barcode: sql<string | null>`coalesce(${t.jewelryItems.barcode}, ${t.openingLines.reservedBarcode})`,
         // OPN-FIX: the piece's status now (a voided or sold piece shows so).
         itemStatus: t.jewelryItems.status,
+        // LBL-2 (D-lbl2-3): the labels printed for the line before the seal: how many prints, the last one when.
+        labelPrints: sql<number>`(select count(*) from opening_label_prints olp where olp.opening_line_id = opening_lines.id)`.mapWith(Number),
+        lastPrintedAt: sql<string | null>`(select max(olp.created_at) from opening_label_prints olp where olp.opening_line_id = opening_lines.id)`,
         // OPN-4 (D-opn4-3): who entered the line, and when (the source above says how: typed or imported).
         enteredByName: t.users.fullName,
         enteredByNameAr: t.users.fullNameAr,
@@ -352,7 +391,9 @@ export async function getOpening(ctx: Ctx, actor: Actor, id: number, q: PageRequ
     status: opening.status,
     createdAt: opening.createdAt,
     sealedAt: opening.sealedAt,
-    summary: { ...(await summaryOf(ctx.db, id)), scrap: await scrapSummaryOf(ctx.db, id) },
+    summary: { ...(await summaryOf(ctx.db, id)), scrap: await scrapSummaryOf(ctx.db, id), labels: await labelSummaryOf(ctx.db, id) },
+    // LBL-2 (D-lbl2-2, owner Q2): the codes of the removed lines (gaps in the numbering), so a reviewer can explain them.
+    removedCodes: await removedCodesOf(ctx.db, id),
     // OPN-3: the broken scrap lines (a few per branch: all of them), and once sealed its corrections and its value now.
     scrapLines: await scrapLinesOf(ctx.db, id),
     scrapCorrections: opening.status === 'SEALED' ? await scrapCorrectionsOf(ctx.db, id) : [],
@@ -390,9 +431,12 @@ export async function addOpeningLine(ctx: Ctx, actor: Actor, id: number, input: 
     const { branch } = await lockDraft(tx, id, actor);
     const { description } = await checkLine(ctx, tx, input);
     const lineNo = await nextLineNo(tx, id);
+    // LBL-2 (D-lbl2-1): the piece's code now, in the order of entry (the counter row lock serializes it with every other
+    // piece being numbered; a refused line rolls the number back with its transaction).
+    const reserved = await nextItemCode(tx);
     const [line] = await tx
       .insert(t.openingLines)
-      .values({ openingId: id, lineNo, categoryId: input.categoryId, description, karat: input.karat, condition: input.condition, grossWeightMg: input.grossWeightMg, netWeightMg: input.netWeightMg, source: 'KEYBOARD', createdBy: actor.userId })
+      .values({ openingId: id, lineNo, categoryId: input.categoryId, description, karat: input.karat, condition: input.condition, grossWeightMg: input.grossWeightMg, netWeightMg: input.netWeightMg, source: 'KEYBOARD', reservedCode: reserved.code, reservedBarcode: reserved.barcode, createdBy: actor.userId })
       .returning();
     await writeAudit(tx, actor, {
       action: 'OPENING_LINE_ADDED',
@@ -401,15 +445,16 @@ export async function addOpeningLine(ctx: Ctx, actor: Actor, id: number, input: 
       branchId: branch.id,
       key: 'Opening of {branch}: line {line} added, {karat} {weight}',
       params: { branch: branch.code, line: lineNo, karat: ap.karat(input.karat), weight: ap.mg(input.netWeightMg) },
+      metadata: { code: reserved.code, barcode: reserved.barcode },
     });
-    const result = { id: line.id, lineNo, openingId: id };
+    const result = { id: line.id, lineNo, openingId: id, code: reserved.code, barcode: reserved.barcode };
     await opts.idem?.complete(tx, result);
     return result;
   });
 }
 
 /** `POST /openings/:id/lines/:lineId/remove`: a draft line out (draft only; audited with what it held). */
-export async function removeOpeningLine(ctx: Ctx, actor: Actor, id: number, lineId: number, opts: { idem?: TxIdempotency } = {}) {
+export async function removeOpeningLine(ctx: Ctx, actor: Actor, id: number, lineId: number, input: { confirmLabelPrinted?: boolean } = {}, opts: { idem?: TxIdempotency } = {}) {
   requirePerm(actor, 'opening.enter');
   await assertSeesOpening(ctx.db, actor, id);
   return ctx.db.transaction(async (tx) => {
@@ -418,6 +463,13 @@ export async function removeOpeningLine(ctx: Ctx, actor: Actor, id: number, line
     const { branch } = await lockDraft(tx, id, actor);
     const [line] = await tx.select().from(t.openingLines).where(and(eq(t.openingLines.id, lineId), eq(t.openingLines.openingId, id)));
     if (!line) throw notFound('Opening line');
+    // LBL-2 (D-lbl2-4, owner Q1): a line whose label was printed is removed only after an explicit confirmation (the
+    // label must come off the piece: its code is never used again). The branch manager of the branch and the General
+    // Manager may (opening.enter); the removal is audited with the prints.
+    const [{ n: labelPrints }] = await tx.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(t.openingLabelPrints).where(eq(t.openingLabelPrints.openingLineId, line.id));
+    if (labelPrints > 0 && !input.confirmLabelPrinted) {
+      throw new AppError(409, 'OPENING_LINE_LABEL_PRINTED', "This piece's label was printed (code {code}). If you remove the line, this code is never used again. Take the label off the piece and destroy it.", { code: line.reservedCode ?? '' }, { code: line.reservedCode, labelPrints });
+    }
     await tx.delete(t.openingLines).where(eq(t.openingLines.id, lineId));
     await writeAudit(tx, actor, {
       action: 'OPENING_LINE_REMOVED',
@@ -426,9 +478,10 @@ export async function removeOpeningLine(ctx: Ctx, actor: Actor, id: number, line
       branchId: branch.id,
       key: 'Opening of {branch}: line {line} removed, {karat} {weight}',
       params: { branch: branch.code, line: line.lineNo, karat: ap.karat(line.karat), weight: ap.mg(line.netWeightMg) },
-      metadata: { line: { lineNo: line.lineNo, categoryId: line.categoryId, description: line.description, karat: line.karat, grossWeightMg: line.grossWeightMg, netWeightMg: line.netWeightMg, source: line.source } },
+      // LBL-2 (D-lbl2-2): the reserved code goes with the line and is never used again (the seal lists it as a gap).
+      metadata: { line: { lineNo: line.lineNo, categoryId: line.categoryId, description: line.description, karat: line.karat, grossWeightMg: line.grossWeightMg, netWeightMg: line.netWeightMg, source: line.source, code: line.reservedCode, barcode: line.reservedBarcode, labelPrints }, confirmedLabelPrinted: labelPrints > 0 },
     });
-    const result = { ok: true as const, removedLineNo: line.lineNo };
+    const result = { ok: true as const, removedLineNo: line.lineNo, removedCode: line.reservedCode };
     await opts.idem?.complete(tx, result);
     return result;
   });
@@ -532,7 +585,7 @@ export async function importOpeningCsv(ctx: Ctx, actor: Actor, id: number, input
     const [same] = await tx.select().from(t.openingImports).where(and(eq(t.openingImports.openingId, id), eq(t.openingImports.sha256, sha256)));
     if (same) {
       // The same file again: the first import's result, nothing written.
-      const result = { importId: same.id, duplicate: true, rowCount: same.rowCount, fileName: same.fileName, summary: await summaryOf(tx, id) };
+      const result = { importId: same.id, duplicate: true, rowCount: same.rowCount, fileName: same.fileName, firstCode: null, lastCode: null, summary: await summaryOf(tx, id) };
       await opts.idem?.complete(tx, result);
       return result;
     }
@@ -542,6 +595,8 @@ export async function importOpeningCsv(ctx: Ctx, actor: Actor, id: number, input
     }
     const [imp] = await tx.insert(t.openingImports).values({ openingId: id, fileName, sha256, rowCount: lines.length, createdBy: actor.userId }).returning();
     const first = await nextLineNo(tx, id);
+    // LBL-2 (D-lbl2-1): one consecutive block of codes for the whole file, in its order (a refused file never gets here).
+    const codes = await nextItemCodes(tx, lines.length);
     for (let i = 0; i < lines.length; i += CHUNK) {
       await tx.insert(t.openingLines).values(
         lines.slice(i, i + CHUNK).map((l, j) => ({
@@ -555,6 +610,8 @@ export async function importOpeningCsv(ctx: Ctx, actor: Actor, id: number, input
           netWeightMg: l.netWeightMg,
           source: 'IMPORT',
           importId: imp.id,
+          reservedCode: codes[i + j].code,
+          reservedBarcode: codes[i + j].barcode,
           createdBy: actor.userId,
         })),
       );
@@ -567,9 +624,9 @@ export async function importOpeningCsv(ctx: Ctx, actor: Actor, id: number, input
       branchId: branch.id,
       key: 'Opening of {branch}: file {file} imported, {n} piece(s), {weight}',
       params: { branch: branch.code, file: fileName, n: lines.length, weight: ap.mg(netWeightMg) },
-      metadata: { importId: imp.id, fileName, sha256, rowCount: lines.length, netWeightMg },
+      metadata: { importId: imp.id, fileName, sha256, rowCount: lines.length, netWeightMg, firstCode: codes[0]?.code ?? null, lastCode: codes.at(-1)?.code ?? null },
     });
-    const result = { importId: imp.id, duplicate: false, rowCount: lines.length, fileName, summary: await summaryOf(tx, id) };
+    const result = { importId: imp.id, duplicate: false, rowCount: lines.length, fileName, firstCode: codes[0]?.code ?? null, lastCode: codes.at(-1)?.code ?? null, summary: await summaryOf(tx, id) };
     await opts.idem?.complete(tx, result);
     return result;
   });
@@ -652,6 +709,66 @@ function assertReviewed(input: { expectedLines?: number; expectedNetWeightMg?: n
   }
 }
 
+/**
+ * LBL-2 (D-lbl2-3): copies the labels printed before the seal into `label_prints`, for the pieces the seal just made
+ * (matched by their code), in print order: the first print of a piece stays FIRST, the others REPRINT (the LBL-1
+ * trigger checks it, and that each row names a draft print of the piece's code). Returns how many prints were copied.
+ */
+async function copyDraftPrints(tx: Executor, openingId: number, branchId: number) {
+  const drafts = await tx
+    .select({ print: t.openingLabelPrints, itemId: t.openingLines.itemId })
+    .from(t.openingLabelPrints)
+    .innerJoin(t.openingLines, and(eq(t.openingLines.id, t.openingLabelPrints.openingLineId), eq(t.openingLines.reservedCode, t.openingLabelPrints.code)))
+    .where(eq(t.openingLabelPrints.openingId, openingId))
+    .orderBy(asc(t.openingLabelPrints.id));
+  for (let i = 0; i < drafts.length; i += CHUNK) {
+    await tx.insert(t.labelPrints).values(
+      drafts.slice(i, i + CHUNK).map(({ print: d, itemId }) => ({
+        itemId: itemId!,
+        branchId,
+        copies: d.copies,
+        kind: d.kind,
+        source: 'OPENING',
+        batchId: d.batchId,
+        printedBy: d.printedBy,
+        sessionId: d.sessionId,
+        idempotencyKey: d.idempotencyKey,
+        draftPrintId: d.id,
+        createdAt: d.createdAt,
+      })),
+    );
+  }
+  return drafts.length;
+}
+
+/** The number of a piece code `J-n` (codes compare by it, not as text). */
+const codeNumber = (code: string) => Number(code.slice(code.indexOf('-') + 1));
+
+/**
+ * LBL-2 (D-lbl2-1): the codes the seal gives, one per line in the lines' order: exactly the code and barcode reserved on
+ * each line. Every line must have one (0043 gave them to the drafts of the update; 409 OPENING_CODES_MISSING otherwise)
+ * and none may be a piece's already (409 OPENING_CODE_TAKEN; the counter makes it impossible, the unique index enforces it).
+ */
+async function reservedCodesOf(tx: Executor, lines: (typeof t.openingLines.$inferSelect)[]) {
+  const missing = lines.filter((l) => !l.reservedCode || !l.reservedBarcode);
+  if (missing.length) {
+    throw new AppError(409, 'OPENING_CODES_MISSING', '{n} line(s) of the opening have no piece code: nothing was sealed', { n: missing.length }, { lineNos: missing.slice(0, 50).map((l) => l.lineNo) });
+  }
+  const taken: string[] = [];
+  for (let i = 0; i < lines.length; i += CHUNK) {
+    const part = lines.slice(i, i + CHUNK);
+    const rows = await tx
+      .select({ code: t.jewelryItems.code })
+      .from(t.jewelryItems)
+      .where(or(inArray(t.jewelryItems.code, part.map((l) => l.reservedCode!)), inArray(t.jewelryItems.barcode, part.map((l) => l.reservedBarcode!))));
+    taken.push(...rows.map((r) => r.code));
+  }
+  if (taken.length) {
+    throw new AppError(409, 'OPENING_CODE_TAKEN', 'The code {code} is already a piece: nothing was sealed', { code: taken.sort()[0] }, { codes: taken.sort().slice(0, 50) });
+  }
+  return lines.map((l) => ({ code: l.reservedCode!, barcode: l.reservedBarcode! }));
+}
+
 export async function sealOpening(ctx: Ctx, actor: Actor, id: number, input: { confirmPassword?: string; expectedLines?: number; expectedNetWeightMg?: number }, opts: { at?: Date; idem?: TxIdempotency } = {}) {
   requirePerm(actor, 'opening.manage');
   const settings = await ctx.settings.get();
@@ -676,12 +793,8 @@ export async function sealOpening(ctx: Ctx, actor: Actor, id: number, input: { c
   return ctx.db.transaction(async (tx) => {
     await opts.idem?.claim(tx);
     const { opening, branch } = await lockDraft(tx, id);
-    // The sheet's order (imports in the order they came), then the keyboard lines in entry order (D-opn1-1).
-    const lines = await tx
-      .select()
-      .from(t.openingLines)
-      .where(eq(t.openingLines.openingId, id))
-      .orderBy(sql`${t.openingLines.importId} IS NULL`, asc(t.openingLines.importId), asc(t.openingLines.lineNo));
+    // LBL-2 (D-lbl2-1): the pieces are made in line order, each with the code reserved on its line.
+    const lines = await tx.select().from(t.openingLines).where(eq(t.openingLines.openingId, id)).orderBy(asc(t.openingLines.lineNo));
     if (!lines.length && !(await scrapLineCount(tx, id))) throw new AppError(422, 'OPENING_EMPTY', 'The opening has no pieces and no broken scrap: enter them first');
     // D-opn4-4, under the lock: a line typed by someone else after the review is never sealed unseen.
     assertReviewed(input, { lines: lines.length, netWeightMg: lines.reduce((sum, l) => sum + l.netWeightMg, 0) });
@@ -712,7 +825,7 @@ export async function sealOpening(ctx: Ctx, actor: Actor, id: number, input: { c
         { missing },
       );
     }
-    const codes = lines.length ? await nextItemCodes(tx, lines.length) : [];
+    const codes = await reservedCodesOf(tx, lines);
     const ref = { refType: 'opening', refId: opening.id, refNumber: `OPN-${branch.code}` };
     const note = 'Opening balance';
     for (let i = 0; i < lines.length; i += CHUNK) {
@@ -756,12 +869,17 @@ export async function sealOpening(ctx: Ctx, actor: Actor, id: number, input: { c
         FROM (VALUES ${sql.join(made.map(({ line, item }) => sql`(${line.id}::int, ${item.id}::int)`), sql`, `)}) AS v(id, item_id)
         WHERE ol.id = v.id`);
     }
+    // LBL-2 (D-lbl2-3): every label printed before the seal goes to its piece's history, in order, with its date and
+    // person (label_prints, draft_print_id); prints of removed lines stay in opening_label_prints only.
+    const labelsCopied = await copyDraftPrints(tx, id, branch.id);
     // OPN-3: the broken scrap into the branch's pool (one OPENING movement per line), before the opening is SEALED.
     const scrap = await postOpeningScrap(tx, actor, opening, branch.code, at, opts.idem?.key);
     await tx.update(t.openings).set({ status: 'SEALED', sealedBy: actor.userId, sealedAt: at, sessionId: actor.sessionId ?? null }).where(eq(t.openings.id, id));
     const { byKarat, total } = await summaryOf(tx, id);
-    const firstCode = codes[0]?.code ?? null;
-    const lastCode = codes[codes.length - 1]?.code ?? null;
+    // The lowest and the highest code (codes follow entry order; a removed line leaves a gap, D-lbl2-2).
+    const byNumber = [...codes].sort((a, b) => codeNumber(a.code) - codeNumber(b.code));
+    const firstCode = byNumber[0]?.code ?? null;
+    const lastCode = byNumber.at(-1)?.code ?? null;
     const scrapWeight = ap.list(scrap.byKarat.map((k) => ap.phrase('{weight} {karat}', { weight: ap.mg(k.weightMg), karat: ap.karat(k.karat) })));
     await writeAudit(tx, actor, {
       action: 'OPENING_SEALED',
@@ -775,9 +893,9 @@ export async function sealOpening(ctx: Ctx, actor: Actor, id: number, input: { c
           ? 'Opening of {branch} sealed: {n} piece(s), {weight}, codes {first} to {last}; broken scrap {scrap}'
           : 'Opening of {branch} sealed: no pieces; broken scrap {scrap}',
       params: { branch: ap.text(branch.name, branch.nameAr), n: total.count, weight: ap.mg(total.netWeightMg), first: firstCode ?? '', last: lastCode ?? '', ...(scrap.lines ? { scrap: scrapWeight } : {}) },
-      metadata: { pieces: total.count, netWeightMg: total.netWeightMg, byKarat, firstCode, lastCode, scrap, passkeyUv: f.passkeyUv },
+      metadata: { pieces: total.count, netWeightMg: total.netWeightMg, byKarat, firstCode, lastCode, scrap, passkeyUv: f.passkeyUv, labelsCopied },
     });
-    const result = { id, status: 'SEALED' as const, pieces: total.count, netWeightMg: total.netWeightMg, byKarat, firstCode, lastCode, scrap, sealedAt: at };
+    const result = { id, status: 'SEALED' as const, pieces: total.count, netWeightMg: total.netWeightMg, byKarat, firstCode, lastCode, scrap, sealedAt: at, labelsCopied };
     await opts.idem?.complete(tx, result);
     return result;
   });

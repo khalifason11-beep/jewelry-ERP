@@ -57,7 +57,8 @@ describe('migrations 0029 and 0030 (OPN-2) on a database at 0028 with data', () 
       expect(Number((await one(h, `SELECT count(*) AS n FROM opening_lines WHERE condition IS NOT NULL`)).n)).toBe(0);
       // The sealed opening is still closed; a new line in the (empty) draft needs a condition with a known value.
       expect(await refused(h, `UPDATE opening_lines SET condition = 'USED'`)).toBe(true);
-      const line = (n: number, condition: string) => `INSERT INTO opening_lines (opening_id, line_no, category_id, karat, gross_weight_mg, net_weight_mg, condition, source, created_by) VALUES (${draft}, ${n}, ${cat}, 21, 1000, 1000, ${condition}, 'KEYBOARD', ${gm})`;
+      // LBL-2 (migration 0044): a draft line also carries its piece code, so the lines below have one; only the condition varies.
+      const line = (n: number, condition: string) => `INSERT INTO opening_lines (opening_id, line_no, category_id, karat, gross_weight_mg, net_weight_mg, condition, source, created_by, reserved_code, reserved_barcode) VALUES (${draft}, ${n}, ${cat}, 21, 1000, 1000, ${condition}, 'KEYBOARD', ${gm}, 'J-9${n}', '6281000009${n}')`;
       expect(await refused(h, line(1, 'NULL'))).toBe(true);
       expect(await refused(h, line(1, `'OLD'`))).toBe(true);
       expect(await refused(h, line(1, `'USED'`))).toBe(false);

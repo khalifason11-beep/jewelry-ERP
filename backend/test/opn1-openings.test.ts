@@ -7,7 +7,7 @@
 //     rows, 1 MB), the template (an empty file → 422);
 //   * the review (summary by karat and by type, paged and searchable lines) and the CSV export (the draft re-imports);
 //   * sealing: refused on FIXED_TAG, without the password, for a General Manager without a passkey, without a fresh
-//     passkey, for an empty draft; then every line is a piece (codes in the sheet's order, origin OPENING, cost NULL,
+//     passkey, for an empty draft; then every line is a piece (the code reserved on its line, LBL-2; origin OPENING, cost NULL,
 //     no tag price, ADJUSTMENT +1 at a NULL cost, no ledger entry), the stock weight grows by the sheet's totals, the
 //     export lists the codes, an opening piece sells at the new-piece rate, and nothing can be added any more (409, and
 //     the database triggers refuse it).
@@ -257,10 +257,17 @@ describe('sealing', () => {
     expect((await gmHttp.post('/api/auth/reauth').send({ password: PW })).status).toBe(200);
   });
 
-  it('sealed: codes in the sheet order, cost unknown, no tag price, ADJUSTMENT +1 at NULL cost, no ledger entry; the stock weight grows by the sheet; then closed for good', async () => {
+  it('sealed: each piece has the code reserved on its line (entry order, D-lbl2-1), cost unknown, no tag price, ADJUSTMENT +1 at NULL cost, no ledger entry; the stock weight grows by the sheet; then closed for good', async () => {
     await passkey({ registered: true, confirmedAt: new Date() });
     const kb = await addOpeningLine(ctx, gm, bhr, { categoryId: typeA.id, description: 'typed', karat: k1, condition: 'NEW', grossWeightMg: 3_000, netWeightMg: 3_000 });
     const { summary } = await getOpening(ctx, gm, bhr);
+    // LBL-2 (supersedes D-opn1-1's sheet order): the codes the draft lines hold before the seal, in entry order.
+    const reserved = await ctx.db
+      .select({ id: t.openingLines.id, lineNo: t.openingLines.lineNo, code: t.openingLines.reservedCode, barcode: t.openingLines.reservedBarcode })
+      .from(t.openingLines)
+      .where(eq(t.openingLines.openingId, bhr))
+      .orderBy(asc(t.openingLines.lineNo));
+    expect(reserved.find((r) => r.lineNo === kb.lineNo)?.code).toBe(kb.code);
     const weightBefore = (await stockWeight(ctx.db, branch.BHR)).byBranch.get(branch.BHR)!.items.weightMg;
     const ledgerBefore = Number((await ctx.db.select({ n: sql<number>`count(*)` }).from(t.ledgerEntries))[0].n);
     const res = await seal(bhr);
@@ -268,18 +275,21 @@ describe('sealing', () => {
     expect(res.body).toMatchObject({ status: 'SEALED', pieces: summary.total.count, netWeightMg: summary.total.netWeightMg });
 
     const lines = await ctx.db
-      .select({ lineNo: t.openingLines.lineNo, importId: t.openingLines.importId, item: t.jewelryItems })
+      .select({ id: t.openingLines.id, lineNo: t.openingLines.lineNo, importId: t.openingLines.importId, item: t.jewelryItems })
       .from(t.openingLines)
       .innerJoin(t.jewelryItems, eq(t.jewelryItems.id, t.openingLines.itemId))
       .where(eq(t.openingLines.openingId, bhr))
-      .orderBy(asc(t.jewelryItems.id));
+      .orderBy(asc(t.openingLines.lineNo));
     expect(lines.length).toBe(summary.total.count);
-    // The sheet's order first, the typed line last; consecutive codes.
-    expect(lines.at(-1)?.lineNo).toBe(kb.lineNo);
-    expect(lines.slice(0, -1).map((l) => l.lineNo)).toEqual([...lines.slice(0, -1).map((l) => l.lineNo)].sort((a, b) => a - b));
+    // Every piece carries exactly the code and barcode its line held before the seal; the codes rise with the order of
+    // entry (the sheet's rows first, the typed line, entered last, has the highest).
+    expect(lines.map((l) => [l.id, l.item.code, l.item.barcode])).toEqual(reserved.map((r) => [r.id, r.code, r.barcode]));
     const nums = lines.map((l) => Number(l.item.code.slice(2)));
-    expect(nums).toEqual(nums.map((_, i) => nums[0] + i));
-    expect(res.body.firstCode).toBe(lines[0].item.code);
+    expect(nums).toEqual([...nums].sort((a, b) => a - b));
+    expect(new Set(nums).size).toBe(nums.length);
+    expect(lines.at(-1)?.item.code).toBe(kb.code);
+    expect(res.body.firstCode).toBe(`J-${Math.min(...nums)}`);
+    expect(res.body.lastCode).toBe(`J-${Math.max(...nums)}`);
     for (const { item } of lines) {
       expect([item.origin, item.acquisitionCost, item.sellingPrice, item.status, item.branchId, item.productId]).toEqual(['OPENING', null, 0, 'AVAILABLE', branch.BHR, null]);
       expect(item.barcode).toBe(`628100${item.code.slice(2).padStart(6, '0')}`);

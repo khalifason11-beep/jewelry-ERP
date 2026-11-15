@@ -28,7 +28,7 @@ import { PieceKindFields, descriptionTooLong, emptyKind, type PieceKindValue } f
 import { confirmWithPasskey, openWindowWith } from '../../lib/reauth';
 import { OpeningCorrectionsCard, type OpeningCorrectionRow } from '../inventory/OpeningCorrection';
 import { piecesPure24, scrapLine, ScrapDraftCard, ScrapSealedCard, type ScrapCorrection, type ScrapLine, type ScrapTotals } from './OpeningScrap';
-import { PrintLabelsButton } from '../inventory/PieceLabels';
+import { DraftLineLabel, PrintLabelsButton } from '../inventory/PieceLabels';
 
 type Condition = 'NEW' | 'USED';
 interface OpeningRow {
@@ -48,6 +48,17 @@ interface Summary {
   scrap: ScrapTotals;
   /** OPN-4 (D-opn4-3): who entered what: pieces and net weight per person. */
   byUser: { userId: number; name: string; nameAr: string | null; count: number; netWeightMg: number }[];
+  /** LBL-2 (owner Q5): how many lines have a label printed before the seal. */
+  labels: { lines: number; printed: number };
+}
+/** LBL-2 (D-lbl2-2, owner Q2): a removed line's code, never used again (a gap in the numbering). */
+interface RemovedCode {
+  code: string;
+  lineNo: number | null;
+  labelPrinted: boolean;
+  removedAt: string;
+  removedByName: string | null;
+  removedByNameAr: string | null;
 }
 interface Line {
   id: number;
@@ -70,6 +81,9 @@ interface Line {
   barcode: string | null;
   /** OPN-FIX: the piece's status now (sealed openings). */
   itemStatus?: string | null;
+  /** LBL-2: the labels printed for the line before the seal. */
+  labelPrints: number;
+  lastPrintedAt: string | null;
 }
 interface Opening {
   id: number;
@@ -90,6 +104,7 @@ interface Opening {
   scrapLines: ScrapLine[];
   scrapCorrections: ScrapCorrection[];
   scrapNow: ScrapTotals | null;
+  removedCodes: RemovedCode[];
 }
 interface ImportProblem {
   line: number;
@@ -240,6 +255,11 @@ export function OpeningPage() {
           <Alert tone="info">{t('The General Manager reviews and seals the opening balance.')}</Alert>
         </div>
       )}
+      {o.removedCodes.length > 0 && (
+        <div className="mt-4">
+          <RemovedCodesCard rows={o.removedCodes} />
+        </div>
+      )}
       <div className="mt-4" data-testid="opening-lines">
       <Card padded={false}>
         <CardHeader title={t('Lines')} subtitle={t('{n} line(s)', { n: num(o.summary.total.count) })} />
@@ -263,21 +283,19 @@ export function OpeningPage() {
           searchPlaceholder={t('Search type, description or code')}
           columns={[
             { key: 'lineNo', header: '#', render: (r) => <Mono>{r.lineNo}</Mono> },
-            ...(draft
-              ? []
-              : [
-                  {
-                    key: 'code',
-                    header: t('Code'),
-                    // OPN-FIX: a piece that is no longer in stock says so (voided after a correction, sold…).
-                    render: (r: Line) => (
-                      <span className="inline-flex items-center gap-1.5">
-                        <Mono>{r.code ?? '—'}</Mono>
-                        {r.itemStatus && r.itemStatus !== 'AVAILABLE' && <StatusBadge status={r.itemStatus} />}
-                      </span>
-                    ),
-                  },
-                ]),
+            {
+              key: 'code',
+              header: t('Code'),
+              value: (r: Line) => r.code ?? '',
+              // LBL-2 (D-lbl2-1): a draft line shows the code given to its piece when it was added (the seal keeps it).
+              // OPN-FIX: a sealed piece that is no longer in stock says so (voided after a correction, sold…).
+              render: (r: Line) => (
+                <span className="inline-flex items-center gap-1.5" data-testid="opening-line-code">
+                  <Mono>{r.code ?? '—'}</Mono>
+                  {r.itemStatus && r.itemStatus !== 'AVAILABLE' && <StatusBadge status={r.itemStatus} />}
+                </span>
+              ),
+            },
             { key: 'type', header: t('Type'), value: (r) => L(r.categoryName, r.categoryNameAr), render: (r) => L(r.categoryName, r.categoryNameAr) },
             { key: 'description', header: t('Description'), value: (r) => r.description ?? '', render: (r) => r.description ?? '—' },
             { key: 'karat', header: t('Karat'), value: (r) => r.karat, render: (r) => karatLabel(r.karat) },
@@ -288,6 +306,8 @@ export function OpeningPage() {
             { key: 'enteredBy', header: t('Entered by'), value: (r) => L(r.enteredByName, r.enteredByNameAr), render: (r) => <span data-testid="opening-line-entered-by">{L(r.enteredByName, r.enteredByNameAr)}</span> },
             { key: 'enteredAt', header: t('Entered at'), value: (r) => r.enteredAt, render: (r) => dateTime(r.enteredAt) },
             { key: 'source', header: t('How'), value: (r) => r.source, render: (r) => (r.source === 'IMPORT' ? t('From the file') : t('Typed')) },
+            // LBL-2 (D-lbl2-3): a draft line's label, before the seal (printed or not; «طباعة الملصق»).
+            ...(draft ? [{ key: 'label', header: t('Label'), sortable: false, value: (r: Line) => r.labelPrints, render: (r: Line) => <DraftLineLabel openingId={o.id} line={r} /> }] : []),
             ...(draft ? [{ key: 'remove', header: '', sortable: false, render: (r: Line) => <RemoveLine openingId={o.id} line={r} /> }] : []),
           ]}
         />
@@ -571,18 +591,50 @@ function RemoveLine({ openingId, line }: { openingId: number; line: Line }) {
   const toast = useToast();
   const qc = useQueryClient();
   const keys = useActionKeys();
+  // LBL-2 (D-lbl2-4, owner Q1): a line whose label was printed is removed only after this confirmation (the server
+  // refuses without it, also when someone printed it a moment ago).
+  const [confirming, setConfirming] = useState(false);
   const m = useMutation({
-    mutationFn: () => postOnce(`/openings/${openingId}/lines/${line.id}/remove`, {}, keys.for(`remove-${line.id}`)),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['opening'] }),
+    mutationFn: (confirmLabelPrinted: boolean) => postOnce(`/openings/${openingId}/lines/${line.id}/remove`, confirmLabelPrinted ? { confirmLabelPrinted: true } : {}, keys.for(`remove-${line.id}`)),
+    onSuccess: () => {
+      keys.rotate(`remove-${line.id}`);
+      setConfirming(false);
+      qc.invalidateQueries({ queryKey: ['opening'] });
+    },
     onError: (e) => {
       keys.rotate(`remove-${line.id}`);
+      if (e instanceof ApiError && e.code === 'OPENING_LINE_LABEL_PRINTED') {
+        setConfirming(true);
+        qc.invalidateQueries({ queryKey: ['opening'] });
+        return;
+      }
       toast.fromError(e);
     },
   });
   return (
+    <>
+    {confirming && (
+      <Dialog
+        open
+        onClose={() => setConfirming(false)}
+        title={t('Remove line {n}', { n: line.lineNo })}
+        footer={
+          <>
+            <Button onClick={() => setConfirming(false)} data-testid="opening-remove-cancel">{t('Cancel')}</Button>
+            <Button variant="danger-solid" icon={<Trash2 className="size-4" />} loading={m.isPending} onClick={() => m.mutate(true)} data-testid="opening-remove-confirm">
+              {t('Remove the line')}
+            </Button>
+          </>
+        }
+      >
+        <div data-testid="opening-remove-warning">
+          <Alert tone="warning">{t("This piece's label was printed (code {code}). If you remove the line, this code is never used again. Take the label off the piece and destroy it.", { code: line.code ?? '' })}</Alert>
+        </div>
+      </Dialog>
+    )}
     <button
       type="button"
-      onClick={() => m.mutate()}
+      onClick={() => (line.labelPrints > 0 ? setConfirming(true) : m.mutate(false))}
       disabled={m.isPending}
       className="flex size-8 items-center justify-center rounded-control text-ink-400 hover:text-rose-600"
       aria-label={t('Remove line {n}', { n: line.lineNo })}
@@ -590,6 +642,39 @@ function RemoveLine({ openingId, line }: { openingId: number; line: Line }) {
     >
       <Trash2 className="size-4" />
     </button>
+    </>
+  );
+}
+
+/** LBL-2 (D-lbl2-2, owner Q2): the codes of the removed lines (never used again), so a reviewer can explain the gaps. */
+function RemovedCodesCard({ rows }: { rows: RemovedCode[] }) {
+  const { t, L } = useI18n();
+  return (
+    <div data-testid="opening-removed-codes">
+      <Card padded={false}>
+        <CardHeader title={t('Codes of removed lines')} subtitle={t('{n} code(s) not used: these numbers are never given again.', { n: rows.length })} />
+        <table className="w-full text-[13px]">
+          <thead className="bg-[#f7f8fa] text-ink-500">
+            <tr>
+              <th className="px-5 py-2 text-start font-medium">{t('Code')}</th>
+              <th className="px-3 py-2 text-start font-medium">{t('Label')}</th>
+              <th className="px-3 py-2 text-start font-medium">{t('Removed by')}</th>
+              <th className="px-5 py-2 text-start font-medium">{t('When')}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {rows.map((r) => (
+              <tr key={r.code} data-testid="opening-removed-code" data-code={r.code} data-printed={r.labelPrinted}>
+                <td className="px-5 py-2"><Mono>{r.code}</Mono></td>
+                <td className="px-3 py-2">{r.labelPrinted ? <Badge tone="warn">{t('Label printed')}</Badge> : <Badge>{t('Not printed')}</Badge>}</td>
+                <td className="px-3 py-2">{r.removedByName ? L(r.removedByName, r.removedByNameAr) : '—'}</td>
+                <td className="px-5 py-2 num">{dateTime(r.removedAt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+    </div>
   );
 }
 
@@ -615,7 +700,8 @@ function SealPanel({ opening }: { opening: Opening }) {
         )}
         <li>{t('Enter the broken scrap too: it goes into the branch scrap stock and can settle suppliers.')}</li>
         <li>{t('Review the draft: the totals above against the paper count, and the lines below (or the CSV export).')}</li>
-        <li>{t('After sealing nothing can be added or changed here; each piece gets its code in the order of the sheet.')}</li>
+        <li>{t('After sealing nothing can be added or changed here; each piece keeps the code shown on its line.')}</li>
+        {pieces && <li data-testid="opening-labels-printed">{t('Labels printed for {n} of {m} pieces.', { n: num(opening.summary.labels.printed), m: num(opening.summary.labels.lines) })}</li>}
       </ul>
       <Button variant="primary" icon={<Lock className="size-4" />} disabled={!pieces && !scrap} onClick={() => setOpen(true)} data-testid="opening-seal">
         {t('Seal the opening balance')}
@@ -684,6 +770,17 @@ function SealDialog({ opening, onClose }: { opening: Opening; onClose: () => voi
         {t('{n} piece(s), {weight} net:', { n: num(opening.summary.total.count), weight: grams(opening.summary.total.netWeightMg) })}{' '}
         {opening.summary.byKaratCondition.map((k) => `${karatCondition(k, t)} ${num(k.count)} / ${grams(k.netWeightMg)}`).join(' · ')}
       </p>
+      {/* LBL-2 (owner Q5, Q2): the labels printed so far (the seal is not refused for the others) and the gaps. */}
+      {opening.summary.total.count > 0 && (
+        <p className="mb-2 text-[13px]" data-testid="opening-seal-labels">
+          {t('Labels printed for {n} of {m} pieces.', { n: num(opening.summary.labels.printed), m: num(opening.summary.labels.lines) })}
+        </p>
+      )}
+      {opening.removedCodes.length > 0 && (
+        <p className="mb-2 text-[13px]" data-testid="opening-seal-gaps">
+          {t('Codes of removed lines (not used): {codes}', { codes: opening.removedCodes.map((r) => r.code).join('، ') })}
+        </p>
+      )}
       <p className="mb-2 text-[13px]" data-testid="opening-seal-scrap">
         {t('Broken scrap: {weight}', { weight: grams(opening.summary.scrap.weightMg) })}
         {opening.summary.scrap.lines > 0 ? ` — ${scrapLine(opening.summary.scrap)}` : ''}
