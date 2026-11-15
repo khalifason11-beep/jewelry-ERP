@@ -184,6 +184,8 @@ export const ROUTE_MATRIX: readonly RouteRule[] = [
   r('GET', '/openings/:id/export', 'branch', { all: ['opening.enter'] }),
   r('POST', '/openings/:id/lines', 'branch', { all: ['opening.enter'], idempotent: true, idempotencyInTx: true }),
   r('POST', '/openings/:id/lines/:lineId/remove', 'branch', { all: ['opening.enter'], idempotent: true, idempotencyInTx: true }),
+  // LBL-2 (D-lbl2-3): a draft line's label before the seal (its reserved code), recorded in opening_label_prints.
+  r('POST', '/openings/:id/lines/:lineId/label', 'branch', { all: ['opening.enter'], idempotent: true, idempotencyInTx: true }),
   r('POST', '/openings/:id/import', 'branch', { all: ['opening.enter'], idempotent: true, idempotencyInTx: true }),
   r('POST', '/openings/:id/seal', 'global', { all: ['opening.manage'], reauth: true, idempotent: true, idempotencyInTx: true }),
   // OPN-FIX (D-opnfix-1…5): correct or void a piece of a sealed opening (reason, password and a fresh passkey); the

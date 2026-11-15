@@ -67,6 +67,7 @@ export function ReportsHubPage() {
   );
 }
 
+const linkComplete = (pattern: string, row: Record<string, unknown>) => [...pattern.matchAll(/:(\w+)/g)].every(([, k]) => row[k] != null && row[k] !== '');
 function fillLink(pattern: string, row: Record<string, unknown>) {
   return pattern.replace(/:(\w+)/g, (_, k) => String(row[k] ?? ''));
 }
@@ -148,7 +149,8 @@ export function ReportPage() {
     align: ['money', 'weight', 'number', 'percent'].includes(c.type) ? 'end' : 'start',
     value: (row) => (c.type === 'audit' ? auditText(row as never) : c.type === 'payments' ? paymentsText(row[c.key]) : (row[c.key] as unknown)),
     render: (row) =>
-      c.type === 'audit' ? auditText(row as never) : c.type === 'payments' ? <span data-testid="report-payments">{paymentsText(row[c.key]) || '—'}</span> : c.link ? (
+      // A link whose parameter is empty (e.g. a label printed before the opening's seal: no piece yet) is plain text.
+      c.type === 'audit' ? auditText(row as never) : c.type === 'payments' ? <span data-testid="report-payments">{paymentsText(row[c.key]) || '—'}</span> : c.link && linkComplete(c.link, row) ? (
         <Link to={fillLink(c.link, row)} onClick={(e) => e.stopPropagation()} className="font-medium text-gold-700 hover:underline">
           {fmt(c.type, row[c.key], row[`${c.key}Ar`])}
         </Link>

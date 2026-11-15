@@ -69,6 +69,24 @@ function assertSees(actor: Actor, branchId: number) {
   if (!isGlobal(actor) && actor.branchId !== branchId) throw notFound('Item');
 }
 
+type PrintSettings = Awaited<ReturnType<Ctx['settings']['get']>>['print'];
+
+/** The General Manager's label size; not set → 409 LABEL_SIZE_NOT_SET (D-lbl1-2). Shared with LBL-2's draft prints. */
+export function labelSizeOf(print: PrintSettings) {
+  if (print.labelWidthMm == null || print.labelHeightMm == null) {
+    throw new AppError(409, 'LABEL_SIZE_NOT_SET', 'Set the label size in Settings first (General Manager)');
+  }
+  return { widthMm: print.labelWidthMm, heightMm: print.labelHeightMm, marginMm: print.labelMarginMm };
+}
+
+/** A barcode that does not fit the size scannably → 409 LABEL_TOO_SMALL with the minimum (shared/src/labels.ts). */
+export function assertLabelFits(size: ReturnType<typeof labelSizeOf>, barcode: string, code: string) {
+  const layout = labelLayout(size, barcode);
+  if (!layout.ok) {
+    throw new AppError(409, 'LABEL_TOO_SMALL', 'This label is too small for a scannable barcode: it needs at least {minWidth} × {minHeight} mm', { minWidth: layout.minWidthMm, minHeight: layout.minHeightMm }, { minWidthMm: layout.minWidthMm, minHeightMm: layout.minHeightMm, code });
+  }
+}
+
 export async function printLabels(ctx: Ctx, actor: Actor, input: PrintLabelsInput, opts: { idem?: TxIdempotency; at?: Date } = {}) {
   requirePerm(actor, 'opening.enter');
   if (!!input.pieces === !!input.document) throw badRequest('Choose the pieces to print');
@@ -95,16 +113,8 @@ export async function printLabels(ctx: Ctx, actor: Actor, input: PrintLabelsInpu
     });
     // Another branch's piece is "not found" before anything else is said about it.
     for (const i of items) assertSees(actor, i.branchId);
-    if (print.labelWidthMm == null || print.labelHeightMm == null) {
-      throw new AppError(409, 'LABEL_SIZE_NOT_SET', 'Set the label size in Settings first (General Manager)');
-    }
-    const size = { widthMm: print.labelWidthMm, heightMm: print.labelHeightMm, marginMm: print.labelMarginMm };
-    for (const i of items) {
-      const layout = labelLayout(size, i.barcode);
-      if (!layout.ok) {
-        throw new AppError(409, 'LABEL_TOO_SMALL', 'This label is too small for a scannable barcode: it needs at least {minWidth} × {minHeight} mm', { minWidth: layout.minWidthMm, minHeight: layout.minHeightMm }, { minWidthMm: layout.minWidthMm, minHeightMm: layout.minHeightMm, code: i.code });
-      }
-    }
+    const size = labelSizeOf(print);
+    for (const i of items) assertLabelFits(size, i.barcode, i.code);
     const printed = new Set((await tx.select({ itemId: t.labelPrints.itemId }).from(t.labelPrints).where(inArray(t.labelPrints.itemId, ids))).map((r) => r.itemId));
     const batchId = randomUUID();
     const byId = new Map(items.map((i) => [i.id, i]));

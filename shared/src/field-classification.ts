@@ -184,6 +184,7 @@ export const SAFE_RESPONSE_FIELDS: ReadonlySet<string> = new Set(
     used pricing roundingStep rateKind priceMissing pricingMode
     scrapLines grains price
     batchId labels widthMm heightMm marginMm copies printedByName printedByNameAr
+    labelPrints lastPrintedAt removedCodes printed labelPrinted removedAt removedByName removedByNameAr removedCode labelsCopied lineId
     sealedAt lineCount importId duplicate fileName byType imports lineNo source pieces firstCode lastCode errors errorCount column
     condition byKaratCondition openingId
     scrap scrapLines scrapCorrections scrapNow scrapWeightMg weightMgChange changes removedLineNo

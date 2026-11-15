@@ -376,6 +376,7 @@ const SAMPLE: Record<string, (f: Fixtures) => Req> = {
   'GET /openings/:id/export': () => ({ path: `/openings/${NONE}/export` }),
   'POST /openings/:id/lines': () => ({ path: `/openings/${NONE}/lines`, body: {} }),
   'POST /openings/:id/lines/:lineId/remove': () => ({ path: `/openings/${NONE}/lines/${NONE}/remove`, body: {} }),
+  'POST /openings/:id/lines/:lineId/label': () => ({ path: `/openings/${NONE}/lines/${NONE}/label`, body: { copies: 1 } }),
   'POST /openings/:id/import': () => ({ path: `/openings/${NONE}/import`, contentType: 'text/csv', body: 'Type,Karat\r\n' }),
   'POST /openings/:id/seal': () => ({ path: `/openings/${NONE}/seal`, body: {} }),
   // OPN-FIX: a missing opening and piece (the guard answers before the service).
@@ -507,6 +508,7 @@ const CROSS: Record<string, (f: Fixtures) => Req> = {
   'GET /openings/:id/export': (f) => ({ path: `/openings/${f.omdOpening}/export` }),
   'POST /openings/:id/lines': (f) => ({ path: `/openings/${f.omdOpening}/lines`, body: { categoryId: 1, karat: 21, condition: 'NEW', grossWeightMg: 1_000, netWeightMg: 1_000 } }),
   'POST /openings/:id/lines/:lineId/remove': (f) => ({ path: `/openings/${f.omdOpening}/lines/${NONE}/remove`, body: {} }),
+  'POST /openings/:id/lines/:lineId/label': (f) => ({ path: `/openings/${f.omdOpening}/lines/${NONE}/label`, body: { copies: 1 } }),
   'POST /openings/:id/import': (f) => ({ path: `/openings/${f.omdOpening}/import`, contentType: 'text/csv', body: 'Type,Karat\r\n' }),
   'GET /money-transfers/:id': () => ({ path: `/money-transfers/${NONE}` }),
   'POST /money-transfers': (f) => ({ path: '/money-transfers', body: { to: { branchId: f.omd }, account: 'CASH', amount: 1, reason: 'x' } }),
